@@ -9772,3 +9772,64 @@ unchanged.
 **Measured.** Lifecycle suite: 122 passed, 5 skipped, including the four new cancel tests and the
 archive test's route-level restart. Unit suite: 5,004 passed. Integration API tests: 4 passed.
 Static gates are green.
+
+## 77. The cost index is fetched by default, and a study asks for its own cost year (2026-11-02)
+
+**Question.** Bryan's decision (2026-11-02) is to switch the public cost index on, and when a
+study's year is not loaded, to go and get it. How does a study choose its year today, what
+happens when the year is missing, and what changes?
+
+**How a study chooses its year and place (unchanged).** Cost segregation prices each asset at
+its cost when the property was placed in service. The cost year is the year of the intake's
+`placed_in_service_date`; without an intake it is the appraisal's effective-date year, and with
+neither it is `COST_YEAR`. The location factor is the RSMeans row for the intake's ZIP or state,
+else the appraisal's subject state. The year factor is the Historical Cost Index of that year over
+the 2020 book's Jan. 1, 2020 base of 239.1 (COST_INDICES.md, sections 45 and 47).
+
+**What happened before.** A study priced with whatever the index store held when its assets step
+ran. Only the refresh job fetched, which is documented for a monthly scheduler that nothing
+configures, and fetching was off by default. A study placed in service after 2020 was therefore
+priced at the 2020 book's index, with every cost row flagged `cost:YEAR_INDEX_MISSING`. That was
+30 % under the purchase price on the live CA 2024 studies (section 45). With the 2024 value
+loaded the gap closed to about 2 % (sections 47 and 49).
+
+**Change.**
+
+* `COST_INDEX_FETCH` defaults to `on` in dev, staging and prod, and to `off` in test
+  (`Settings.cost_index_fetching`, the precedent of `RATE_LIMIT_STORE`), so no test reaches the
+  network. Setting it explicitly wins everywhere.
+* `process_assets` (`_ensure_cost_year`) chooses the year exactly as pricing does
+  (`TakeoffPlan.build` over the store's values). When that year has no published index, it runs
+  the refresh job once before classifying, with no database connection held and bounded by
+  `COST_INDEX_FETCH_TIMEOUT_S`. The run is recorded with `trigger = study`, and `_write` reads the
+  store again, so the study prices with the fetched value. A source that cannot answer leaves the
+  year flagged as before, and the fetch never fails the study. A year in the released book (1970
+  to 2020) or already loaded asks nothing.
+* The live source was checked today, read-only and without the database:
+
+| year | 2021 | 2022 | 2023 | 2024 | 2025 | 2026 |
+|---|---|---|---|---|---|---|
+| RSMeans Historical Cost Index, July (Gordian's public pages) | 257.5 | 297.1 | 293.7 | 294.8 | 300.7 | 314.5 |
+
+All six were read with no failures and none provisional. They match the values recorded in
+section 47.
+
+**Licensing.** Bryan's decision for now (2026-11-02): one unit-cost table serves every firm.
+That table is the one Basis has today, transcribed from the RSMeans 2020 Residential and Building
+books (`COST_TABLE_PATH`, private, never in the repository). The cost index trends it to each
+study's cost year. Firms do not upload tables. Instead, the firm's contract confirms that every
+employee who uses Basis holds their own RSMeans license, and a firm that signs without one bears
+that. This may change as Basis grows. Only the public index is fetched here; the unit-cost table
+is never fetched or bundled.
+
+**Open.**
+
+* A study priced while its year's July value was still provisional keeps that value until it is
+  repriced (`POST .../assets/reprice`). The refresh job replaces provisional values only when it
+  runs, and nothing schedules it yet. The study-time fetch fills missing years, not provisional
+  ones.
+* Location factors after 2020 are not published on the public pages. The 2020 book's location
+  table applies, as before.
+
+**Measured.** `tests/integration/db/test_cost_year_on_demand.py`: 5 passed.
+`tests/unit/costs/test_refresh_cli.py`: 5 passed. The live fetch is shown above.

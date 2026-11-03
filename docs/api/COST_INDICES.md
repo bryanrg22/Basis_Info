@@ -114,7 +114,8 @@ Response:
 ## `GET /v1/cost-indices/runs`
 
 Any member of a firm. The ledger, newest first (`limit`, `source`): one row per attempt to
-obtain values: a refresh run per source (`trigger` `refresh` or `seed`, `actor_type`
+obtain values: a refresh run per source (`trigger` `refresh`, `seed`, or `study` when a
+study whose cost year was missing asked before pricing, EVAL_REPORT 77; `actor_type`
 `system`; `status` `ok` with `years_wanted` and `years_added`, `skipped` with `detail.reason`
 while fetching is off or the source lacks credentials, `failed` with `failures`), a manual
 entry (`manual`, the user), a file import (`import`). It is how a reviewer sees when a value
@@ -231,7 +232,8 @@ Every Decimal is a string exactly as used (`"1.2330"`, not `1.233`); dates are I
 (default; every enabled source, only for what the store lacks), `seed` (the released 2020-book
 tables), `enter` (one value by hand, `--by` who), `import <file>` (a supplement-format JSON),
 `export` (the current Historical Cost Index values in that format, for the offline replays),
-`list`, `runs`. Settings: `COST_INDEX_FETCH` (default `off`: network sources are not asked),
+`list`, `runs`. Settings: `COST_INDEX_FETCH` (default `on`, `off` in `BASIS_ENV=test`: network
+sources are asked, by this job and by a study whose cost year is missing, EVAL_REPORT 77),
 `COST_INDEX_SOURCES` (default `rsmeans_2020_book,rsmeans_public`), `COST_INDEX_FETCH_TIMEOUT_S`,
 `RSMEANS_API_URL` / `RSMEANS_API_KEY` (the subscription; the `rsmeans_api` source is a stub
 without them). Exit 1 when a source failed, 2 on a usage or configuration error.

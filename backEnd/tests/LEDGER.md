@@ -559,3 +559,10 @@ upload slow tests 142 passed.
 | `tests/lifecycle/test_archive_rule.py` | Changed: the API's cancel closes the execution `CANCELED` (reason on the history event); after unarchive, `POST .../restart` answers 202 on revision 2 and the new execution runs | pass |
 | `tests/integration/api/test_start_to_decision.py` | Changed, real API and Temporal dev server: cancel closes `CANCELED`; cancel again is 409 `workflow-closed`; start is 409 `workflow-closed`; **restart is 202 with a new run on revision 2** (fails on main: 409 `study-completed`) | pass |
 | `tests/unit/temporal/test_workflow_service.py` | Changed: `cancel` sends a cancellation request with the reason and no signal; a `COMPLETED` or `CANCELED` execution is refused before any request; unknown is not found; Temporal down is unavailable | pass |
+
+## Cost index on by default, fetched for a study's cost year (2026-11-02; EVAL_REPORT 77)
+
+| Test file | Coverage | Result |
+| --- | --- | --- |
+| `tests/integration/db/test_cost_year_on_demand.py` | `process_assets._ensure_cost_year` on Postgres with the public source scripted through the registry: a missing 2024 year is fetched once (`trigger = study`, run `ok`, rows added) and pricing then uses 294.8 / 239.1 unflagged; the next study finds it loaded and asks nothing; a released-book year (2015) is never fetched; fetching off (test's default) asks nothing and the year stays flagged; a failing source is a `failed` run and the year stays flagged; a refresh that raises is logged at WARNING with the year and pricing goes on | pass |
+| `tests/unit/costs/test_refresh_cli.py` | Changed: `COST_INDEX_FETCH` unset is `off` in test and `on` in dev, staging and prod; set, it wins in every environment | pass |

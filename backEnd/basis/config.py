@@ -411,15 +411,18 @@ class Settings(BaseSettings):
     # The cost index store (COST_INDICES.md sections 9-12; basis.costs). Every study
     # prices with the store's current values (the released 2020 books seeded, the firm's
     # manual entries, fetched values), a cost year nobody has loaded is priced at the
-    # latest loaded index and flagged (cost:YEAR_INDEX_MISSING). COST_INDEX_FETCH off (the default):
-    # the refresh job asks only the offline sources (the released book; an import file);
-    # on: the enabled network fetchers too. COST_INDEX_SOURCES: the fetchers the refresh
+    # latest loaded index and flagged (cost:YEAR_INDEX_MISSING). COST_INDEX_FETCH on (the
+    # default in dev, staging and prod; Bryan's decision 2026-11-02, EVAL_REPORT 77): the
+    # refresh job asks the enabled network fetchers too, and a study whose cost year the
+    # store lacks asks them before it prices (process_assets); off (the default in test, so
+    # no test reaches the network): only the offline sources (the released book; an import
+    # file). COST_INDEX_SOURCES: the fetchers the refresh
     # job asks, in order, and the order a year's value is preferred in when several
     # sources hold it (a manual entry always comes first; a value converted from another
     # series never outranks a published one). Known: rsmeans_2020_book (the released
     # file, offline), rsmeans_public (Gordian's free quarterly pages of the same index:
     # the public source, network), rsmeans_api (a stub without a subscription).
-    cost_index_fetch: Literal["off", "on"] = "off"
+    cost_index_fetch: Literal["off", "on"] | None = None
     cost_index_sources: str = "rsmeans_2020_book,rsmeans_public"
     cost_index_fetch_timeout_s: float = Field(default=30.0, gt=0, le=300)
     # RSMeans Data Online (a subscription): the fetcher is unavailable without both.
@@ -559,6 +562,14 @@ class Settings(BaseSettings):
         if is_reasoning_model(self.vision_fusion_model):
             return VISION_MAX_TOKENS_REASONING
         return VISION_MAX_TOKENS_DEFAULT
+
+    @property
+    def cost_index_fetching(self) -> Literal["off", "on"]:
+        """``COST_INDEX_FETCH`` when set, else ``on`` (dev, staging, prod) and ``off`` in
+        test, so no test reaches the network unless it says so."""
+        if self.cost_index_fetch is not None:
+            return self.cost_index_fetch
+        return "off" if self.env == "test" else "on"
 
     @property
     def rate_limit_backend(self) -> RateLimitStore:

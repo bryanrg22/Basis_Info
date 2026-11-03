@@ -93,6 +93,7 @@ takeoff carries ``concealed``, the label, the system, the formula and the assump
 from __future__ import annotations
 
 import asyncio
+import logging
 import uuid
 from collections import Counter
 from dataclasses import dataclass, field
@@ -104,7 +105,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from temporalio import activity
 
-from basis.activities._model_calls import call_origin, provider_failure
+from basis.activities._model_calls import call_origin, heartbeating, provider_failure
 from basis.activities._support import (
     budget_exceeded,
     heartbeat,
@@ -218,6 +219,8 @@ ACTIVITY: Final = "process_assets"
 # The concealed rows' synthetic component ids (they have no component row): one per label.
 STRUCTURE_NAMESPACE: Final = uuid.UUID("5a1f0d6e-7c3b-4b2e-9c1d-2f6e8a9b0c11")
 
+logger = logging.getLogger(__name__)
+
 # The review reason of a cost row priced on an extrapolated year index (the catalogue's
 # COST_YEAR_INDEX_MISSING), and when it is a value converted from another public series
 # (COST_YEAR_INDEX_CONVERTED).
@@ -275,6 +278,7 @@ class ProcessAssets:
                 prepared = await _prepare(self._deps, session, study_id, input)
         results: dict[uuid.UUID, ClassificationResult] = {}
         if prepared is not None:
+            await _ensure_cost_year(self._deps, prepared)
             try:
                 results = await _classify_all(
                     [*prepared.views.values(), *prepared.structure_views.values()],
@@ -342,6 +346,57 @@ class _Prepared:
     carried_citations: dict[uuid.UUID, list[Citation]] = field(default_factory=dict)
     # The engineer's square-foot model (a ``structure_model`` correction).
     model_override: ModelOverride | None = None
+
+
+async def _ensure_cost_year(deps: Deps, prepared: _Prepared) -> None:
+    """Ask the index sources for the study's cost year when the store lacks it (EVAL_REPORT
+    77), before anything is priced and with no database connection held.
+
+    The year and location are chosen exactly as pricing chooses them (:meth:`TakeoffPlan.build`
+    over the store's values: the intake's placed-in-service year, else the appraisal's
+    effective date, else ``COST_YEAR``). When that year has no published index loaded, the
+    refresh job runs once (``trigger = study``): every enabled source is asked for every year
+    it offers that the store lacks, each attempt a ``cost_index_runs`` row, bounded by
+    ``COST_INDEX_FETCH_TIMEOUT_S``. ``_write`` then reads the store again, so the study prices
+    with the fetched value. A source that cannot answer (offline, no page yet, a parse
+    failure) leaves the year missing: the study prices at the latest loaded index and every
+    row is flagged ``cost:YEAR_INDEX_MISSING``, as before; the fetch never fails the study.
+    Skipped when ``COST_INDEX_FETCH`` is off (the default in test only).
+    """
+    settings = deps.settings
+    if settings.cost_index_fetching == "off" or settings.cost_index != "study":
+        return
+    async with session_scope(deps.sessionmaker) as session:
+        values = await load_index_values(session, settings)
+    plan = TakeoffPlan.build(
+        settings,
+        prepared.measurements,
+        list(prepared.rooms.values()),
+        intake=prepared.intake,
+        values=values,
+    )
+    year = plan.index.year
+    if year is None or not year.extrapolated:
+        return
+    from basis.costs.refresh import refresh
+
+    try:
+        async with heartbeating(f"cost index {plan.index.cost_year}"):
+            reports = await refresh(deps.sessionmaker, settings, trigger="study")
+    except Exception:  # noqa: BLE001 - pricing goes on with the flagged rule
+        logger.warning(
+            "cost index fetch for a study failed; pricing at the latest loaded index",
+            extra={"cost_year": plan.index.cost_year, "error_code": E.COST_INDEX_FETCH_FAILED},
+            exc_info=True,
+        )
+        return
+    logger.info(
+        "cost index fetched for a study's cost year",
+        extra={
+            "cost_year": plan.index.cost_year,
+            "runs": [(r.source, r.status, r.rows_added) for r in reports],
+        },
+    )
 
 
 async def _prepare(

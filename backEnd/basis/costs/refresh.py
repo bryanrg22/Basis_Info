@@ -22,8 +22,9 @@ touches a study: a study prices with whatever the store holds when its assets st
 and a value that arrives later reaches it when the step reruns. Every attempt is one
 ``cost_index_runs`` row (source, years wanted, years added, failures, who), so the ledger
 shows when a value arrived and why one did not. A network fetcher is skipped, with the
-reason recorded, while ``COST_INDEX_FETCH`` is off (the default) or when it lacks its
-credentials. Network fetches happen only here, never inside a request.
+reason recorded, while ``COST_INDEX_FETCH`` is off (the default in test only) or when it lacks its
+credentials. Network fetches happen here and, for a study whose cost year the store
+lacks, in ``process_assets`` before it prices (``trigger = study``); never inside an API request.
 
 Exit status: 0 when every run is ``ok`` or ``skipped``, 1 when one ``failed``, 2 on a
 usage or configuration error. Output: one JSON object per run on stdout.
@@ -190,7 +191,7 @@ async def refresh_source(
     started = _now()
     today = today or started.date()
     reason = fetcher.unavailable(settings)
-    if reason is None and fetcher.network and settings.cost_index_fetch == "off":
+    if reason is None and fetcher.network and settings.cost_index_fetching == "off":
         reason = SKIPPED_FETCH_OFF
     if reason is not None:
         async with session_scope(sessionmaker) as session:
