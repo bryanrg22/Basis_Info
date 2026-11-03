@@ -603,6 +603,12 @@ upload slow tests 142 passed.
 | `tests/unit/test_developer_workflow_content.py` | Added: every part of a step names the systems it runs, and a model there equals the production default (model and effort) of the setting it names in `basis/config.py`, temperature "default (not settable)"; checked to fail when a model is changed | 98 passed |
 | `web/tests/developer-workflow.test.cjs`, `developer-health.test.cjs`, `developer-run-records.test.cjs` | Rewritten for the dialogs without the runtime table: every dialog has "How it works" and "Tests & results", the systems list with logos and exact models (no setting names), escaped text, no feed text in a dialog | 345 passed (all web tests) |
 
+## Systems list cleaned up, page at 67 % (2026-11-03)
+
+| File | What it checks | Result |
+|---|---|---|
+| `web/tests/developer-health.test.cjs` | Added: the Systems list shows the 18 systems with their own check, not the seven step roll-ups, each with a logo (no placeholder; the Basis mark on Basis services) and a description; no "Hosting: Not reported" line; a roll-up that is down still turns its workflow card to Failed. Changed: the first group is "Basis services", and a degraded roll-up is no longer listed under "Needs attention" | pass |
+
 ## Green marks what runs today (2026-11-03; EVAL_REPORT 80.2)
 
 | File | What it checks | Result |
