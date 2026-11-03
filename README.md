@@ -11,7 +11,7 @@
 ## Contents
 
 * [Overview](#overview)
-* [Status (October 2026)](#status-october-2026)
+* [Status (November 2026)](#status-november-2026)
 * [Architecture](#architecture)
 * [Backend packages](#backend-packages)
 * [Workflow lifecycle](#workflow-lifecycle)
@@ -41,7 +41,7 @@ Basis is a platform for residential-focused cost segregation firms. It speeds up
 
 **The problem.** A study has three steps: document the property, analyze the documentation, write the report. Step 2 is the bottleneck. In our interviews it took engineers 2 to 3 weeks and more than $1,200 of labor per study, and missed or inconsistently documented components could leave more than $1,000 of savings on the table.
 
-**What Basis does.** Engineers upload the files they already use. Basis extracts the appraisal fields, identifies rooms and components in the photos, classifies each component for depreciation with citations to the IRS text, and estimates quantities and costs. An engineer reviews and can correct the output at three gates (appraisal, rooms, assets) before anything is exported. Basis is not a one-click study generator.
+**What Basis does.** Engineers upload the files they already use. Basis extracts the appraisal fields, identifies rooms and components in the photos, classifies each component for depreciation with citations to the IRS text, and estimates quantities and costs. An engineer reviews and can correct the output at four gates (appraisal, rooms, components, assets), then reviews and signs the report before the study is complete. Basis is not a one-click study generator.
 
 **Demo video** (recorded on the legacy system):
 
@@ -49,24 +49,22 @@ Basis is a platform for residential-focused cost segregation firms. It speeds up
 
 ---
 
-## Status (October 2026)
+## Status (November 2026)
 
-The backend has been rebuilt against a reviewed plan. [REVIEW_AND_PLAN.md](docs/review_2026-10-15/REVIEW_AND_PLAN.md) records what was verified in the old code and the cloud project; [BUILD_PLAN.md](docs/review_2026-10-15/BUILD_PLAN.md) is the build contract. Stages 0 to 3 are built. The package version is `0.4.0` ([`backEnd/pyproject.toml`](backEnd/pyproject.toml)).
+The backend was rebuilt against a reviewed plan. [REVIEW_AND_PLAN.md](docs/review_2026-10-15/REVIEW_AND_PLAN.md) records what was verified in the old code and the cloud project; [BUILD_PLAN.md](docs/review_2026-10-15/BUILD_PLAN.md) is the build contract. Releases are tagged (`v0.3.0` to `v0.10.0`, each with a test-evidence folder); every measured decision since is a section of [EVAL_REPORT.md](docs/review_2026-10-15/EVAL_REPORT.md).
 
-**Built (Stages 0 to 3), all under [`backEnd/basis/`](backEnd/basis/)**
-- A FastAPI `/v1` API with Firebase ID-token auth, idempotency keys, rate limits, RFC 9457 errors and signed uploads.
-- PostgreSQL as the application database (SQLAlchemy async, Alembic migrations `0001` to `0004`, pgvector for chunk embeddings).
-- A Temporal `StudyWorkflow` with three engineer review gates, reject-with-corrections, idempotent activities and a per-study LLM budget. Decisions travel from the API to the workflow through a transactional outbox and a relay process.
-- The pipeline that the old LangGraph code only partly ran: appraisal ingestion and field extraction, per-photo vision, retrieval over PostgreSQL, classification with verified citations, takeoffs, costs, an evidence pack and a deterministic export.
-- An evaluation harness ([`backEnd/evals/`](backEnd/evals/)) and about 2273 tests collected by pytest.
+**Built, all under [`backEnd/basis/`](backEnd/basis/)**
+- A FastAPI `/v1` API (67 paths) with Firebase ID-token auth, invite-only firms with owner, engineer and viewer roles, idempotency keys, rate limits, RFC 9457 errors with `BASIS-<AREA>-<nnn>` codes ([`docs/ERROR_CODES.md`](docs/ERROR_CODES.md)) and signed uploads. Every study output is readable: fields, rooms, assets, evidence, the result, revisions and their diffs, the timeline, spend, model calls and the report.
+- PostgreSQL as the application database (SQLAlchemy async, Alembic migrations `0001` to `0028`, pgvector for chunk embeddings).
+- A Temporal `StudyWorkflow` with four engineer review gates (appraisal, rooms, components, assets), reject-with-corrections, retry of a failed stage, idempotent activities and a per-study budget. Decisions travel from the API to the workflow through a transactional outbox and a relay process.
+- The pipeline end to end: appraisal extraction (PDF and UAD 3.6 XML), per-photo vision with SAM 3 localization, rooms and components, classification with verified citations and the firm's own conventions, takeoffs, RSMeans-based costs with a cost-index store, the structure model and reconciliation, and a PDF report with a CPA schedule that the engineer signs.
+- Every paid model call recorded with its prompt, response, tokens and cost (`llm_calls`); an evaluation harness ([`backEnd/evals/`](backEnd/evals/)) whose runs leave a manifest and ledger a registry can list (EVAL_REPORT 43); about 6,700 tests collected by pytest.
 
-**Not built yet**
-- **Frontend (Stage 4, in progress).** [`web/`](web/) talks to the API in live mode (see [Frontend](#frontend)); several screens are still mock-only and the intake has no form yet (`web/README.md`, "Gaps").
-- **Read endpoints for pipeline output.** The API has no routes yet that return extraction fields or rooms on their own. Assets are readable through `GET /v1/studies/{id}/evidence` (each asset with its room, photos, localized instances and citations, [`basis/api/routes/evidence.py`](backEnd/basis/api/routes/evidence.py)) and a photo's localized objects through `GET /v1/studies/{id}/photos/{document_id}/objects`; everything is also in PostgreSQL and in the export file.
-- **Deployment (Stage 5).** Nothing in this branch is deployed. See [Deployment status](#deployment-status).
-- **A real-provider evaluation report.** The harness runs on synthetic fixtures (`--dry-run`) and scores saved predictions. No report from real models on the private client package has been published.
-- **Classification cache writes.** `basis.classify.cache.promote_to_cache` exists and is tested, but nothing calls it yet (Stage 4's review flow will). The cache is read but stays empty.
-- **Hybrid retrieval in classification.** `basis.retrieval.hybrid.hybrid_search` (BM25 + vector, fused) is built and tested, but the classifier's search tools use BM25 only today ([`basis/classify/tools.py`](backEnd/basis/classify/tools.py)).
+**Not done yet**
+- **Frontend.** [`web/`](web/) talks to the API in live mode (see [Frontend](#frontend)); `web/README.md` and `web/FRONTEND_BACKLOG.md` list what the API offers that the screens do not use yet.
+- **Production deployment.** Staging was built and verified once, then parked; production does not exist. See [Deployment status](#deployment-status).
+- **Accuracy beyond one property.** The live end-to-end comparisons against an engineer's study use one client package; a second package is needed to show the results hold.
+- **Hybrid retrieval in classification.** `basis.retrieval.hybrid.hybrid_search` (BM25 + vector, fused) is built and measured, but `RETRIEVAL_SEARCH` stays `bm25`: the hybrid matched BM25's accuracy and resolved fewer rule citations (EVAL_REPORT 25).
 
 **Legacy defects that caused the rebuild, now fixed.** The old backend had four defects, each reproduced as a strict `xfail` test in Stage 0 ([REVIEW_AND_PLAN.md A.3](docs/review_2026-10-15/REVIEW_AND_PLAN.md#a3-workflow-and-agent-correctness-topic-3)):
 
@@ -106,7 +104,8 @@ The `xfail` tests were deleted when their replacements passed. The "regression" 
   Worker  (python -m basis.worker): workflow + activities
      ├──► PostgreSQL (rows, idempotency keys, chunk store) ─┘
      ├──► Azure Document Intelligence (prebuilt-layout)
-     ├──► OpenAI / Azure OpenAI (primary/secondary provider pool)
+     ├──► OpenAI / Azure OpenAI / Anthropic (model calls, routed by model)
+     ├──► Replicate (SAM 3 object localization)
      └──► Google Cloud Storage (read uploads, write raw analyses and exports)
 ```
 
@@ -193,7 +192,7 @@ Retrieval runs entirely on PostgreSQL. There are no pickles, FAISS files or inde
 - **Chunks** (`chunk.py`): tiktoken `cl100k_base`, 400-token windows with 80 tokens of overlap. Chunks never cross a page, so every citation names one page. Each chunk is an exact substring of the parsed page text.
 - **BM25** (`bm25.py`, `tokenizer.py`): `rank_bm25` scoring (k1 = 1.5, b = 0.75) over an IRS-aware tokenizer that keeps codes such as `§1245`, `168(e)(3)(B)`, `57.0` and `87-56` whole. It uses the Lucene IDF, which stays positive in a small study corpus. The index is built in process from the chunk rows and cached per corpus version.
 - **Embeddings** (`embed.py`, `store.py`): `sentence-transformers/all-MiniLM-L6-v2`, 384 dimensions, normalized, stored in `chunks.embedding` with an HNSW cosine index. Tests use a deterministic hash embedder, which the settings refuse outside `dev` and `test`.
-- **Fusion** (`hybrid.py`): weighted score fusion or reciprocal rank fusion (k = 60), deterministic tie-breaking. Not yet used by the classifier (see [Status](#status-october-2026)).
+- **Fusion** (`hybrid.py`): weighted score fusion or reciprocal rank fusion (k = 60), deterministic tie-breaking. Not used by the classifier: `RETRIEVAL_SEARCH` stays `bm25` (EVAL_REPORT 25; see [Status](#status-november-2026)).
 - **Corpus versions** (`ingest.py`): every ingest creates a new `corpus_versions` row. Once published, a version's chunks and tables cannot change (database triggers from migration `0003`), so a stored chunk id always means the same text. The reference corpus is ingested with the CLI; each study's appraisal becomes a study corpus in the `ingest_appraisal` activity.
 - **Citation verification** (`verify.py`, `basis/classify/verify.py`): a citation is a `(chunk_id, excerpt)` pair. It stands only if the chunk belongs to a corpus version the classification may cite, the normalized excerpt (NFKC, case folded, quotes and dashes unified, whitespace collapsed) is a substring of the normalized chunk text, and, on the model path, the chunk was actually returned by a tool during that classification. Excerpts shorter than 12 characters are rejected.
 
@@ -269,7 +268,9 @@ uv run python -m evals.run --split dev --predictions out/                       
 
 The real datasets come from a **private** client package under `BASIS_EVAL_DATA_DIR`. It is never in the repository or in CI. Without saved predictions the harness scores deterministic baselines (printed text, file names, the rules table, BM25 over pages). Model-backed systems are scored through `--predictions`.
 
-**Test evidence.** Each captured version gets a folder under [`docs/test-evidence/`](docs/test-evidence/), written by [`tooling/evidence/capture.py`](tooling/evidence/capture.py): `manifest.json` and `README.md` (git sha, toolchain, package versions, prompt and rules versions, the exact commands), `tests_collected.txt`, `gates.log` (ruff, mypy, OpenAPI check, pytest output), `junit.xml`, `summary.json`, and, where captured, CI run metadata and a screenshot. Folders in this tree: [`v0.3.0`](docs/test-evidence/v0.3.0/) (the Stage 2 release: 1582 tests passed, with the CI run's metadata, job logs and a screenshot of all seven jobs green) and the two Stage 2 preliminaries, [`stage2-a474e4d`](docs/test-evidence/stage2-a474e4d/) and [`stage2-prelim`](docs/test-evidence/stage2-prelim/). Each release adds its own folder; `v0.4.0` is the Stage 3 release.
+**Results.** Measured results, including those from real models on the private package (accuracy, cost, tokens, latency), are sections of [EVAL_REPORT.md](docs/review_2026-10-15/EVAL_REPORT.md), quoted without client figures; the runs themselves stay under `BASIS_EVAL_DATA_DIR` and `uv run python -m evals.registry` lists them.
+
+**Test evidence.** Each captured version gets a folder under [`docs/test-evidence/`](docs/test-evidence/), written by [`tooling/evidence/capture.py`](tooling/evidence/capture.py): `manifest.json` and `README.md` (git sha, toolchain, package versions, prompt and rules versions, the exact commands), `tests_collected.txt`, `gates.log` (ruff, mypy, OpenAPI check, pytest output), `junit.xml`, `summary.json`, and, where captured, CI run metadata and a screenshot. Folders in this tree: one per release from [`v0.3.0`](docs/test-evidence/v0.3.0/) (the Stage 2 release, 1582 tests passed) to [`v0.10.0`](docs/test-evidence/v0.10.0/) (3571 passed), [`v0.7.0-live`](docs/test-evidence/v0.7.0-live/) (the first live study), and the two Stage 2 preliminaries.
 
 ---
 
@@ -284,7 +285,7 @@ docker compose up --build
 docker compose exec api alembic upgrade head
 ```
 
-The API is on `localhost:8000` and the Temporal UI on `localhost:8233`. The compose file does **not** run the outbox relay; without it, decisions are recorded but never reach the workflow. Run it as in option 2.
+The API is on `localhost:8000` and the Temporal UI on `localhost:8233`. The compose file runs the outbox relay too; without it, decisions are recorded but never reach the workflow.
 
 **Option 2: uv, the Temporal CLI and Postgres**, one terminal per process ([S2_RUNBOOK.md](docs/review_2026-10-15/S2_RUNBOOK.md) walks through a full study):
 
@@ -309,13 +310,13 @@ Load the reference corpus with the ingest CLI ([Retrieval and citations](#retrie
 
 ## Testing
 
-From `backEnd/`. About 2273 tests are collected (`BASIS_ENV=test uv run --no-sync pytest --collect-only -q`).
+From `backEnd/`, with the provider keys unset. About 6,700 tests are collected (`BASIS_ENV=test uv run --offline pytest --collect-only -q`).
 
 ```bash
-uv run pytest -q                          # everything (needs Docker and the Temporal test server)
-uv run pytest -q -m "not integration"     # no containers
-uv run pytest -q -m integration           # Postgres container (testcontainers), Temporal
-uv run pytest -q tests/lifecycle          # workflow lifecycle on the time-skipping server
+uv run --offline pytest -m "not integration and not slow"              # unit, api, node, behavior: about 90 s
+uv run --offline pytest -m "(integration or slow) and not eval_data"   # Postgres + Temporal: about 20 min
+uv run --offline pytest tests/lifecycle -q                             # the workflow on the time-skipping server
+node --test web/tests/*.test.cjs                                       # from the repository root
 ```
 
 | Suite | Covers |
@@ -341,7 +342,8 @@ Every test file, the invariant it protects and the release that introduced it ar
 - **backend-test**: the full pytest suite including integration tests (testcontainers starts the pgvector image; the Temporal SDK starts its test servers), with a JUnit report uploaded. The OpenAPI document is checked by a test in this suite.
 - **secrets-scan**: gitleaks.
 - **client-data-guard**: tests and runs [`tooling/check_no_client_data.py`](tooling/check_no_client_data.py) over every tracked file.
-- **docker-build**: builds the backend image and imports `basis` in it (non-blocking until Stage 5).
+- **docker-build**: builds the backend image and imports `basis` in it (`continue-on-error` until deployment makes the image a gate).
+- **deploy-staging**: off unless the repository variable `STAGING_DEPLOY` is `enabled` (staging is parked).
 
 [`.pre-commit-config.yaml`](.pre-commit-config.yaml) runs ruff, detect-secrets, private-key detection and the client-data guard on developer machines. It is not a CI job.
 
@@ -356,7 +358,7 @@ Every test file, the invariant it protects and the release that introduced it ar
 - **Tenancy is enforced in the database.** Every study-scoped row carries `study_id` with a composite foreign key to its parent, so a row cannot reference another study's data. The API answers 404 for studies the user cannot see.
 - **The model cannot reach another study.** Classifier tools are bound to one study's corpus versions and refuse ids from any other version. Document text is passed to models as data, and extraction fallback values must appear in that text.
 - **Photos lose their metadata** (EXIF, GPS, ICC) before any provider call.
-- **Providers.** Model calls go to OpenAI or Azure OpenAI and document analysis to Azure Document Intelligence.
+- **Providers.** Model calls go to OpenAI, Azure OpenAI or Anthropic, document analysis to Azure Document Intelligence and object localization to Replicate (SAM 3). Customer-facing text never names a provider; an outage reads as Basis being unavailable.
 
 ---
 
@@ -375,12 +377,11 @@ removed; it is in git history. Nothing in it used the new API.
 
 ## Deployment status
 
-Facts verified on 2026-10-15 ([REVIEW_AND_PLAN.md A.7](docs/review_2026-10-15/REVIEW_AND_PLAN.md#a7-build-and-deploy-configuration-verified), [INFRA_NOTES.md](docs/review_2026-10-15/INFRA_NOTES.md)):
-
-- **Backend: not deployed.** No Cloud Run service or job exists in the `cost-seg-basis` project.
-- **Frontend:** the Firebase App Hosting backend `basisbackend` is connected to a different, older repository, so it does not serve this code.
+- **Production: not deployed.** No production project, database or service exists.
+- **Staging: built, verified once, parked.** [`infra/staging/`](infra/staging/) is the Terraform for its own project (Cloud Run API and worker pool with the relay, Cloud SQL, a Temporal VM, Secret Manager, alert policies). It was built and verified once and has been parked since 2026-10-18. [`docs/deploy/STAGING.md`](docs/deploy/STAGING.md) has the runbook, the cost and the parked state. No `terraform apply` happens without Bryan's approval.
+- **CI's deploy job is off** unless `STAGING_DEPLOY` is set to `enabled`.
+- **Frontend:** the Firebase App Hosting backend `basisbackend` is connected to a different, older repository, so it does not serve this code (verified 2026-10-15).
 - **`docker-compose.yml` is for development only.**
-- **No deploy pipeline yet.** CI builds and tests; there is no deploy workflow or infrastructure-as-code. Stage 5 adds them.
 
 ---
 
@@ -391,10 +392,10 @@ From [BUILD_PLAN §10](docs/review_2026-10-15/BUILD_PLAN.md#10-stages-order-exit
 | Stage | Scope |
 |---|---|
 | S0 to S3 (done) | Tooling and CI; PostgreSQL, auth and API; Temporal workflow and outbox; pipeline parity and deletion of the legacy packages |
-| S4 Frontend | API-only data layer, reject and correction UI, zero type errors, Playwright journeys, Next.js 15 |
-| S5 Deploy | Cloud Run API and worker, Cloud SQL, Temporal Cloud or self-hosted, Secret Manager, Workload Identity Federation, staging, alerts, promote and rollback drills |
+| S4 Frontend (in progress) | `web/` (plain HTML, CSS and JS, no build step) on the API: live mode, review gates, report and signing; the legacy Next.js app was removed |
+| S5 Deploy (staging built, parked) | Cloud Run API and worker, Cloud SQL, Temporal, Secret Manager, Workload Identity Federation, staging (done, parked), alerts (written, off), production, promote and rollback drills |
 | S6 Data migration | Firestore export into PostgreSQL, verification, cutover, rollback window |
-| S7 Quality and load | Real-data evals, nightly runs, k6 load tests, failure drills, cost report |
+| S7 Quality and load (partly) | Real-data evals (EVAL_REPORT), load tests on fake providers (EVAL_REPORT 32, `tooling/load/`) and failure tests are done; nightly runs and a cost report are not |
 
 **Deliberately deferred until measured:** Redis, Kubernetes, and LangGraph at the top level. BUILD_PLAN lists them after S7 with a measurement precondition. LangGraph may come back later inside a single activity if a step needs it.
 
@@ -408,7 +409,7 @@ Until Stage 3 the backend was three packages, all deleted on this branch:
 - `backEnd/evidence_layer/`: PDF parsing, pickled BM25 and FAISS indexes, regex and Azure DI extraction.
 - `backEnd/vision_layer/`: a Grounding DINO + SAM2 detection pipeline that was never wired in.
 
-The review found the four defects in the [Status](#status-october-2026) table: an unreachable graph, resumes that restarted, rejections recorded as approvals, and citations that were always empty. Those, plus state split between Firestore fields and an unused checkpointer, are why the workflow moved to Temporal and the data to PostgreSQL ([REVIEW_AND_PLAN B.1](docs/review_2026-10-15/REVIEW_AND_PLAN.md#b1-does-langgraph-belong-here-topic-2)). The useful parts were migrated module by module into `basis/`, and each module docstring says what was kept and what changed. The legacy design diagrams were removed on 2026-11-01 (they are in git history before that date) since they did not describe the current code.
+The review found the four defects in the legacy-defects table under [Status](#status-november-2026): an unreachable graph, resumes that restarted, rejections recorded as approvals, and citations that were always empty. Those, plus state split between Firestore fields and an unused checkpointer, are why the workflow moved to Temporal and the data to PostgreSQL ([REVIEW_AND_PLAN B.1](docs/review_2026-10-15/REVIEW_AND_PLAN.md#b1-does-langgraph-belong-here-topic-2)). The useful parts were migrated module by module into `basis/`, and each module docstring says what was kept and what changed. The legacy design diagrams were removed on 2026-11-01 (they are in git history before that date) since they did not describe the current code.
 
 ---
 

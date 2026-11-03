@@ -49,7 +49,7 @@ from basis.vision.localize import (
     ReplicateSam3Localizer,
     build_replicate_localizer,
 )
-from basis.vision.prep import ImageRejected, prepare_image
+from basis.vision.prep import ImageRejected, PreparedImage, prepare_image
 from basis.vision.surface_crops import SURFACES, Surface
 
 Mask = npt.NDArray[np.bool_]
@@ -60,6 +60,13 @@ LOCAL_CHECKPOINT: Final = "facebook/mask2former-swin-large-ade-panoptic"
 SCORE_FLOOR: Final = 0.05
 # Replicate T4 (the hardware of oitoito/mask2former), per predict second.
 T4_USD_PER_SECOND: Final = 0.000225
+
+
+def _prepared_jpeg(image: Image.Image) -> PreparedImage:
+    """The image as a JPEG prepared for the hosted model; CPU work, run on a thread."""
+    buffer = io.BytesIO()
+    image.save(buffer, format="JPEG", quality=90)
+    return prepare_image(buffer.getvalue())
 
 
 class SegmenterError(RuntimeError):
@@ -230,10 +237,8 @@ class ReplicateMask2Former:
         budget: Budget | None = None,
         calls: list[LocalizeCall] | None = None,
     ) -> SurfaceMasks:
-        buffer = io.BytesIO()
-        image.save(buffer, format="JPEG", quality=90)
         try:
-            prepared = prepare_image(buffer.getvalue())
+            prepared = await asyncio.to_thread(_prepared_jpeg, image)
         except ImageRejected as exc:
             raise SegmenterError(f"{self.name}: {exc}") from exc
         input_ = {"image": f"data:image/jpeg;base64,{prepared.base64}"}

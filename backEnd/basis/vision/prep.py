@@ -19,10 +19,10 @@ the GPT-4o family), which is what ``basis.llm.cost.IMAGE_TOKENS`` budgets for.
 
 from __future__ import annotations
 
+import asyncio
 import base64
 import hashlib
 import io
-import warnings
 from dataclasses import dataclass
 from typing import Final
 
@@ -84,20 +84,24 @@ def prepare_image(data: bytes) -> PreparedImage:
         raise ImageRejected(
             "too_large_bytes", f"the photo is {len(data)} bytes; the limit is {MAX_IMAGE_BYTES}"
         )
+    # No ``warnings.catch_warnings`` here: it swaps the process-wide filter list, which is
+    # not thread-safe, and this runs on worker threads (:func:`prepare_image_in_thread`).
+    # ``MAX_PIXELS`` sits below Pillow's own warning threshold (``Image.MAX_IMAGE_PIXELS``,
+    # 89,478,485), so every image Pillow would warn about is refused by the check below
+    # from its header, before any pixel is decoded; Pillow's ``DecompressionBombError``
+    # (twice its threshold) is raised from ``open`` and refused as not an image.
     try:
-        with warnings.catch_warnings():
-            warnings.simplefilter("error", Image.DecompressionBombWarning)
-            image = Image.open(io.BytesIO(data))
-            width, height = image.size
-            if width * height > MAX_PIXELS:
-                raise ImageRejected(
-                    "too_many_pixels",
-                    f"the photo is {width} x {height}; the limit is {MAX_PIXELS} pixels",
-                )
-            image.load()
+        image = Image.open(io.BytesIO(data))
+        width, height = image.size
+        if width * height > MAX_PIXELS:
+            raise ImageRejected(
+                "too_many_pixels",
+                f"the photo is {width} x {height}; the limit is {MAX_PIXELS} pixels",
+            )
+        image.load()
     except ImageRejected:
         raise
-    except (UnidentifiedImageError, Image.DecompressionBombError, Image.DecompressionBombWarning):
+    except (UnidentifiedImageError, Image.DecompressionBombError):
         raise ImageRejected("not_an_image", "the photo is not a readable image") from None
     except (OSError, ValueError, SyntaxError) as exc:
         raise ImageRejected("not_an_image", f"the photo cannot be decoded: {exc}") from None
@@ -122,3 +126,18 @@ def prepare_image(data: bytes) -> PreparedImage:
         original_height=height,
         original_format=original_format,
     )
+
+
+async def prepare_image_in_thread(data: bytes) -> PreparedImage:
+    """:func:`prepare_image` on a worker thread, for async code (activities, routes).
+
+    Decoding, orienting, downsizing and re-encoding a 12-megapixel photo is about 0.08 s
+    of CPU. On the event loop it holds every other task of the worker, Temporal's
+    workflow activations included: the SDK times an activation with a 2 s timer on that
+    loop, so photo activities started together (20 photos held it 1.7 s on a fast laptop)
+    can make a quick activation read as a deadlock (``TMPRL1101``). Pillow releases the
+    GIL while it decodes and resamples, so the threads also run in parallel. A test
+    (``tests/unit/test_event_loop_image_work.py``) refuses a direct call inside
+    ``async def``.
+    """
+    return await asyncio.to_thread(prepare_image, data)
