@@ -10501,3 +10501,31 @@ every coverage row against this report. Nothing paid was run.
 Found along the way and not fixed here: iPhone HEIC photos are rejected at preparation (verified with
 a real HEIC file); a UAD 3.6 XML study is always flagged for total rooms; an assets send-back
 re-classifies every uncorrected item.
+
+### 80.2 Green marks what runs today, and each table says why (2026-11-03)
+
+Bryan asked why a room table's highlighted row combined rooms on Sonnet when the step runs on
+gpt-6-luna. The highlight marked each test's winner at the time of the test, and some winners
+are no longer what runs. Now every comparison on the developer page opens with "What Basis uses
+today" and the reason, and green marks the rows that are today's setup. The content test checks
+every green row against the defaults in `basis/config.py` for each role with a setting, and
+every number in the sentence against the sections it cites.
+
+Checking the 42 tables against today's defaults found:
+
+* Three green winners that no longer match today's setup. They stay green, because their
+  approach is in use, and say which part differs:
+  - 16.2 and 23.3 combined rooms on claude-sonnet-5-5 (gpt-6-luna since 28.2);
+  - 26.8 also read surfaces and room type on Opus (gpt-6-luna since 28.1).
+* 15.1's winner read surfaces on gpt-6.1-sol; also gpt-6-luna since 28.1.
+* 12 tables marked no row although one was in use (33, 33.4, 39, 39.4, 35.2 twice, 47.3, 49.3,
+  48.4) or none was (26.3, crops measured but off; 45.3, superseded by 47; 55.2, formats, not a
+  choice).
+* Table 32 highlighted the settings recommended for launch (64 AI calls at once), and 32.10 the
+  proposed 300 a minute. The code's defaults are the "Production settings" rows and 60 a minute,
+  now green, with the launch recommendation in the sentence.
+* Stale row names ("(current)", "Current", "Chosen") renamed.
+
+The room step's choice of gpt-6-luna rests on 8 rooms with several photos in one study (28.2:
+"within the noise" is weak evidence there), and on those rooms today's setup measured 0.69
+against Sonnet's 0.56; the room table now says so.

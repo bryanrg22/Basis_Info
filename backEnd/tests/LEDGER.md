@@ -602,3 +602,11 @@ upload slow tests 142 passed.
 |---|---|---|
 | `tests/unit/test_developer_workflow_content.py` | Added: every part of a step names the systems it runs, and a model there equals the production default (model and effort) of the setting it names in `basis/config.py`, temperature "default (not settable)"; checked to fail when a model is changed | 98 passed |
 | `web/tests/developer-workflow.test.cjs`, `developer-health.test.cjs`, `developer-run-records.test.cjs` | Rewritten for the dialogs without the runtime table: every dialog has "How it works" and "Tests & results", the systems list with logos and exact models (no setting names), escaped text, no feed text in a dialog | 345 passed (all web tests) |
+
+## Green marks what runs today (2026-11-03; EVAL_REPORT 80.2)
+
+| File | What it checks | Result |
+|---|---|---|
+| `tests/unit/test_developer_workflow_content.py` | Added: every comparison has a "What Basis uses today" sentence (no old winner text), and every number in it appears verbatim in its section or the sections it cites; every green row (`in_use`) runs today's default model and effort (`basis/config.py`) for each role with a setting, except the roles it names in `in_use_except`, which must really differ; no row keeps `selected`. Checked to fail when a Sonnet row in 28.2 is marked green and when 16.2's note is removed | 12 tests, pass |
+| `web/tests/developer-workflow.test.cjs`, `developer-health.test.cjs` | Changed: a dialog shows the "What Basis uses today" sentence at the top and "Used today" on green rows, and no "Chosen:" line | pass |
+

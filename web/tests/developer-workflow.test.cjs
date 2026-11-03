@@ -61,7 +61,9 @@ test('the measured results come from the content file with the section links and
  const html=fresh().render(node('photos'),services(),H);
  assert.ok(html.includes('0.124')&&html.includes('$2.20'));
  assert.ok(html.includes('#151-every-variant-against-the-current-best'));
- assert.ok(html.includes('class="selected-architecture"'));
+ assert.ok(html.includes('class="selected-architecture"')&&html.includes('Used today'));
+ assert.ok(html.includes('class="comparison-used"><strong>What Basis uses today:</strong>'));
+ assert.ok(!html.includes('<strong>Chosen:</strong>'));
  assert.ok(html.includes("Still true on today's build?")&&html.includes('Last checked end to end on Nov 1&#39;s build'));
  assert.ok(html.includes('What was tested, and what was not')&&html.includes('verdict-not-compared')&&html.includes('Photo preparation'));
  assert.ok(html.includes('class="part-steps"')&&html.includes('for windows, doors, light fixtures and kitchen cabinets the photo keeps claude-opus-5-5&#39;s entries'));
