@@ -9,3 +9,4 @@ Local SVG assets identify the service or model author; they do not indicate heal
 - Basis: the app's own mark (`web/assets/basis-mark.png`), shown on the parts of a step that Basis built (its API, rules, room grouping, takeoff, structure model, search, export and cost ledger).
 - Hugging Face (`huggingface.png`, the Sentence Transformers search model) and Google Cloud (`googlecloud.png`, file storage): images supplied by Bryan on 2026-11-03, resized to 96 px. Brand marks belong to their owners.
 - Python (`python.png`, the Python libraries pdfplumber, PyMuPDF and Pillow): image supplied by Bryan on 2026-11-03, resized to 96 px.
+- RSMeans (`rsmeans.png`, the RSMeans cost data): image supplied by Bryan on 2026-11-03, resized to 96 px.

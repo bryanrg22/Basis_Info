@@ -137,7 +137,7 @@ test('report signing follows export and stays distinct from the four review gate
  assert.equal(nodes.filter(n=>n.review).length,4);
  const services=H.SERVICES.map(s=>({...s,...H.normalize(ok,now)}));
  const html=H.renderFlow(services),detail=A.render(last,services,H);
- assert.ok(html.includes('Engineer signature'));
+ assert.ok(!html.includes('review-marker')&&!html.includes('Engineer signature'),'no review pill: the card title says who does the step');
  assert.ok(html.includes('Engineer signs the report'));
  assert.ok(!html.includes('Study completed'));
  assert.match(detail,/changed preview or revision/);

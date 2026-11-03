@@ -5096,7 +5096,7 @@
       {
        "name": "Unit costs, year index and location factors",
        "system": "RSMeans 2020 cost data",
-       "brand": null,
+       "brand": "rsmeans",
        "provider": "Gordian (licensed books)"
       }
      ]
@@ -5121,7 +5121,7 @@
       {
        "name": "Unit costs, year index and location factors",
        "system": "RSMeans 2020 cost data",
-       "brand": null,
+       "brand": "rsmeans",
        "provider": "Gordian (licensed books)"
       }
      ]
