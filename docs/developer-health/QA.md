@@ -89,3 +89,9 @@ lines above):
 - Section titles ("How it works", "Tests & results") are larger.
 - Scrolling past the end of a dialog no longer scrolls the page behind it (`overscroll-behavior:
   contain` on the dialog, and the page does not scroll while a dialog is open).
+
+Changes in this pass (2026-11-03, branch `claude/basis-logo`):
+
+- Workflow cards say who does the step ("Engineer uploads the files", "Basis reads the appraisal") and show the systems the step runs, with their logos, instead of the health services.
+- Each part of "How it works" has a one-line summary and the exact numbered steps the code runs today (read from the code with file and line, not from the docs), naming each technology; parts Basis built carry the Basis mark.
+- "Tests & results" adds "What was tested, and what was not": every component of the step, whether it was compared against alternatives, what is missing and the test that would close it, with its cost (from a coverage audit of EVAL_REPORT 1-80: 19 compared, 23 partly, 7 not). "Regression" now reads "Still true on today's build?" and says the last live check was on 15cd291 (Nov 1).

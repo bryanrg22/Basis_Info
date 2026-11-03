@@ -86,7 +86,7 @@ test('every workflow box has a simple three-step explanation and source links',(
  assert.ok(rows[0].values.includes('0.124')&&rows[0].values.includes('$2.20'));
  assert.ok(rows.some(r=>r.values.includes('Not measured')));
  const photos=A.render(H.FLOW.flat().find(n=>n.id==='photos'),services,H);
- assert.ok(photos.includes('draws an outline around each counted object'));
+ assert.ok(photos.includes('it never changes a count'));
  assert.ok(photos.includes('historical measurements, not a live benchmark'));
 });
 test('workflow detail shows no live feed text, the flow escapes it, and dialogs open from the keyboard',()=>{

@@ -242,17 +242,27 @@
    return `<li>${(u.brand&&H.logo(u.brand))||'<span class="uses-dot" aria-hidden="true"></span>'}<span><span class="uses-name">${H.esc(u.name)}</span><code>${H.esc(u.system)}</code>${facts?`<small>${facts}</small>`:''}</span></li>`;
   }).join('')}</ul>`;
  }
+ // What was tested and what was not: every component of the step, whether it was compared
+ // against alternatives, what is missing and the test that would close the gap.
+ const VERDICT={compared:'Compared',partly:'Partly compared','not compared':'Not compared'};
+ function coverageTable(results,H){
+  const rows=Array.isArray(results.coverage)?results.coverage:[];
+  if(!rows.length)return results.coverage_note?`<section class="coverage"><h4>What was tested, and what was not</h4><p class="not-compared">${H.esc(results.coverage_note)}</p></section>`:'';
+  const counts=Object.keys(VERDICT).map(v=>[v,rows.filter(r=>r.verdict===v).length]).filter(([,n])=>n).map(([v,n])=>`${n} ${VERDICT[v].toLowerCase()}`).join(' · ');
+  const body=rows.map(r=>`<tr class="coverage-${H.esc(r.verdict.replace(' ','-'))}"><th scope="row">${H.esc(r.component)}<small>${H.esc(r.used)}</small></th><td><span class="verdict verdict-${H.esc(r.verdict.replace(' ','-'))}">${H.esc(VERDICT[r.verdict]||r.verdict)}</span>${r.sections?.length?`<small>${r.sections.map(x=>sectionLink(x,H)).join(', ')}</small>`:''}</td><td>${H.esc(r.missing||'—')}</td><td>${H.esc(r.test||'—')}${r.cost?`<small>${H.esc(r.cost)}</small>`:''}</td></tr>`).join('');
+  return `<section class="coverage"><h4>What was tested, and what was not</h4><p class="detail-note">${counts}. A component is "compared" when alternatives were run on the same data with accuracy, cost, tokens and time where they apply.</p><div class="table-scroll" role="region" tabindex="0" aria-label="Test coverage"><table><thead><tr><th scope="col">Component (used today)</th><th scope="col">Compared?</th><th scope="col">What is missing</th><th scope="col">Test that would close it</th></tr></thead><tbody>${body}</tbody></table></div></section>`;
+ }
  function render(node,services,H,runs){
   const entry=content?.steps?.[node.id];
   if(!entry){
    return `<section class="dialog-section"><h3 class="dialog-section-title">How it works</h3><p class="detail-note">${H.esc(contentError||'The workflow content has not loaded yet.')} Explanations and measured results are in ${H.esc(CONTENT_PATH)}.</p></section>`;
   }
   const results=entry.results||{};
-  const how=`<section class="dialog-section"><h3 class="dialog-section-title">How it works</h3><ol class="step-sequence">${entry.how.map((step,i)=>`<li><span class="step-number">${i+1}</span><div><strong>${H.esc(step.title)}</strong><p>${H.esc(step.detail)}</p>${usesList(step.uses,H)}<a class="source-ref" href="${H.esc(REPOSITORY+step.source)}" target="_blank" rel="noopener noreferrer">Code: ${H.esc(step.source.split('/').pop())} ↗</a></div></li>`).join('')}</ol></section>`;
+  const how=`<section class="dialog-section"><h3 class="dialog-section-title">How it works</h3><ol class="step-sequence">${entry.how.map((step,i)=>`<li><span class="step-number">${i+1}</span><div><strong>${H.esc(step.title)}</strong><p>${H.esc(step.detail)}</p>${Array.isArray(step.steps)&&step.steps.length?`<ol class="part-steps">${step.steps.map(x=>`<li>${H.esc(x)}</li>`).join('')}</ol>`:''}${usesList(step.uses,H)}<a class="source-ref" href="${H.esc(REPOSITORY+step.source)}" target="_blank" rel="noopener noreferrer">Code: ${H.esc(step.source.split('/').pop())} ↗</a></div></li>`).join('')}</ol></section>`;
   const comparisons=comparisonsByPart(entry,results,H);
-  const regression=results.regression?`<p class="regression-line"><strong>Regression:</strong> ${H.esc(results.regression.status)} (${sectionLink(results.regression.section,H)}). ${H.esc(results.regression.detail||'')}</p>`:'';
+  const regression=results.regression?`<div class="regression-line"><strong>Still true on today's build?</strong> <p>${H.esc(results.regression.plain||results.regression.status)} (${sectionLink(results.regression.section,H)})</p><p class="detail-note">What that run showed: ${H.esc(results.regression.detail||results.regression.status)}</p></div>`:'';
   const records=`<div class="run-records" id="run-records" data-step="${H.esc(node.id)}">${renderRunRecords(entry.components,runs,H)}</div>`;
-  const tests=`<section class="dialog-section"><h3 class="dialog-section-title">Tests &amp; results</h3><p>${H.esc(results.summary||'')}</p>${modelKey(H)}${comparisons}${metricsTable(results.metrics,H)}${spendLine(results.spend,H)}${regression}<div class="source-links">${links(entry,H)}</div><p class="detail-note">Figures are copied verbatim from ${H.esc(content.source.report)} and checked against it by ${H.esc('backEnd/tests/unit/test_developer_workflow_content.py')}; they are historical measurements, not a live benchmark.</p>${records}</section>`;
+  const tests=`<section class="dialog-section"><h3 class="dialog-section-title">Tests &amp; results</h3><p>${H.esc(results.summary||'')}</p>${modelKey(H)}${comparisons}${coverageTable(results,H)}${metricsTable(results.metrics,H)}${spendLine(results.spend,H)}${regression}<div class="source-links">${links(entry,H)}</div><p class="detail-note">Figures are copied verbatim from ${H.esc(content.source.report)} and checked against it by ${H.esc('backEnd/tests/unit/test_developer_workflow_content.py')}; they are historical measurements, not a live benchmark.</p>${records}</section>`;
   const note=entry.note?`<p class="detail-note">${H.esc(entry.note)}</p>`:'';
   return how+note+tests;
  }

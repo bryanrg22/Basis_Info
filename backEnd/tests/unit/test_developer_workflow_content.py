@@ -271,3 +271,19 @@ def test_every_part_names_the_systems_it_runs_and_models_are_the_production_defa
             assert fields[setting].default == use["system"], (step_id, setting, use["system"])
             assert fields[use["effort_setting"]].default == use["effort"], (step_id, use)
             assert use["temperature"] == "default (not settable)", use
+
+
+@pytest.mark.parametrize("step_id", STEP_IDS)
+def test_coverage_rows_cite_real_sections_and_name_the_gap(step_id: str) -> None:
+    """Each step's coverage lists its components with a verdict; every cited section is a
+    report heading, and a component not fully compared says what is missing and how to test it."""
+    results = content()["steps"][step_id]["results"]
+    rows = results.get("coverage", [])
+    assert rows or results.get("coverage_note"), step_id
+    for row in rows:
+        assert row["verdict"] in ("compared", "partly", "not compared"), row
+        assert row["component"] and row["used"], row
+        for section in row["sections"]:
+            assert section in sections(), (step_id, section)
+        if row["verdict"] != "compared":
+            assert row["missing"] and row["test"] and row["cost"], row

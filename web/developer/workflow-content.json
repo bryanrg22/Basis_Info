@@ -24,7 +24,13 @@
    "how": [
     {
      "title": "Upload the files",
-     "detail": "The engineer uploads the appraisal and the property photos. Basis checks each file arrived whole (by its fingerprint), and an interrupted upload can be resumed.",
+     "detail": "Each file goes straight to storage and is checked when the upload is confirmed.",
+     "steps": [
+      "The browser asks the Basis server for a one-time upload link for each file (valid 15 minutes).",
+      "The file goes straight to Google Cloud Storage; the server never handles the bytes.",
+      "On confirm, Basis checks the stored file's size, type and SHA-256 fingerprint, and that an appraisal is a readable PDF or UAD 3.6 package. A file that does not match is deleted and must be uploaded again.",
+      "An interrupted upload is resumed with a new link for the same file."
+     ],
      "source": "backEnd/basis/api/routes/documents.py",
      "uses": [
       {
@@ -34,22 +40,26 @@
        "provider": "Basis (built on FastAPI)"
       },
       {
-       "name": "File storage",
+       "name": "Stores the uploaded files",
        "system": "Google Cloud Storage",
        "brand": "googlecloud",
        "provider": "Google Cloud (a local folder in development)"
       },
       {
-       "name": "Database",
+       "name": "Stores the study",
        "system": "PostgreSQL",
        "brand": "postgresql",
-       "provider": "Basis"
+       "provider": "Basis database"
       }
      ]
     },
     {
-     "title": "Fill in the property details, then start",
-     "detail": "A study cannot start until the property details (use, date placed in service, state, price) and the appraisal are in. Starting creates the study's first version.",
+     "title": "Enter the property details, then start",
+     "detail": "A study starts only with the property details and a confirmed appraisal.",
+     "steps": [
+      "Start is refused until the six required property details (use, date placed in service, state and the rest) and one confirmed appraisal are in.",
+      "Starting creates the study's first revision and one Temporal workflow for it."
+     ],
      "source": "backEnd/basis/api/routes/studies.py",
      "uses": [
       {
@@ -59,13 +69,13 @@
        "provider": "Basis (built on FastAPI)"
       },
       {
-       "name": "Database",
+       "name": "Stores the study",
        "system": "PostgreSQL",
        "brand": "postgresql",
-       "provider": "Basis"
+       "provider": "Basis database"
       },
       {
-       "name": "Workflow engine",
+       "name": "Runs the study's steps in order and retries failures",
        "system": "Temporal",
        "brand": "temporal",
        "provider": "Temporal"
@@ -73,15 +83,26 @@
      ]
     },
     {
-     "title": "A worker picks it up",
-     "detail": "A Basis worker takes the study and starts reading the appraisal and the photos at the same time.",
+     "title": "A Basis worker starts the analysis",
+     "detail": "The worker reads the appraisal and analyzes the photos at the same time.",
+     "steps": [
+      "A Basis worker picks up the study's workflow.",
+      "It reads the appraisal while the photos are analyzed in the background, 5 photos at a time.",
+      "The appraisal review opens as soon as the appraisal is read, without waiting for the photos."
+     ],
      "source": "backEnd/basis/workflow/study_workflow.py",
      "uses": [
       {
-       "name": "Workflow engine",
+       "name": "Runs the study's steps in order and retries failures",
        "system": "Temporal",
        "brand": "temporal",
        "provider": "Temporal"
+      },
+      {
+       "name": "Runs each step's work",
+       "system": "Basis worker",
+       "brand": "basis",
+       "provider": "Basis (no AI)"
       }
      ]
     }
@@ -635,11 +656,36 @@
     "regression": {
      "status": "No regression on the final build",
      "section": "63",
-     "detail": "Live run 6 on main 15cd291 completed both studies end to end on the build with the drafts, resumable uploads and race fixes merged; the section does not measure the upload step separately."
+     "detail": "Live run 6 on main 15cd291 completed both studies end to end on the build with the drafts, resumable uploads and race fixes merged; the section does not measure the upload step separately.",
+     "plain": "Last checked end to end on Nov 1's build (live run 6, commit 15cd291). Main has changed since (including the fail-safe change and support file access); one new live study, about $3 to $4, would re-check it."
     },
     "gaps": {
      "2": "Not a comparison: starting a study is a pass/fail rule (it is refused without the property details and the appraisal), checked by tests rather than measured against alternatives."
-    }
+    },
+    "coverage": [
+     {
+      "component": "Upload limits",
+      "used": "60 write requests a minute per engineer",
+      "verdict": "compared",
+      "sections": [
+       "32.10"
+      ],
+      "missing": "",
+      "test": "",
+      "cost": ""
+     },
+     {
+      "component": "Worker capacity",
+      "used": "one worker process, production settings",
+      "verdict": "partly",
+      "sections": [
+       "32"
+      ],
+      "missing": "Measured with simulated AI providers, not real calls.",
+      "test": "A load run with real calls.",
+      "cost": "about $3 to $4 a study"
+     }
+    ]
    },
    "links": [
     {
@@ -668,63 +714,95 @@
    "how": [
     {
      "title": "Take in the appraisal",
-     "detail": "Basis accepts a PDF or the newer UAD 3.6 file. It reads the pages and indexes the text, so every value it reports can point back to the page it came from.",
+     "detail": "Basis picks the source document and builds the study's search index from its text.",
+     "steps": [
+      "The source is the UAD 3.6 file if one was uploaded, otherwise the appraisal PDF.",
+      "pdfplumber reads the PDF's text and tables, keeping the two-column reading order; PyMuPDF retries pages with no text.",
+      "The text is cut into chunks of 400 tokens (80 overlapping), and each chunk is turned into a search vector with all-MiniLM-L6-v2, stored in the database.",
+      "Known gap: search is keyword-only (BM25) by default, so these vectors are stored but not searched today."
+     ],
      "source": "backEnd/basis/activities/ingest_appraisal.py",
      "uses": [
       {
-       "name": "Reads the PDF's text and layout",
-       "system": "Azure Document Intelligence (prebuilt-layout)",
-       "brand": "azure",
-       "provider": "Microsoft Azure"
+       "name": "Reads the PDF's text and tables",
+       "system": "pdfplumber (PyMuPDF for pages with no text)",
+       "brand": null,
+       "provider": "runs on the Basis worker"
       },
       {
-       "name": "Indexes the text for search",
+       "name": "Turns each chunk into a search vector",
        "system": "all-MiniLM-L6-v2 (Sentence Transformers)",
        "brand": "huggingface",
        "provider": "runs on the Basis worker"
+      },
+      {
+       "name": "Stores the study",
+       "system": "PostgreSQL",
+       "brand": "postgresql",
+       "provider": "Basis database"
       }
      ]
     },
     {
      "title": "Read the fields",
-     "detail": "One AI call reads every field (living area, year built, price and the rest) and must quote the exact words from the page for each value; a value its quote does not support is thrown out. A UAD 3.6 file is read directly, with no AI. If the AI call cannot run, a cheaper backup fills what is missing.",
+     "detail": "One AI call reads every field from Azure's page text and must quote the page for each value.",
+     "steps": [
+      "Azure Document Intelligence (prebuilt-layout, with key-value pairs) reads every page: its text, word positions and checkboxes.",
+      "gpt-6.1-sol (effort low, prompt appraisal_fields_grounded/v2) is sent every page's text, each checkbox marked checked or unchecked with its label, and asked for 132 fields (100 on a UAD 3.6 form).",
+      "For each field it answers the value, the page and the exact quote. Basis keeps a value only if the quote is on that page and contains the value; a checkbox answer must be a checked box.",
+      "Only if that call cannot run at all (Azure or the model unavailable, an error, no answer, or the budget used up) does Basis start over without it: Azure's own form fields and pattern matching on the text, then one gpt-6-luna call (prompt appraisal_field_fallback/v1) for every field still missing, given Azure's page text. A value it gives must appear word for word in that text.",
+      "Missing fields never trigger that second call; they go to the engineer at the review.",
+      "A UAD 3.6 file is read straight from its XML with no AI; Azure still reads its PDF, only to place the highlights."
+     ],
      "source": "backEnd/basis/activities/extract_fields.py",
      "uses": [
+      {
+       "name": "Reads every page: text, word positions, checkboxes",
+       "system": "Azure Document Intelligence (prebuilt-layout)",
+       "brand": "azure",
+       "provider": "Microsoft Azure, $0.01 a page"
+      },
       {
        "name": "Reads every field, quoting the page",
        "system": "gpt-6.1-sol",
        "brand": "openai",
-       "provider": "OpenAI",
+       "provider": "Azure OpenAI first, OpenAI if Azure is down",
        "effort": "low",
        "temperature": "default (not settable)",
        "setting": "extraction_grounded_model",
        "effort_setting": "extraction_grounded_reasoning_effort"
       },
       {
-       "name": "Backup: fills fields still missing",
+       "name": "Only if the first call cannot run: re-reads the missing fields",
        "system": "gpt-6-luna",
        "brand": "openai",
-       "provider": "OpenAI",
+       "provider": "Azure OpenAI first, OpenAI if Azure is down",
        "effort": "low",
        "temperature": "default (not settable)",
        "setting": "text_model",
        "effort_setting": "extraction_reasoning_effort"
       },
       {
-       "name": "Reads the PDF's text and layout",
-       "system": "Azure Document Intelligence (prebuilt-layout)",
-       "brand": "azure",
-       "provider": "Microsoft Azure"
+       "name": "Reads a UAD 3.6 file directly",
+       "system": "Basis UAD 3.6 reader",
+       "brand": "basis",
+       "provider": "Basis (no AI)"
       }
      ]
     },
     {
      "title": "Check the values",
-     "detail": "Values are checked for type, range and consistency. A missing or conflicting key field is flagged for the engineer at the appraisal review.",
+     "detail": "Rules check every value; the engineer always reviews the key fields.",
+     "steps": [
+      "Values from parts of the form the appraiser did not develop (an approach left blank) are removed.",
+      "The 9 key fields must be present: address, contract price, year built, total rooms, bedrooms, bathrooms, living area, market value, effective date.",
+      "Each value is checked for type and range; total rooms must cover bedrooms and baths; the market value more than 50 % from the cost approach is an error, more than 20 % from the contract price a warning, a basement over 1.5 times the living area a warning.",
+      "Every AI-read value is stored at confidence 0.6, below the 0.90 review threshold, so the key fields always go to the engineer for review."
+     ],
      "source": "backEnd/basis/extraction/validation.py",
      "uses": [
       {
-       "name": "Checks types, ranges and consistency",
+       "name": "Checks presence, types, ranges and consistency",
        "system": "Basis validation rules",
        "brand": "basis",
        "provider": "Basis (no AI)"
@@ -1621,12 +1699,130 @@
     "regression": {
      "status": "No regression on the final build",
      "section": "63",
-     "detail": "Live run 6 on main 15cd291 completed both studies end to end with the appraisal stage in the path, but the section does not score the appraisal fields separately; the grounded default's own replay baseline is baseline.grounded.json (33.12)."
+     "detail": "Live run 6 on main 15cd291 completed both studies end to end with the appraisal stage in the path, but the section does not score the appraisal fields separately; the grounded default's own replay baseline is baseline.grounded.json (33.12).",
+     "plain": "Last checked end to end on Nov 1's build (live run 6, commit 15cd291). Main has changed since (including the fail-safe change and support file access); one new live study, about $3 to $4, would re-check it."
     },
     "gaps": {
      "1": "No comparison of PDF readers has been run: Azure Document Intelligence's layout model is the only one measured here. Its polling interval was tuned (section 33.10).",
      "3": "No comparison table: the presence rules (which fields must exist) were checked field by field against the labels (section 33.9), not compared across methods."
-    }
+    },
+    "coverage": [
+     {
+      "component": "Document reader",
+      "used": "Azure Document Intelligence prebuilt-layout",
+      "verdict": "partly",
+      "sections": [
+       "33.5",
+       "33.10"
+      ],
+      "missing": "Only Azure's own models were tried.",
+      "test": "Google Document AI, AWS Textract, Docling and Azure's cheaper read model, each feeding the same AI call, on the 16 test appraisals.",
+      "cost": "about $25"
+     },
+     {
+      "component": "Reading method",
+      "used": "one AI call that quotes every value",
+      "verdict": "partly",
+      "sections": [
+       "33.5",
+       "33.12"
+      ],
+      "missing": "One run each; no time per method.",
+      "test": "Two more runs of the top three methods, timed.",
+      "cost": "about $3"
+     },
+     {
+      "component": "Reading model",
+      "used": "gpt-6.1-sol, effort low",
+      "verdict": "partly",
+      "sections": [
+       "33.5",
+       "33.12"
+      ],
+      "missing": "No second gpt-6.1-sol run, no claude-opus-5-5 on this method, no medium effort, no time per model.",
+      "test": "Those four, two runs each.",
+      "cost": "about $16"
+     },
+     {
+      "component": "Backup reading model",
+      "used": "gpt-6-luna, effort low",
+      "verdict": "compared",
+      "sections": [
+       "17.1",
+       "33.5"
+      ],
+      "missing": "",
+      "test": "",
+      "cost": ""
+     },
+     {
+      "component": "Checkbox labels",
+      "used": "Basis rule: the words right after each box",
+      "verdict": "compared",
+      "sections": [
+       "33.4"
+      ],
+      "missing": "",
+      "test": "",
+      "cost": ""
+     },
+     {
+      "component": "Presence rules",
+      "used": "Basis rules for undeveloped approaches",
+      "verdict": "compared",
+      "sections": [
+       "33.9"
+      ],
+      "missing": "",
+      "test": "",
+      "cost": ""
+     },
+     {
+      "component": "Review threshold and checks",
+      "used": "0.90 threshold; AI values at 0.6",
+      "verdict": "not compared",
+      "sections": [],
+      "missing": "Never compared on this reader.",
+      "test": "Replay the 41 test appraisals at thresholds 0.5 to 0.95 and plot errors caught against review work.",
+      "cost": "$0 (replay)"
+     },
+     {
+      "component": "UAD 3.6 reader",
+      "used": "Basis XML reader",
+      "verdict": "compared",
+      "sections": [
+       "33.7",
+       "33.8"
+      ],
+      "missing": "",
+      "test": "",
+      "cost": ""
+     },
+     {
+      "component": "Search vectors",
+      "used": "all-MiniLM-L6-v2",
+      "verdict": "partly",
+      "sections": [
+       "25.1",
+       "25.2"
+      ],
+      "missing": "Compared on search quality with four local models, but not through the classifier and not against paid embedders; not used today (search is BM25).",
+      "test": "Fill the unjudged search results, then e5-small-v2, OpenAI text-embedding-3-small and Cohere light.",
+      "cost": "about $4"
+     },
+     {
+      "component": "Chunking",
+      "used": "400 tokens, 80 overlap",
+      "verdict": "partly",
+      "sections": [
+       "22",
+       "25.1"
+      ],
+      "missing": "One alternative (200/40); the classifier was not run on it.",
+      "test": "One classifier run on 200/40.",
+      "cost": "about $4"
+     }
+    ]
    },
    "links": [
     {
@@ -1654,49 +1850,46 @@
   "photos": {
    "how": [
     {
-     "title": "Count and describe each photo",
-     "detail": "Each photo is cleaned (resized, location data removed) and sent to two small AI calls at once: one counts the objects (windows, doors, lights, outlets, cabinets) and one reads surfaces and the room type.",
+     "title": "Prepare the photo and ask three AI calls",
+     "detail": "Each photo is cleaned, then three AI calls read it at the same time.",
+     "steps": [
+      "Pillow fixes the orientation, removes all metadata including GPS, shrinks the photo to at most 1,024 px on its long side and saves it as a JPEG. A file over 25 MB, unreadable or under 64 px is rejected.",
+      "gpt-6.1-sol (effort low, prompt photo_countables/v3) counts the objects: windows, doors, lights, outlets, cabinets, fixtures, appliances.",
+      "gpt-6-luna (effort low, prompt photo_surfaces/v2) lists the surfaces (floors, wall and ceiling finish, trim, siding, roof) and gives the room type and floor.",
+      "claude-opus-5-5 (effort medium, the same counting prompt) counts the same objects a second time.",
+      "An unusable answer is retried once; if the counting or surfaces call fails twice, the photo is flagged for the engineer.",
+      "Known gap: iPhone HEIC photos are accepted at upload but cannot be read here yet."
+     ],
      "source": "backEnd/basis/vision/analyze.py",
      "uses": [
+      {
+       "name": "Prepares each photo",
+       "system": "Pillow",
+       "brand": null,
+       "provider": "runs on the Basis worker"
+      },
       {
        "name": "Counts objects in each photo",
        "system": "gpt-6.1-sol",
        "brand": "openai",
-       "provider": "OpenAI",
+       "provider": "Azure OpenAI first, OpenAI if Azure is down",
        "effort": "low",
        "temperature": "default (not settable)",
        "setting": "vision_model",
        "effort_setting": "vision_reasoning_effort"
       },
       {
-       "name": "Reads surfaces and the room type",
+       "name": "Reads surfaces, room type and floor",
        "system": "gpt-6-luna",
        "brand": "openai",
-       "provider": "OpenAI",
+       "provider": "Azure OpenAI first, OpenAI if Azure is down",
        "effort": "low",
        "temperature": "default (not settable)",
        "setting": "vision_surfaces_model",
        "effort_setting": "vision_reasoning_effort"
-      }
-     ]
-    },
-    {
-     "title": "Take each count from the better model",
-     "detail": "A second model counts the same photo. For each kind of object, Basis keeps the count from the model that measured more accurate on it. If the second call fails, the first count stands and the photo is flagged.",
-     "source": "backEnd/basis/vision/fusion.py",
-     "uses": [
-      {
-       "name": "Counts objects in each photo",
-       "system": "gpt-6.1-sol",
-       "brand": "openai",
-       "provider": "OpenAI",
-       "effort": "low",
-       "temperature": "default (not settable)",
-       "setting": "vision_model",
-       "effort_setting": "vision_reasoning_effort"
       },
       {
-       "name": "Second count, used where it is better",
+       "name": "Counts the same objects a second time",
        "system": "claude-opus-5-5",
        "brand": "claude",
        "provider": "Anthropic",
@@ -1708,15 +1901,41 @@
      ]
     },
     {
+     "title": "Combine the answers",
+     "detail": "A fixed table, chosen by measurement, decides which model's count is used for each object type.",
+     "steps": [
+      "The two first answers are joined: for an object both list, the larger count; material and attachment from the counting call; room type and floor from the surfaces call.",
+      "Then the fixed table (section 15.4): windows, doors, light fixtures and kitchen cabinets take claude-opus-5-5's count; exterior lights and outlets keep gpt-6.1-sol's; every other object keeps the joined answer.",
+      "If claude-opus-5-5 fails (retried twice within 80 seconds), gpt-6.1-sol's counts stand and the photo is flagged.",
+      "The photo is also flagged when its room type is unclear (confidence under 0.5)."
+     ],
+     "source": "backEnd/basis/vision/fusion.py",
+     "uses": [
+      {
+       "name": "Takes each object type's count from the better model",
+       "system": "Basis count table",
+       "brand": "basis",
+       "provider": "Basis (no AI)"
+      }
+     ]
+    },
+    {
      "title": "Outline every object",
-     "detail": "SAM 3 draws an outline around each counted object so the engineer can see and check it. It runs in the background and never holds up the study.",
+     "detail": "SAM 3 draws an outline around each object for the engineer; it never changes a count.",
+     "steps": [
+      "After a photo is analyzed, SAM 3 runs in the background, 3 photos at a time, without holding up the rooms review.",
+      "It is given the photo's object names plus 7 countable types (window, light fixture, exterior light, outlet, interior door, exterior door, kitchen cabinet) as text prompts, in one pass over the whole photo.",
+      "Every outline scoring 0.25 or more is kept; it is marked counted when it reaches its type's threshold (window 0.65, light fixture 0.7, outlet 0.55, kitchen cabinet 0.7, exterior door 0.85).",
+      "It runs on Basis's own SAM 3 server when one is set up, otherwise on Replicate; with neither, it is skipped.",
+      "Its outlines are used only in the components review and the report's photo pages; no count or price reads them."
+     ],
      "source": "backEnd/basis/activities/localize_photo.py",
      "uses": [
       {
-       "name": "Outlines each object",
+       "name": "Outlines each object for the engineer",
        "system": "SAM 3",
        "brand": "meta",
-       "provider": "Meta; run self-hosted or on Replicate"
+       "provider": "Meta; self-hosted, or Replicate"
       }
      ]
     }
@@ -2644,8 +2863,114 @@
     "regression": {
      "status": "No regression on the final build",
      "section": "63",
-     "detail": "In the plain study of live run 6, seven analyze_photo activities exhausted their three attempts while the host slept with no DNS, so the workflow flagged the seven photos and finished with 45 of 52 photos placed in 43 rooms; the corrected study, run with the host held awake, had no failure."
-    }
+     "detail": "In the plain study of live run 6, seven analyze_photo activities exhausted their three attempts while the host slept with no DNS, so the workflow flagged the seven photos and finished with 45 of 52 photos placed in 43 rooms; the corrected study, run with the host held awake, had no failure.",
+     "plain": "Last checked end to end on Nov 1's build (live run 6, commit 15cd291). Main has changed since (including the fail-safe change and support file access); one new live study, about $3 to $4, would re-check it."
+    },
+    "coverage": [
+     {
+      "component": "Photo preparation",
+      "used": "Pillow, 1,024 px, JPEG",
+      "verdict": "not compared",
+      "sections": [],
+      "missing": "Every test photo is 800 × 600, so the 1,024 px limit was never exercised; iPhone HEIC photos cannot be read.",
+      "test": "A full-resolution package: 1,024 vs 1,568 vs 2,048 px on both counting models. Fix HEIC.",
+      "cost": "about $15–20 and a new photo set"
+     },
+     {
+      "component": "Two calls per photo",
+      "used": "counting + surfaces",
+      "verdict": "partly",
+      "sections": [
+       "12.1"
+      ],
+      "missing": "No tokens recorded.",
+      "test": "One run of the one-call and two-call setups with tokens.",
+      "cost": "about $4"
+     },
+     {
+      "component": "Counting model",
+      "used": "gpt-6.1-sol, prompt v3",
+      "verdict": "partly",
+      "sections": [
+       "12",
+       "14",
+       "15.1"
+      ],
+      "missing": "The production prompt v3 was never scored offline; no cheaper model (claude-sonnet-5-5, gpt-6-luna) was tried on counting; no tokens.",
+      "test": "Prompt v3 on gpt-6.1-sol, claude-sonnet-5-5, gpt-6-luna and gpt-5.6-terra, three runs each.",
+      "cost": "about $6"
+     },
+     {
+      "component": "Second counting model",
+      "used": "claude-opus-5-5, medium",
+      "verdict": "partly",
+      "sections": [
+       "15.1"
+      ],
+      "missing": "Chosen on prompt v2; v3 not scored offline; no tokens.",
+      "test": "Three runs on v3.",
+      "cost": "about $4"
+     },
+     {
+      "component": "Count table (which model per object)",
+      "used": "fixed table, section 15.4",
+      "verdict": "partly",
+      "sections": [
+       "15.1",
+       "15.4"
+      ],
+      "missing": "Fitted on prompt v2 answers of one property.",
+      "test": "Refit on the v3 runs above, then on a second property.",
+      "cost": "$0 after the runs above"
+     },
+     {
+      "component": "Surfaces model",
+      "used": "gpt-6-luna",
+      "verdict": "partly",
+      "sections": [
+       "28.1"
+      ],
+      "missing": "No tokens; effort not varied.",
+      "test": "One run each with tokens, plus gpt-6-luna at medium.",
+      "cost": "about $0.50"
+     },
+     {
+      "component": "Cutting photos into tiles",
+      "used": "off",
+      "verdict": "partly",
+      "sections": [
+       "15.1"
+      ],
+      "missing": "No tokens.",
+      "test": "Recheck with the resolution test.",
+      "cost": "about $3"
+     },
+     {
+      "component": "Object outlines",
+      "used": "SAM 3",
+      "verdict": "compared",
+      "sections": [
+       "10",
+       "19.1",
+       "26.2",
+       "30"
+      ],
+      "missing": "",
+      "test": "",
+      "cost": ""
+     },
+     {
+      "component": "SAM 3 prompts and thresholds",
+      "used": "phrase set v3, per-type thresholds",
+      "verdict": "compared",
+      "sections": [
+       "19.1"
+      ],
+      "missing": "",
+      "test": "",
+      "cost": ""
+     }
+    ]
    },
    "links": [
     {
@@ -2674,20 +2999,42 @@
    "how": [
     {
      "title": "Group photos into rooms",
-     "detail": "Photos are grouped by their file names (\"Kitchen 1\", \"Kitchen 2\"), plus the room merges the engineer makes. The AI's guess is used only when a file name says nothing.",
+     "detail": "Photos are grouped by the room their file name names; the AI's guess is used only when the name says nothing.",
+     "steps": [
+      "A file name names a room when it has a real word (not a camera name such as IMG, DSC or PXL).",
+      "Basis removes the leading number and a trailing \"photo N\": \"1st Floor Kitchen photo 1\" and \"photo 2\" share one room, while \"Kitchen 1\" and \"Kitchen 2\" are two rooms.",
+      "The room merges the engineer makes at the rooms review are applied to every later photo.",
+      "A photo whose name says nothing is grouped by the room type, floor and number that gpt-6-luna gave it; two such bedrooms on one floor share a room until the engineer splits them."
+     ],
      "source": "backEnd/basis/vision/rooms.py",
      "uses": [
       {
-       "name": "Groups photos into rooms by file name and the engineer's merges",
+       "name": "Groups photos into rooms",
        "system": "Basis room grouping",
        "brand": "basis",
        "provider": "Basis (no AI)"
+      },
+      {
+       "name": "Reads surfaces, room type and floor",
+       "system": "gpt-6-luna",
+       "brand": "openai",
+       "provider": "Azure OpenAI first, OpenAI if Azure is down",
+       "effort": "low",
+       "temperature": "default (not settable)",
+       "setting": "vision_surfaces_model",
+       "effort_setting": "vision_reasoning_effort"
       }
      ]
     },
     {
      "title": "Name each room",
-     "detail": "Each room's name, type and floor come from its file name first and the photos' answers second. No AI call is made here.",
+     "detail": "Name, type and floor come from the file name first, the photos' answers second.",
+     "steps": [
+      "Name: the file name without its floor (\"2nd Floor Bed 2\" becomes \"Bed 2\"); it is never changed by a vote.",
+      "Type: the room word in the name, last match wins (\"Bed 2 Bath\" is a bathroom); if the name has none, the majority of the photos' answers.",
+      "Floor: from the file name; none for exterior and parking; otherwise the most common answer.",
+      "A room the engineer corrected is never changed again. No AI call is made in this part."
+     ],
      "source": "backEnd/basis/activities/reconcile_rooms.py",
      "uses": [
       {
@@ -2700,7 +3047,12 @@
     },
     {
      "title": "Open the rooms review",
-     "detail": "Once every photo is analysed, the engineer reviews the rooms. Unclear photos wait in an unassigned list.",
+     "detail": "The review opens when every photo is analyzed; outlines can still be drawing.",
+     "steps": [
+      "The rooms review opens once every photo is analyzed and its room decided, without waiting for SAM 3.",
+      "Photos with an unclear room wait in Unassigned for the engineer.",
+      "Sending it back applies the engineer's merges and moves and re-decides the rooms; no photo is analyzed again."
+     ],
      "source": "backEnd/basis/workflow/study_workflow.py",
      "uses": [
       {
@@ -2710,10 +3062,10 @@
        "provider": "Basis (built on FastAPI)"
       },
       {
-       "name": "Database",
+       "name": "Stores the study",
        "system": "PostgreSQL",
        "brand": "postgresql",
-       "provider": "Basis"
+       "provider": "Basis database"
       }
      ]
     }
@@ -3311,11 +3663,38 @@
     "regression": {
      "status": "No regression on the final build",
      "section": "63",
-     "detail": "Live run 6's plain study finished with 45 of 52 photos placed in 43 rooms because seven photos lost their analysis to a host no-DNS window, and a photo with no analysis gets no room, which the rooms view does not yet show; the corrected study had no failure."
+     "detail": "Live run 6's plain study finished with 45 of 52 photos placed in 43 rooms because seven photos lost their analysis to a host no-DNS window, and a photo with no analysis gets no room, which the rooms view does not yet show; the corrected study had no failure.",
+     "plain": "Last checked end to end on Nov 1's build (live run 6, commit 15cd291). Main has changed since (including the fail-safe change and support file access); one new live study, about $3 to $4, would re-check it."
     },
     "gaps": {
      "3": "Not a comparison: opening the rooms review is a workflow step with no alternative to measure."
-    }
+    },
+    "coverage": [
+     {
+      "component": "Grouping photos into rooms",
+      "used": "file name, else the AI's room guess",
+      "verdict": "partly",
+      "sections": [
+       "23.3",
+       "27.1",
+       "48.4"
+      ],
+      "missing": "Photos with camera names (IMG_1234) fall back to the AI's guess, measured worst (13–19 rooms of 33); nothing else was tried for them.",
+      "test": "Strip the 52 names and compare visual clustering (DINOv2 or CLIP), photo timestamps, and an AI \"same room?\" check.",
+      "cost": "about $1"
+     },
+     {
+      "component": "Room name, type and floor",
+      "used": "Basis naming rules",
+      "verdict": "compared",
+      "sections": [
+       "48.4"
+      ],
+      "missing": "",
+      "test": "",
+      "cost": ""
+     }
+    ]
    },
    "links": [
     {
@@ -3336,17 +3715,21 @@
    "how": [
     {
      "title": "Gather each room's photos",
-     "detail": "For each approved room, Basis collects its photos and what was found in them, including the engineer's corrections. A room that did not change keeps its list.",
+     "detail": "After the rooms review, each changed room is rebuilt from its photos and their current object lists.",
+     "steps": [
+      "This runs after the engineer approves the rooms; rooms without photos, without objects, or unchanged since the last build are skipped.",
+      "Each photo is read again and its object list is rebuilt from the stored counts, so the engineer's corrections and the combined counts are what get counted."
+     ],
      "source": "backEnd/basis/activities/reconcile_rooms.py",
      "uses": [
       {
-       "name": "Database",
+       "name": "Stores the study",
        "system": "PostgreSQL",
        "brand": "postgresql",
-       "provider": "Basis"
+       "provider": "Basis database"
       },
       {
-       "name": "File storage",
+       "name": "Stores the uploaded files",
        "system": "Google Cloud Storage",
        "brand": "googlecloud",
        "provider": "Google Cloud (a local folder in development)"
@@ -3355,14 +3738,20 @@
     },
     {
      "title": "Count each object once",
-     "detail": "A room with one photo keeps that photo's list. A room with several photos gets one AI call that counts every object once across the photos, so a window seen twice is not counted twice.",
+     "detail": "A room with several photos gets one AI call that counts every object once across them.",
+     "steps": [
+      "A room with one photo makes no AI call: it keeps that photo's list.",
+      "A room with several photos gets one gpt-6-luna call (effort low, prompt room_inventory/v3) per group of up to 10 photos, sent the photos and each photo's counts grouped by object type.",
+      "It returns every object once, with the photos it appears in; an object that names no photo is dropped and the room is flagged.",
+      "If the call fails twice, the room keeps the largest count any single photo saw and is flagged."
+     ],
      "source": "backEnd/basis/vision/room_step.py",
      "uses": [
       {
        "name": "Counts each object once per room",
        "system": "gpt-6-luna",
        "brand": "openai",
-       "provider": "OpenAI",
+       "provider": "Azure OpenAI first, OpenAI if Azure is down",
        "effort": "low",
        "temperature": "default (not settable)",
        "setting": "room_model",
@@ -3371,12 +3760,17 @@
      ]
     },
     {
-     "title": "Check the materials",
-     "detail": "Wall finishes, wainscoting and tile get a second look to confirm the material, because it can change the tax class.",
+     "title": "Second look at materials",
+     "detail": "Wall finishes, wainscoting and tile get one more AI call to confirm the material.",
+     "steps": [
+      "Every wainscoting, wall finish and tile object gets one claude-sonnet-5-5 call (effort low, prompt surface_material/v3).",
+      "It is sent the photo that showed the object most clearly and told what the first analysis said the material was.",
+      "Its answer replaces the material when it is sure (confidence 0.5 or more)."
+     ],
      "source": "backEnd/basis/vision/surface_material.py",
      "uses": [
       {
-       "name": "Second look at materials",
+       "name": "Second look at wall, wainscot and tile materials",
        "system": "claude-sonnet-5-5",
        "brand": "claude",
        "provider": "Anthropic",
@@ -4581,8 +4975,60 @@
     "regression": {
      "status": "No regression on the final build",
      "section": "63",
-     "detail": "In live run 6's plain study reconcile_rooms exhausted its three attempts during a host no-DNS window, so the workflow flagged the review that shows the room step's output; evidenced rows were 34 of 38 there and 35 in the corrected study, which had no failure (study spend 2.12 and 3.55)."
-    }
+     "detail": "In live run 6's plain study reconcile_rooms exhausted its three attempts during a host no-DNS window, so the workflow flagged the review that shows the room step's output; evidenced rows were 34 of 38 there and 35 in the corrected study, which had no failure (study spend 2.12 and 3.55).",
+     "plain": "Last checked end to end on Nov 1's build (live run 6, commit 15cd291). Main has changed since (including the fail-safe change and support file access); one new live study, about $3 to $4, would re-check it."
+    },
+    "coverage": [
+     {
+      "component": "How a room is counted",
+      "used": "combine each photo's list (one call per room is off)",
+      "verdict": "partly",
+      "sections": [
+       "26.8",
+       "29"
+      ],
+      "missing": "One call per room counted better but stays off until a second property confirms it; the current setup's time was not re-measured.",
+      "test": "Repeat on a second property, timed.",
+      "cost": "about $5"
+     },
+     {
+      "component": "Room counting model",
+      "used": "gpt-6-luna",
+      "verdict": "partly",
+      "sections": [
+       "16.2",
+       "28.2",
+       "31"
+      ],
+      "missing": "No time recorded.",
+      "test": "One timed run of gpt-6-luna, claude-sonnet-5-5 and gpt-6.1-sol.",
+      "cost": "about $0.40"
+     },
+     {
+      "component": "Material second look",
+      "used": "claude-sonnet-5-5",
+      "verdict": "partly",
+      "sections": [
+       "16.2",
+       "28.2"
+      ],
+      "missing": "No tokens or time; claude-opus-5-5 only probed; the 0.5 confidence floor never varied.",
+      "test": "Full claude-opus-5-5 and claude-sonnet-5-5 runs with tokens.",
+      "cost": "about $0.50"
+     },
+     {
+      "component": "Materials from cut-out surfaces",
+      "used": "off",
+      "verdict": "partly",
+      "sections": [
+       "26.3",
+       "29.3"
+      ],
+      "missing": "Better on this property but off pending a second one; no tokens.",
+      "test": "Repeat on a second property.",
+      "cost": "about $1"
+     }
+    ]
    },
    "links": [
     {
@@ -4607,7 +5053,12 @@
    "how": [
     {
      "title": "Classify each item",
-     "detail": "Each item gets its tax class from the firm's own past rulings first, then the IRS rules table, and only then from an AI classifier that must cite the IRS text it relied on.",
+     "detail": "Firm rulings first, then the IRS rules table, and only then an AI classifier that must cite the IRS text.",
+     "steps": [
+      "The firm's own rulings: the most specific match first (same object, material, attachment and room; then object and room; then object). The engineer's decisions outrank approved AI answers; a tie flags the item.",
+      "Then the IRS rules table (68 rows); each rule's IRS citation is checked against the IRS documents.",
+      "Only then claude-sonnet-5-5 (effort low, prompt classify/v1), with up to 4 calls and 3 keyword searches of the IRS documents. A citation counts only if a search returned that text and the quoted words appear in it."
+     ],
      "source": "backEnd/basis/classify/router.py",
      "uses": [
       {
@@ -4617,7 +5068,7 @@
        "provider": "Basis (no AI)"
       },
       {
-       "name": "Classifies what no rule decides, with citations",
+       "name": "Classifies what no ruling or rule decides, with citations",
        "system": "claude-sonnet-5-5",
        "brand": "claude",
        "provider": "Anthropic",
@@ -4630,13 +5081,20 @@
        "name": "Searches the IRS documents for citations",
        "system": "Basis keyword search (BM25)",
        "brand": "basis",
-       "provider": "Basis"
+       "provider": "Basis (no AI)"
       }
      ]
     },
     {
      "title": "Measure and price",
-     "detail": "Quantities come from the appraisal's areas (living area, basement, garage, lot). Each item is priced from RSMeans, adjusted for the study's year and location, and every step of the price is kept.",
+     "detail": "Quantities come from the appraisal's areas; prices from RSMeans adjusted to the study's year and place.",
+     "steps": [
+      "Room area = living area × the room's weight ÷ the total weight of the appraisal's room program (kitchen 150, bedroom 150, bath 75 …), so rooms never add up to more than the living area.",
+      "Items are counted (each), measured by area (carpet in square yards with 10 % waste, tile +15 %, paint ×3.5) or by length (4 × √area for baseboards).",
+      "Whole house: footprint = living area ÷ stories + garage; roof, siding (less 15 % for openings), gutters and landscaping follow from it.",
+      "A quantity whose input is missing is set to 0 and left unpriced, naming what is missing; driveways, walks and fences are not measured yet.",
+      "Price = RSMeans 2020 installed cost (Total incl. O&P) × year index (the cost year's index ÷ 239.1) × location factor (the ZIP's, else the state's). Every step of the price is stored on the row."
+     ],
      "source": "backEnd/basis/domain/costs.py",
      "uses": [
       {
@@ -4646,8 +5104,8 @@
        "provider": "Basis (no AI)"
       },
       {
-       "name": "Unit prices",
-       "system": "RSMeans cost data",
+       "name": "Unit costs, year index and location factors",
+       "system": "RSMeans 2020 cost data",
        "brand": null,
        "provider": "Gordian (licensed books)"
       }
@@ -4655,7 +5113,13 @@
     },
     {
      "title": "Add what photos cannot show, then balance",
-     "detail": "Hidden building systems (framing, plumbing, wiring) are priced from the RSMeans square-foot model. The total is checked against the purchase price minus land; a gap that is too large is flagged and holds the report.",
+     "detail": "Hidden systems are priced from the RSMeans square-foot model, and the total must balance to the price.",
+     "steps": [
+      "The RSMeans 2020 square-foot model (class from the appraisal's quality rating, by number of stories) × living area, plus basement, garage and bath and heating changes, × year and location.",
+      "It is split over nine building systems by RSMeans' $/SF; what the photos already priced is subtracted, and the rest becomes hidden rows (framing, plumbing rough-in, wiring …).",
+      "Depreciation: the appraiser's physical depreciation ÷ cost new, else effective age ÷ (effective age + remaining life); one rate for every row.",
+      "Balance: price + capitalized costs − land, against the depreciated total. Within ±10 % the basis is allocated in proportion; outside it, nothing is allocated and no report is made."
+     ],
      "source": "backEnd/basis/domain/structure.py",
      "uses": [
       {
@@ -4665,8 +5129,8 @@
        "provider": "Basis (no AI)"
       },
       {
-       "name": "Unit prices",
-       "system": "RSMeans cost data",
+       "name": "Unit costs, year index and location factors",
+       "system": "RSMeans 2020 cost data",
        "brand": null,
        "provider": "Gordian (licensed books)"
       }
@@ -5963,8 +6427,197 @@
     "regression": {
      "status": "No regression on the final build",
      "section": "63",
-     "detail": "Live run 6 on main 15cd291: the corrected study put 35/35 evidenced rows in the engineer's bucket with a 39-year share of 80.3 % and 160/340 assets from the firm's rulings, and the plain study 34/34 at 82.2 % with 176/366."
-    }
+     "detail": "Live run 6 on main 15cd291: the corrected study put 35/35 evidenced rows in the engineer's bucket with a 39-year share of 80.3 % and 160/340 assets from the firm's rulings, and the plain study 34/34 at 82.2 % with 176/366.",
+     "plain": "Last checked end to end on Nov 1's build (live run 6, commit 15cd291). Main has changed since (including the fail-safe change and support file access); one new live study, about $3 to $4, would re-check it."
+    },
+    "coverage": [
+     {
+      "component": "Firm rulings",
+      "used": "Basis rulings, three match levels",
+      "verdict": "compared",
+      "sections": [
+       "46.3",
+       "54"
+      ],
+      "missing": "",
+      "test": "",
+      "cost": ""
+     },
+     {
+      "component": "IRS rules table",
+      "used": "68 rows",
+      "verdict": "partly",
+      "sections": [
+       "9",
+       "44"
+      ],
+      "missing": "Never measured rules-first against AI-only on the same items.",
+      "test": "Replay a live study with the table off and on.",
+      "cost": "about $7"
+     },
+     {
+      "component": "Classifier model",
+      "used": "claude-sonnet-5-5, low",
+      "verdict": "compared",
+      "sections": [
+       "17.2",
+       "28.3"
+      ],
+      "missing": "",
+      "test": "",
+      "cost": ""
+     },
+     {
+      "component": "Classifier prompt",
+      "used": "classify/v1",
+      "verdict": "not compared",
+      "sections": [],
+      "missing": "Never compared. 5-year items are where every model fails (10 of 18 wrong on every run).",
+      "test": "A v2 prompt with the function and attachment tests, and one with material, attachment and room in the input.",
+      "cost": "about $16"
+     },
+     {
+      "component": "Classifier search",
+      "used": "keyword search (BM25)",
+      "verdict": "compared",
+      "sections": [
+       "22",
+       "25.2"
+      ],
+      "missing": "",
+      "test": "",
+      "cost": ""
+     },
+     {
+      "component": "Documents searched",
+      "used": "the reference corpus",
+      "verdict": "not compared",
+      "sections": [],
+      "missing": "Tests searched the four IRS documents; the reference corpus may also hold the two RSMeans books.",
+      "test": "Check the deployed corpus, then classify with each.",
+      "cost": "about $7"
+     },
+     {
+      "component": "Measuring areas",
+      "used": "the appraisal's areas and fixed constants",
+      "verdict": "partly",
+      "sections": [
+       "35.2",
+       "37"
+      ],
+      "missing": "Only compared with the old typical-area rule; no measured quantities to check against; roof, siding and gutters come out at a third of the engineer's dollars; driveways unpriced.",
+      "test": "Vary each constant on the two live studies (free); then measured quantities from plans or aerial data.",
+      "cost": "$0 now; aerial data later"
+     },
+     {
+      "component": "Small systems (smoke detectors, data, locks)",
+      "used": "code-derived counts",
+      "verdict": "not compared",
+      "sections": [],
+      "missing": "Assumptions, not measured.",
+      "test": "Compare with a second engineer's report.",
+      "cost": "$0"
+     },
+     {
+      "component": "Unit costs",
+      "used": "RSMeans 2020 books",
+      "verdict": "not compared",
+      "sections": [],
+      "missing": "No other cost source compared.",
+      "test": "A current RSMeans edition, Marshall & Swift, Craftsman on the same items.",
+      "cost": "licenses"
+     },
+     {
+      "component": "Cost basis",
+      "used": "installed cost incl. O&P",
+      "verdict": "compared",
+      "sections": [
+       "49.2",
+       "49.3"
+      ],
+      "missing": "",
+      "test": "",
+      "cost": ""
+     },
+     {
+      "component": "Year index",
+      "used": "RSMeans historical index",
+      "verdict": "compared",
+      "sections": [
+       "45",
+       "47.3"
+      ],
+      "missing": "",
+      "test": "",
+      "cost": ""
+     },
+     {
+      "component": "Location factor",
+      "used": "RSMeans by ZIP, else the state",
+      "verdict": "partly",
+      "sections": [
+       "45.2"
+      ],
+      "missing": "The ZIP-level factor never ran on a study (up to six points on every dollar in California).",
+      "test": "Replay both live studies with the ZIP factor.",
+      "cost": "$0"
+     },
+     {
+      "component": "Building cost source",
+      "used": "RSMeans square-foot model",
+      "verdict": "compared",
+      "sections": [
+       "44.3",
+       "49.3"
+      ],
+      "missing": "",
+      "test": "",
+      "cost": ""
+     },
+     {
+      "component": "Split and subtraction",
+      "used": "RSMeans split, photographed items subtracted",
+      "verdict": "compared",
+      "sections": [
+       "44.3"
+      ],
+      "missing": "",
+      "test": "",
+      "cost": ""
+     },
+     {
+      "component": "Depreciation",
+      "used": "appraiser's physical depreciation",
+      "verdict": "partly",
+      "sections": [
+       "44.3",
+       "49.1"
+      ],
+      "missing": "Both methods gave the same rate on this appraisal.",
+      "test": "A second property where they differ.",
+      "cost": "$0"
+     },
+     {
+      "component": "Corrections that close the gap",
+      "used": "four sourced corrections",
+      "verdict": "compared",
+      "sections": [
+       "49.3"
+      ],
+      "missing": "",
+      "test": "",
+      "cost": ""
+     },
+     {
+      "component": "Balance tolerance",
+      "used": "±10 %",
+      "verdict": "not compared",
+      "sections": [],
+      "missing": "Sourced from RSMeans, never varied.",
+      "test": "Report which setups balance at 5, 7.5, 10 and 15 %.",
+      "cost": "$0"
+     }
+    ]
    },
    "links": [
     {
@@ -6000,8 +6653,12 @@
   "output": {
    "how": [
     {
-     "title": "Remember the engineer's rulings",
-     "detail": "After approval, the engineer's corrections become the firm's rulings, so the next study classifies the same item the same way at no AI cost.",
+     "title": "Save the firm's rulings",
+     "detail": "The engineer's corrections become the firm's rulings for the next study.",
+     "steps": [
+      "After the assets approval, the engineer's corrections, cited AI answers and approved rulings are saved as the firm's rulings.",
+      "Rule-table hits and hidden-system rows are not saved as rulings."
+     ],
      "source": "backEnd/basis/activities/promote_conventions.py",
      "uses": [
       {
@@ -6011,16 +6668,20 @@
        "provider": "Basis (no AI)"
       },
       {
-       "name": "Database",
+       "name": "Stores the study",
        "system": "PostgreSQL",
        "brand": "postgresql",
-       "provider": "Basis"
+       "provider": "Basis database"
       }
      ]
     },
     {
      "title": "Export the study",
-     "detail": "The approved study is saved as data, a spreadsheet and an evidence pack with every citation. The same study always exports the same files.",
+     "detail": "The approved study is written as files; the same revision always gives the same files.",
+     "steps": [
+      "rev-N.json (every value with its evidence), the assets CSV, and every AI call with its prompt and answer.",
+      "The report PDF and the preparer's schedule (CSV and XLSX) when the basis could be allocated."
+     ],
      "source": "backEnd/basis/activities/export_report.py",
      "uses": [
       {
@@ -6030,7 +6691,7 @@
        "provider": "Basis (no AI)"
       },
       {
-       "name": "File storage",
+       "name": "Stores the uploaded files",
        "system": "Google Cloud Storage",
        "brand": "googlecloud",
        "provider": "Google Cloud (a local folder in development)"
@@ -6039,7 +6700,11 @@
     },
     {
      "title": "Record the cost",
-     "detail": "Every AI call is recorded with its tokens and dollars, by step and by model. Exporting files does not complete the study; signing the report does.",
+     "detail": "Every AI call, Azure page and SAM 3 second is recorded with its tokens and dollars.",
+     "steps": [
+      "Each call is one ledger row (model, tokens, dollars, time); the study's spend is rolled up by step and model, visible to the firm's owner.",
+      "Exporting files does not complete the study; signing the report does."
+     ],
      "source": "docs/api/SPEND.md",
      "uses": [
       {
@@ -6049,10 +6714,10 @@
        "provider": "Basis (no AI)"
       },
       {
-       "name": "Database",
+       "name": "Stores the study",
        "system": "PostgreSQL",
        "brand": "postgresql",
-       "provider": "Basis"
+       "provider": "Basis database"
       }
      ]
     }
@@ -6755,11 +7420,14 @@
     "regression": {
      "status": "No regression on the final build",
      "section": "63",
-     "detail": "Both run-6 studies completed on main 15cd291 and the printed report reproduces from the export to the cent in both, as in run 5."
+     "detail": "Both run-6 studies completed on main 15cd291 and the printed report reproduces from the export to the cent in both, as in run 5.",
+     "plain": "Last checked end to end on Nov 1's build (live run 6, commit 15cd291). Main has changed since (including the fail-safe change and support file access); one new live study, about $3 to $4, would re-check it."
     },
     "gaps": {
      "3": "Not a comparison: every AI call is recorded with its tokens and dollars (section 40); there is no alternative to measure."
-    }
+    },
+    "coverage": [],
+    "coverage_note": "Nothing in this step is a choice between alternatives: it saves and exports what the earlier steps decided."
    },
    "links": [
     {
@@ -6788,7 +7456,11 @@
    "how": [
     {
      "title": "Fill in the report details",
-     "detail": "The firm's profile and the study's details for the report are saved.",
+     "detail": "The firm profile and the study's answers for the report are saved.",
+     "steps": [
+      "The engineer fills in the firm profile and the study details the report needs.",
+      "Typst 0.15 draws the PDF with bundled fonts and a fixed timestamp, so the same study gives the same file on any machine."
+     ],
      "source": "backEnd/basis/report/render.py",
      "uses": [
       {
@@ -6798,48 +7470,63 @@
        "provider": "Basis (built on FastAPI)"
       },
       {
-       "name": "Database",
-       "system": "PostgreSQL",
-       "brand": "postgresql",
-       "provider": "Basis"
+       "name": "Draws the PDF report",
+       "system": "Typst 0.15",
+       "brand": null,
+       "provider": "runs on the Basis worker"
       }
      ]
     },
     {
      "title": "Preview and sign",
-     "detail": "The engineer opens the PDF preview and signs it. Basis signs exactly the preview that was opened: it refuses a changed preview or revision and asks for a fresh one.",
+     "detail": "The engineer signs exactly the preview they opened.",
+     "steps": [
+      "The engineer opens the preview; signing sends its fingerprint and the engineer's attestation.",
+      "Basis refuses a changed preview or revision and asks for a fresh one.",
+      "The signature, its timeline event and the signed PDF are saved together."
+     ],
      "source": "backEnd/basis/api/routes/report.py",
      "uses": [
+      {
+       "name": "Receives the files and the engineer's decisions",
+       "system": "Basis server",
+       "brand": "basis",
+       "provider": "Basis (built on FastAPI)"
+      },
+      {
+       "name": "Signs the engineer in",
+       "system": "Firebase Auth",
+       "brand": "firebase",
+       "provider": "Google Firebase"
+      },
       {
        "name": "Draws the PDF report",
        "system": "Typst 0.15",
        "brand": null,
        "provider": "runs on the Basis worker"
-      },
-      {
-       "name": "Sign-in",
-       "system": "Firebase Auth",
-       "brand": "firebase",
-       "provider": "Google Firebase"
       }
      ]
     },
     {
      "title": "After signing",
-     "detail": "A signed report never changes. If the study needs a change later, a new version is reviewed and signed, and the earlier signed PDF is kept.",
+     "detail": "A signed report never changes; a later change makes a new revision to sign.",
+     "steps": [
+      "The signed PDF is kept as it is.",
+      "A later change marks the study changed since signing; a new revision is reviewed, exported and signed, and the earlier signed PDF stays."
+     ],
      "source": "docs/api/REPORT.md",
      "uses": [
       {
-       "name": "File storage",
+       "name": "Stores the uploaded files",
        "system": "Google Cloud Storage",
        "brand": "googlecloud",
        "provider": "Google Cloud (a local folder in development)"
       },
       {
-       "name": "Database",
+       "name": "Stores the study",
        "system": "PostgreSQL",
        "brand": "postgresql",
-       "provider": "Basis"
+       "provider": "Basis database"
       }
      ]
     }
@@ -7040,11 +7727,25 @@
     "regression": {
      "status": "No regression on the final build",
      "section": "63",
-     "detail": "Run 6 on the final build reproduced the printed report from the export to the cent in both studies; the corrected study's revision was then signed through the app (section 64)."
+     "detail": "Run 6 on the final build reproduced the printed report from the export to the cent in both studies; the corrected study's revision was then signed through the app (section 64).",
+     "plain": "Last checked end to end on Nov 1's build (live run 6, commit 15cd291). Main has changed since (including the fail-safe change and support file access); one new live study, about $3 to $4, would re-check it."
     },
     "gaps": {
      "1": "Not a comparison: the report details are the engineer's answers, checked by tests."
-    }
+    },
+    "coverage": [
+     {
+      "component": "Report renderer",
+      "used": "Typst 0.15",
+      "verdict": "compared",
+      "sections": [
+       "51.2"
+      ],
+      "missing": "",
+      "test": "",
+      "cost": ""
+     }
+    ]
    },
    "links": [
     {
@@ -7074,7 +7775,11 @@
    "how": [
     {
      "title": "Compare each value with its source",
-     "detail": "Each value is shown next to the words on the appraisal page it came from. Flagged, missing and conflicting fields come first.",
+     "detail": "Each value is shown next to the words on the page it came from.",
+     "steps": [
+      "Flagged, missing and conflicting fields come first.",
+      "Each value shows its page and quote, highlighted on the PDF."
+     ],
      "source": "backEnd/basis/api/routes/decisions.py",
      "uses": [
       {
@@ -7087,7 +7792,11 @@
     },
     {
      "title": "Correct values",
-     "detail": "The engineer corrects or adds a field with a reason; the correction replaces the AI's value.",
+     "detail": "A correction replaces the AI's value.",
+     "steps": [
+      "The engineer corrects or adds a field with a reason; it is stored as a manual value.",
+      "Sending it back reads the appraisal again on the next revision (the Azure reading is reused; the AI call is paid again) and applies the corrections."
+     ],
      "source": "backEnd/basis/activities/corrections.py",
      "uses": [
       {
@@ -7097,16 +7806,21 @@
        "provider": "Basis (built on FastAPI)"
       },
       {
-       "name": "Database",
+       "name": "Stores the study",
        "system": "PostgreSQL",
        "brand": "postgresql",
-       "provider": "Basis"
+       "provider": "Basis database"
       }
      ]
     },
     {
      "title": "Approve or send back",
-     "detail": "The engineer's decision is saved (a draft is kept while they work). Sending it back starts a new version that redoes only the work the corrections affect.",
+     "detail": "Approving moves the study on; sending it back reruns only what the corrections affect.",
+     "steps": [
+      "The decision is saved with the engineer's corrections (a draft is kept while they work) and delivered to the workflow, at least once.",
+      "Approve: the study moves to the next step.",
+      "Send back: the corrections are copied into the next revision and only this review's step is rerun."
+     ],
      "source": "backEnd/basis/activities/apply_corrections.py",
      "uses": [
       {
@@ -7116,13 +7830,13 @@
        "provider": "Basis (built on FastAPI)"
       },
       {
-       "name": "Database",
+       "name": "Stores the study",
        "system": "PostgreSQL",
        "brand": "postgresql",
-       "provider": "Basis"
+       "provider": "Basis database"
       },
       {
-       "name": "Workflow engine",
+       "name": "Runs the study's steps in order and retries failures",
        "system": "Temporal",
        "brand": "temporal",
        "provider": "Temporal"
@@ -7952,11 +8666,14 @@
     "regression": {
      "status": "No regression on the final build",
      "section": "63",
-     "detail": "The corrected study on main 15cd291 put 35 of 35 evidenced rows in the engineer's bucket with one ruling posted, and section 54's decisions-first rule is confirmed live on the Fireplaces row."
+     "detail": "The corrected study on main 15cd291 put 35 of 35 evidenced rows in the engineer's bucket with one ruling posted, and section 54's decisions-first rule is confirmed live on the Fireplaces row.",
+     "plain": "Last checked end to end on Nov 1's build (live run 6, commit 15cd291). Main has changed since (including the fail-safe change and support file access); one new live study, about $3 to $4, would re-check it."
     },
     "gaps": {
      "1": "Not measured: how quickly an engineer finds a wrong value has not been timed yet."
-    }
+    },
+    "coverage": [],
+    "coverage_note": "Not measured yet: how long an engineer takes at this review."
    },
    "links": [
     {
@@ -7985,7 +8702,10 @@
    "how": [
     {
      "title": "Put every photo in its room",
-     "detail": "The engineer checks each room's photos, name, type and floor; photos without a room are listed with the reason.",
+     "detail": "The engineer checks each room's photos, name, type and floor.",
+     "steps": [
+      "Photos without a room are listed with the reason."
+     ],
      "source": "backEnd/basis/api/routes/decisions.py",
      "uses": [
       {
@@ -7998,7 +8718,10 @@
     },
     {
      "title": "Correct the rooms",
-     "detail": "Rooms can be created, renamed, merged or removed and photos moved. Only the photos affected are analysed again.",
+     "detail": "Rooms can be created, renamed, merged or removed and photos moved.",
+     "steps": [
+      "Merges are saved as the study's room aliases; no photo is analyzed again."
+     ],
      "source": "backEnd/basis/activities/corrections.py",
      "uses": [
       {
@@ -8008,16 +8731,21 @@
        "provider": "Basis (built on FastAPI)"
       },
       {
-       "name": "Database",
+       "name": "Stores the study",
        "system": "PostgreSQL",
        "brand": "postgresql",
-       "provider": "Basis"
+       "provider": "Basis database"
       }
      ]
     },
     {
      "title": "Approve or send back",
-     "detail": "The engineer's decision is saved (a draft is kept while they work). Sending it back starts a new version that redoes only the work the corrections affect.",
+     "detail": "Approving moves the study on; sending it back reruns only what the corrections affect.",
+     "steps": [
+      "The decision is saved with the engineer's corrections (a draft is kept while they work) and delivered to the workflow, at least once.",
+      "Approve: the study moves to the next step.",
+      "Send back: the corrections are copied into the next revision and only this review's step is rerun."
+     ],
      "source": "backEnd/basis/activities/apply_corrections.py",
      "uses": [
       {
@@ -8027,13 +8755,13 @@
        "provider": "Basis (built on FastAPI)"
       },
       {
-       "name": "Database",
+       "name": "Stores the study",
        "system": "PostgreSQL",
        "brand": "postgresql",
-       "provider": "Basis"
+       "provider": "Basis database"
       },
       {
-       "name": "Workflow engine",
+       "name": "Runs the study's steps in order and retries failures",
        "system": "Temporal",
        "brand": "temporal",
        "provider": "Temporal"
@@ -8863,11 +9591,14 @@
     "regression": {
      "status": "No regression on the final build",
      "section": "63",
-     "detail": "The corrected study on main 15cd291 put 35 of 35 evidenced rows in the engineer's bucket with one ruling posted, and section 54's decisions-first rule is confirmed live on the Fireplaces row."
+     "detail": "The corrected study on main 15cd291 put 35 of 35 evidenced rows in the engineer's bucket with one ruling posted, and section 54's decisions-first rule is confirmed live on the Fireplaces row.",
+     "plain": "Last checked end to end on Nov 1's build (live run 6, commit 15cd291). Main has changed since (including the fail-safe change and support file access); one new live study, about $3 to $4, would re-check it."
     },
     "gaps": {
      "1": "Not measured: how quickly an engineer organizes the photos has not been timed yet."
-    }
+    },
+    "coverage": [],
+    "coverage_note": "Not measured yet: how long an engineer takes at this review."
    },
    "links": [
     {
@@ -8897,6 +9628,9 @@
     {
      "title": "Check what was found",
      "detail": "Each room's list is shown against its photos, with every object outlined.",
+     "steps": [
+      "The outlines come from SAM 3; the counts come from the room step."
+     ],
      "source": "backEnd/basis/api/routes/decisions.py",
      "uses": [
       {
@@ -8906,16 +9640,19 @@
        "provider": "Basis (built on FastAPI)"
       },
       {
-       "name": "Outlines each object",
+       "name": "Outlines each object for the engineer",
        "system": "SAM 3",
        "brand": "meta",
-       "provider": "Meta; run self-hosted or on Replicate"
+       "provider": "Meta; self-hosted, or Replicate"
       }
      ]
     },
     {
      "title": "Correct counts and materials",
-     "detail": "The engineer fixes counts and materials and adds or removes items. Only the rooms that changed are rebuilt.",
+     "detail": "The engineer fixes counts and materials and adds or removes items.",
+     "steps": [
+      "Sending it back re-analyzes the flagged photos and rebuilds only the rooms that changed."
+     ],
      "source": "backEnd/basis/activities/corrections.py",
      "uses": [
       {
@@ -8925,16 +9662,21 @@
        "provider": "Basis (built on FastAPI)"
       },
       {
-       "name": "Database",
+       "name": "Stores the study",
        "system": "PostgreSQL",
        "brand": "postgresql",
-       "provider": "Basis"
+       "provider": "Basis database"
       }
      ]
     },
     {
      "title": "Approve or send back",
-     "detail": "The engineer's decision is saved (a draft is kept while they work). Sending it back starts a new version that redoes only the work the corrections affect.",
+     "detail": "Approving moves the study on; sending it back reruns only what the corrections affect.",
+     "steps": [
+      "The decision is saved with the engineer's corrections (a draft is kept while they work) and delivered to the workflow, at least once.",
+      "Approve: the study moves to the next step.",
+      "Send back: the corrections are copied into the next revision and only this review's step is rerun."
+     ],
      "source": "backEnd/basis/activities/apply_corrections.py",
      "uses": [
       {
@@ -8944,13 +9686,13 @@
        "provider": "Basis (built on FastAPI)"
       },
       {
-       "name": "Database",
+       "name": "Stores the study",
        "system": "PostgreSQL",
        "brand": "postgresql",
-       "provider": "Basis"
+       "provider": "Basis database"
       },
       {
-       "name": "Workflow engine",
+       "name": "Runs the study's steps in order and retries failures",
        "system": "Temporal",
        "brand": "temporal",
        "provider": "Temporal"
@@ -9780,11 +10522,14 @@
     "regression": {
      "status": "No regression on the final build",
      "section": "63",
-     "detail": "The corrected study on main 15cd291 put 35 of 35 evidenced rows in the engineer's bucket with one ruling posted, and section 54's decisions-first rule is confirmed live on the Fireplaces row."
+     "detail": "The corrected study on main 15cd291 put 35 of 35 evidenced rows in the engineer's bucket with one ruling posted, and section 54's decisions-first rule is confirmed live on the Fireplaces row.",
+     "plain": "Last checked end to end on Nov 1's build (live run 6, commit 15cd291). Main has changed since (including the fail-safe change and support file access); one new live study, about $3 to $4, would re-check it."
     },
     "gaps": {
      "1": "Not measured: how quickly an engineer checks the evidence has not been timed yet."
-    }
+    },
+    "coverage": [],
+    "coverage_note": "Not measured yet: how long an engineer takes at this review."
    },
    "links": [
     {
@@ -9813,7 +10558,10 @@
    "how": [
     {
      "title": "Check each asset",
-     "detail": "Tax classes, quantities, prices, their cost trail and the cited evidence are shown, with how the total balances to the purchase price.",
+     "detail": "Tax classes, quantities, prices, cost trails and citations, with how the total balances.",
+     "steps": [
+      "Each asset shows its class, its citation, its quantity and every step of its price."
+     ],
      "source": "backEnd/basis/api/routes/decisions.py",
      "uses": [
       {
@@ -9826,7 +10574,10 @@
     },
     {
      "title": "Fix what is wrong",
-     "detail": "The engineer corrects anything unsupported, with a reason. Approving turns the rulings into the firm's rules for next time.",
+     "detail": "Corrections carry a reason; approving makes them the firm's rulings.",
+     "steps": [
+      "Known issue: sending the assets review back classifies every uncorrected item again from scratch, paying again, and an answer can change for a row the engineer did not touch."
+     ],
      "source": "backEnd/basis/activities/corrections.py",
      "uses": [
       {
@@ -9836,16 +10587,21 @@
        "provider": "Basis (built on FastAPI)"
       },
       {
-       "name": "Database",
+       "name": "Stores the study",
        "system": "PostgreSQL",
        "brand": "postgresql",
-       "provider": "Basis"
+       "provider": "Basis database"
       }
      ]
     },
     {
      "title": "Approve or send back",
-     "detail": "The engineer's decision is saved (a draft is kept while they work). Sending it back starts a new version that redoes only the work the corrections affect.",
+     "detail": "Approving moves the study on; sending it back reruns only what the corrections affect.",
+     "steps": [
+      "The decision is saved with the engineer's corrections (a draft is kept while they work) and delivered to the workflow, at least once.",
+      "Approve: the study moves to the next step.",
+      "Send back: the corrections are copied into the next revision and only this review's step is rerun."
+     ],
      "source": "backEnd/basis/activities/apply_corrections.py",
      "uses": [
       {
@@ -9855,13 +10611,13 @@
        "provider": "Basis (built on FastAPI)"
       },
       {
-       "name": "Database",
+       "name": "Stores the study",
        "system": "PostgreSQL",
        "brand": "postgresql",
-       "provider": "Basis"
+       "provider": "Basis database"
       },
       {
-       "name": "Workflow engine",
+       "name": "Runs the study's steps in order and retries failures",
        "system": "Temporal",
        "brand": "temporal",
        "provider": "Temporal"
@@ -10691,11 +11447,14 @@
     "regression": {
      "status": "No regression on the final build",
      "section": "63",
-     "detail": "The corrected study on main 15cd291 put 35 of 35 evidenced rows in the engineer's bucket with one ruling posted, and section 54's decisions-first rule is confirmed live on the Fireplaces row."
+     "detail": "The corrected study on main 15cd291 put 35 of 35 evidenced rows in the engineer's bucket with one ruling posted, and section 54's decisions-first rule is confirmed live on the Fireplaces row.",
+     "plain": "Last checked end to end on Nov 1's build (live run 6, commit 15cd291). Main has changed since (including the fail-safe change and support file access); one new live study, about $3 to $4, would re-check it."
     },
     "gaps": {
      "1": "Not measured: how quickly an engineer checks the assets has not been timed yet."
-    }
+    },
+    "coverage": [],
+    "coverage_note": "Not measured yet: how long an engineer takes at this review."
    },
    "links": [
     {
@@ -10973,6 +11732,82 @@
   "49.3": {
    "title": "49.3 The sweep",
    "anchor": "493-the-sweep"
+  },
+  "33.8": {
+   "title": "33.8 UAD 3.6 as a PDF",
+   "anchor": "338-uad-36-as-a-pdf"
+  },
+  "25.1": {
+   "title": "25.1 Embedding window",
+   "anchor": "251-embedding-window"
+  },
+  "22": {
+   "title": "22. Retrieval: BM25, vectors and the hybrid (2026-10-16)",
+   "anchor": "22-retrieval-bm25-vectors-and-the-hybrid-2026-10-16"
+  },
+  "12.1": {
+   "title": "12.1 Decomposed on gpt-6.1-sol, and every model on one yardstick",
+   "anchor": "121-decomposed-on-gpt-61-sol-and-every-model-on-one-yardstick"
+  },
+  "12": {
+   "title": "12. Frontier OpenAI models on the per-photo step: gpt-6.1-sol and gpt-6-astra (2026-10-16)",
+   "anchor": "12-frontier-openai-models-on-the-per-photo-step-gpt-61-sol-and-gpt-6-astra-2026-10-16"
+  },
+  "14": {
+   "title": "14. Claude models on the per-photo step (2026-10-16)",
+   "anchor": "14-claude-models-on-the-per-photo-step-2026-10-16"
+  },
+  "10": {
+   "title": "10. Localizing and counting objects with SAM 3 (2026-10-16)",
+   "anchor": "10-localizing-and-counting-objects-with-sam-3-2026-10-16"
+  },
+  "30": {
+   "title": "30. SAM 3 throughput (2026-10-17)",
+   "anchor": "30-sam-3-throughput-2026-10-17"
+  },
+  "29": {
+   "title": "29. Room-stage options wired, measured, off by default (2026-10-16)",
+   "anchor": "29-room-stage-options-wired-measured-off-by-default-2026-10-16"
+  },
+  "29.3": {
+   "title": "29.3 Materials through the wired code",
+   "anchor": "293-materials-through-the-wired-code"
+  },
+  "46.3": {
+   "title": "46.3 Measured on the live pair, without a paid run",
+   "anchor": "463-measured-on-the-live-pair-without-a-paid-run"
+  },
+  "9": {
+   "title": "9. Rules table re-cited; `rule_citations` eval (added 2026-10-15, later the same day)",
+   "anchor": "9-rules-table-re-cited-rule_citations-eval-added-2026-10-15-later-the-same-day"
+  },
+  "44": {
+   "title": "44. The structure model: a complete replacement cost that reconciles to the price (2026-10-30)",
+   "anchor": "44-the-structure-model-a-complete-replacement-cost-that-reconciles-to-the-price-2026-10-30"
+  },
+  "17.2": {
+   "title": "17.2 Asset classification",
+   "anchor": "172-asset-classification"
+  },
+  "37": {
+   "title": "37. The intake drives the takeoff, and a study cannot start without it (2026-10-29)",
+   "anchor": "37-the-intake-drives-the-takeoff-and-a-study-cannot-start-without-it-2026-10-29"
+  },
+  "49.2": {
+   "title": "49.2 What was built",
+   "anchor": "492-what-was-built"
+  },
+  "45": {
+   "title": "45. Cost indices: every priced dollar rests on a cited RSMeans index (2026-10-30)",
+   "anchor": "45-cost-indices-every-priced-dollar-rests-on-a-cited-rsmeans-index-2026-10-30"
+  },
+  "45.2": {
+   "title": "45.2 What was built",
+   "anchor": "452-what-was-built"
+  },
+  "49.1": {
+   "title": "49.1 The decomposition",
+   "anchor": "491-the-decomposition"
   }
  },
  "models": {
