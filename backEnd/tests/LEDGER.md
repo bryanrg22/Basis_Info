@@ -617,6 +617,19 @@ upload slow tests 142 passed.
 | `web/tests/developer-workflow.test.cjs`, `developer-health.test.cjs` | Changed: a dialog shows the "What Basis uses today" sentence at the top and "Used today" on green rows, and no "Chosen:" line | pass |
 | `web/tests/developer-workflow.test.cjs` | Changed: a part with no comparison opens with "Not compared yet" or "Not a comparison" and says what was and was not measured; every table title is a plain question (no "sweep", "production path" or "replay") | pass |
 
+## Free comparisons: seven components measured against alternatives (2026-11-03; EVAL_REPORT 82-88)
+
+| File | What it checks | Result |
+|---|---|---|
+| `tests/unit/evals/test_room_grouping.py` | `evals.room_grouping` on synthetic photos: pair, BCubed and one-to-one scores (hand-computed), unplaced photos, today's rule on real and camera names, the exterior rules, threshold search and leave-one-out, blocked and forced matrices, nearest-neighbour diagnostic, EXIF reading, seeded cross-room and same-type swaps, the name-type check (caught, untyped name, same type, false alarm), `main` end to end without an embedding model | 27 tests, pass |
+| `tests/unit/evals/test_room_type_threshold.py` | `evals.room_type_threshold` on synthetic answers: calibration bins, the sweep's counts, the alternative rules, the operating-point rules, and the regression that the 0.5 flag equals `basis.vision.analyze.review` (a mutation of the threshold fails it) | 12 tests, pass |
+| `tests/unit/evals/test_highlight_placement.py` | `evals.highlight_placement` on a fabricated page: each placement method, the words test, the stricter own-printing and IoU tests, coverage, refusal of a box off the cited page | 21 tests, pass |
+| `tests/unit/evals/test_balance_tolerance.py` | `evals.balance_tolerance` on a synthetic export priced so the gap is exactly 6 %: every rule's boundaries, the two-band and scaled rules, the allocation-factor probe, and the two 10 % checks disagreeing on `allocate` itself | 10 tests, pass |
+| `tests/unit/evals/test_location_factor.py` | `evals.location_factor` on a synthetic two-state factor table and export: each resolution, the nearest-prefix and median fallbacks, the leave-one-out fallback check, a ZIP whose row belongs to another state, and `reprice_export` unchanged without a chosen factor | 13 tests, pass |
+| `tests/unit/evals/test_takeoff_constants.py` | `evals.takeoff_constants` on a synthetic export: constant overrides (paired program constants move together), linear factors, published sets, the sensitivity ranking, and a site item in a measured room never priced as 1 EA | 13 tests, pass |
+| `tests/unit/evals/test_schedule_vs_engineer.py` | `evals.schedule_vs_engineer` on a synthetic export and engineer schedule: row matching, period, method, convention and bonus comparison, first-year shares under each rule set, the 40 % test, and the stored-report regression | 21 tests, pass |
+| `tests/unit/evals/test_gap_sweep.py` | Unchanged; rerun because `evals/reprice_export.py` gained an optional `LocationChoice` (default behaviour identical) | 3 tests, pass |
+
 ## iPhone photos (HEIC) read and shown (2026-11-03; EVAL_REPORT 81)
 
 | File | What it checks | Result |
