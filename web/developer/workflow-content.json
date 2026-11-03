@@ -1636,6 +1636,170 @@
       ],
       "step": 2,
       "used": "Basis finds each checkbox's label from the page itself (the words right after the box): right 0.958 of the time on the client appraisal and 0.985 on the generated ones, against 0.875 and 0.849 for Azure's own pairing."
+     },
+     {
+      "title": "Highlight placement",
+      "section": "84",
+      "date": "2026-11-03",
+      "step": 2,
+      "question": "When the review page highlights where a value is printed, which way of placing the box is most accurate?",
+      "dataset": "906 printed fields of 10 appraisals read by the production call (gpt-6.1-sol, low), placed on Azure's recorded page reading; no new Azure or model call",
+      "columns": [
+       "Placement method",
+       "Boxes placed (of 906)",
+       "Right among all fields",
+       "Wrong box",
+       "Wrong page",
+       "On the value's own printing",
+       "IoU ≥ 0.5 with the value's words",
+       "Placement time (s)",
+       "Cost per appraisal",
+       "Tokens (input / output)"
+      ],
+      "column_notes": [
+       {
+        "help": "Fields that got a box; the share in brackets.",
+        "better": null
+       },
+       {
+        "help": "The box is on the cited page and its words hold the true value.",
+        "better": "higher"
+       },
+       {
+        "help": "A box placed but on the wrong words.",
+        "better": "lower"
+       },
+       {
+        "help": "A box on another page than the one cited.",
+        "better": "lower"
+       },
+       {
+        "help": "The stricter test: the box is on the printing the reader quoted, not just a printing of the same value.",
+        "better": "higher"
+       },
+       {
+        "help": "The box overlaps the value's words by at least half (intersection over union).",
+        "better": "higher"
+       },
+       {
+        "help": "Seconds for all 906 fields.",
+        "better": "lower"
+       },
+       {
+        "help": "Extra dollars per appraisal over today.",
+        "better": "lower"
+       },
+       {
+        "help": "Tokens sent to a paid model: \"None\" means no model was called in this test.",
+        "better": null
+       }
+      ],
+      "rows": [
+       {
+        "id": "Basis's rule",
+        "name": "Basis's rule: the checked box, else Azure's pair box when it read the value, else the value's words nearest the caption",
+        "setup": [],
+        "values": [
+         "906 (1.000)",
+         "0.999 (905 / 906)",
+         "1",
+         "0",
+         "0.938 (804 / 857)",
+         "0.885 (698 / 789)",
+         "8.83",
+         "$0",
+         "None"
+        ],
+        "setup_note": "No AI model; Azure's recorded page reading (prebuilt-layout, Azure), replayed",
+        "in_use": true
+       },
+       {
+        "id": "Azure's pair",
+        "name": "Azure's own key-value pair box for the field's caption",
+        "setup": [],
+        "values": [
+         "359 (0.396)",
+         "0.353 (320 / 906)",
+         "27",
+         "12",
+         "0.364 (312 / 857)",
+         "0.300 (237 / 789)",
+         "0.43",
+         "$0",
+         "None"
+        ],
+        "setup_note": "No AI model; Azure's recorded page reading, replayed"
+       },
+       {
+        "id": "text search",
+        "name": "Plain text search: the quote's words, first occurrence on the page",
+        "setup": [],
+        "values": [
+         "900 (0.993)",
+         "0.822 (745 / 906)",
+         "155",
+         "0",
+         "0.823 (705 / 857)",
+         "0.052 (41 / 789)",
+         "0.46",
+         "$0",
+         "None"
+        ],
+        "setup_note": "No AI model; Azure's recorded page reading, replayed"
+       },
+       {
+        "id": "Azure first",
+        "name": "Azure's pair box where it exists, else Basis's rule",
+        "setup": [],
+        "values": [
+         "906 (1.000)",
+         "0.956 (866 / 906)",
+         "28",
+         "12",
+         "0.911 (781 / 857)",
+         "0.805 (635 / 789)",
+         "8.83",
+         "$0",
+         "None"
+        ],
+        "setup_note": "No AI model; Azure's recorded page reading, replayed"
+       },
+       {
+        "id": "quote-checked",
+        "name": "Quote-checked: Basis's box when it lies inside the reader's quote, else the value's words inside the quote",
+        "setup": [],
+        "values": [
+         "906 (1.000)",
+         "0.999 (905 / 906)",
+         "1",
+         "0",
+         "0.979 (839 / 857)",
+         "0.919 (725 / 789)",
+         "8.77",
+         "$0",
+         "None"
+        ],
+        "setup_note": "No AI model; Azure's recorded page reading, replayed"
+       },
+       {
+        "id": "Azure 1004",
+        "name": "Azure's prebuilt 1004 form model's field box",
+        "setup": [],
+        "values": [
+         "335 (0.370)",
+         "0.233 (211 / 906)",
+         "124",
+         "0",
+         "0.231 (198 / 857)",
+         "0.203 (160 / 789)",
+         "2.10",
+         "$0.083 more",
+         "None"
+        ],
+        "setup_note": "No AI model; Azure's recorded form reading (prebuilt-mortgage.us.1004), replayed"
+       }
+      ],
+      "used": "Basis places the box with its own rule (the green row): on 905 of 906 fields the box holds the right value, where Azure's own pair box exists for only 0.396 of fields. A stricter test, which also asks for the very printing the reader quoted, found Basis on the wrong printing of a repeated value for 6 % of fields. \"Quote-checked\" fixes most of that (0.938 to 0.979, 35 fields better and 0 worse) at no cost; it is the proposed change and is not built yet."
      }
     ],
     "metrics": [
@@ -1791,14 +1955,15 @@
      {
       "component": "Highlight regions",
       "used": "Basis rule: the quote's words on the cited page",
-      "verdict": "partly",
+      "verdict": "compared",
       "sections": [
        "33.6",
-       "33.12"
+       "33.12",
+       "84"
       ],
-      "missing": "Measured for accuracy only; no alternative placement method.",
-      "test": "Compare with Azure's own field boxes on the 16 appraisals.",
-      "cost": "$0"
+      "missing": "",
+      "test": "",
+      "cost": ""
      },
      {
       "component": "Review threshold and checks",
@@ -2833,6 +2998,202 @@
       ],
       "step": 3,
       "used": "Basis keeps the two language models for counting: no detector or outlining model won a single object type against them; SAM 3 is kept only to outline the counted objects."
+     },
+     {
+      "title": "Room-type review threshold",
+      "section": "83",
+      "date": "2026-11-03",
+      "step": 1,
+      "question": "Below what room-type confidence should a photo go to the engineer?",
+      "dataset": "Stored room-type answers with their confidences: the four live studies (208 answers) and gpt-6-luna on the newer prompt (156 answers, 3 repeats); no new call",
+      "columns": [
+       "Answers and threshold",
+       "Flagged (of answers) [added by the threshold]",
+       "Flag rate",
+       "Errors caught",
+       "Errors missed",
+       "Precision of the flag",
+       "Photos per error caught",
+       "Right among unflagged",
+       "Tokens (input / output)"
+      ],
+      "column_notes": [
+       {
+        "help": "Photos sent to the engineer; in brackets, those the threshold adds beyond the \"ambiguous\" answers, which are always flagged.",
+        "better": null
+       },
+       {
+        "help": "Share of answers flagged.",
+        "better": "lower"
+       },
+       {
+        "help": "Wrong room types among the flagged, of all wrong types.",
+        "better": "higher"
+       },
+       {
+        "help": "Wrong room types that pass unflagged.",
+        "better": "lower"
+       },
+       {
+        "help": "Of the flagged photos, the share that were wrong.",
+        "better": "higher"
+       },
+       {
+        "help": "How many photos the engineer looks at per wrong type found.",
+        "better": "lower"
+       },
+       {
+        "help": "Accuracy of what passes without review.",
+        "better": "higher"
+       },
+       {
+        "help": "Tokens sent to a paid model: \"None\" means no model was called in this test.",
+        "better": null
+       }
+      ],
+      "rows": [
+       {
+        "id": "0.50 live",
+        "name": "Live studies, threshold 0.50 (today)",
+        "setup": [
+         {
+          "role": "room type and confidence (stored)",
+          "model": "gpt-6-luna",
+          "provider": "OpenAI (inferred; not recorded in the export)",
+          "effort": "low",
+          "temperature": "default (not settable)"
+         }
+        ],
+        "values": [
+         "5 of 208 [0]",
+         "2.4%",
+         "5 of 20 (25%)",
+         "15",
+         "100%",
+         "1.0",
+         "92.6%",
+         "None (stored answers, no new call)"
+        ],
+        "in_use": true
+       },
+       {
+        "id": "0.65 live",
+        "name": "Live studies, threshold 0.65 (proposed)",
+        "setup": [
+         {
+          "role": "room type and confidence (stored)",
+          "model": "gpt-6-luna",
+          "provider": "OpenAI (inferred)",
+          "effort": "low",
+          "temperature": "default (not settable)"
+         }
+        ],
+        "values": [
+         "11 of 208 [6]",
+         "5.3%",
+         "10 of 20 (50%)",
+         "10",
+         "90.9%",
+         "1.1",
+         "94.9%",
+         "None (stored answers, no new call)"
+        ]
+       },
+       {
+        "id": "0.70 live",
+        "name": "Live studies, threshold 0.70",
+        "setup": [
+         {
+          "role": "room type and confidence (stored)",
+          "model": "gpt-6-luna",
+          "provider": "OpenAI (inferred)",
+          "effort": "low",
+          "temperature": "default (not settable)"
+         }
+        ],
+        "values": [
+         "22 of 208 [17]",
+         "10.6%",
+         "14 of 20 (70%)",
+         "6",
+         "63.6%",
+         "1.6",
+         "96.8%",
+         "None (stored answers, no new call)"
+        ]
+       },
+       {
+        "id": "0.90 live",
+        "name": "Live studies, threshold 0.90 (catches every error)",
+        "setup": [
+         {
+          "role": "room type and confidence (stored)",
+          "model": "gpt-6-luna",
+          "provider": "OpenAI (inferred)",
+          "effort": "low",
+          "temperature": "default (not settable)"
+         }
+        ],
+        "values": [
+         "51 of 208 [46]",
+         "24.5%",
+         "20 of 20 (100%)",
+         "0",
+         "39.2%",
+         "2.6",
+         "100%",
+         "None (stored answers, no new call)"
+        ]
+       },
+       {
+        "id": "0.50 luna",
+        "name": "Luna, newer prompt, threshold 0.50 (today)",
+        "setup": [
+         {
+          "role": "room type and confidence (stored)",
+          "model": "gpt-6-luna",
+          "provider": "OpenAI",
+          "effort": "low",
+          "temperature": "default (not settable)"
+         }
+        ],
+        "values": [
+         "5 of 156 [0]",
+         "3.2%",
+         "5 of 19 (26%)",
+         "14",
+         "100%",
+         "1.0",
+         "90.7%",
+         "None (stored answers, no new call)"
+        ],
+        "in_use": true
+       },
+       {
+        "id": "0.65 luna",
+        "name": "Luna, newer prompt, threshold 0.65 (proposed)",
+        "setup": [
+         {
+          "role": "room type and confidence (stored)",
+          "model": "gpt-6-luna",
+          "provider": "OpenAI",
+          "effort": "low",
+          "temperature": "default (not settable)"
+         }
+        ],
+        "values": [
+         "9 of 156 [4]",
+         "5.8%",
+         "8 of 19 (42%)",
+         "11",
+         "88.9%",
+         "1.1",
+         "92.5%",
+         "None (stored answers, no new call)"
+        ]
+       }
+      ],
+      "used": "Basis flags a photo whose room type comes back \"ambiguous\" or below 0.5 confidence (the green rows). On the stored answers no other answer was ever below 0.55, so 0.5 flags only the ambiguous ones and catches about a quarter of the wrong room types. At 0.65 it flags 5–8 % of photos, most of them truly wrong, and catches 40–65 % of the errors; proposed as a setting, not changed yet."
      }
     ],
     "metrics": [
@@ -2976,12 +3337,14 @@
      },
      {
       "component": "Room-type review threshold",
-      "used": "a photo is flagged below 0.5 confidence",
-      "verdict": "not compared",
-      "sections": [],
-      "missing": "A fixed value, never compared.",
-      "test": "Vary it from 0.3 to 0.8 on the 52 photos' stored answers.",
-      "cost": "$0"
+      "used": "flagged when \"ambiguous\" or below 0.5 confidence",
+      "verdict": "compared",
+      "sections": [
+       "83"
+      ],
+      "missing": "",
+      "test": "",
+      "cost": ""
      },
      {
       "component": "Cutting photos into tiles",
@@ -3667,6 +4030,364 @@
       ],
       "step": 2,
       "used": "Basis reads the room's name first (from the file name or the engineer's merge) and asks the AI only when the name says nothing, the \"after\" rows; camera-style names that say nothing about the room keep the AI's guess."
+     },
+     {
+      "title": "Room grouping with camera-style file names",
+      "section": "82",
+      "date": "2026-11-03",
+      "step": 1,
+      "question": "When photos are named like IMG_1234, which free method puts them in the right rooms?",
+      "dataset": "52 photos of one client study, every file renamed IMG_<n>; scored against the engineer's 33 labelled rooms (25 of them one-photo rooms); room types from four stored gpt-6-luna runs, no new call",
+      "columns": [
+       "Grouping",
+       "Rooms",
+       "Photos in the right room",
+       "Rooms exactly right",
+       "Photos with no room",
+       "Pair F1",
+       "BCubed F1",
+       "Wall time",
+       "Cost",
+       "Tokens (input / output)"
+      ],
+      "column_notes": [
+       {
+        "help": "Rooms formed (the labels have 33); a range is over the four stored runs.",
+        "better": null
+       },
+       {
+        "help": "Of 52, photos whose room is matched one-to-one to their labelled room.",
+        "better": "higher"
+       },
+       {
+        "help": "Formed rooms holding exactly one labelled room's photos, of 33.",
+        "better": "higher"
+       },
+       {
+        "help": "Photos left in the Unassigned room.",
+        "better": "lower"
+       },
+       {
+        "help": "Over the 1,326 photo pairs: put together against together in the labels (0 to 1).",
+        "better": "higher"
+       },
+       {
+        "help": "Per photo, how much of its room belongs with it and how much of its labelled room it is with (0 to 1).",
+        "better": "higher"
+       },
+       {
+        "help": "Seconds on the laptop for the whole set, model loading excluded.",
+        "better": "lower"
+       },
+       {
+        "help": "Dollars spent by the test.",
+        "better": "lower"
+       },
+       {
+        "help": "Tokens sent to a paid model: \"None\" means no model was called in this test.",
+        "better": null
+       }
+      ],
+      "rows": [
+       {
+        "id": "today",
+        "name": "Today: the AI's room type, floor and ordinal group the photos",
+        "setup": [
+         {
+          "role": "room type answers (stored, not called here)",
+          "model": "gpt-6-luna",
+          "provider": "OpenAI",
+          "effort": "low",
+          "temperature": "default (not settable)"
+         }
+        ],
+        "values": [
+         "17–19",
+         "28–32",
+         "5–8",
+         "1–2",
+         "0.49–0.72",
+         "0.67–0.73",
+         "<0.01 s",
+         "$0",
+         "None"
+        ],
+        "in_use": true
+       },
+       {
+        "id": "baseline",
+        "name": "Every photo its own room (the baseline to beat)",
+        "setup": [],
+        "values": [
+         "52",
+         "33",
+         "25",
+         "0",
+         "0.00",
+         "0.78",
+         "<0.01 s",
+         "$0",
+         "None"
+        ],
+        "setup_note": "No AI model"
+       },
+       {
+        "id": "exterior",
+        "name": "Exterior photos one room, every other photo its own room",
+        "setup": [
+         {
+          "role": "room type answers (stored, not called here)",
+          "model": "gpt-6-luna",
+          "provider": "OpenAI",
+          "effort": "low",
+          "temperature": "default (not settable)"
+         }
+        ],
+        "values": [
+         "40",
+         "43",
+         "24",
+         "0",
+         "0.86",
+         "0.90",
+         "<0.01 s",
+         "$0",
+         "None"
+        ]
+       },
+       {
+        "id": "DINOv2",
+        "name": "DINOv2 image similarity, threshold tuned leave-one-out",
+        "setup": [
+         {
+          "role": "image similarity (runs locally)",
+          "model": "facebook/dinov2-small",
+          "provider": "Hugging Face, on this machine's CPU"
+         }
+        ],
+        "values": [
+         "47",
+         "33",
+         "23",
+         "0",
+         "0.12",
+         "0.78",
+         "1.6 s",
+         "$0",
+         "None (local model, no paid call)"
+        ]
+       },
+       {
+        "id": "CLIP",
+        "name": "CLIP image similarity, threshold tuned leave-one-out",
+        "setup": [
+         {
+          "role": "image similarity (runs locally)",
+          "model": "openai/clip-vit-base-patch32",
+          "provider": "Hugging Face, on this machine's CPU"
+         }
+        ],
+        "values": [
+         "52",
+         "33",
+         "25",
+         "0",
+         "0.00",
+         "0.78",
+         "3.0–3.4 s",
+         "$0",
+         "None (local model, no paid call)"
+        ]
+       },
+       {
+        "id": "exterior + DINOv2",
+        "name": "Exterior one room, then DINOv2 inside each AI room type",
+        "setup": [
+         {
+          "role": "room type answers (stored, not called here)",
+          "model": "gpt-6-luna",
+          "provider": "OpenAI",
+          "effort": "low",
+          "temperature": "default (not settable)"
+         },
+         {
+          "role": "image similarity (runs locally)",
+          "model": "facebook/dinov2-small",
+          "provider": "Hugging Face, on this machine's CPU"
+         }
+        ],
+        "values": [
+         "40",
+         "43",
+         "24",
+         "0",
+         "0.86",
+         "0.90",
+         "1.3 s",
+         "$0",
+         "None (local model, no paid call)"
+        ]
+       }
+      ],
+      "used": "Basis puts a photo in the room its file name says, after the engineer's merges, and uses the AI's room type and floor only when the name says nothing (the green row). With camera names that fallback put 28–32 of 52 photos in the right room. The free rule \"exterior photos one room, every other photo its own room\" put 43 right, and image-similarity models added nothing, because rooms in one house look alike. It is not adopted: it fits one engineer's convention on one property, and a second package is the test. None of the 52 photos carried a capture time, so time gaps could not be tried."
+     },
+     {
+      "title": "Misleading file names",
+      "section": "82",
+      "date": "2026-11-03",
+      "step": 1,
+      "question": "If a photo carries another room's name, does Basis file it in the wrong room, and can a free check catch it?",
+      "dataset": "The same 52 photos with their real names and the engineer's 16 merges; the names of 5 or 10 photo pairs exchanged (fixed seed), or of 5 pairs of the same room type",
+      "columns": [
+       "Names",
+       "Swapped photos",
+       "Photos in their own room",
+       "Swapped photos in a wrong room",
+       "Caught by the check",
+       "Most it could catch",
+       "False alarms",
+       "Wall time",
+       "Cost",
+       "Tokens (input / output)"
+      ],
+      "column_notes": [
+       {
+        "help": "Photos whose names were exchanged.",
+        "better": null
+       },
+       {
+        "help": "Of 52, photos filed under the room their labels name.",
+        "better": "higher"
+       },
+       {
+        "help": "Of the swapped photos.",
+        "better": "lower"
+       },
+       {
+        "help": "Swapped photos the check flags: the name's room type contradicts the AI's room type.",
+        "better": "higher"
+       },
+       {
+        "help": "Swapped photos whose new name names a room type at all.",
+        "better": null
+       },
+       {
+        "help": "Correctly filed photos the check flags anyway.",
+        "better": "lower"
+       },
+       {
+        "help": "Seconds on the laptop for the whole set, model loading excluded.",
+        "better": "lower"
+       },
+       {
+        "help": "Dollars spent by the test.",
+        "better": "lower"
+       },
+       {
+        "help": "Tokens sent to a paid model: \"None\" means no model was called in this test.",
+        "better": null
+       }
+      ],
+      "rows": [
+       {
+        "id": "real",
+        "name": "Real names (today's result)",
+        "setup": [
+         {
+          "role": "room type answers (stored, not called here)",
+          "model": "gpt-6-luna",
+          "provider": "OpenAI",
+          "effort": "low",
+          "temperature": "default (not settable)"
+         }
+        ],
+        "values": [
+         "0",
+         "52",
+         "–",
+         "–",
+         "–",
+         "3–5 (sol: 1–3)",
+         "<0.01 s",
+         "$0",
+         "None"
+        ],
+        "in_use": true
+       },
+       {
+        "id": "5 pairs",
+        "name": "5 pairs swapped across rooms",
+        "setup": [
+         {
+          "role": "room type answers (stored, not called here)",
+          "model": "gpt-6-luna",
+          "provider": "OpenAI",
+          "effort": "low",
+          "temperature": "default (not settable)"
+         }
+        ],
+        "values": [
+         "10",
+         "42",
+         "10",
+         "9",
+         "9",
+         "2–4 (sol: 1–3)",
+         "<0.01 s",
+         "$0",
+         "None"
+        ]
+       },
+       {
+        "id": "10 pairs",
+        "name": "10 pairs swapped across rooms",
+        "setup": [
+         {
+          "role": "room type answers (stored, not called here)",
+          "model": "gpt-6-luna",
+          "provider": "OpenAI",
+          "effort": "low",
+          "temperature": "default (not settable)"
+         }
+        ],
+        "values": [
+         "20",
+         "32",
+         "20",
+         "18",
+         "18",
+         "1–3 (sol: 1–2)",
+         "<0.01 s",
+         "$0",
+         "None"
+        ]
+       },
+       {
+        "id": "same type",
+        "name": "5 pairs swapped, names of the same room type",
+        "setup": [
+         {
+          "role": "room type answers (stored, not called here)",
+          "model": "gpt-6-luna",
+          "provider": "OpenAI",
+          "effort": "low",
+          "temperature": "default (not settable)"
+         }
+        ],
+        "values": [
+         "10",
+         "42",
+         "10",
+         "1–2 (sol: 0–1)",
+         "10 by type, 0 by design",
+         "1–3",
+         "<0.01 s",
+         "$0",
+         "None"
+        ]
+       }
+      ],
+      "used": "Basis trusts the file name, so every swapped photo lands in the wrong room. The free check (the name's room type against the AI's room type) caught every swap whose new name names a type, with 1–5 false alarms, and cannot see a bedroom named as another bedroom. It is recommended as a flag at the rooms review, not an automatic move, and is not built yet."
      }
     ],
     "metrics": [
@@ -3736,11 +4457,12 @@
       "sections": [
        "23.3",
        "27.1",
-       "48.4"
+       "48.4",
+       "82"
       ],
-      "missing": "Photos with camera names (IMG_1234) fall back to the AI's guess, measured worst (13–19 rooms of 33); nothing else was tried for them.",
-      "test": "Strip the 52 names and compare visual clustering (DINOv2 or CLIP), photo timestamps, and an AI \"same room?\" check.",
-      "cost": "about $1"
+      "missing": "Compared on one property only (82): for camera names, today's fallback, image similarity (DINOv2, CLIP) and simple rules; capture times could not be tried (no photo had one), and keypoint matching and an AI \"same room?\" check were not run.",
+      "test": "A second labelled package shot on a phone with capture times intact; then the AI \"same room?\" check.",
+      "cost": "about $1, plus a second labelled package"
      },
      {
       "component": "Room name, type and floor",
@@ -6456,7 +7178,351 @@
        }
       ],
       "step": 3,
-      "used": "Basis uses every documented correction, with the general contractor's overhead and profit spread over every line, the green row: the allocation is no longer withheld."
+      "used": "Basis uses every documented correction, with the general contractor's overhead and profit spread over every line, the green row: the allocation is no longer withheld. These figures were measured before the fail-safe change of section 78; on today's code the gap and the verdict are the same but the class shares differ, and the allocation is withheld while any asset is unpriced (86.6).",
+      "used_sections": [
+       "86"
+      ]
+     },
+     {
+      "title": "Balance tolerance",
+      "section": "85",
+      "date": "2026-11-03",
+      "step": 3,
+      "question": "How close must Basis's depreciated cost come to the price before it allocates the price to the assets?",
+      "dataset": "36 setups of section 49.3's grid on both live exports of one property (two runs), replayed offline; each judged at seven tolerances",
+      "columns": [
+       "Tolerance",
+       "Setups checked",
+       "Admitted on both runs",
+       "Admitted with a known omission",
+       "Clean refused",
+       "Admitted: mean share error",
+       "Tokens (input / output)"
+      ],
+      "column_notes": [
+       {
+        "help": "Setups of the grid judged at this tolerance.",
+        "better": null
+       },
+       {
+        "help": "Setups within the tolerance on both runs.",
+        "better": null
+       },
+       {
+        "help": "Admitted setups that leave out a known part of the method (an omission).",
+        "better": "lower"
+       },
+       {
+        "help": "Correct setups the tolerance withholds.",
+        "better": "lower"
+       },
+       {
+        "help": "Average tax-class share error, in points, of the admitted setups.",
+        "better": "lower"
+       },
+       {
+        "help": "Tokens sent to a paid model: \"None\" means no model was called in this test.",
+        "better": null
+       }
+      ],
+      "rows": [
+       {
+        "id": "2.5 %",
+        "name": "2.5 %",
+        "setup": [],
+        "values": [
+         "36",
+         "12",
+         "8 (bare, small=added, spec=report)",
+         "0",
+         "2.80",
+         "None"
+        ],
+        "setup_note": "No AI model"
+       },
+       {
+        "id": "5 %",
+        "name": "5 %",
+        "setup": [],
+        "values": [
+         "36",
+         "21",
+         "17 (bare, small=added, spec=report)",
+         "0",
+         "2.92",
+         "None"
+        ],
+        "setup_note": "No AI model"
+       },
+       {
+        "id": "7.5 %",
+        "name": "7.5 %",
+        "setup": [],
+        "values": [
+         "36",
+         "24",
+         "20 (bare, small=added, spec=report)",
+         "0",
+         "2.97",
+         "None"
+        ],
+        "setup_note": "No AI model"
+       },
+       {
+        "id": "10 %",
+        "name": "10 % (today)",
+        "setup": [],
+        "values": [
+         "36",
+         "28",
+         "24 (adds mods=off)",
+         "0",
+         "2.82",
+         "None"
+        ],
+        "setup_note": "No AI model",
+        "in_use": true
+       },
+       {
+        "id": "15 %",
+        "name": "15 %",
+        "setup": [],
+        "values": [
+         "36",
+         "36",
+         "32",
+         "0",
+         "2.74",
+         "None"
+        ],
+        "setup_note": "No AI model"
+       }
+      ],
+      "used": "Basis allocates only when its cost lands within 10 % of the price less land, the accuracy RSMeans states for its square-foot method (the green row); the IRS guide gives no number. On this property a looser tolerance did not let worse shares through, so 10 % is kept, with a proposed flag between 5 and 10 %. The test also found that Basis's two \"within 10 %\" checks measure different quantities and disagree between 9 and 10 %."
+     },
+     {
+      "title": "Location price factor",
+      "section": "86",
+      "date": "2026-11-03",
+      "step": 2,
+      "question": "Which location price factor should Basis use, and what changes if it is resolved differently?",
+      "dataset": "Study A (one property's corrected run), repriced offline with the same cost table, July 2024 index, production pricing and structure model; only the location factor changes",
+      "columns": [
+       "Location factor resolved as",
+       "Location price factor (table row)",
+       "Priced total vs. state mean",
+       "Gap to the price (%) / balances?",
+       "Share of dollars by class: 5 / 7 / 15 / 39 years (%)",
+       "Class share error, average / worst (points)",
+       "Tokens (input / output)"
+      ],
+      "column_notes": [
+       {
+        "help": "The multiplier on every priced dollar, and the published row it came from.",
+        "better": null
+       },
+       {
+        "help": "Itemized total as a share of the state-mean row's.",
+        "better": null
+       },
+       {
+        "help": "How far the depreciated cost lands below price less land; reconciled within 10 %.",
+        "better": null
+       },
+       {
+        "help": "How the dollars split across the four tax classes.",
+        "better": null
+       },
+       {
+        "help": "Gap to the engineer's class shares.",
+        "better": "lower"
+       },
+       {
+        "help": "Tokens sent to a paid model: \"None\" means no model was called in this test.",
+        "better": null
+       }
+      ],
+      "rows": [
+       {
+        "id": "state mean",
+        "name": "State mean (today's result); 37 cities, 0.94-1.07",
+        "setup": [],
+        "values": [
+         "1.001",
+         "1.0000",
+         "+2.0 reconciled",
+         "12.6 / 0.9 / 4.2 / 82.3",
+         "1.30 / 2.0",
+         "None"
+        ],
+        "setup_note": "No AI model",
+        "in_use": true
+       },
+       {
+        "id": "ZIP row",
+        "name": "City row of the appraisal ZIP's prefix; the prefix is another state's row, not CA",
+        "setup": [],
+        "values": [
+         "0.99 (another state's row)",
+         "0.9883",
+         "+3.1 reconciled",
+         "12.6 / 0.9 / 4.2 / 82.3",
+         "1.31 / 2.0",
+         "None"
+        ],
+        "setup_note": "No AI model"
+       },
+       {
+        "id": "nearest",
+        "name": "Nearest listed CA prefix (book's nearby-city rule)",
+        "setup": [],
+        "values": [
+         "0.99 (Los Angeles 0.99)",
+         "0.9883",
+         "+3.1 reconciled",
+         "12.6 / 0.9 / 4.2 / 82.3",
+         "1.31 / 2.0",
+         "None"
+        ],
+        "setup_note": "No AI model"
+       },
+       {
+        "id": "median",
+        "name": "State median",
+        "setup": [],
+        "values": [
+         "0.990",
+         "0.9883",
+         "+3.1 reconciled",
+         "12.6 / 0.9 / 4.2 / 82.3",
+         "1.31 / 2.0",
+         "None"
+        ],
+        "setup_note": "No AI model"
+       },
+       {
+        "id": "national",
+        "name": "National average, no adjustment (control)",
+        "setup": [],
+        "values": [
+         "1.000",
+         "0.9992",
+         "+2.1 reconciled",
+         "12.6 / 0.9 / 4.2 / 82.2",
+         "1.29 / 2.0",
+         "None"
+        ],
+        "setup_note": "No AI model"
+       }
+      ],
+      "used": "Basis uses the city row of the intake ZIP's first three digits from the RSMeans Residential table, else the state's mean (the green row, since the intake had no ZIP), as RSMeans, Marshall & Swift and Craftsman all do. The factor scales every dollar alike, so the class shares do not move; only the gap does. The test found that the lookup never checks the ZIP's state: this appraisal's own ZIP belongs to another state's row, which Basis would apply silently if it reached the intake. A state check is proposed."
+     },
+     {
+      "title": "Measuring constants",
+      "section": "87",
+      "date": "2026-11-03",
+      "step": 2,
+      "question": "Do the fixed constants Basis measures quantities with change the report, and should any change?",
+      "dataset": "Both live exports of one property replayed offline (272 cells): each constant alone at 50, 75, 125 and 150 % of today and at its published value, then every published value together",
+      "columns": [
+       "Setup",
+       "Study A: priced total (today = 1.00)",
+       "Study A: share of dollars by class: 5 / 7 / 15 / 39 years (%)",
+       "Study A: class share error, average / worst (points)",
+       "Study A: gap to the price",
+       "Tokens (input / output)"
+      ],
+      "column_notes": [
+       {
+        "help": "Itemized rows' priced total relative to today's constants.",
+        "better": null
+       },
+       {
+        "help": "After the structure model; the engineer's is 14.3 / 0.4 / 5.1 / 80.2.",
+        "better": null
+       },
+       {
+        "help": "Gap to the engineer's class shares; it rewards any added 5-year dollars, so lower is not by itself proof.",
+        "better": "lower"
+       },
+       {
+        "help": "Depreciated cost below price less land; reconciled within 10 %.",
+        "better": null
+       },
+       {
+        "help": "Tokens sent to a paid model: \"None\" means no model was called in this test.",
+        "better": null
+       }
+      ],
+      "rows": [
+       {
+        "id": "today",
+        "name": "Today's constants",
+        "setup": [],
+        "values": [
+         "1.000",
+         "12.6 / 0.9 / 4.2 / 82.2",
+         "1.29 / 2.0",
+         "+2.0 reconciled",
+         "None"
+        ],
+        "setup_note": "No AI model",
+        "in_use": true
+       },
+       {
+        "id": "geometry",
+        "name": "Published geometry: footprint 1.8:1, openings 14 %",
+        "setup": [],
+        "values": [
+         "1.002",
+         "12.6 / 0.9 / 4.2 / 82.2",
+         "1.29 / 2.0",
+         "+2.0 reconciled",
+         "None"
+        ],
+        "setup_note": "No AI model"
+       },
+       {
+        "id": "room sizes",
+        "name": "Published room sizes (NAHB 2019 survey)",
+        "setup": [],
+        "values": [
+         "1.000",
+         "12.4 / 0.9 / 4.2 / 82.4",
+         "1.38 / 2.2",
+         "+2.0 reconciled",
+         "None"
+        ],
+        "setup_note": "No AI model"
+       },
+       {
+        "id": "formulas",
+        "name": "Published formulas: wall area 2.6 SF per SF of floor, perimeter 4.08 x sqrt(area)",
+        "setup": [],
+        "values": [
+         "0.992",
+         "12.6 / 0.9 / 4.2 / 82.2",
+         "1.30 / 2.0",
+         "+2.0 reconciled",
+         "None"
+        ],
+        "setup_note": "No AI model"
+       },
+       {
+        "id": "all",
+        "name": "Every published value at once",
+        "setup": [],
+        "values": [
+         "0.995",
+         "12.4 / 0.9 / 4.2 / 82.4",
+         "1.38 / 2.2",
+         "+2.0 reconciled",
+         "None"
+        ],
+        "setup_note": "No AI model"
+       }
+      ],
+      "used": "Basis measures with today's constants (the green row). The roof, siding, gutter and other outside constants never moved the report's class shares or the gap, because those 39-year rows sit inside the square-foot model and are carved back out. Only room-level sizing matters, and within published ranges no single value moved the class error by more than 0.32 points. Today's values stay; the sources support a few changes (room sizes, footprint shape, a wall-area formula) that make no measurable difference on this property."
      }
     ],
     "metrics": [
@@ -6600,10 +7666,11 @@
       "verdict": "partly",
       "sections": [
        "35.2",
-       "37"
+       "37",
+       "87"
       ],
-      "missing": "Only compared with the old typical-area rule; no measured quantities exist to check against; driveways, walks and fences are not measured.",
-      "test": "Vary each constant on the two live studies (free); then measured quantities from plans or aerial data.",
+      "missing": "Every constant was varied on one property (87) and none moved the report's class error by more than 0.32 points within published ranges, but no measured quantities exist to check them against; driveways, walks and fences are still not measured.",
+      "test": "Room sizes from the appraisal sketch or plans; site items (driveway, walks, fence) from aerial data.",
       "cost": "$0 now; aerial data later"
      },
      {
@@ -6651,13 +7718,14 @@
      {
       "component": "Location factor",
       "used": "RSMeans by ZIP, else the state",
-      "verdict": "partly",
+      "verdict": "compared",
       "sections": [
-       "45.2"
+       "45.2",
+       "86"
       ],
-      "missing": "The ZIP-level factor never ran on a study (up to six points on every dollar in California).",
-      "test": "Replay both live studies with the ZIP factor.",
-      "cost": "$0"
+      "missing": "",
+      "test": "",
+      "cost": ""
      },
      {
       "component": "Building cost source",
@@ -6708,11 +7776,13 @@
      {
       "component": "Balance tolerance",
       "used": "±10 %",
-      "verdict": "not compared",
-      "sections": [],
-      "missing": "Sourced from RSMeans, never varied.",
-      "test": "Report which setups balance at 5, 7.5, 10 and 15 %.",
-      "cost": "$0"
+      "verdict": "compared",
+      "sections": [
+       "85"
+      ],
+      "missing": "",
+      "test": "",
+      "cost": ""
      },
      {
       "component": "Land value and basis allocation",
@@ -7774,6 +8844,91 @@
       ],
       "step": 3,
       "used": "Both rows are today's behaviour: a new revision is signed on its own, and the earlier signed PDF is kept and still downloadable, bytes identical."
+     },
+     {
+      "title": "Depreciation schedule against the engineer's",
+      "section": "88",
+      "date": "2026-11-03",
+      "step": 2,
+      "question": "Does Basis's depreciation schedule match the engineer's, and which first-year rule applies?",
+      "dataset": "The client study's run 6 export through today's report code, against the engineer's report rows (recovery period and cost per row; the engineer prints no method, convention or bonus)",
+      "columns": [
+       "Rule set",
+       "Basis",
+       "Engineer (implied)",
+       "Difference (points)",
+       "Tokens (input / output)"
+      ],
+      "column_notes": [
+       {
+        "help": "First-year depreciation as a share of the depreciable basis.",
+        "better": null
+       },
+       {
+        "help": "The same rule applied to the engineer's own rows and costs.",
+        "better": null
+       },
+       {
+        "help": "Basis minus engineer.",
+        "better": "lower"
+       },
+       {
+        "help": "Tokens sent to a paid model: \"None\" means no model was called in this test.",
+        "better": null
+       }
+      ],
+      "rows": [
+       {
+        "id": "statutory",
+        "name": "Statutory: 60 % bonus, half-year (what Basis prints)",
+        "setup": [],
+        "values": [
+         "13.21 %",
+         "13.22 %",
+         "−0.01",
+         "None"
+        ],
+        "setup_note": "No AI model",
+        "in_use": true
+       },
+       {
+        "id": "no bonus",
+        "name": "Elected out of bonus, half-year",
+        "setup": [],
+        "values": [
+         "3.34 %",
+         "3.26 %",
+         "+0.08",
+         "None"
+        ],
+        "setup_note": "No AI model"
+       },
+       {
+        "id": "mid-quarter",
+        "name": "60 % bonus, mid-quarter",
+        "setup": [],
+        "values": [
+         "12.23 %",
+         "12.27 %",
+         "−0.04",
+         "None"
+        ],
+        "setup_note": "No AI model"
+       },
+       {
+        "id": "no bonus, MQ",
+        "name": "Elected out, mid-quarter",
+        "setup": [],
+        "values": [
+         "0.90 %",
+         "0.88 %",
+         "+0.02",
+         "None"
+        ],
+        "setup_note": "No AI model"
+       }
+      ],
+      "used": "Basis prints the statutory 60 % bonus with the half-year convention (the green row). On every row where the recovery periods agree, its method, convention and bonus equal the engineer's implied terms, and the class shares are within one point. One real difference: the property went into service in December, so all of its personal property falls in the last quarter and the IRS 40 % test calls for mid-quarter; Basis prints half-year with a generic note."
      }
     ],
     "metrics": [
@@ -7852,10 +9007,12 @@
      {
       "component": "Preparer's schedule",
       "used": "MACRS lives, bonus by acquisition date",
-      "verdict": "not compared",
-      "sections": [],
-      "missing": "Built to the IRS tables, never compared with a preparer's own schedule.",
-      "test": "Compare with the engineer's schedule for the client study.",
+      "verdict": "partly",
+      "sections": [
+       "88"
+      ],
+      "missing": "Compared with the engineer's schedule on one study (88): every term matches where the periods agree, but the engineer prints no method, convention or bonus, so the elections cannot be checked; Basis prints half-year even when the study's own dates call for mid-quarter.",
+      "test": "A preparer's own Form 4562 for a study; decide how Basis applies the 40 % test.",
       "cost": "$0"
      },
      {
@@ -11944,6 +13101,34 @@
   "55": {
    "title": "55. Vendor import profiles for the preparer's schedule (2026-11-01)",
    "anchor": "55-vendor-import-profiles-for-the-preparers-schedule-2026-11-01"
+  },
+  "82": {
+   "title": "82. Sorting photos into rooms when file names are useless or wrong (2026-11-03)",
+   "anchor": "82-sorting-photos-into-rooms-when-file-names-are-useless-or-wrong-2026-11-03"
+  },
+  "83": {
+   "title": "83. The room-type review flag: is 0.5 the right threshold? (2026-11-03)",
+   "anchor": "83-the-room-type-review-flag-is-05-the-right-threshold-2026-11-03"
+  },
+  "84": {
+   "title": "84. Where the appraisal highlight goes: Basis's rule against Azure's own boxes (2026-11-03)",
+   "anchor": "84-where-the-appraisal-highlight-goes-basiss-rule-against-azures-own-boxes-2026-11-03"
+  },
+  "85": {
+   "title": "85. How close the cost must come to the price before Basis allocates it (2026-11-03)",
+   "anchor": "85-how-close-the-cost-must-come-to-the-price-before-basis-allocates-it-2026-11-03"
+  },
+  "86": {
+   "title": "86. The location price factor: state mean, ZIP city row and the alternatives (2026-11-03)",
+   "anchor": "86-the-location-price-factor-state-mean-zip-city-row-and-the-alternatives-2026-11-03"
+  },
+  "87": {
+   "title": "87. The measuring constants: which matter, and their best values (2026-11-03)",
+   "anchor": "87-the-measuring-constants-which-matter-and-their-best-values-2026-11-03"
+  },
+  "88": {
+   "title": "88. Basis's depreciation schedule against the engineer's (2026-11-03)",
+   "anchor": "88-basiss-depreciation-schedule-against-the-engineers-2026-11-03"
   }
  },
  "models": {

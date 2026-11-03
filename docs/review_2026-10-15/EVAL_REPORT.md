@@ -10529,3 +10529,2586 @@ Checking the 42 tables against today's defaults found:
 The room step's choice of gpt-6-luna rests on 8 rooms with several photos in one study (28.2:
 "within the noise" is weak evidence there), and on those rooms today's setup measured 0.69
 against Sonnet's 0.56; the room table now says so.
+
+### The free comparisons of 2026-11-03 (sections 82-88)
+
+Seven components on the developer page had never been compared against an alternative, and each could be measured on data already in hand at no cost. Bryan asked for them to be run to the standard of the vision work: alternatives side by side on the same data, accuracy, cost and time per candidate, aiming for the best setup rather than a check. No model was called in any of them (cost $0, no tokens); two local image models ran on the laptop's CPU in section 82. Every run is filed in the verification tree with its manifest, cases and log, and each final run was re-run from its recorded command and reproduced case for case. All seven rest on one client property, which is the main limit on every pick.
+
+## 82. Sorting photos into rooms when file names are useless or wrong (2026-11-03)
+
+No paid model call: two local image-embedding models ran on this machine's CPU (Apple M4 Pro),
+everything else is arithmetic on stored answers. Cost $0, tokens none.
+
+### 82.1 The question
+
+Today `basis/vision/rooms.py` (`initial_rooms`, `group_photos`, `resolve_room`) puts a photo in
+the room its **file name** says (after the study's aliases) and uses the per-photo model's room
+identity (room type + floor + ordinal, from the photo-surfaces call) only when the name says
+nothing (EVAL_REPORT 27.1, 48.4). Two failure cases:
+
+1. **Camera names** (`IMG_1234.JPG`): every photo falls to the model identity. Can a free method
+   group them better?
+2. **Misleading names** (named "kitchen", shows a bathroom): the name wins, so the photo is
+   filed in the wrong room. Can a free check catch it?
+
+### 82.2 The standard (research)
+
+- **Capture-time gaps** are the classic way to group a personal photo collection without
+  names: PhotoTOC splits the time-ordered photos at unusually large gaps, measured on a log
+  scale, and falls back to colour content when times are unreliable
+  ([Platt, Czerwinski, Field, MSR-TR-2002-17](https://microsoft.com/en-us/research/wp-content/uploads/2002/02/tr-2002-17.pdf));
+  Cooper, Foote, Girgensohn and Wilcox cluster by time and image similarity
+  ([ACM TOMCCAP 1(3):269-288, 2005](https://dblp.uni-trier.de/rec/journals/tomccap/CooperFGW05.html));
+  Kodak's albuming work segments events from date/time metadata plus colour
+  ([Loui & Savakis, IEEE Trans. Multimedia 5(3):390-402, 2003](https://dblp.uni-trier.de/rec/journals/tmm/LouiS03.html)).
+  A walkthrough shot room by room would make time gaps a room boundary. It needs EXIF capture
+  times.
+- **Visual clustering on self-supervised / contrastive embeddings**: DINOv2
+  ([Oquab et al. 2023, arXiv:2304.07193](https://arxiv.org/abs/2304.07193)) and CLIP
+  ([Radford et al. 2021, arXiv:2103.00020](https://arxiv.org/abs/2103.00020)) image embeddings,
+  cosine distance, agglomerative clustering with a distance cutoff tuned on labelled data (no
+  published universal cutoff exists; a principled alternative is an extreme-value cutoff,
+  [Algorithms 2022](https://doaj.org/article/830af94bda1949f99734ee393493b86e)). The known limit
+  for "same room?" is the place-recognition problem: **perceptual aliasing** (different places
+  look alike) and viewpoint change (the same place looks different from another angle)
+  ([Lowry et al., Visual Place Recognition: A Survey, IEEE T-RO 32(1), 2016](https://ieeexplore.ieee.org/document/7339473)).
+  Rooms of one house share finishes, paint and flooring, which is exactly aliasing.
+- **Scene (room-type) classification** is what the industry does for listing photos: Airbnb
+  categorises listing photos into room types
+  ([Airbnb engineering](https://medium.com/airbnb-engineering/f9483f3ab7e3)); the REI dataset
+  ([Real Estate Image Classification, WACV 2017](https://www.academia.edu/68040201/Real_Estate_Image_Classification))
+  and commercial room-type classifiers ([Clarifai](https://www.clarifai.com/models/room-type))
+  label type, not identity. Basis already has this signal (the per-photo model's room type).
+  Room type tells you "a bedroom", not "which bedroom"; telling two bedrooms apart is the
+  identity problem above.
+- **Scoring a clustering against labels**: BCubed precision/recall/F1 (Amigó, Gonzalo,
+  Artiles, Verdejo, "A comparison of extrinsic clustering evaluation metrics based on formal
+  constraints", Information Retrieval 12(4), 2009), pairwise F1, and "clustering accuracy"
+  (one-to-one Hungarian matching of formed to labelled clusters).
+
+So the standard options are exactly (a) type classification (today), (b) embedding clustering,
+(c) time gaps, (d) their combinations. All were measured.
+
+### 82.3 What was built
+
+`backEnd/evals/room_grouping.py` (harness, through `evals.record`, component `room_grouping`,
+version `v1`) and `backEnd/tests/unit/evals/test_room_grouping.py` (27 tests, synthetic data).
+
+Candidates on the camera-named case (every file renamed `IMG_<n>.JPG` in sorted order, as
+`evals.room_metadata` does):
+
+| Key in `run.json` | What it does |
+|---|---|
+| `today` | `initial_rooms` on camera names: the model identity (type, floor, ordinal); `ambiguous` -> Unassigned |
+| `ai_type` | the model's room type alone |
+| `singletons` | every photo its own room |
+| `exterior_one_room` | photos the model types `exterior` -> one grounds room; every other photo its own room |
+| `today_exterior_one_room` | `today`, with the exterior-typed photos merged into one room |
+| `<dinov2\|clip>/<single\|average>/<pairwise_f1\|bcubed_f1>/<oracle\|loo>` | agglomerative clustering, cosine distance, of image embeddings; cut at the best threshold on the labels (`oracle`, an upper bound) or tuned leave-one-out (`loo`) by pairwise F1 or BCubed F1 |
+| `.../within_ai_type` | the same, never merging photos of different model room types |
+| `.../exterior_one_room_within_ai_type` | the same, with exterior-typed photos forced together (distance 0), so the threshold only decides interior merges |
+| `exif` | capture-time gaps; dropped (no photo carries a capture time, see below) |
+
+Misleading-name case: the real names with the labels' 16 aliases, the names of 5 and 10 photo
+pairs from different labelled rooms exchanged (seed 0; the 10-pair draw starts with the 5-pair
+draw), plus 5 pairs whose names say the **same** room type (a bedroom named as another
+bedroom). Today's rule is run; counted: photos in the room their labels name, swapped photos in
+a wrong room, and the free check `name_type_flag` = the name's room type
+(`basis.vision.rooms.name_room_type`) contradicts the model's room type (`ambiguous` never
+contradicts).
+
+Regression block: today's rule on the real names without and with the aliases.
+
+Embedding models (local, CPU, weights from the Hugging Face cache, no network at run time with
+`HF_HUB_OFFLINE=1`; torch 2.14.1, transformers 5.19.0):
+
+- `facebook/dinov2-small`: CLS token, 384 dimensions, about 22 M parameters, 88 MB of weights.
+- `openai/clip-vit-base-patch32`: image embedding, 512 dimensions, about 88 M vision-tower
+  parameters (151 M with the text tower), 605 MB of weights.
+
+### 82.4 The data
+
+- 52 photos (`inputs/photos`, all JPG), 33 labelled rooms (`room_inventory_v1.json`): one
+  12-photo grounds room, one 3-photo kitchen, six 2-photo rooms, **25 one-photo rooms**. So
+  "every photo its own room" already puts 33 photos right and 25 rooms exactly right; a method
+  has to beat that.
+- `room_aliases_v1.json`: 16 aliases, 10 of them merge exterior views into the grounds room
+  (verified by counting).
+- Stored per-photo answers (no new call): `s48_live_answers` (4 live studies, `gpt-6-luna`,
+  effort low, the production photo-surfaces model; EVAL_REPORT 48.4 "live") and
+  `vision_decomposed_v2_gpt61sol` (3 repeats, `gpt-6.1-sol`, effort low; 48.4 "stored").
+- **EXIF: none.** 0 of 52 photos carry any EXIF block at all (PIL `getexif()` empty on every
+  file; no `DateTimeOriginal`, no `DateTime`). The file modification times are all the same
+  second (the copy time), so there is no time signal of any kind in this package. The
+  capture-time candidate is reported as dropped, not scored.
+
+### 82.5 Results: camera-named photos
+
+**How to read this table.** When every photo is named like `IMG_1234.JPG`, which free method sorts the 52 photos into the engineer's 33 rooms best?
+
+- **Models**: "No AI model" means a rule on stored answers or none; an embedding model is named with its size and runs locally on this machine's CPU (no paid call). Rows that use the AI's room type read the stored `gpt-6-luna` answers (4 live studies); nothing is called here.
+- **Rooms**: Rooms formed (the labels have 33). Ranges are over the 4 studies.
+- **Photos in the right room** (higher is better): of 52; each formed room is matched one-to-one to a labelled room (Hungarian assignment maximising shared photos) and a photo counts when its room is matched to its labelled room. For tuned clustering rows this is the leave-one-out count (the threshold for each photo is chosen on the other 51); the other columns of those rows are the whole set cut at the median tuned threshold.
+- **Rooms exactly right** (higher is better): formed rooms holding exactly one labelled room's photos, of 33.
+- **Photos with no room** (lower is better): photos left in the Unassigned room.
+- **Pair F1** (higher is better): over the 1,326 photo pairs, "put together" against "together in the labels".
+- **BCubed F1** (higher is better): per photo, the share of its room that belongs with it and the share of its labelled room it is with, averaged over photos (weighs every photo alike; pair F1 is dominated by the 12-photo grounds room).
+- **Wall time** (lower is better): seconds for the 52 photos on this machine, model loading excluded (DINOv2 load 3.5–3.6 s, CLIP 0.2 s, weights cached); for clustering rows it includes embedding all photos and tuning the threshold. Runs 2 and 3 (the first run, on a cold file cache, was up to 1.8x slower for DINOv2 and 2.4x for CLIP).
+- **Cost** (lower is better): dollars. **Tokens**: tokens sent to a paid model.
+
+| Grouping (camera names) | Models | Rooms | Photos in the right room ↑ | Rooms exactly right ↑ | Photos with no room ↓ | Pair F1 ↑ | BCubed F1 ↑ | Wall time ↓ | Cost ↓ | Tokens |
+|---|---|---|---|---|---|---|---|---|---|---|
+| **Today** · The AI's room type, floor and ordinal group the photos | No AI model (stored `gpt-6-luna` answers) | 17–19 | 28–32 | 5–8 | 1–2 | 0.49–0.72 | 0.67–0.73 | <0.01 s | $0 | None |
+| The AI's room type alone | No AI model (stored `gpt-6-luna` answers) | 13–15 | 28–29 | 4–6 | 1–2 | 0.59–0.61 | 0.67–0.68 | <0.01 s | $0 | None |
+| Every photo its own room (baseline) | No AI model | 52 | 33 | 25 | 0 | 0.00 | 0.78 | <0.01 s | $0 | None |
+| **Exterior photos one room, every other photo its own room** | No AI model (stored `gpt-6-luna` answers) | 40 | **43** | 24 | **0** | **0.86** | **0.90** | <0.01 s | $0 | None |
+| Today, with exterior photos merged into one room | No AI model (stored `gpt-6-luna` answers) | 17–18 | 30–32 | 5–8 | 1–2 | 0.67–0.72 | 0.69–0.73 | <0.01 s | $0 | None |
+| DINOv2 clustering alone (average linkage, tuned leave-one-out on BCubed F1; median cut 0.29) | `facebook/dinov2-small` (22 M parameters, runs locally, no paid call) | 47 | 33 | 23 | 0 | 0.12 | 0.78 | 1.6 s | $0 | None (local model, no paid call) |
+| DINOv2 clustering alone (single linkage, tuned leave-one-out on pair F1; median cut 0.42) | `facebook/dinov2-small` (local) | 31 | 31 | 13 | 0 | 0.41 | 0.76 | 1.6 s | $0 | None (local model, no paid call) |
+| DINOv2 clustering alone, best cut chosen on the labels (upper bound, not usable) | `facebook/dinov2-small` (local) | 47 | 34 | 23 | 0 | 0.12 | 0.78 | 0.9 s | $0 | None (local model, no paid call) |
+| CLIP clustering alone (tuned leave-one-out on BCubed F1: cut 0 = every photo its own room) | `openai/clip-vit-base-patch32` (88 M-parameter vision tower, local) | 52 | 33 | 25 | 0 | 0.00 | 0.78 | 3.0–3.4 s | $0 | None (local model, no paid call) |
+| CLIP clustering alone (single linkage, tuned on pair F1) | `openai/clip-vit-base-patch32` (local) | 14 | 19 | 7 | 0 | 0.12 | 0.58 | 3.0–3.4 s | $0 | None (local model, no paid call) |
+| DINOv2 clustering within the AI's room type (average linkage, tuned on BCubed F1) | `facebook/dinov2-small` (local) + stored `gpt-6-luna` types | 47 | 33 | 23 | 0 | 0.12 | 0.78 | 1.4–1.5 s | $0 | None (local model, no paid call) |
+| DINOv2 clustering within the AI's room type (tuned on pair F1) | `facebook/dinov2-small` (local) + stored `gpt-6-luna` types | 14–17 | 28–30 | 4–6 | 0 | 0.59–0.61 | 0.67–0.69 | 1.4–1.5 s | $0 | None (local model, no paid call) |
+| CLIP clustering within the AI's room type (tuned on pair F1; BCubed F1 tunes to every photo its own room) | `openai/clip-vit-base-patch32` (local) + stored `gpt-6-luna` types | 14–16 | 29–30 | 4–6 | 0 | 0.59–0.61 | 0.67–0.68 | 3.1–3.2 s | $0 | None (local model, no paid call) |
+| Exterior one room + DINOv2 clustering of the rest within the AI's room type (any linkage, either objective) | `facebook/dinov2-small` (local) + stored `gpt-6-luna` types | 40 | 43 | 24 | 0 | 0.86 | 0.90 | 1.3 s | $0 | None (local model, no paid call) |
+| Exterior one room + CLIP clustering of the rest within the AI's room type (any linkage, either objective) | `openai/clip-vit-base-patch32` (local) + stored `gpt-6-luna` types | 40 | 43 | 24 | 0 | 0.86 | 0.90 | 3.0 s | $0 | None (local model, no paid call) |
+| Capture-time gaps (EXIF) | No AI model | not scored: 0 of 52 photos carry a capture time | – | – | – | – | – | – | $0 | None |
+
+Same candidates on the stored `gpt-6.1-sol` answers (3 repeats), the rows that depend on the
+answers (the answer-free rows are identical):
+
+| Grouping (camera names), stored `gpt-6.1-sol` answers | Rooms | Photos in the right room ↑ | Rooms exactly right ↑ | Photos with no room ↓ | Pair F1 ↑ | BCubed F1 ↑ |
+|---|---|---|---|---|---|---|
+| Today | 13–14 | 28–30 | 5–9 | 3–4 | 0.62–0.64 | 0.71–0.75 |
+| The AI's room type alone (identical to today on these answers) | 13–14 | 28–30 | 5–9 | 3–4 | 0.62–0.64 | 0.71–0.75 |
+| **Exterior photos one room, every other photo its own room** | 40 | **43** | 24 | **0** | **0.86** | **0.90** |
+| Today, with exterior photos merged | 13–14 | 28–30 | 5–9 | 3–4 | 0.62–0.64 | 0.71–0.75 |
+| DINOv2 within the AI's type, tuned on pair F1 (leave-one-out) | 14–16 | 29–31 | 5–9 | 0 | 0.61–0.62 | 0.67–0.70 |
+| DINOv2 within the AI's type, average linkage, tuned on BCubed F1 (leave-one-out) | 47 | 33 | 23 | 0 | 0.12 | 0.78 |
+| Exterior one room + DINOv2 or CLIP within the AI's type | 40 | 43 | 24 | 0 | 0.86 | 0.90 |
+
+Every clustering variant is in `run.json` (2 models x 2 linkages x 2 objectives x oracle/loo x
+plain/within type/exterior+within type).
+
+#### Why the embeddings add nothing here (diagnostic, `embeddings.<model>.nearest_neighbour`)
+
+For each photo whose labelled room has other photos, is its nearest photo by cosine distance a
+room-mate?
+
+| | Photos in shared rooms | Nearest photo is a room-mate (DINOv2) | (CLIP) |
+|---|---|---|---|
+| All | 27 | 15 | 16 |
+| Not the grounds (interior multi-view rooms) | 15 | **3** | **4** |
+
+The exterior views find each other; the interior views do not: two views of one bedroom are
+further apart than a view of that bedroom and a view of another bedroom with the same finishes
+(perceptual aliasing plus viewpoint change, Lowry et al.). So inside the AI's room type the
+tuned threshold is 0 (no interior merge) and the combination equals the plain exterior rule.
+
+### 82.6 Results: misleading names (today's rule, real names + the 16 aliases)
+
+**How to read this table.** If some photos carry another room's name, how many land in the wrong room, and does a free check (the name's room type against the AI's room type) catch them?
+
+- **Models**: No AI model; the check reads the stored per-photo room types (`gpt-6-luna`, 4 live studies; the `gpt-6.1-sol` repeats give the same counts except where noted).
+- **Swapped photos**: photos whose names were exchanged (2 per pair; seed 0).
+- **Photos in their own room** (higher is better): of 52, photos filed under the room their labels name (the room's key against the label's room id).
+- **Swapped photos in a wrong room** (lower is better): of the swapped photos.
+- **Caught** (higher is better): swapped photos the check flags. **Most it could catch**: swapped photos whose new name says a room type at all (a name like "Extra Area" or "Access from 1st Floor" says none).
+- **False alarms** (lower is better): photos in the right room that the check flags (the AI's type disagrees with a correct name).
+- **Wall time**: seconds for the rule and the check over 52 photos. **Cost**, **Tokens**: as above.
+
+| Names | Models | Swapped photos | Photos in their own room ↑ | Swapped photos in a wrong room ↓ | Caught ↑ | Most it could catch | False alarms ↓ | Wall time ↓ | Cost ↓ | Tokens |
+|---|---|---|---|---|---|---|---|---|---|---|
+| Real names (regression) | No AI model (stored `gpt-6-luna` answers) | 0 | 52 | – | – | – | 3–5 (sol: 1–3) | <0.01 s | $0 | None |
+| 5 pairs swapped across rooms | No AI model (stored `gpt-6-luna` answers) | 10 | 42 | 10 | **9** | 9 | 2–4 (sol: 1–3) | <0.01 s | $0 | None |
+| 10 pairs swapped across rooms | No AI model (stored `gpt-6-luna` answers) | 20 | 32 | 20 | **18** | 18 | 1–3 (sol: 1–2) | <0.01 s | $0 | None |
+| 5 pairs swapped, names of the same room type | No AI model (stored `gpt-6-luna` answers) | 10 | 42 | 10 | 1–2 (sol: 0–1) | 10 by type, 0 by design | 1–3 | <0.01 s | $0 | None |
+
+Readings:
+
+- Today's rule trusts the name absolutely: **every** swapped photo is in the wrong room (10 of
+  10, 20 of 20), and nothing else moves (0 unswapped photos wrong). Rooms stay at 33; with
+  cross-room swaps the one-to-one score shows 44 and 37 right, the named-room count 42 and 32
+  (the one-to-one match forgives a swap between two one-photo rooms; the named-room count does
+  not).
+- The type check catches **every swapped photo it can see** (9 of 9, 18 of 18): the one photo
+  per draw it misses was given a name that says no room type. On these draws 4 of 5 and 8 of
+  10 pairs were across types, because the 12-photo grounds room dominates a random draw.
+- Its precision: with 5 pairs it raises 10–13 flags for 9 real errors; with no swap it still
+  raises 1–5 flags (the AI calling a bedroom a living room or a basement bedroom "basement").
+  Those are the false alarms an engineer would dismiss.
+- It is blind, by construction, to a swap between rooms of one type (bedroom 2 named bedroom 3):
+  10 of 10 wrong, 0–2 flagged and those only by coincidence (the same photos that are false
+  alarms on the real names). Catching those needs identity, which the embeddings above showed
+  they cannot give inside one house.
+
+### 82.7 Regression
+
+Today's rule on the real names reproduces EVAL_REPORT 48.4's "after" rows on every repeat of
+both answer sets: **49 rooms, 0 photos with no room** (names alone) and **33 rooms, 0 with no
+room, 52 of 52 photos in the right room, 33 of 33 rooms exact** (names + the 16 aliases). The
+camera-name `today` rows match 48.4's camera rows: live 17–19 rooms, 1–2 with no room; stored
+13–14 rooms, 3–4 with no room. The 0-pair misleading scenario is the same 52 / 33.
+
+### 82.8 The pick
+
+**Exterior photos one room, every other photo its own room** (`exterior_one_room`): best on
+photos in the right room (43 of 52 vs today's 28–32), photos with no room (0 vs 1–4), pair F1
+(0.86) and BCubed F1 (0.90), on all 7 answer sets; rooms exactly right 24 vs today's 5–9 (the
+singleton baseline has 25: it keeps the shed apart). It ties with the two
+exterior + embedding combinations (identical partitions), and breaks the tie as cheapest
+(no model to ship or load) and fastest (<0.01 s against 1.3–3 s plus 0.2–3.6 s model load).
+
+What the pick means for an engineer: the grounds arrive as one room; each interior view is its
+own room, so the engineer merges the 7 interior rooms that have several views (8 merges at the
+Rooms review), instead of today's job of splitting 13–19 identity rooms in which different
+bedrooms and bathrooms are collapsed together (which, per EVAL_REPORT 23.3, makes the room step
+de-duplicate objects across real rooms).
+
+For misleading names: keep the name-first rule and add the free type check as a **flag** at the
+Rooms review (not an automatic move): it caught every swapped photo whose name says a type, at
+1–5 false flags per 52 photos.
+
+Caveats on the pick (why it is a recommendation, not proven):
+
+- It encodes this engineer's convention (all exterior views one grounds room, 10 of 16 aliases)
+  on one property; the 12-photo grounds room is where all of its gain comes from. A firm that
+  splits front/rear elevations, or a property with several buildings, would differ. The shed
+  (a detached structure the AI types exterior) is merged into the grounds wrongly here.
+- It gives `ambiguous` photos a room of their own, where today leaves them Unassigned. Keeping
+  them Unassigned (a scratch computation from the run's partitions, not in the record): 41–43
+  right, 22–24 exact, 1–4 with no room; still the best row.
+- One property, 52 photos, 25 one-photo rooms: a second labelled package is the real test.
+
+### 82.9 Verified vs not
+
+Verified:
+- Three full runs; the last two (with the final code) give identical scores and identical
+  partitions; every value of the first run (before the combinations were added) is reproduced.
+- Regression against 48.4 (above).
+- Unit tests: `tests/unit/evals/test_room_grouping.py`, 27 passed (hand-computed pair and
+  BCubed values, one-to-one matching, unplaced photos, today on real and camera names,
+  ambiguous and failed photos, the exterior rules, threshold search and leave-one-out on
+  separable vectors, block and forced-together matrices, the nearest-neighbour diagnostic,
+  EXIF read with and without `DateTimeOriginal`/`DateTime`, seeded disjoint cross-room and
+  same-type swaps, the type flag, a type swap caught, a swap onto an untyped name caught once,
+  a same-type swap not caught, a false alarm, and `main` end to end on a synthetic package with
+  no embedding model). Together with `tests/unit/vision/test_room_metadata.py`: 139 passed.
+- `ruff check`, `ruff format --check`, `mypy` clean on both files; `mypy basis` clean.
+- EXIF absence checked two ways (PIL EXIF empty on all 52; file mtimes identical).
+- No paid call: manifests record 0 calls, $0.
+
+Not verified / open:
+- Capture-time gaps were not scored: this package has no times. A package from a phone with
+  EXIF intact is needed to measure (c).
+- Only two embedding models, two linkages, two objectives; no fine-tuned place-recognition
+  model (e.g. a NetVLAD-style descriptor) or local-feature matching (keypoints between views
+  of one room), which is the standard for viewpoint change and might do better than global
+  embeddings on interior views. Not tried.
+- The downstream room step was not replayed with the picked grouping (paid).
+- Out-of-sample generalisation of the exterior rule (one property).
+- `backEnd/tests/LEDGER.md` row not added (other agents share the worktree; suggested row
+  below). EVAL_REPORT section not written (not mine to edit).
+
+### 82.10 Surprises, and their re-run
+
+- Embedding clustering on its own does not beat "every photo its own room" (best leave-one-out
+  33 of 52 = the baseline; CLIP's BCubed tuning picks threshold 0, i.e. no merge at all). Re-run
+  twice: identical. The nearest-neighbour diagnostic explains it (3–4 of 15 interior views have
+  a room-mate as nearest photo).
+- Constraining embeddings by the AI's room type and forcing the exterior together tunes to
+  threshold 0 for every model, linkage and objective, so the combination equals the plain
+  exterior rule. Re-run: identical.
+- The type check's misses are not same-type swaps in the random draws (there were none) but
+  names that say no type. Confirmed photo by photo in a scratch script; the harness now records
+  `swapped_typed_names` so the "most it could catch" column is measured, not inferred.
+
+### 82.11 Final run directory
+
+`$BASIS_EVAL_DATA_DIR/predictions/room_grouping_free_v1_run3`, filed at
+`$BASIS_EVAL_DATA_DIR/verification/room_grouping/v1/room_grouping_free_v1_run3`
+(confirming repeat: `..._run2`; first run, before the combination rows and the same-type
+scenario: `room_grouping_free_v1`). Each holds `run.json`, `partitions.json`, `manifest.json`,
+`results.json` (16 cases passed), `report.md`, `console.log`. Wall time 71–73 s per run.
+
+Command (from `backEnd/`):
+
+```
+HF_HUB_OFFLINE=1 env -u OPENAI_API_KEY -u ANTHROPIC_API_KEY -u AZURE_OPENAI_API_KEY \
+  uv run --offline python -m evals.room_grouping \
+  --per-photo $BASIS_EVAL_DATA_DIR/predictions/s48_live_answers \
+  --per-photo $BASIS_EVAL_DATA_DIR/predictions/vision_decomposed_v2_gpt61sol \
+  --photos $BASIS_EVAL_DATA_DIR/inputs/photos \
+  --out $BASIS_EVAL_DATA_DIR/predictions/room_grouping_free_v1_run3
+```
+
+## 83. The room-type review flag: is 0.5 the right threshold? (2026-11-03)
+
+Question: a photo whose room-type answer carries a self-reported confidence below 0.5 is
+flagged for the engineer. Is 0.5 right, and is a fixed threshold the right rule at all?
+Nothing here made a model call; every number is from stored answers. Branch
+`claude/free-comparisons`, worktree only; nothing committed. Section number: the next free
+one is 81 (80 is the last in `EVAL_REPORT.md`); the run directories are named `s81_...` as a
+working name, not a claim on the number.
+
+### 83.1 The rule as it runs (verified in code)
+
+* `basis/vision/analyze.py`: `ROOM_REVIEW_THRESHOLD: Final = 0.5`, commented "eval-tuned
+  later". `review(analysis)` returns the analysis unchanged if it is already `needs_review`;
+  else flags it with reason `ambiguous` when `room_type is RoomType.AMBIGUOUS`; else flags it
+  with reason `low_room_confidence:<c>` when `room_confidence < 0.5`. So the rule is
+  "ambiguous OR confidence below 0.5", ambiguous first, and the constant is not a setting
+  (`config.py` has no entry; a test pins the boundary at `ROOM_REVIEW_THRESHOLD - 0.01`).
+* In the decomposed step (production) the room type and its confidence come from the
+  surfaces call (`photo_surfaces/v2` on `gpt-6-luna` since 28.1). The prompt names
+  `room_confidence` only as a field to report "as the photo shows them" (its "confidence
+  from 0 to 1" line is about each surface component); the schema bounds it to 0–1
+  (`schemas.py`). Nothing tells the model what the number should mean.
+* Downstream: `analyze_photo` returns `needs_review`; the workflow's `_flag(document_id)`
+  adds the photo to its flagged list (the photos review shows it; it does not by itself mark
+  a review stage as needing attention, which only a budget flag does). An `ambiguous` photo
+  goes to the revision's "Unassigned" room when its file name says nothing
+  (`rooms.py`); with `ROOM_GROUPING=filename` (the default) a photo whose name names a room
+  joins that room whatever the model said, and since section 48 the room's **type** is the
+  name's, the model's answers voting only when the name is silent (`resolve_room`). So on a
+  package with descriptive file names a low-confidence or wrong per-photo type changes the
+  engineer's attention, not the room type; on a camera-named package it changes the type,
+  which since PR #93 picks classification variants.
+
+### 83.2 The standard (research first)
+
+* **Confidence thresholds route to human review in every document/vision product, and the
+  value is chosen on the customer's own labelled data, not fixed.** Google Document AI's
+  Human-in-the-Loop routes a document to review when any extraction's confidence is below a
+  threshold the operator sets (the codelab's example slider is 50%); the feature is now
+  listed as deprecated. Amazon A2I with Textract starts a human loop on two thresholds
+  (identification and qualification, 0–99), any one true condition being enough, plus an
+  optional random sample (e.g. 5%) sent to review regardless of confidence, and says
+  thresholds are adjusted over time. Microsoft's Document Intelligence returns confidence per
+  value and recommends a human review stage for critical workflows without naming a number;
+  its Content Understanding guidance (Foundry devblog, 2026-10-14) argues against a single
+  universal cutoff and gives the procedure: collect human-verified documents, measure whether
+  confidence separates right from wrong per field, set a business target such as "catch at
+  least 80% of known errors", pick for each field the cutoff that meets it with the fewest
+  values sent to review (keep the field in review if none does), validate on held-out
+  documents, and recalibrate when the model or schema changes. Its public receipt example:
+  an 80% error-coverage target left about 73% of values in review.
+  Sources: [Google Document AI HITL overview](https://docs.cloud.google.com/document-ai/hitl),
+  [Document AI HITL codelab](https://codelabs.developers.google.com/codelabs/docai-hitl),
+  [A2I Textract activation conditions](https://docs.aws.amazon.com/sagemaker/latest/dg/a2i-json-humantaskactivationconditions-textract-example.html),
+  [A2I console tutorial](https://docs.aws.amazon.com/sagemaker/latest/dg/a2i-get-started-console.html),
+  [A2I features](https://www.aws.amazon.com/augmented-ai/features/),
+  [Azure Document Intelligence accuracy and confidence](https://docs.azure.cn/en-us/applied-ai-services/form-recognizer/concept-accuracy-confidence),
+  [Microsoft Foundry: confidence, grounding and HITL](https://devblogs.microsoft.com/foundry/content-understanding-confidence-grounding-hitl/).
+* **The theory is selective prediction.** A selective classifier is a predictor plus a
+  selection function; the trade-off is the risk–coverage curve (error rate on what is
+  accepted against the share accepted). The standard construction is a threshold on any
+  confidence score, chosen either for a target risk with the most coverage or for a target
+  coverage with the least risk (Geifman and El-Yaniv, "Selective Classification for Deep
+  Neural Networks", NeurIPS 2017, [arXiv 1705.08500](https://arxiv.org/abs/1705.08500);
+  SelectiveNet, [arXiv 1901.09192](https://arxiv.org/abs/1901.09192)). "Precision at a flag
+  rate" and "errors caught per item sent to review" are the review-queue reading of the
+  same curve.
+* **Calibration is measured per confidence bin**: expected calibration error is the
+  bin-weighted mean of |accuracy − mean confidence| (Guo et al., "On Calibration of Modern
+  Neural Networks", ICML 2017, [arXiv 1706.04599](https://arxiv.org/abs/1706.04599)); the
+  Brier score and the AUROC of the confidence as a ranker of right over wrong are reported
+  alongside because ECE alone misses whether the score separates anything.
+* **LLM self-reported confidences are usable but overconfident.** Tian et al., "Just Ask
+  for Calibration" (EMNLP 2023, [arXiv 2305.14975](https://arxiv.org/abs/2305.14975)): for
+  RLHF-tuned models verbalized confidence is better calibrated than token probabilities
+  (about half the ECE on their QA sets). Xiong et al., "Can LLMs Express Their Uncertainty?"
+  (ICLR 2024, [arXiv 2306.13063](https://arxiv.org/abs/2306.13063)): verbalized confidences
+  cluster in the 80–100% band, models are overconfident (high confidence on wrong answers),
+  and consistency across sampled answers separates right from wrong better than the
+  verbalized number, with the hybrid best. Both say: measure on your task, and treat the
+  number as a ranking to threshold, not a probability to trust.
+
+What the standard implies for Basis: a threshold on the confidence is the right shape of
+rule *if* the confidence ranks right above wrong on our photos; the value must be chosen on
+labelled answers against a stated target and re-checked per model; and "repeats disagree"
+is the literature's stronger alternative, at the cost of extra calls.
+
+### 83.3 What was built
+
+`backEnd/evals/room_type_threshold.py` (new; `python -m evals.room_type_threshold --run DIR
+[--run DIR ...] --out DIR [--labels DIR] [--thresholds ...] [--bins ...] [--target 0.8]`),
+recorded with `evals.record.EvalRun.begin(component="room_type_threshold",
+version="threshold-0.5")`: manifest, cases, `run.json`, `tables.md`, `per_run.json`,
+`all_runs.json`, and a link in the verification tree. On every stored answer (file, repeat)
+with a label it computes:
+
+1. **Calibration**: per confidence bin (edges 0, 0.5, 0.6, 0.7, 0.8, 0.9, 0.95, 0.98, 1.0;
+   the top is split finer because the answers cluster there) answers, share right, mean
+   confidence, gap; ECE, Brier, AUROC (Mann–Whitney, ties half).
+2. **Sweep** of the production rule ("ambiguous or confidence < t") for t = 0.00 to 1.00 by
+   0.05: flagged, flagged beyond the ambiguous answers, errors caught, errors missed,
+   precision of the flag, flag rate, photos per error caught, accuracy of what passes.
+3. **Alternative rules**: "file name disagrees" (the name says a type and the answer is not
+   it; free), "file name silent or disagrees", "repeats disagree" (another repeat of the same
+   run gave a different type), "models disagree" (another run gave a different type for the
+   same photo and repeat), and the production threshold combined with the name rule and with
+   the repeats rule.
+4. **Operating points** by stated rule: smallest threshold catching every error; smallest
+   catching at least the target share (80%, Microsoft's example target); the threshold with
+   the best precision among those that add anything beyond the abstentions; and the useful
+   range (from the lowest confidence any non-ambiguous answer carries, below which the
+   threshold flags nothing, to the highest confidence of a wrong non-ambiguous answer,
+   above which nothing more is caught).
+5. **Regression**: at 0.5 the sweep's flagged set is compared with the production code path:
+   every stored answer is rebuilt as a `PhotoAnalysis` with `needs_review` cleared and passed
+   through `basis.vision.analyze.review`; a `predict_photos` run also recorded
+   `needs_review` at prediction time (the runner calls the same `review`), and that recorded
+   set is compared too. Each is a case in `results.json`.
+
+Truth is `labels/photo_rooms_v1.json` with `entry` → `hallway` and `stairs` → `stairway`,
+the mapping `evals.room_metadata` uses; an `ambiguous` answer counts as wrong (it is not the
+right type) and as flagged at every threshold (the rule flags it first). Room accuracy
+reproduces 28.1 exactly (luna v2 0.878, sol v2 0.872; v1 0.897 and 0.891).
+
+`backEnd/tests/unit/evals/test_room_type_threshold.py`: 12 tests on synthetic answers (two
+repeats, a silent camera name, an `ambiguous` photo, a low-confidence right answer): the
+loader and its skips, every sweep count at four thresholds, the alternative rules, the
+cross-run rule, calibration bins / ECE / Brier / AUROC by hand, degenerate AUROC, the
+operating points, the regression passing, the regression failing when the sweep's floor is
+moved while production's is not (mutation), and `main` end to end (manifest, cases, tables,
+no NaN in the JSON). `ruff check`, `ruff format --check` and `mypy` pass on both files; the
+test file and the neighbouring `test_room_metadata.py` and `tests/unit/vision/test_analyze.py`
+pass (57 tests).
+
+### 83.4 The data
+
+Stored per-photo answers under `$BASIS_EVAL_DATA_DIR/predictions/`, all on the 52 photos of
+the one labelled client package, three invocations (the "models disagree" rule pairs the
+runs of one invocation by file and repeat):
+
+| Invocation | Runs | Model whose confidences these are | Answers |
+|---|---|---|---|
+| `s81_room_type_threshold_v2prompt` | `cost28_surfaces_v2_gpt6luna`, `cost28_surfaces_v2_gpt61sol` (28.1, `photo_surfaces/v2`, 3 repeats each) | `gpt-6-luna` and `gpt-6.1-sol` (OpenAI, effort low, temperature default); `models_reported` in each `run.json` | 156 + 156 |
+| `s81_room_type_threshold_live` | `s48_live_answers` (the four live studies of 2026-10-29/30, read from the stack's database for section 48; one "repeat" per study) | not recorded in the export; inferred as section 48 did: the production surfaces model, `gpt-6-luna` (OpenAI, effort low, temperature default) | 208 |
+| `s81_room_type_threshold_v1prompt` | `cost28_surfaces_gpt6luna`, `vision_surfaces_gpt61sol` (28.1 and 12.1, `photo_surfaces/v1`, 3 repeats each) | `gpt-6-luna` and `gpt-6.1-sol` (OpenAI, effort low, temperature default) | 156 + 156 |
+
+1,040 answers in all, 52 photos, 2 to 6 repeats per photo and model. Cost $0; wall time of
+each whole invocation 0.011–0.022 s; each rule 0.01–0.05 ms.
+
+### 83.5 Calibration
+
+**How to read this table.** Is the model's self-reported room confidence worth anything as a signal of a wrong room type?
+
+- **Models**: the exact model id, its provider, the reasoning effort and the temperature as sent. "temperature default" means the model takes no temperature (reasoning models), so the provider's default applies.
+- **Confidence bin**: the self-reported `room_confidence` range the answers fall in (the last bin includes 1.0).
+- **Answers**: how many stored answers fall in the bin (photos times repeats).
+- **Right** (higher is better): the share of the bin's answers whose room type matches the label (`ambiguous` is not a match).
+- **Mean confidence**: the average confidence the model reported in the bin.
+- **Gap**: right minus mean confidence; negative means the model is more confident than it is right (overconfident), positive the reverse. Closer to zero is better.
+- **Tokens (input / output)**: None (stored answers, no new call).
+
+| Setup | Models (provider, effort, temperature) | Confidence bin | Answers | Right ↑ | Mean confidence | Gap | Tokens (input / output) |
+|---|---|---|---|---|---|---|---|
+| Luna, newer prompt (production surfaces call) | `gpt-6-luna` (OpenAI, effort low, temperature default), `photo_surfaces/v2` | 0.00–0.50 | 1 | 0.0% (0 of 1) | 0.480 | −0.480 | None (stored answers, no new call) |
+| | | 0.50–0.60 | 3 | 0.0% (0 of 3) | 0.563 | −0.563 | None (stored answers, no new call) |
+| | | 0.60–0.70 | 6 | 16.7% (1 of 6) | 0.637 | −0.470 | None (stored answers, no new call) |
+| | | 0.70–0.80 | 14 | 78.6% (11 of 14) | 0.759 | +0.027 | None (stored answers, no new call) |
+| | | 0.80–0.90 | 11 | 63.6% (7 of 11) | 0.850 | −0.214 | None (stored answers, no new call) |
+| | | 0.90–0.95 | 7 | 71.4% (5 of 7) | 0.931 | −0.217 | None (stored answers, no new call) |
+| | | 0.95–0.98 | 19 | 94.7% (18 of 19) | 0.966 | −0.018 | None (stored answers, no new call) |
+| | | 0.98–1.00 | 95 | 100.0% (95 of 95) | 0.986 | +0.014 | None (stored answers, no new call) |
+| Sol, newer prompt | `gpt-6.1-sol` (OpenAI, effort low, temperature default), `photo_surfaces/v2` | 0.50–0.60 | 1 | 0.0% (0 of 1) | 0.550 | −0.550 | None (stored answers, no new call) |
+| | | 0.60–0.70 | 6 | 0.0% (0 of 6) | 0.635 | −0.635 | None (stored answers, no new call) |
+| | | 0.70–0.80 | 13 | 38.5% (5 of 13) | 0.750 | −0.365 | None (stored answers, no new call) |
+| | | 0.80–0.90 | 11 | 81.8% (9 of 11) | 0.835 | −0.017 | None (stored answers, no new call) |
+| | | 0.90–0.95 | 2 | 100.0% (2 of 2) | 0.920 | +0.080 | None (stored answers, no new call) |
+| | | 0.95–0.98 | 5 | 100.0% (5 of 5) | 0.960 | +0.040 | None (stored answers, no new call) |
+| | | 0.98–1.00 | 118 | 97.5% (115 of 118) | 0.992 | −0.018 | None (stored answers, no new call) |
+| Live studies (four, production) | inferred `gpt-6-luna` (OpenAI, effort low, temperature default); not recorded in the export | 0.00–0.50 | 1 | 0.0% (0 of 1) | 0.380 | −0.380 | None (stored answers, no new call) |
+| | | 0.50–0.60 | 7 | 14.3% (1 of 7) | 0.561 | −0.419 | None (stored answers, no new call) |
+| | | 0.60–0.70 | 13 | 53.8% (7 of 13) | 0.660 | −0.122 | None (stored answers, no new call) |
+| | | 0.70–0.80 | 12 | 83.3% (10 of 12) | 0.767 | +0.067 | None (stored answers, no new call) |
+| | | 0.80–0.90 | 17 | 76.5% (13 of 17) | 0.844 | −0.079 | None (stored answers, no new call) |
+| | | 0.90–0.95 | 7 | 100.0% (7 of 7) | 0.931 | +0.069 | None (stored answers, no new call) |
+| | | 0.95–0.98 | 23 | 100.0% (23 of 23) | 0.966 | +0.034 | None (stored answers, no new call) |
+| | | 0.98–1.00 | 128 | 99.2% (127 of 128) | 0.986 | +0.006 | None (stored answers, no new call) |
+
+**How to read this table.** One line per set of answers: how well the confidence works as a probability and as a ranking.
+
+- **Models**: as above (exact model id, provider, effort, temperature as sent).
+- **Answers**: stored answers scored (photos times repeats).
+- **Right** (higher is better): room-type accuracy against the label.
+- **Mean confidence**: the average self-reported confidence; above Right means overconfident on average.
+- **ECE** (lower is better): expected calibration error over the bins of the table above, the bin-weighted mean of |right − mean confidence| (Guo et al. 2017).
+- **Brier** (lower is better): the mean of (confidence − 1 if right else 0)².
+- **AUROC of the confidence** (higher is better): the chance a right answer carries a higher confidence than a wrong one (ties count half); 0.5 is no separation, 1.0 perfect. This is the number that says whether any threshold can work.
+- **Wall time**: scoring the calibration on the stored answers.
+- **Tokens (input / output)**: None (stored answers, no new call).
+
+| Setup | Models (provider, effort, temperature) | Answers | Right ↑ | Mean confidence | ECE ↓ | Brier ↓ | AUROC of the confidence ↑ | Wall time | Tokens (input / output) |
+|---|---|---|---|---|---|---|---|---|---|
+| Luna, newer prompt (production surfaces call) | `gpt-6-luna` (OpenAI, effort low, temperature default), `photo_surfaces/v2` | 156 | 87.8% | 0.926 | 0.070 | 0.075 | 0.938 | 0.12 ms | None (stored answers, no new call) |
+| Sol, newer prompt | `gpt-6.1-sol` (OpenAI, effort low, temperature default), `photo_surfaces/v2` | 156 | 87.2% | 0.943 | 0.075 | 0.077 | 0.961 | 0.26 ms | None (stored answers, no new call) |
+| Live studies (four, production) | inferred `gpt-6-luna` (OpenAI, effort low, temperature default); not recorded in the export | 208 | 90.4% | 0.920 | 0.044 | 0.054 | 0.943 | 0.15 ms | None (stored answers, no new call) |
+| Luna, older prompt | `gpt-6-luna` (OpenAI, effort low, temperature default), `photo_surfaces/v1` | 156 | 89.7% | 0.919 | 0.053 | 0.060 | 0.920 | 0.10 ms | None (stored answers, no new call) |
+| Sol, older prompt | `gpt-6.1-sol` (OpenAI, effort low, temperature default), `photo_surfaces/v1` | 156 | 89.1% | 0.939 | 0.056 | 0.059 | 0.937 | 0.10 ms | None (stored answers, no new call) |
+
+Reading. The confidence is a good **ranker** (AUROC 0.92–0.96: a right answer outranks a
+wrong one more than nine times in ten) and a poor **probability** in the middle: below 0.7
+the answer is wrong 17 of 18 times on the two v2 runs (yet carries a mean confidence of
+0.62), 12 of 21 on the live studies; from 0.95 up it is right 98–100% of the time and the
+gap is within ±0.02. The shape is Xiong et al.'s: 68–80% of the answers sit at 0.98–1.00,
+and the 0.80–0.95 band is the overconfident one (luna v2: 12 of 18 right at a mean 0.88).
+Three of sol's five `ambiguous` answers carry confidence 0.98 (the mechanical room:
+confident that it cannot tell), which is why the rule must test `ambiguous` before the
+number, as it does.
+
+### 83.6 The threshold sweep
+
+**How to read this table.** At each threshold, what the review flag costs the engineer and what it catches.
+
+- **Models**: the exact model id, its provider, the reasoning effort and the temperature as sent. "temperature default" means the model takes no temperature (reasoning models), so the provider's default applies.
+- **Rule**: the flag tested. "threshold t" is the production rule with the floor set to t: a photo is flagged when its answer is `ambiguous` or its confidence is below t.
+- **Flagged**: photos sent to the engineer, out of the answers scored (photos times repeats); in brackets, how many of them the threshold added beyond the `ambiguous` answers, which the production rule flags at every threshold.
+- **Flag rate** (lower is better, for a given catch): the share of answers flagged.
+- **Errors caught** (higher is better): wrong room types among the flagged, out of all wrong room types (`ambiguous` counts as wrong).
+- **Errors missed** (lower is better): wrong room types among the unflagged, which reach the engineer as if right.
+- **Precision of the flag** (higher is better): of the flagged photos, the share that were wrong; the rest are the engineer's wasted looks.
+- **Photos per error caught** (lower is better): the review cost: how many photos the engineer looks at for each wrong type found.
+- **Right among unflagged** (higher is better): the accuracy of what passes without review.
+- **Wall time**: seconds to score the rule on the stored answers (no model call); 0.01–0.02 ms for every row.
+- **Tokens (input / output)**: None (stored answers, no new call).
+
+| Setup | Models (provider, effort, temperature) | Rule | Flagged (of answers) [added by the rule] | Flag rate ↓ | Errors caught ↑ | Errors missed ↓ | Precision of the flag ↑ | Photos per error caught ↓ | Right among unflagged ↑ | Wall time | Tokens (input / output) |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| Luna, newer prompt (production surfaces call) | `gpt-6-luna` (OpenAI, effort low, temperature default), `photo_surfaces/v2` | threshold 0.00 (ambiguous only) | 5 of 156 [0] | 3.2% | 5 of 19 (26%) | 14 | 100% | 1.0 | 90.7% | 0.02 ms | None (stored answers, no new call) |
+| | | **threshold 0.50 (production)** | 5 of 156 [0] | 3.2% | 5 of 19 (26%) | 14 | 100% | 1.0 | 90.7% | 0.01 ms | None (stored answers, no new call) |
+| | | threshold 0.60 | 7 of 156 [2] | 4.5% | 7 of 19 (37%) | 12 | 100% | 1.0 | 91.9% | 0.01 ms | None (stored answers, no new call) |
+| | | threshold 0.65 | 9 of 156 [4] | 5.8% | 8 of 19 (42%) | 11 | 88.9% | 1.1 | 92.5% | 0.01 ms | None (stored answers, no new call) |
+| | | threshold 0.70 | 11 of 156 [6] | 7.1% | 10 of 19 (53%) | 9 | 90.9% | 1.1 | 93.8% | 0.01 ms | None (stored answers, no new call) |
+| | | threshold 0.75 | 15 of 156 [10] | 9.6% | 10 of 19 (53%) | 9 | 66.7% | 1.5 | 93.6% | 0.01 ms | None (stored answers, no new call) |
+| | | threshold 0.80 | 25 of 156 [20] | 16.0% | 13 of 19 (68%) | 6 | 52.0% | 1.9 | 95.4% | 0.01 ms | None (stored answers, no new call) |
+| | | threshold 0.85 | 30 of 156 [25] | 19.2% | 15 of 19 (79%) | 4 | 50.0% | 2.0 | 96.8% | 0.01 ms | None (stored answers, no new call) |
+| | | threshold 0.90 | 36 of 156 [31] | 23.1% | 17 of 19 (89%) | 2 | 47.2% | 2.1 | 98.3% | 0.01 ms | None (stored answers, no new call) |
+| | | threshold 0.95 | 43 of 156 [38] | 27.6% | 19 of 19 (100%) | 0 | 44.2% | 2.3 | 100% | 0.01 ms | None (stored answers, no new call) |
+| | | threshold 1.00 | 155 of 156 [150] | 99.4% | 19 of 19 (100%) | 0 | 12.3% | 8.2 | 100% | 0.01 ms | None (stored answers, no new call) |
+| Sol, newer prompt | `gpt-6.1-sol` (OpenAI, effort low, temperature default), `photo_surfaces/v2` | threshold 0.00 (ambiguous only) | 5 of 156 [0] | 3.2% | 5 of 20 (25%) | 15 | 100% | 1.0 | 90.1% | 0.01 ms | None (stored answers, no new call) |
+| | | **threshold 0.50 (production)** | 5 of 156 [0] | 3.2% | 5 of 20 (25%) | 15 | 100% | 1.0 | 90.1% | 0.01 ms | None (stored answers, no new call) |
+| | | threshold 0.60 | 5 of 156 [0] | 3.2% | 5 of 20 (25%) | 15 | 100% | 1.0 | 90.1% | 0.01 ms | None (stored answers, no new call) |
+| | | threshold 0.65 | 8 of 156 [3] | 5.1% | 8 of 20 (40%) | 12 | 100% | 1.0 | 91.9% | 0.01 ms | None (stored answers, no new call) |
+| | | threshold 0.70 | 10 of 156 [5] | 6.4% | 10 of 20 (50%) | 10 | 100% | 1.0 | 93.2% | 0.01 ms | None (stored answers, no new call) |
+| | | threshold 0.75 | 15 of 156 [10] | 9.6% | 15 of 20 (75%) | 5 | 100% | 1.0 | 96.5% | 0.01 ms | None (stored answers, no new call) |
+| | | threshold 0.80 | 23 of 156 [18] | 14.7% | 18 of 20 (90%) | 2 | 78.3% | 1.3 | 98.5% | 0.01 ms | None (stored answers, no new call) |
+| | | threshold 0.85 | 30 of 156 [25] | 19.2% | 18 of 20 (90%) | 2 | 60.0% | 1.7 | 98.4% | 0.01 ms | None (stored answers, no new call) |
+| | | threshold 0.90 | 34 of 156 [29] | 21.8% | 20 of 20 (100%) | 0 | 58.8% | 1.7 | 100% | 0.01 ms | None (stored answers, no new call) |
+| | | threshold 0.95 | 36 of 156 [31] | 23.1% | 20 of 20 (100%) | 0 | 55.6% | 1.8 | 100% | 0.01 ms | None (stored answers, no new call) |
+| | | threshold 1.00 | 117 of 156 [112] | 75.0% | 20 of 20 (100%) | 0 | 17.1% | 5.9 | 100% | 0.01 ms | None (stored answers, no new call) |
+| Live studies (four, production) | inferred `gpt-6-luna` (OpenAI, effort low, temperature default); not recorded in the export | threshold 0.00 (ambiguous only) | 5 of 208 [0] | 2.4% | 5 of 20 (25%) | 15 | 100% | 1.0 | 92.6% | 0.02 ms | None (stored answers, no new call) |
+| | | **threshold 0.50 (production)** | 5 of 208 [0] | 2.4% | 5 of 20 (25%) | 15 | 100% | 1.0 | 92.6% | 0.01 ms | None (stored answers, no new call) |
+| | | threshold 0.60 | 9 of 208 [4] | 4.3% | 8 of 20 (40%) | 12 | 88.9% | 1.1 | 94.0% | 0.01 ms | None (stored answers, no new call) |
+| | | threshold 0.65 | 11 of 208 [6] | 5.3% | 10 of 20 (50%) | 10 | 90.9% | 1.1 | 94.9% | 0.01 ms | None (stored answers, no new call) |
+| | | threshold 0.70 | 22 of 208 [17] | 10.6% | 14 of 20 (70%) | 6 | 63.6% | 1.6 | 96.8% | 0.01 ms | None (stored answers, no new call) |
+| | | threshold 0.75 | 23 of 208 [18] | 11.1% | 14 of 20 (70%) | 6 | 60.9% | 1.6 | 96.8% | 0.01 ms | None (stored answers, no new call) |
+| | | threshold 0.80 | 34 of 208 [29] | 16.3% | 16 of 20 (80%) | 4 | 47.1% | 2.1 | 97.7% | 0.01 ms | None (stored answers, no new call) |
+| | | threshold 0.85 | 45 of 208 [40] | 21.6% | 19 of 20 (95%) | 1 | 42.2% | 2.4 | 99.4% | 0.01 ms | None (stored answers, no new call) |
+| | | threshold 0.90 | 51 of 208 [46] | 24.5% | 20 of 20 (100%) | 0 | 39.2% | 2.6 | 100% | 0.01 ms | None (stored answers, no new call) |
+| | | threshold 0.95 | 58 of 208 [53] | 27.9% | 20 of 20 (100%) | 0 | 34.5% | 2.9 | 100% | 0.01 ms | None (stored answers, no new call) |
+| | | threshold 1.00 | 205 of 208 [200] | 98.6% | 20 of 20 (100%) | 0 | 9.8% | 10.3 | 100% | 0.02 ms | None (stored answers, no new call) |
+
+Thresholds 0.05–0.45 and 0.55 are identical to 0.50 on every set (nothing is added); the
+full 21-step sweep is in each run's `tables.md`. The v1-prompt pair (luna v1, sol v1; 312
+answers) has the same shape: 0.50 adds nothing to the abstentions (16 flagged, 17 of 33
+errors missed); 0.65 flags 7.4% at precision 0.91 catching 64%; 0.70 flags 8.3% at 0.89
+catching 70%; every error is caught at 0.90 (sol) / 0.95 (luna), 20–27% flagged.
+
+### 83.7 Alternative rules
+
+**How to read this table.** Other ways to choose which photos the engineer looks at, scored exactly as the sweep above, with the production threshold and 0.70 repeated for comparison.
+
+- **Models**: the exact model id, its provider, the reasoning effort and the temperature as sent ("temperature default": the model takes no temperature, the provider's default applies).
+- **Rule**: "file name disagrees" flags an answer whose type is not the type the file name names (`name_room_type(room_name(file))`; a camera name says nothing and is never flagged); "file name silent or disagrees" also flags every photo whose name says nothing; "repeats disagree" flags every answer of a photo whose repeats in one run gave more than one type; "models disagree" flags both answers when the two runs of one invocation gave different types for the same photo and repeat; "threshold 0.50 or ..." is the union with the production rule.
+- **Flagged**, **Flag rate** ↓, **Errors caught** ↑, **Errors missed** ↓, **Precision of the flag** ↑, **Photos per error caught** ↓, **Right among unflagged** ↑: as in the sweep table; the bracket is what the rule flags beyond the `ambiguous` answers.
+- **Wall time**: scoring the rule on the stored answers. The repeat and model rules would cost two or three surfaces calls per photo in production; that cost is not in this column.
+- **Tokens (input / output)**: None (stored answers, no new call).
+
+| Setup | Models (provider, effort, temperature) | Rule | Flagged (of answers) [added by the rule] | Flag rate ↓ | Errors caught ↑ | Errors missed ↓ | Precision of the flag ↑ | Photos per error caught ↓ | Right among unflagged ↑ | Wall time | Tokens (input / output) |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| Luna v2 and Sol v2 together | `gpt-6-luna` and `gpt-6.1-sol` (OpenAI, effort low, temperature default), `photo_surfaces/v2` | threshold 0.50 (production) | 10 of 312 [0] | 3.2% | 10 of 39 (26%) | 29 | 100% | 1.0 | 90.4% | 0.02 ms | None (stored answers, no new call) |
+| | | file name disagrees (circular here, see below) | 39 of 312 [29] | 12.5% | 39 of 39 (100%) | 0 | 100% | 1.0 | 100% | 0.01 ms | None (stored answers, no new call) |
+| | | file name silent or disagrees | 51 of 312 [41] | 16.3% | 39 of 39 (100%) | 0 | 76.5% | 1.3 | 100% | 0.01 ms | None (stored answers, no new call) |
+| | | repeats disagree (3 repeats of one model) | 21 of 312 [17] | 6.7% | 15 of 39 (38%) | 24 | 71.4% | 1.4 | 91.8% | 0.04 ms | None (stored answers, no new call) |
+| | | models disagree (luna against sol, same photo and repeat) | 34 of 312 [30] | 10.9% | 21 of 39 (54%) | 18 | 61.8% | 1.6 | 93.5% | 0.05 ms | None (stored answers, no new call) |
+| | | threshold 0.50 or repeats disagree | 27 of 312 [17] | 8.7% | 21 of 39 (54%) | 18 | 77.8% | 1.3 | 93.7% | 0.01 ms | None (stored answers, no new call) |
+| | | threshold 0.70 (for comparison) | 21 of 312 [11] | 6.7% | 20 of 39 (51%) | 19 | 95.2% | 1.1 | 93.5% | 0.02 ms | None (stored answers, no new call) |
+| Live studies (four) | inferred `gpt-6-luna` (OpenAI, effort low, temperature default) | file name disagrees | 19 of 208 [14] | 9.1% | 19 of 20 (95%) | 1 | 100% | 1.0 | 99.5% | 0.01 ms | None (stored answers, no new call) |
+| | | repeats disagree (the four studies as repeats) | 20 of 208 [19] | 9.6% | 8 of 20 (40%) | 12 | 40.0% | 2.5 | 93.6% | 0.03 ms | None (stored answers, no new call) |
+| | | threshold 0.50 or repeats disagree | 24 of 208 [19] | 11.5% | 12 of 20 (60%) | 8 | 50.0% | 2.0 | 95.7% | 0.01 ms | None (stored answers, no new call) |
+| | | threshold 0.70 (for comparison) | 22 of 208 [17] | 10.6% | 14 of 20 (70%) | 6 | 63.6% | 1.6 | 96.8% | 0.01 ms | None (stored answers, no new call) |
+| Luna v1 and Sol v1 together | `gpt-6-luna` and `gpt-6.1-sol` (OpenAI, effort low, temperature default), `photo_surfaces/v1` | repeats disagree | 30 of 312 [23] | 9.6% | 18 of 33 (55%) | 15 | 60.0% | 1.7 | 94.6% | 0.03 ms | None (stored answers, no new call) |
+| | | models disagree | 28 of 312 [22] | 9.0% | 17 of 33 (52%) | 16 | 60.7% | 1.6 | 94.4% | 0.05 ms | None (stored answers, no new call) |
+| | | threshold 0.70 (for comparison) | 26 of 312 [10] | 8.3% | 23 of 33 (70%) | 10 | 88.5% | 1.1 | 96.5% | 0.01 ms | None (stored answers, no new call) |
+
+Reading.
+
+* **"File name disagrees" is circular on this package and must not be read as a result.**
+  `photo_rooms_v1.json` says its source is "engineer filenames in the client package", and
+  the check confirms it: for 50 of the 52 photos `name_room_type(room_name(file))` equals
+  the label; the other two names say nothing. A rule that flags "answer ≠ name" therefore
+  flags exactly the errors by construction. It is also already what production does with the
+  room type (section 48: the name's type wins), so the per-photo disagreement is informative
+  only as "the model saw something other than what the name says", which this data cannot
+  score. On a camera-named package the rule has nothing to compare against.
+* **Repeat or model disagreement is worse than the confidence**, the opposite of Xiong et
+  al.'s QA result: at the same flag rate (7–10%) it catches 38–55% of the errors at precision
+  0.40–0.71, where the threshold at 0.70 catches 50–70% at 0.64–0.95. The wrong answers are
+  mostly stable: on the v2 pair 24 of the 39 wrong answers are on photos whose three repeats
+  all gave the same wrong type, so the repeats agree on them. Most of the wrong confident
+  answers are bedrooms typed living room, basement or storage (8 of 14 on luna v2, 13 of 15
+  on sol v2, 11 of 15 live), at confidence 0.55–0.94. It would also cost two or three
+  surfaces calls per photo.
+* The sweep's own operating points (`operating_points` in each run) by the stated rules.
+
+**How to read this table.** Where on the sweep a threshold does anything, and where each stated rule lands, per set.
+
+- **Set** and **Models**: the set of answers and the exact model (OpenAI, effort low, temperature default for all five; the live set's model is inferred, not recorded).
+- **Useful range of a threshold**: from the lowest confidence of any non-`ambiguous` answer (a threshold at or below it flags nothing beyond the abstentions) to the highest confidence of a wrong non-`ambiguous` answer (above it, nothing more is caught).
+- **0.50 inside it?**: whether the production value can flag anything the `ambiguous` test does not.
+- **Catches every error at**: the smallest swept threshold with no error missed, and its flag rate (lower threshold is cheaper).
+- **Catches ≥ 80% at**: the smallest threshold meeting the 80% error-coverage target (Microsoft's example business target), and its flag rate.
+- **Best precision at**: the threshold with the highest flag precision among those that add at least one photo beyond the abstentions (ties to the lower threshold).
+- **Precision ≥ 0.8 up to**: the largest threshold whose flag is still right at least four times in five (the rule 83.8 picks by).
+- **Tokens (input / output)**: None (stored answers, no new call).
+
+| Set | Models (provider, effort, temperature) | Useful range of a threshold | 0.50 inside it? | Catches every error at | Catches ≥ 80% at | Best precision at (adds something) | Precision ≥ 0.8 up to | Tokens (input / output) |
+|---|---|---|---|---|---|---|---|---|
+| Luna v2 | `gpt-6-luna`, `photo_surfaces/v2` | 0.56–0.94 | no (adds 0) | 0.95 (27.6% flagged) | 0.90 (23.1%) | 0.60 (100%, 2 added) | 0.70 (90.9%, 7.1% flagged) | None (stored answers, no new call) |
+| Sol v2 | `gpt-6.1-sol`, `photo_surfaces/v2` | 0.60–0.88 | no (adds 0) | 0.90 (21.8%) | 0.80 (14.7%) | 0.65 (100%, 3 added) | 0.75 (100%, 9.6%) | None (stored answers, no new call) |
+| Live | inferred `gpt-6-luna` | 0.55–0.88 | no (adds 0) | 0.90 (24.5%) | 0.80 (16.3%) | 0.65 (90.9%) | 0.65 (90.9%, 5.3%) | None (stored answers, no new call) |
+| Luna v1 | `gpt-6-luna`, `photo_surfaces/v1` | 0.56–0.91 | no (adds 0) | 0.95 (26.9%) | 0.85 (23.1%) | 0.65 (83.3%) | 0.65 (83.3%, 7.7%) | None (stored answers, no new call) |
+| Sol v1 | `gpt-6.1-sol`, `photo_surfaces/v1` | 0.65–0.88 | no (adds 0) | 0.90 (19.9%) | 0.75 (10.9%) | 0.70 (100%) | 0.75 (88.2%, 10.9%) | None (stored answers, no new call) |
+
+The step-by-step view behind the last column (what each 0.05 step adds, from the runs'
+`per_run.json`): on the live studies 0.65 → 0.70 adds 11 photos of which 4 are wrong
+(precision of the flagged set 0.91 → 0.64); on luna v2 0.70 → 0.75 adds 4 photos, none wrong;
+on luna v1 0.65 → 0.70 adds 1 photo, right; on sol v2 every step up to 0.75 adds only wrong
+answers (+3, +2, +5) and 0.80 adds 8 for 3.
+
+### 83.8 The pick
+
+**0.5 is not on the curve.** In 1,040 stored answers from two models, two prompts and four
+live studies, no non-ambiguous answer ever carried a confidence below 0.55 (lowest: 0.55
+live, 0.56 luna, 0.60–0.65 sol). The floor has never fired; the production flag is "ambiguous
+only", which catches 25–65% of the wrong types (the abstentions) and none of the confident
+errors. The 14–15 wrong answers per 156 (15 of 208 live) that reach the engineer unflagged
+are mostly bedrooms typed living room, basement or storage, at confidence 0.55–0.94.
+
+**A fixed threshold is the right shape of rule** on this evidence: the confidence ranks right
+over wrong at AUROC 0.92–0.96, the alternative that needs no new call (name disagreement) is
+circular on this package and already applied to the room type in production, and the ones
+that need calls (repeats, a second model) separate worse. What is wrong is the value, and
+that it is a constant chosen without data.
+
+**The stated rule.** Pick the largest threshold at which the flag is still right at least
+four times in five (precision of the flagged set ≥ 0.8) on every set of answers. The reason
+for a precision floor rather than a coverage target: a review flag the engineer learns is
+usually wrong stops being looked at (the review queue's point is that a flagged photo is
+worth opening), and on the production model's three sets the 80% coverage target costs
+precision below 0.5 (83.6). The governing sets are the production model and prompt: luna v2 and the live
+studies.
+
+| Set | Largest threshold with flag precision ≥ 0.8 |
+|---|---|
+| Luna v2 (production call, stored) | 0.70 |
+| Live studies (production) | 0.65 |
+| Luna v1 | 0.65 |
+| Sol v2 | 0.75 |
+| Sol v1 | 0.75 |
+
+**Pick: 0.65**, the largest value that meets the rule on every set (0.70 fails on the live
+studies at 0.64 and on luna v1 at 0.77). At 0.65 the flag covers 5.1–7.7% of photos (3–4 per
+52-photo study instead of 1–2 today on luna), 83–100% of them wrong (1.0–1.2 photos looked at
+per error found), and catches 40–65% of the wrong types instead of 25–65%; on luna v2 it
+catches 8 of 19 (today 5), on the live studies 10 of 20 (today 5).
+
+Runner-up and when to prefer it:
+
+* **0.70** if the firm accepts a weaker flag on the live data: same or better on luna v2 and
+  both sol sets (precision 0.91 / 1.0 / 1.0), but on the live studies it doubles the flagged
+  set (11 → 22) for 4 more errors (precision 0.64), and on luna v1 it adds one right answer.
+  The difference between 0.65 and 0.70 on the live set rests on 11 photos, 4 of them wrong:
+  inside the noise of one package, so 0.70 is not ruled out, only not supported.
+* **An 80% error-coverage target** (Microsoft's example business target): 0.75–0.90
+  depending on the set (0.80–0.90 on the production model's sets), flagging 11–23% of photos
+  at precision 0.42–0.88 (0.42–0.47 on luna: 8–12 photos per 52-photo study, more than half
+  of them right). That is the choice only if a missed room type
+  is expensive, which on file-named packages it is not (the name sets the type, 83.1).
+
+Ship it as a setting, not a new constant: `VISION_ROOM_REVIEW_THRESHOLD`, default 0.65,
+documented in `config.py`'s header and `.env.example` citing this section; keep `ambiguous`
+tested first (sol abstains at 0.98); keep the confidence in the review reason so the Rooms
+screen can sort by it (the Foundry guidance: review the riskiest first). Not done here: the
+constant is unchanged and no setting was added (the task was the measurement).
+
+What this does not settle: every threshold above was chosen on the same 52 photos it is
+scored on; the standard's held-out validation step needs a second labelled package; the
+value differs by model (sol's useful range ends at 0.88, luna's at 0.94), so a change of
+`VISION_SURFACES_MODEL` or of the surfaces prompt re-runs this module. The downstream effect
+of flagging 5–8% of photos instead of 2–3% (luna) is on the engineer's attention only on named
+packages (the room's type comes from the file name); on camera-named packages, where the
+model's vote sets the type and the classification variant, the catch matters for money and
+was not replayed here.
+
+### 83.9 Regression
+
+At 0.5, on all five runs (1,040 answers), the sweep's flagged set equals what
+`basis.vision.analyze.review` flags when each stored answer is rebuilt as a `PhotoAnalysis`
+with the review fields cleared (case `regression/production-path/<run>`: passed, 5 of 5;
+5 / 5 / 5 / 5 / 11 flagged, all `ambiguous`). On the four `predict_photos` runs the set also
+equals the `needs_review` flags the runner recorded at prediction time (reason `ambiguous`
+on every one; case `regression/recorded-flag/<run>`: passed, 4 of 4); the live export
+recorded no flag (`photo_room_answers` rows carry none), so that case is `test_error` with
+the note, not a failure. The unit test's mutation (the sweep's floor moved to 0.7 while
+production's stays) makes the check fail with the two added answers named.
+
+### 83.10 Run records (the final run)
+
+Three recorded invocations, run 2026-11-03 18:37 UTC on the final module (the module's last
+change, 10:37:04 local, precedes them; the later edits were to the test file only):
+
+* `$BASIS_EVAL_DATA_DIR/predictions/s81_room_type_threshold_v2prompt/` (luna v2 + sol v2;
+  6 cases, 6 passed; manifest id `25285b19-d667-44e1-88f6-24051e8c33c9`)
+* `$BASIS_EVAL_DATA_DIR/predictions/s81_room_type_threshold_live/` (the four live studies;
+  3 cases, 2 passed, 1 `test_error`: no recorded flag in the export)
+* `$BASIS_EVAL_DATA_DIR/predictions/s81_room_type_threshold_v1prompt/` (luna v1 + sol v1;
+  6 cases, 6 passed)
+
+Each holds `manifest.json`, `results.json`, `report.md`, `run.json`, `tables.md`,
+`per_run.json`, `all_runs.json`, `console.log`, and is linked from
+`$BASIS_EVAL_DATA_DIR/verification/room_type_threshold/threshold-0.5/<run>` (component
+`room_type_threshold`, version `threshold-0.5`). Code `6690f63` (the module is uncommitted,
+so the manifest's dirty flag is set), release `v0.10.0`; calls 0, tokens 0, $0; wall time of
+each invocation 0.011–0.022 s.
+
+### 83.11 Verified, not verified, surprises
+
+Verified:
+
+* The rule, its constant and its downstream in the code (83.1), re-read for this
+  write-up, including that the prompt does not define `room_confidence`.
+* Every number in sections 5–8: after the recorded runs, all five runs' answers were
+  re-scored in a separate process with the module's `evaluate` and compared with the stored
+  `per_run.json` with wall times removed: identical on all five; the regression re-run gave
+  the same equal sets (5 / 5 / 5 / 5 / 11). The 83.7 and 83.8 figures (the step-by-step
+  additions, the precision-floor column, the error mix) were computed from the stored
+  `per_run.json` / `all_runs.json` and the answers, not from the draft.
+* Room accuracy per run equals 28.1's table (0.878, 0.872, 0.897, 0.891).
+* The circularity of the file-name rule: 50 of 52 labels equal the name's type, 2 names are
+  silent.
+* Sol's three `ambiguous` answers at 0.98 are all the mechanical room (listed).
+* The Microsoft Foundry source (2026-10-14): the six-step per-field procedure, the 80%
+  target and "leaving 73% for review" on the receipt lab, re-read at the URL.
+* Unit test: `tests/unit/evals/test_room_type_threshold.py` (12 tests) together with
+  `tests/unit/evals/test_room_metadata.py` and `tests/unit/vision/test_analyze.py`: 57
+  passed, provider keys unset; the mutation test (sweep floor moved to 0.7, production's
+  not) makes the regression report the two stairs answers. `ruff check`, `ruff format
+  --check` and `mypy` clean on the two files.
+
+Not verified: any threshold on a second package (every pick is in-sample on 52 photos; the
+0.65-versus-0.70 call rests on 11 live photos); the live answers' model is inferred from the
+deployment, not recorded in the export; the effect of a different flag on camera-named
+packages (type and classification variant); the other sources in 83.2 were taken from
+the earlier draft's reading and not re-fetched in this session (Google, AWS, Azure docs and
+the four papers); the full test suites were not run (not asked).
+
+Not done: no setting was added and `ROOM_REVIEW_THRESHOLD` is unchanged; `EVAL_REPORT.md` and
+the developer page were not edited; nothing committed.
+
+Surprises, each re-run before recording: (1) the 0.5 floor never fires on 1,040 answers:
+seen in a count of the raw files, in every invocation, and in this session's re-score;
+(2) "file name disagrees" at 100% recall and 100% precision: traced to the labels'
+provenance (engineer file names), not to the rule; (3) sol abstains at confidence 0.98 three
+times (the mechanical room): the rule's `ambiguous`-first order makes it harmless, and the
+calibration counts those at the confidence they carry; (4) found while finishing: the draft
+called 0.70 "the knee on every set", but on the live studies (the production model in
+production) 0.65 → 0.70 doubles the flagged set for 4 more errors; re-checked step by step
+from `per_run.json`, which moved the pick to 0.65 under the stated precision rule.
+
+## 84. Where the appraisal highlight goes: Basis's rule against Azure's own boxes (2026-11-03)
+
+Question: when the review page highlights where a field's value is printed on the appraisal
+page, which way of placing the box is most accurate, Basis's rule
+(`basis/extraction/regions.py` with `geometry.py` and `marks.py`) or Azure's own field boxes?
+
+Answer, in short:
+
+- **Azure's own boxes lose.** Azure Document Intelligence's key-value pair gives a box for
+  only about 40 % of printed fields. Where it gives one, it is right 89 % of the time on the
+  grounded reading (production) and 96.5 % on the pipeline reading. Overall that is 35 to 42 %
+  of fields boxed right, against 99.7 to 99.9 % for Basis's rule. Azure's 1004 form model
+  (`prebuilt-mortgage.us.1004`, which production does not run) boxes 29 to 37 % of fields. Its
+  value boxes are always right, but its checkbox boxes cover only the tick mark and never the
+  option's label.
+- **The 33.6 test is too lenient, and fixing it changes the answer.** The test asks whether
+  the box's words contain the value. It cannot tell two printings of the same value apart:
+  the "3" of "Under 3 mths" passes for the neighbourhood's age "Low 3". A stricter test uses
+  the truth's own quote to locate the printing it means. Under that test Basis's rule is on
+  the right printing for **93.8 %** of fields on the grounded reading (804 / 857), 94.3 % on
+  the pipeline reading and 95.9 % on 33.6's own population, not 99.3 to 99.9 %. I looked at
+  three of these misses rendered on the page; the box really is on the wrong printing.
+- **Pick on the production reading (grounded, gpt-6.1-sol): "quote-checked".** Keep Basis's
+  box when it falls inside the model's own verbatim quote. Otherwise use the value's words
+  inside that quote. On the right printing: 0.979 (839 / 857) against 0.938. The box overlaps
+  the value's words by IoU ≥ 0.5 in 0.919 of fields against 0.885. Paired against today's
+  rule: 35 fields better, 0 worse, on 8 of the 10 appraisals and both client appraisals. On
+  all 16 appraisals (today's rule recomputed): 51 better, 1 worse. The words test is
+  unchanged (905 / 906). It costs $0 and adds about 0.4 ms per field.
+- **On the pipeline reading nothing beats Basis's rule by more than one field.**
+  "Checked pair, value's words" (Azure's pair box when Azure's words in it hold the value)
+  is +1 of 1,155. This is the fallback reader, which keeps no quotes. The pick is a tie
+  within noise, so I would leave the rule unchanged there.
+- **Regression:** today's stored boxes reproduce 33.6 exactly: **3,224 / 3,248 (0.993)**,
+  3 wrong box, 19 wrong page, 2 no box, the same status on every field. This needs the truth
+  files as they were on 2026-10-27; against today's truth the same predictions score
+  3,163 / 3,247 (explained under Regression).
+
+### 84.1 The standard (research first)
+
+How the document-AI products say where a field's value is:
+
+- **Azure Document Intelligence.** Every element carries `boundingRegions`, each a 1-based
+  page number and a polygon "in the page unit": inches for a PDF, pixels for an image. A form
+  field (key-value pair) has a key element and a value element, each with `content`,
+  `boundingRegions` and `spans` into the document's text. The value "can also be empty for
+  unfilled form fields". When it is, Azure returns no region for the value, only for the key;
+  a Microsoft Q&A thread asks for the empty value's region and has no answer. On v4 the layout
+  model returns pairs only with `features=keyValuePairs`, which is what Basis records.
+  Prebuilt-model document fields (for example `prebuilt-mortgage.us.1004`) have the same
+  `content` / `boundingRegions` / `spans` / `confidence` shape.
+  Sources: https://learn.microsoft.com/en-us/azure/ai-services/document-intelligence/concept-analyze-document-response ;
+  https://learn.microsoft.com/de-de/azure/ai-services/document-intelligence/concept-layout ;
+  https://learn.microsoft.com/en-us/answers/questions/1696878/azure-document-ai-unable-to-retrieve-the-bounding
+- **Google Document AI.** `Document.Page.FormField` has `fieldName` and `fieldValue`. Both are
+  a `Layout` ("Layout for the FormField value"), which holds a `textAnchor` into the text and
+  a `boundingPoly` with `vertices` (pixels) and `normalizedVertices` (0 to 1 of the page).
+  Source: https://docs.cloud.google.com/document-ai/docs/reference/rest/v1/Document
+- **Amazon Textract.** A `KEY_VALUE_SET` block is a KEY or a VALUE. The VALUE block's CHILD
+  relationship lists the WORD blocks that make up the value's text. Every block carries
+  `Geometry`. Source: https://docs.aws.amazon.com/textract/latest/dg/how-it-works-kvp.html
+- **Common to all three:** a value's location is the box of the words it was read from, its
+  provenance, in page coordinates. Basis stores the same shape: page plus a box in page
+  fractions (`docs/api/FIELD_REGIONS.md`).
+
+What "the box is right" means in the literature. I read these through search summaries and
+the abstracts, not the full papers; I have not checked the exact metric definitions in them.
+
+- **Localization by IoU against a reference box:** mean IoU, or "IoU@0.5" grounding accuracy
+  (the DocLocal4K evaluation in https://arxiv.org/pdf/2509.10129 ; BBox-DocVQA). For an
+  answer spanning several regions, the IoU is taken between the union of the predicted boxes
+  and the union of the truth boxes.
+- **Groundedness by the OCR words:** whether the answer can be located among the document's
+  word boxes, and where (SMuDGE, https://arxiv.org/pdf/2503.19120).
+- **Tight against loose boxes:** a tight truth box penalises loose, context-heavy predictions
+  (HW-SQuAD, https://arxiv.org/pdf/2110.00711).
+
+**Tests used here (the same for every method, defined in the module):**
+
+1. **Words test** (33.6's test, unchanged; `evals.appraisal.score.highlight_status`). The
+   first box is on the truth page (or an `also_on` page). The PDF text-layer words whose
+   centres fall inside it contain the printed value; a checkbox field needs a checked
+   option's label, and a number needs the number as a whole word.
+2. **Exactly the value.** The words test passes, and the box's words are the value and
+   nothing else (a "$", "=" or "%" printed beside a number is allowed).
+3. **On the value's own printing** (stricter, geometric). This uses the truth's `quote`, the
+   printed context that every present field carries. The quote is located once on the truth
+   page's text layer, and the printed value once inside it. Right means: the words test
+   passes, and a box on the truth page contains the centre of that value box. If the value
+   is not found once inside the quote, the box's centre must lie inside the quote's box. A
+   box that the words test accepted on an `also_on` page passes, because the quote only
+   locates the truth page. Fields whose quote is found zero or several times are not
+   checkable. That truth comes from the truth text, never from a method's boxes.
+4. **IoU ≥ 0.5** between the first box and that value box (the literature's test); no box,
+   or a box on another page, counts as IoU 0.
+
+The **pick** ranks by the strictest test each field allows: test 3 where it is checkable,
+else test 1. Ties go to test 1, then test 2, then time; cost is $0 for every method except
+the 1004 model's.
+
+### 84.2 What was built
+
+- `backEnd/evals/highlight_placement.py` (new; it builds on the partial file the previous
+  agent left). It follows `evals/record.py`: `EvalRun.begin(component="highlight_placement")`,
+  one case per (document, field, method) in `results.json`, every number in `run.json`,
+  `comparison.md` (the table below), and a manifest filed in the verification tree under
+  `highlight_placement/unversioned/`. Options: `--run <appraisal run>`, `--all |
+  --documents`, `--today stored|recomputed` and `--truth SET=PATH`. The last one scores a
+  set against an older truth file and is used for the regression.
+- **Methods:**
+  - (a) `today`: Basis's rule, as production stored it.
+  - (b) `azure_pair`: Azure's key-value pair value box, mapped to the key by the pipeline's
+    own caption mapping (`sections.azure_candidates`, or `uad36_pdf.azure_candidates` on a
+    UAD 3.6 form, detected as the pipeline detects it).
+  - (c) `text_search`: the quote's words, or the value's when the reader gave no quote, by
+    plain search on the cited page, first occurrence.
+  - (d) Combinations:
+    - `azure_else_today` and `today_else_azure`.
+    - `checked_pair`: Azure's box only when Azure's own words in it hold the value and it is
+      on the cited page.
+    - `checked_pair_words`: the same, drawn over the value's words inside the pair box, which
+      is Textract's VALUE = its child WORDs.
+    - `quote_value` ("quote-checked"): Basis's box if it lies inside the model's quote, else
+      the value's words, whole words first, inside the quote.
+  - Also `azure_1004` and `azure_1004_narrowed`: Azure's 1004 form model's field boxes, raw,
+    and narrowed the way the 33.5 `azure_1004` system draws them.
+- `backEnd/tests/unit/evals/test_highlight_placement.py`: 21 tests on a fabricated page where
+  one name is printed three times. They cover:
+  - every method and its fallbacks;
+  - the cited-page rule;
+  - the quote check, with whole words first;
+  - the 1004 boxes, raw and narrowed;
+  - the exact test;
+  - the box truth: found once, ambiguous, missing;
+  - IoU;
+  - the comparison on one population, including verified-only fields and skipped documents;
+  - the stored and recomputed rule;
+  - summary, pick and table, with counts only and no values;
+  - the `--truth` parser;
+  - the run record.
+- **Gates:** ruff check and ruff format clean, mypy clean (`basis` plus the module, 329
+  files), 21 / 21 tests pass with `BASIS_ENV=test` and the keys unset. The full suites were
+  not run.
+
+### 84.3 The data
+
+- **Truth:** `$BASIS_EVAL_DATA_DIR/appraisal/truth/*.json`, the current files. Population:
+  the input run's correctly read **headline** fields, which is the scorer's own highlight
+  population (verified catalogue keys, first repeat), on pages with a text layer. Scans are
+  left out, as in 33.6.
+- **Recordings:** Azure DI layout plus key-value pairs (`recordings/<sha>/azure_di.json`) and
+  the 1004 model (`azure_1004.json`), replayed. No Azure call and no model call were made, and
+  every provider key was unset.
+- **Inputs:**
+  - **Grounded reading (production default):** `runs/baseline_after_rebuild/grounded_accept`
+    (replay of `production` on gpt-6.1-sol, effort low, commit 1116956). It covers 10 of the
+    16 subset documents: both clients and the 8 synthetic. The 6 GSE UAD 3.6 documents have
+    no grounded replay (33.12). The stored boxes are production's: `regions.py` and
+    `grounded.py` have not changed since 1116956 except the ledger commit.
+  - **Pipeline reading:** `runs/baseline_after_rebuild/pipeline_accept` (commit 1116956),
+    on the 16-document subset and on all 41.
+  - **Grounded on all 16:** `runs/sweep3/llm_all@sol` (the 33.5 Sol answers that production
+    reuses, 33.12) with today's rule **recomputed** at this commit, because that run stored
+    the sweep's quote boxes and not production's.
+  - **Regression:** `runs/regions/production_first`, the run 33.6 measured: 41 documents,
+    commit 5c74c66, score.json written 2026-10-27.
+- **A replay at HEAD was tried first and could not be used.** Every recorded request missed,
+  so the documents failed as `missing_recording`: pipeline 10 of 16, production 16 of 16.
+  The prompts have moved on since the recordings. The failed attempts are under
+  `runs/highlight_placement_inputs/`.
+
+### 84.4 Comparison tables
+
+#### Grounded reading (production default), 10 of the 16 appraisals
+
+Run `runs/highlight_placement/grounded_subset16_rerun`; the parallel run `grounded_subset16`
+is identical apart from time.
+
+**How to read this table.** When the review page highlights where a field's value is printed,
+which way of placing the box is most accurate?
+
+- **Models**: the exact model id, its provider, the reasoning effort and the temperature as
+  sent. "No AI model" means the method is a rule over Azure's recorded page reading (words,
+  checkboxes and key-value pairs, or the 1004 form model's fields), replayed from the
+  recordings: no model call and no Azure call were made. The values being boxed were read by
+  `gpt-6.1-sol` (OpenAI, effort low, temperature default) in the recorded run; no call was
+  made here.
+- **Boxes placed (of 906)**: Fields the method puts a box on at all, of the 906 correctly read
+  fields on 10 appraisals whose page has a text layer (coverage; the review page falls back
+  to its own text search for the rest).
+- **Right among placed** (higher is better): Of the boxes placed, the share whose first box is
+  on the field's page and holds the printed value's words.
+- **Right among all fields** (higher is better): The same count over every field, a field
+  with no box counting as not right: the number the engineer experiences.
+- **Exactly the value** (higher is better): Right boxes whose words are the value and nothing
+  else (a tight box, not a whole line), as a share of all fields.
+- **Wrong box / wrong page** (lower is better): Boxes placed that hold other words, or that
+  lie on another page than the truth's.
+- **On the value's own printing** (higher is better): The stricter test (84.1, test 3),
+  over the 857 fields whose truth quote is found exactly once on the page. A box on another
+  printing of the same value fails it, and no box counts as a miss.
+- **IoU ≥ 0.5 with the value's words** (higher is better): The first box's intersection over
+  union with the printed value's words inside the truth quote is at least 0.5, over the 789
+  fields where that value box is found exactly once. No box, or another page, is IoU 0.
+- **Median box size (words)**: Text-layer words inside the first box, median over the boxes
+  placed; 1 is one word.
+- **Placement time (s)** (lower is better): Wall time of the placement rule over the
+  population, summed, with the recorded page reading already loaded. A combination pays for
+  both parts, and "Basis's rule" is timed by recomputing it.
+- **Cost per appraisal** (lower is better): Model and Azure spend per appraisal. Every method
+  reuses the Azure DI analysis the extraction already paid for; the 1004 rows would add that
+  model's analysis.
+- **Tokens (input / output)**: Tokens this comparison used; "None" means no model was called.
+
+| Placement method | Models (provider, effort, temperature) | Boxes placed (of 906) | Right among placed ↑ | Right among all fields ↑ | Exactly the value ↑ | Wrong box ↓ | Wrong page ↓ | On the value's own printing ↑ | IoU ≥ 0.5 with the value's words ↑ | Median box size (words) | Placement time (s) ↓ | Cost per appraisal ↓ | Tokens (input / output) |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| Basis's rule · The checked box; else Azure's pair box when that pair read the value; else the value's words nearest the caption; else the quote's words (production) | No AI model; Azure's recorded page reading: `prebuilt-layout (Azure Document Intelligence)` with key-value pairs (Azure), replayed | 906 (1.000) | 0.999 (905 / 906) | 0.999 (905 / 906) | 0.859 (778) | 1 | 0 | 0.938 (804 / 857) | 0.885 (698 / 789) | 1 | 8.41 | $0 (reuses the extraction's Azure DI analysis) | None |
+| Azure's pair box · Azure's own key-value pair for the field's caption | same | 359 (0.396) | 0.891 (320 / 359) | 0.353 (320 / 906) | 0.339 (307) | 27 | 12 | 0.364 (312 / 857) | 0.300 (237 / 789) | 1 | 0.43 | $0 | None |
+| Plain text search · The quote's (else the value's) words on the cited page, first occurrence | same | 900 (0.993) | 0.828 (745 / 900) | 0.822 (745 / 906) | 0.014 (13) | 155 | 0 | 0.823 (705 / 857) | 0.052 (41 / 789) | 4 | 0.46 | $0 | None |
+| Azure first · Azure's pair box where it exists, else Basis's rule | same | 906 (1.000) | 0.956 (866 / 906) | 0.956 (866 / 906) | 0.811 (735) | 28 | 12 | 0.911 (781 / 857) | 0.805 (635 / 789) | 1 | 8.83 | $0 | None |
+| Basis first · Basis's rule where it places a box, else Azure's pair box | same | 906 (1.000) | 0.999 (905 / 906) | 0.999 (905 / 906) | 0.859 (778) | 1 | 0 | 0.938 (804 / 857) | 0.885 (698 / 789) | 1 | 8.83 | $0 | None |
+| Checked pair · Azure's pair box when Azure's words in it hold the value (cited page), else Basis's rule | same | 906 (1.000) | 0.999 (905 / 906) | 0.999 (905 / 906) | 0.848 (768) | 1 | 0 | 0.951 (815 / 857) | 0.852 (672 / 789) | 1 | 8.86 | $0 | None |
+| Checked pair, value's words · The same, drawn over the value's words inside Azure's pair box | same | 906 (1.000) | 0.999 (905 / 906) | 0.999 (905 / 906) | 0.858 (777) | 1 | 0 | 0.950 (814 / 857) | 0.895 (706 / 789) | 1 | 8.86 | $0 | None |
+| **Quote-checked · Basis's box when it lies in the reader's quote, else the value's words inside the quote** | same | 906 (1.000) | 0.999 (905 / 906) | 0.999 (905 / 906) | 0.853 (773) | 1 | 0 | **0.979 (839 / 857)** | **0.919 (725 / 789)** | 1 | 8.77 | $0 | None |
+| Azure's 1004 model box · The field's own box from Azure's prebuilt 1004 form model | No AI model; Azure's recorded form reading: `prebuilt-mortgage.us.1004 (Azure Document Intelligence)` (Azure), replayed | 335 (0.370) | 0.630 (211 / 335) | 0.233 (211 / 906) | 0.199 (180) | 124 | 0 | 0.231 (198 / 857) | 0.203 (160 / 789) | 1 | 2.10 | $0.083 more (the 1004 model's analysis, which production does not run) | None |
+| Azure's 1004 model box, narrowed · The same, a checkbox group or address narrowed to the value's words in it | same as above | 335 (0.370) | 0.630 (211 / 335) | 0.233 (211 / 906) | 0.222 (201) | 124 | 0 | 0.231 (198 / 857) | 0.229 (181 / 789) | 1 | 2.10 | $0.083 more | None |
+
+Azure paired a value box with 450 of the 1,166 printed headline fields (0.386), read right or
+not; the 1004 model gave a field box for 435 (0.373). Basis's rule recomputed at this commit
+equals the stored box on 890 of 906 fields.
+
+#### Pipeline reading, the 16 appraisals
+
+Run `runs/highlight_placement/pipeline_subset16_rerun`. The columns read as in 4.1, over
+1,155 correctly read fields. The values are the pipeline's: Azure pairs, regex and tables,
+then `gpt-6-luna` (OpenAI, effort low, temperature default) for the gaps, recorded. "On the
+value's own printing" is over 1,062 fields and IoU over 1,014.
+
+| Placement method | Models (provider, effort, temperature) | Boxes placed (of 1,155) | Right among placed ↑ | Right among all fields ↑ | Exactly the value ↑ | Wrong box ↓ | Wrong page ↓ | On the value's own printing ↑ | IoU ≥ 0.5 with the value's words ↑ | Median box size (words) | Placement time (s) ↓ | Cost per appraisal ↓ | Tokens (input / output) |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| Basis's rule (production) | No AI model; Azure's recorded page reading: `prebuilt-layout (Azure Document Intelligence)` with key-value pairs (Azure), replayed | 1,154 (0.999) | 0.997 (1,151 / 1,154) | 0.997 (1,151 / 1,155) | 0.876 (1,012) | 3 | 0 | 0.943 (1,001 / 1,062) | 0.743 (753 / 1,014) | 1 | 5.59 | $0 | None |
+| Azure's pair box | same | 508 (0.440) | 0.965 (490 / 508) | 0.424 (490 / 1,155) | 0.411 (475) | 18 | 0 | 0.431 (458 / 1,062) | 0.308 (312 / 1,014) | 1 | 0.65 | $0 | None |
+| Plain text search (value's words, first occurrence) | same | 1,139 (0.986) | 0.988 (1,125 / 1,139) | 0.974 (1,125 / 1,155) | 0.815 (941) | 14 | 0 | 0.779 (827 / 1,062) | 0.646 (655 / 1,014) | 1 | 0.47 | $0 | None |
+| Azure first | same | 1,154 (0.999) | 0.983 (1,134 / 1,154) | 0.982 (1,134 / 1,155) | 0.863 (997) | 20 | 0 | 0.927 (985 / 1,062) | 0.742 (752 / 1,014) | 1 | 6.24 | $0 | None |
+| Basis first | same | 1,154 (0.999) | 0.997 (1,151 / 1,154) | 0.997 (1,151 / 1,155) | 0.876 (1,012) | 3 | 0 | 0.943 (1,001 / 1,062) | 0.743 (753 / 1,014) | 1 | 6.24 | $0 | None |
+| Checked pair | same | 1,154 (0.999) | 0.998 (1,152 / 1,154) | 0.997 (1,152 / 1,155) | 0.877 (1,013) | 2 | 0 | 0.943 (1,001 / 1,062) | 0.743 (753 / 1,014) | 1 | 6.28 | $0 | None |
+| **Checked pair, value's words** | same | 1,154 (0.999) | 0.998 (1,152 / 1,154) | 0.997 (1,152 / 1,155) | 0.877 (1,013) | 2 | 0 | 0.943 (1,001 / 1,062) | 0.743 (753 / 1,014) | 1 | 6.27 | $0 | None |
+| Quote-checked (no quotes on this reading: equals Basis's rule) | same | 1,154 (0.999) | 0.997 (1,151 / 1,154) | 0.997 (1,151 / 1,155) | 0.876 (1,012) | 3 | 0 | 0.943 (1,001 / 1,062) | 0.743 (753 / 1,014) | 1 | 5.59 | $0 | None |
+| Azure's 1004 model box | No AI model; Azure's recorded form reading: `prebuilt-mortgage.us.1004 (Azure Document Intelligence)` (Azure), replayed | 333 (0.288) | 0.703 (234 / 333) | 0.203 (234 / 1,155) | 0.176 (203) | 99 | 0 | 0.205 (218 / 1,062) | 0.173 (175 / 1,014) | 1 | 4.40 | $0.153 more | None |
+| Azure's 1004 model box, narrowed | same as above | 333 (0.288) | 0.703 (234 / 333) | 0.203 (234 / 1,155) | 0.193 (223) | 99 | 0 | 0.205 (218 / 1,062) | 0.192 (195 / 1,014) | 1 | 4.40 | $0.153 more | None |
+
+Azure paired a value box with 631 of the 1,553 printed headline fields (0.406); the 1004
+model with 485 (0.312).
+
+#### The other populations, best rows only
+
+"Right" is the words test; "Own printing" is test 3.
+
+| Population | Basis's rule: right / own printing | Checked pair, value's words | Quote-checked | Azure's pair box |
+|---|---|---|---|---|
+| Grounded (Sol) on all 16, Basis's rule **recomputed** (`grounded_sol_subset16_recomputed`, 1,226 fields) | 1,160 / 979 of 1,116 (0.877) | 1,160 / 992 (0.889) | 1,162 / **1,029 (0.922)** | 499 / 465 |
+| Pipeline, all 41 (`pipeline_all41`, 3,453 fields) | 3,443 / 3,090 of 3,232 (0.956) | 3,444 / 3,090 | = Basis's rule | 1,398 / 1,347 |
+| 33.6 regression input, all 41, truth as of 33.6 (`regression_33.6_all41`, 3,248) | 3,224 / 2,925 of 3,051 (0.959) | 3,227 / 2,928 | = Basis's rule | 1,293 / 1,256 |
+
+Paired against Basis's rule on test 3, counting fields better and worse:
+
+| Population | Method | Fields better | Fields worse | Sign test p | Documents with a gain |
+|---|---|---|---|---|---|
+| Grounded, 10 appraisals | quote-checked | 35 | 0 | < 0.0001 | 8 (client 6 fields, client UAD 3.6 2, synthetic 27) |
+| Grounded, 10 appraisals | checked pair, value's words | 11 | 1 | 0.006 | 7 |
+| Grounded, all 16 (recomputed) | quote-checked | 51 | 1 | < 0.0001 | 13 (GSE 16 fields) |
+| Pipeline, 16 appraisals | checked pair, value's words | 1 | 0 | 1.0 | 1 |
+| 33.6 input, 41 appraisals | checked pair, value's words | 4 | 0 | 0.125 | 3 |
+
+On IoU ≥ 0.5, quote-checked is also +27 / −0 on the 10 grounded appraisals and +43 / −1 on
+all 16. The sign test treats fields as independent, but the fields cluster in documents (8 of
+the 10 grounded appraisals are synthetic). The document counts are therefore the more honest
+guide: the gain shows on 8 of 10 appraisals and on 13 of 16.
+
+### 84.5 The pick
+
+- **Grounded reading, which is production: quote-checked**, by the pick rule:
+  - 888 right by the strictest test each field allows, against 853 for Basis's rule and 864
+    for the checked pair;
+  - equal on the words test;
+  - best on IoU;
+  - $0 cost, and 0.36 s more than the rule over 906 fields.
+
+  It combines Basis's rule with the reader's own evidence. The model quotes the words it read
+  each value from, the way Textract and Document AI return the words a value was read from.
+  The quote says which printing; the value's words keep the box tight. Production already
+  stores the quotes in `extractions.raw["grounded"]["quotes"]`, so it needs no new input.
+- **Pipeline reading (fallback): the rule picks "checked pair, value's words", but it is a
+  tie within noise.** It is +1 field of 1,155, the same on test 3 and on IoU, and 0.7 s slower
+  over 1,155 fields. I would not change the pipeline's rule on one field.
+- **Not recommended:**
+  - Azure's pair box alone, or Azure first: coverage of about 40 %, and wrong on another
+    printing or page 3.5 % (pipeline) to 11 % (grounded) of the boxes it places.
+  - The 1004 model: about 30 % coverage, never right on checkboxes because its box is the tick
+    mark only, and an extra Azure analysis of $0.08 to $0.15 per appraisal.
+  - Plain search: a 4-word median box on the grounded reading, IoU ≥ 0.5 for only 5 %, and it
+    does not know which printing.
+
+Implementing quote-checked in `basis/extraction/regions.py` or `pipeline.py` is a production
+change that I did **not** make; it is the follow-up. It needs a setting, the EVAL_REPORT
+section, and a regression of today's stored boxes.
+
+### 84.6 Regression (33.6)
+
+- **Reproduced exactly:** Basis's rule as stored in `runs/regions/production_first`, scored by
+  this harness, gives **3,224 / 3,248 = 0.993**: 3 wrong box, 19 wrong page, 2 no box. The
+  scorer's own block agrees (`scorer_agrees_with_stored: true`). A field-by-field comparison
+  with that run's 2026-10-27 `score.json` shows **0 differences**.
+- **Why it needs the old truth.** Against today's truth files, the same predictions score
+  3,163 / 3,247. Every difference is explained by two later truth changes:
+  - **The client UAD 3.6 package was rebuilt.** The PDF that run read has sha256 3107d812…,
+    but the truth now points at a new PDF, ec16f616…. The old boxes are therefore checked
+    against the wrong text layer: 44 fields become wrong page and 15 become wrong box.
+  - **The GSE truth was fixed** (the Condo1 parties in 33.3 and later decisions): 4 to 7
+    fields change status.
+
+  The regression uses the old files, copied (not edited) to
+  `runs/highlight_placement_inputs/truth_as_of_33.6/`, with a README:
+  - `gse_d1.before-party-fix.json`;
+  - `client_uad36.before-audit.json`, pointed at the old PDF in
+    `client_uad36/client_a_uad36.before-audit/`.
+
+  With `gse_d1.before-uad36-truth-decisions.json` instead, 4 Condo1 party fields differ, so
+  the party-fix backup is the one 33.6 used.
+- **Recomputing the rule at this commit gives 3,190 / 3,248, not 3,224; it differs on 54
+  fields.** The cause is fidelity, not a code change. A prediction file keeps the cleaned
+  value but not the reader's raw text, which the rule searches first. Without it, 34
+  model-read values lose their box: 21 get no box and 13 a wrong box. This is why `today`
+  uses the stored boxes. The recomputed variant is used only for `llm_all@sol`, whose stored
+  boxes are the sweep's and not production's, and it handicaps Basis's rule there (49 fields
+  with no box).
+
+### 84.7 Surprises, each re-run before recording
+
+1. **The words test hides wrong printings.** Basis's rule passes the words test on 905 / 906
+   fields but is on the right printing for only 804 / 857 (grounded); the pipeline and
+   regression populations show the same pattern. I rendered three synthetic pages, generated
+   data so nothing private was viewed:
+   - days on market: the box was on the "65" of the One-Unit land use, not "DOM 65";
+   - neighbourhood age low: the box was on the "3" of "Under 3 mths", not "Low 3";
+   - sales-comparison indicated value: the box was on the final market value, not the
+     sales-comparison line.
+
+   In all three the stricter test is right and the 33.6 test was fooled. Re-run: identical.
+   The days-on-market miss has a visible cause. Azure reads "65;" as one word, so the rule's
+   whole-word-first search skips it and takes the land-use "65"; trailing punctuation defeats
+   the whole-word match. This is a candidate fix for `regions.py`, not measured.
+2. **Word order decides whether the truth quote can be found.** With a plain sort by top then
+   left, the truth quote is found exactly once for only 1,258 of 4,009 present fields: a
+   caption and its value differ in top by a fraction of a point. pdfplumber's own order finds
+   3,712; lines clustered by half a word's height find 3,605. The module uses pdfplumber's
+   order, as the module documentation records.
+3. **Azure's 1004 model gets 0 checkboxes right.** Its selection-group box is the tick mark
+   alone, so the box never holds the label. On value fields it is 100 % right where placed
+   (211 / 211 grounded), but it covers only 29 % of them. Re-run: identical.
+4. **Without the cited-page rule, checked pair looked better.** The first version took
+   Azure's pair box on any page. That "fixed" 8 of the 19 wrong pages of 33.6 by moving the
+   box off the page the field cites, for example a subject's state boxed on the
+   certification page. `FIELD_REGIONS.md` says a field's box is always on its own page, so
+   the combination now refuses pairs on another page. All numbers above are after that fix.
+5. **Determinism:** the 10-appraisal grounded and 16-appraisal pipeline comparisons were run
+   twice, in parallel and then alone. Every count is identical; times agree within about 2 %.
+   The times in the tables are from the solo runs.
+
+### 84.8 Verified and not verified
+
+**Verified:**
+
+- the regression to the field;
+- every count above, which the re-runs reproduce;
+- no network, no paid call (all keys unset, replay only);
+- the three rendered wrong-printing cases;
+- the gates on the two new files;
+- the 21 unit tests.
+
+**Not verified:**
+
+- **The box truth is derived, not hand-drawn.** It comes from the truth quote and printed
+  value located on pdfplumber's text layer, and 8 to 15 % of fields are not checkable by it:
+  their quote is not found once.
+- **The grounded comparison on the 6 GSE appraisals rests on the recomputed rule,** which is
+  handicapped because the raw text is missing.
+- **The grounded gains are mostly synthetic:** 27 of 35 fields on 8 synthetic forms, whose
+  generator repeats small numbers often. On the two client appraisals it is 8 fields.
+- **Quote-checked is not implemented in production or tested on the running stack.** Its
+  effect on the review page is inferred from the boxes, not seen.
+- **The literature definitions** come from search summaries and abstracts, not full papers.
+- **The client-data guard was not run on the new files.** They are untracked, and `--ci`
+  scans the repository. They contain only a fabricated test page; the place name used is
+  "Springfield".
+
+### 84.9 Run directories (all under `$BASIS_EVAL_DATA_DIR/appraisal/runs/`)
+
+- `highlight_placement/grounded_subset16_rerun` (table 4.1) and `grounded_subset16`
+- `highlight_placement/pipeline_subset16_rerun` (table 4.2) and `pipeline_subset16`
+- `highlight_placement/grounded_sol_subset16_recomputed`, `pipeline_all41`, and
+  `regression_33.6_all41` (the 33.6 regression)
+- Each holds `run.json`, `results.json` (one case per document, field and method),
+  `comparison.md`, `manifest.json` and `console.log`. Each is linked in
+  `$BASIS_EVAL_DATA_DIR/verification/highlight_placement/unversioned/`. I removed three stale
+  links there that pointed at trial runs in this session's scratchpad.
+- Inputs: `highlight_placement_inputs/truth_as_of_33.6/` (the regression's truth, with a
+  README). The failed HEAD replay attempts are in `highlight_placement_inputs/pipeline16` and
+  `grounded16`.
+- Command, from `backEnd/`, with the keys unset and `BASIS_ENV=dev`:
+  `uv run --offline python -m evals.highlight_placement --run <run dir> [--all] [--today recomputed] [--truth SET=PATH] --out <dir>`.
+
+Cost of this evaluation: $0, with no model or Azure call. Nothing was committed;
+`EVAL_REPORT.md` and `workflow-content.json` were not touched.
+
+## 85. How close the cost must come to the price before Basis allocates it (2026-11-03)
+
+Date 2026-11-03. Branch `claude/free-comparisons` (worktree), HEAD 6690f63 plus uncommitted work.
+Offline, deterministic, $0, no model call. No client dollars below: gaps and shares are percent.
+
+### 85.1 The question
+
+Basis allocates the price only when the schedule's replacement cost new less depreciation
+(RCNLD) is within 10 % of the price less land:
+`reconciliation.status = reconciled` when `|gap_share| <= RECONCILIATION_TOLERANCE` (0.10), where
+`gap_share = (B - RCNLD) / B` and `B` is the price less land
+(`backEnd/basis/domain/structure.py`, `reconcile`, lines ~2725-2760; the allocation is gated on that
+status in `basis/evidence/result.py:922`). The 10 % had never been varied. Questions: which
+tolerance; should it be one number; does a looser tolerance let a worse setup through?
+
+### 85.2 The standard (sources read, not assumed)
+
+**RSMeans: where the 10 % came from.** RSMeans Residential Costs 2020, square-foot section
+instructions, printed p.15 (PDF p.29; read from the private copy with `pdftotext`, the page number
+"15" is on the page):
+
+> "At this level of estimating, a variation of +/- 10% should be expected."
+
+That sentence is about the square-foot method as a whole. It does not set a test for itemized
+rows, and it is not a confidence interval. The same book (and the Building Construction Costs
+2020 book), division 01 21 16.50 "Contingencies, Add to estimate": conceptual stage 20 %,
+schematic 15 %, preliminary working drawings 10 %, final working drawings 3 %. Those are RSMeans'
+own allowances for how far an estimate at each design stage may miss.
+
+**IRS Cost Segregation Audit Techniques Guide** (private copy `IRS_IRS_COST_SEG_ATG__2024.pdf`,
+read with `pdftotext`):
+
+- Ch. 3 D(3), p.32: when the study has to estimate, the total RCNLD of the improvements "should
+  reasonably approximate" the price less the land's FMV. Applying a pro-rata step-up factor just
+  to make the totals meet is "not an appropriate cost estimation methodology".
+- Ch. 3 D(4)-(5), pp.32-33, the warehouse example: estimates that come to about 16.7 % below
+  the price less land, stepped up by 1.2, are "indicative of inaccuracies". The fix is "an
+  analysis of the available data and methodology ... to assess and determine the source of the
+  difference". D(6) lists the usual causes: land FMV, missed assets or quantities, cost
+  estimates and factors, depreciation factors.
+- Ch. 3 C.4(2), p.31: the residual method "generally does not reconcile project costs"; a
+  residual must be estimated and added back to check the total.
+- Ch. 4 C.8(3), pp.39-40: estimates "can vary widely" by guide and quality; "cost estimates are
+  always reconciled to an acquisition price or a total project cost". Ch. 4 C.10, p.40: use the
+  same estimating technique on every item, because mixing methods causes "cost distortions".
+- **The ATG gives no numeric tolerance.** I searched every "percent" and "%" in the text; none
+  bears on reconciliation. Any gap needs a diagnosis. The ATG rejects a factor that hides the
+  gap; it does not bless any band.
+
+**Cost estimating practice: AACE International RP 18R-97, Rev. August 7, 2020** (public TOC PDF
+from web.aacei.org; the matrix read with `pdftotext`). Expected accuracy at 80 % confidence:
+Class 5 L -20 to -50 % / H +30 to +100 %; Class 4 -15 to -30 / +20 to +50; Class 3 -10 to -20 /
++10 to +30; Class 2 ("detailed unit cost with forced detailed take-off") -5 to -15 / +5 to +20.
+18R-97 is written for the process industries. The building version, 56R-08, is paywalled and I
+did not read it, so its figures are **not verified**. The same family says the accuracy range
+should come from risk analysis, not from the class.
+
+**Appraisal practice: Fannie Mae Selling Guide** (fetched 2026-11-03, rev. 06/04/2025).
+B4-1.3-10: the cost approach is not required except for manufactured homes, "The reliability of
+the cost approach depends on valid reproduction cost estimates", and "Appraisals that rely
+solely on the cost approach as an indicator of market value are not acceptable". B4-1.3-11: the
+appraiser must "reconcile the reasonableness and validity of the indicated values", it is
+"never ... an averaging technique", and the final value must lie within the range the
+approaches indicate. **Neither section gives a numeric tolerance** for a cost approach that
+misses the price. Practice is to weigh the approaches and explain the miss, not to apply a
+percentage.
+
+**Reading of the standard.** 10 % is the published accuracy of one estimating method, the
+square-foot model. The IRS and the appraisal guidance both ask for an explained gap and give no
+band. So a gap inside 10 % is within what the method can miss, but nothing in the sources says
+a gap of, say, 8 % needs no look.
+
+### 85.3 What was built
+
+`backEnd/evals/balance_tolerance.py` (`python -m evals.balance_tolerance`; component
+`balance_tolerance` through `evals/record.py`):
+
+- **The grids.** Every cell of the reconciliation-gap sweep: 3 pricings x 12 structure
+  variants, 36 per export, EVAL_REPORT 49.3. That covers the production cell, its runner-up and
+  every single-change variant. Also every variant of the structure sweep on the production
+  pricing: 54 per export, EVAL_REPORT 44.3 axes, of which the 18 Marshall & Swift variants are
+  not sourced. Each cell is replayed through `evals.structure_replay.replay` on the export as
+  `evals.reprice_export` prices it, then scored by `evals.e2e_report.score` against the
+  engineer's report.
+- **Per cell:** the reconciliation's status and six-place `gap_share`; the model share (the
+  square-foot model's concealed dollars over every priced dollar); the tax-class share error
+  per class (y5/y7/y15/y39) against the engineer; the photo-visible rows (regression); and,
+  added in this session, the allocation factor `T / RCNLD` (`T = B + CC`) with the verdict of
+  the second 10 % check, `RCNLD_FACTOR_TOLERANCE` in `basis/domain/basis.py`. On these exports
+  a blocker withholds every allocation (see the surprises), so the factor is computed from the
+  reconciliation's RCNLD and the worksheet's `building_basis` and `capitalized_costs`, the same
+  inputs `result.py` passes to `allocate`, and marked "implied".
+- **Known omissions,** tagged from the cell name: `mods=off` (the book's step 2 skipped; counts
+  only for the square-foot source), `spec=report` (Specialties residual not added back),
+  `small=added` (small systems counted twice), `bare` (itemized rows at bare cost), `top_down`
+  (no carve-out), `none` (no depreciation, so never checked).
+- **The rules, stated exactly:**
+  - *Fixed:* balances iff `|gap_share| <= t` on the six-place share, the reconciliation's own
+    comparison, for t in {2.5, 5, 7.5, 10, 12.5, 15, 20} %.
+  - *Scaled:* `t = 10 % x m + 5 % x (1 - m)`, where m is the model share in [0, 1]. The two
+    parts add linearly, each at its own worst case. 10 % is RSMeans' figure. The 5 % for
+    itemized rows is **not** a published figure; it is the low end of AACE Class 2.
+  - *Two-band (inner 5 %, outer 10 %):* `allocate` if `|gap| <= 5 %`; `allocate_flagged` (the
+    allocation is made and the gap is shown to the engineer with the D(6) causes) if
+    `5 % < |gap| <= 10 %`; `withhold` beyond 10 %; `not_checked` without RCNLD.
+- **Summaries:** what each tolerance admits on every export, how many clean variants and how
+  many with an omission it refuses, the mean and worst share error of what it admits, the worst
+  admitted and best refused variant, and a *separation* table (largest clean |gap|, smallest
+  |gap| per omission).
+- **Regression cases (396):** for every sourced cell, the fixed rule at 10 % equals the replay's
+  verdict (144) and the photo-visible rows did not move (144); every 49.3 cell matches
+  `gap_sweep.json` (section 49.3's record) in status and gap to 4 places (72); the unsourced
+  cells are recorded as such (36).
+
+`backEnd/tests/unit/evals/test_balance_tolerance.py`: 10 tests, no private data. They cover:
+
+- the fixed, scaled and two-band rules at their boundaries (inclusive at exactly 10.000000 %,
+  refused at 10.0001 %);
+- the omission tags;
+- the two 10 % checks against the real `basis.domain.basis.allocate`: a 9.5 % gap reconciles
+  while `allocate`'s `rcnld_factor` check warns, and capitalized costs push a 9.0 % gap out;
+- the implied factor;
+- the tolerance rows, the separation, the tightest tolerance and the markdown;
+- the record cases, with one reference mismatch failing as it should;
+- an end-to-end `measure` on a fabricated export: a 2,000 SF house, the appraisal's cost new
+  and the synthetic cost table, with the price set from the replay's own RCNLD so the gap is
+  6.000 %. The test asserts status, gap, regression and implied factor = 1/0.94, plus the
+  verdicts: withheld at 5, balances at 7.5 and 10, `allocate_flagged`.
+
+Checks: `ruff check`, `ruff format --check` and `mypy` are clean on both files.
+`pytest tests/unit/evals/test_balance_tolerance.py test_gap_sweep.py test_structure_sweep.py`:
+15 passed. I did not run the full suites, as instructed.
+
+### 85.4 The data
+
+Two stored exports of **one property**: `live_2026-10-29_run3A/export/rev-5.json` and
+`live_2026-10-29_run3B/export/rev-1.json`, two live runs of the same study. The engineer's report
+labels are `e2e_rows_v1.json` and `engineer_report_v1.json`. The costs come from the private
+RSMeans 2020 unit-cost table and the stored Gordian public HCI values
+(`cost_index_store_2026-10-30/hci_gordian_public.json`). The 49.3 reference is
+`reconciliation_gap_2026-10-31/gap_sweep.json`. That is 180 cells, 144 sourced.
+
+### 85.5 The tables
+
+Models: **No AI model** (deterministic replay and scorer). Tokens: **None**. Cost: **$0**. Wall
+time: 1.4 s for the harness (manifest `wall_seconds`), 2.95 s for the process (`time -p`); mean
+6.8 ms per cell, max 37.7 ms.
+
+#### The production cell, its runner-up and every single change, at each tolerance
+
+**How to read this table.** Does each setup balance at each tolerance on both runs of the
+property, and how far are its class shares from the engineer's? *Gap*: (price less land - RCNLD)
+/ (price less land), in %; positive means RCNLD is below the price; closer to 0 is better (↓ |gap|).
+A tolerance column says *yes* when the setup balances on both runs and *no* when it balances on
+neither. *Class share error*: the mean over y5/y7/y15/y39 of |Basis share - engineer share|, in
+percentage points, per run (↓). Models: No AI model. Tokens: None.
+
+| Setup | Grid | Code name | Gap 3A % | Gap 3B % | 2.5 % | 5 % | 7.5 % | 10 % | 12.5 % | 15 % | 20 % | Class share error 3A / 3B |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| Production cell (every section 49 change on) | 49.3 | `installed+gc\|square_foot\|mods=on\|spec=building\|small=carved` | +2.01 | +1.56 | yes | yes | yes | yes | yes | yes | yes | 1.29 / 2.85 |
+| Runner-up: the appraisal's cost new instead of the square-foot model | 49.3 | `installed+gc\|appraisal_total\|mods=off\|spec=building\|small=carved` | -1.70 | -2.15 | yes | yes | yes | yes | yes | yes | yes | 1.60 / 3.10 |
+| One change: the general contractor's O&P not spread | 49.3 | `installed\|square_foot\|mods=on\|spec=building\|small=carved` | +2.01 | +1.56 | yes | yes | yes | yes | yes | yes | yes | 2.19 / 3.50 |
+| One change: itemized rows at bare cost | 49.3 | `bare\|square_foot\|mods=on\|spec=building\|small=carved` | +3.21 | +2.81 | no | yes | yes | yes | yes | yes | yes | 3.37 / 4.47 |
+| One change: the book's step 2 (modifications) skipped | 49.3 | `installed+gc\|square_foot\|mods=off\|spec=building\|small=carved` | +9.77 | +9.32 | no | no | no | yes | yes | yes | yes | 0.57 / 2.26 |
+| One change: the Specialties residual not added back | 49.3 | `installed+gc\|square_foot\|mods=on\|spec=report\|small=carved` | +4.45 | +3.70 | no | yes | yes | yes | yes | yes | yes | 1.08 / 2.70 |
+| One change: small systems added, not carved (counted twice) | 49.3 | `installed+gc\|square_foot\|mods=on\|spec=building\|small=added` | +1.28 | +0.57 | yes | yes | yes | yes | yes | yes | yes | 1.35 / 2.92 |
+| Production variant on section 44's axes (same cell) | 44.3 | `square_foot+rsmeans+carve+appraisal_physical` | +2.01 | +1.56 | yes | yes | yes | yes | yes | yes | yes | 1.29 / 2.85 |
+| Runner-up: the appraisal's total cost new | 44.3 | `appraisal_total+rsmeans+carve+appraisal_physical` | -1.70 | -2.15 | yes | yes | yes | yes | yes | yes | yes | 1.60 / 3.10 |
+| One change: the appraisal's cost-new parts | 44.3 | `appraisal_parts+rsmeans+carve+appraisal_physical` | -2.99 | -3.44 | no | yes | yes | yes | yes | yes | yes | 1.70 / 3.18 |
+| One change: the NAHB split | 44.3 | `square_foot+nahb+carve+appraisal_physical` | +2.01 | +1.56 | yes | yes | yes | yes | yes | yes | yes | 1.29 / 2.85 |
+| One change: the Marshall & Swift split | 44.3 | `square_foot+marshall_swift+carve+appraisal_physical` | not sourced | not sourced | - | - | - | - | - | - | - | - |
+| One change: no carve-out (itemized rows counted twice) | 44.3 | `square_foot+rsmeans+top_down+appraisal_physical` | -29.46 | -29.01 | no | no | no | no | no | no | no | 3.34 / 4.47 |
+| One change: age-life depreciation | 44.3 | `square_foot+rsmeans+carve+age_life` | +2.01 | +1.56 | yes | yes | yes | yes | yes | yes | yes | 1.29 / 2.85 |
+| One change: no depreciation | 44.3 | `square_foot+rsmeans+carve+none` | not checked | not checked | n/c | n/c | n/c | n/c | n/c | n/c | n/c | 1.29 / 2.85 |
+
+#### What each fixed tolerance admits, and the share error it lets through
+
+**How to read this table.** At each tolerance, how many setups balance on both runs, how many
+of those carry a known omission, how many correct setups it wrongly withholds, and how
+accurate the class shares of what it admits are. *Clean refused*: setups with no known omission
+that the tolerance withholds (↓). *With an omission refused*: defective setups it withholds (↑).
+*Admitted: mean / worst share error*: over the admitted setups, the mean of their class share
+errors and the worst single class on either run, in points (↓). *Worst admitted* and *best
+refused* are by mean share error. Models: No AI model. Tokens: None.
+
+| Grid | Tolerance % | Setups checked | Admitted on both runs | Admitted with a known omission | Clean refused | With an omission refused | Admitted: mean share error | Admitted: worst class error | Worst admitted (mean error) | Best refused (mean error) |
+|---|---|---|---|---|---|---|---|---|---|---|
+| 49.3 | 2.5 | 36 | 12 | 8 (bare, small=added, spec=report) | 0 | 24 | 2.80 | 9.0 | bare, appraisal cost new, mods off, small added (4.16) | installed+gc, square-foot, mods off, spec=report (1.21) |
+| 49.3 | 5 | 36 | 21 | 17 (bare, small=added, spec=report) | 0 | 15 | 2.92 | 9.0 | same (4.16) | same (1.21) |
+| 49.3 | 7.5 | 36 | 24 | 20 (bare, small=added, spec=report) | 0 | 12 | 2.97 | 9.0 | same (4.16) | same (1.21) |
+| 49.3 | **10 (production)** | 36 | 28 | 24 (adds mods=off) | 0 | 8 | 2.82 | 9.0 | same (4.16) | same (1.21) |
+| 49.3 | 12.5 | 36 | 33 | 29 | 0 | 3 | 2.74 | 9.0 | same (4.16) | installed, square-foot, mods off, spec=report (1.99) |
+| 49.3 | 15 | 36 | 36 | 32 | 0 | 0 | 2.74 | 9.0 | same (4.16) | - |
+| 49.3 | 20 | 36 | 36 | 32 | 0 | 0 | 2.74 | 9.0 | same (4.16) | - |
+| 44.3 | 2.5 | 24 | 8 | 0 | **4** (appraisal cost-new parts x 2 splits x 2 depreciations) | 12 | 2.21 | 5.7 | appraisal total cost new (2.35) | appraisal cost-new parts (2.44) |
+| 44.3 | 5 | 24 | 12 | 0 | 0 | 12 | 2.29 | 5.8 | appraisal cost-new parts (2.44) | square-foot, top-down (3.91) |
+| 44.3 | 7.5-20 (each) | 24 | 12 | 0 | 0 | 12 | 2.29 | 5.8 | appraisal cost-new parts (2.44) | square-foot, top-down (3.91) |
+
+("Setups checked" excludes the unsourced Marshall & Swift variants and the no-depreciation
+variants, which are never checked.)
+
+#### What a fixed tolerance can tell apart
+
+**How to read this table.** Over both runs: the largest |gap| of any correct setup (a tolerance
+below it withholds a correct study) and the smallest |gap| of any setup that keeps each
+omission (a tolerance at or above it lets that omission through somewhere). A tolerance
+separates an omission only if it sits between the two. In %. Models: No AI model. Tokens: None.
+
+| Grid | Clean (largest) | Step 2 skipped (smallest) | Specialties not added back | Small systems twice | Bare cost | No carve-out |
+|---|---|---|---|---|---|---|
+| 49.3 | 2.15 | 8.33 | 0.04 | 0.04 | 0.50 | - |
+| 44.3 | 3.44 | - | - | - | - | 29.01 |
+
+#### The alternative rules
+
+**How to read this table.** Under each rule, how the setups with a gap are judged across both
+runs, counted by setup. *Withheld* is the right answer for a setup with an omission large enough
+to see, and *allocate* is right for a clean one. Models: No AI model. Tokens: None.
+
+| Rule | Grid | Clean setups | Setups with an omission | Tolerance actually applied |
+|---|---|---|---|---|
+| Fixed 10 % (production) | 49.3 | 4 allocate | 24 allocate (4 of them step 2 skipped, gaps 8.3-9.8 %), 8 withheld | 10 % |
+| Fixed 10 % (production) | 44.3 | 12 allocate | 12 withheld (top-down) | 10 % |
+| Scaled (model 10 %, items 5 %) | 49.3 | 4 allocate | 20 allocate, 12 withheld (every step-2-skipped cell) | 7.84-8.70 % |
+| Scaled | 44.3 | 12 allocate | 12 withheld | 8.07-8.61 % |
+| Two-band (5 / 10 %) | 49.3 | 4 allocate | 17 allocate, 1 allocate/flag (by run), 6 allocate-flagged, 1 flag/withhold (by run), 7 withheld | inner 5, outer 10 |
+| Two-band (5 / 10 %) | 44.3 | 12 allocate | 12 withheld | inner 5, outer 10 |
+
+Pearson correlation of |gap| with mean class share error, over checked cells: **-0.25** on the
+49.3 grid (n = 72) and **+0.79** on the 44.3 grid (n = 48; the top-down cells account for it).
+
+#### The two 10 % checks
+
+The reconciliation tests `|(B - RCNLD) / B| <= 10 %`. The allocation's `rcnld_factor` check
+tests `|(B + CC) / RCNLD - 1| <= 10 %`. With CC = 0 the second equals the first only for
+negative gaps; for positive gaps it fires above `1 - 1/1.1 = 9.09 %`, and capitalized costs move
+it further. On the exports, **7 cells reconcile and the factor check reads "outside"**:
+implied factors 1.1010-1.1118 at gaps 9.04-9.92 %. Every one is a cell with the book's step 2
+skipped. The `basis.py` module docstring ("by construction within the reconciliation's
+tolerance of 1") and STRUCTURE_MODEL.md 3.8 ("within 1 +/- 10 % by construction") are therefore
+**wrong** for gaps in (9.09 %, 10 %], and for any gap once CC > 0. The unit test proves the same
+on `allocate` itself. The factor check only warns; it never withholds.
+
+### 85.6 The pick
+
+**Keep 10 % as the withhold line. Add a flag band at 5 %, giving the two-band rule: allocate
+within 5 %, allocate-and-flag between 5 % and 10 %, withhold beyond 10 %. Make it one number
+on one quantity: retire `RCNLD_FACTOR_TOLERANCE` as an independent test, or derive it from the
+reconciliation's status.** The flag band should ship behind a setting with 5 % as its default.
+Nothing in this session changes the production code; this is the recommendation only.
+
+Reasoning:
+
+1. **A fixed tolerance does not control the class-share error, and cannot.** The allocation
+   scales every row by one factor, so the shares are what the schedule makes them whatever the
+   gap. On the measured property, loosening from 2.5 % to 15 % does not raise the admitted
+   share error (2.80, 2.92, 2.97, 2.82, 2.74). The worst admitted setup (4.16 points) is
+   already admitted at 2.5 %. The setups that loosening lets in (step 2 skipped) have *lower*
+   share error (0.34-1.99), and the correlation is negative (-0.25). So the answer to "does a
+   looser tolerance let a worse setup through?" is no, measured by share error, on this
+   property. The tolerance's job is to catch a cost model built wrong (the ATG's "source of the
+   difference"), not to grade shares.
+2. **What it can catch, it catches with margin only below 10 %.** The correct setups' gaps reach
+   3.44 %. The one omission a tolerance can see, step 2 skipped, starts at 8.33 %. Any tolerance
+   in (3.44, 8.33) separates them on this property, and 10 % lets 4 of the 12 step-2 cells
+   through silently. The other omissions (Specialties, small systems twice, bare cost) move
+   the total by under 3 points, and in combination they cancel to a 0.04 % gap. No tolerance
+   can see them; the structural fixes of section 49 handle them.
+3. **But one property cannot justify tightening the withhold line.** RSMeans states +/- 10 % for
+   the method. A correct study on another house could miss by 5-10 %, and a fixed 5 % or 7.5 %
+   would withhold it with nothing to fix. 2.5 % already withholds four correct setups here (the
+   appraisal's cost-new parts at -3.0 / -3.4 %). Both "exports" are two runs of one house: one
+   property is thin evidence for any number between 3.4 and 8.3.
+4. **The two-band rule fits all of this.** It keeps the published 10 % as the only point
+   where money is withheld (consistent with the fail-safe money rule: nothing is invented, and
+   the allocation is the engineer's to accept). It makes every gap the measured method does not
+   explain (> 5 %, above the 3.44 % clean maximum and at the low end of AACE Class 2) visible
+   to the engineer with the ATG D(6) causes, which is what the ATG and Fannie Mae ask for: an
+   explained gap, not a silent pass. On the data it flags exactly the four step-2 cells that
+   10 % passes silently, plus the bare-cost/Specialties combinations at 5.2-6.9 %. It allocates
+   all 16 clean setups.
+5. **The scaled rule is rejected.** The model share is 57-74 % on every cell, so the rule is a
+   fixed 7.8-8.7 % in practice. Its 5 % for items is not a published figure. It also leans the
+   wrong way: the defective setups (bare cost, top-down) have the *higher* model share and so
+   get the *looser* tolerance. Its one win, catching every step-2 cell, rests on a margin of
+   0.3 points (8.33 % gap against a 7.97 % tolerance).
+6. **"Should it be one number?"** One withhold number, yes. But today it is two constants on two
+   different ratios, and they disagree on 7 cells. The flag band is a second threshold on the
+   same quantity, not a second test.
+
+### 85.7 Regression
+
+At 10 % the production cell reproduces section 49.3 exactly on both studies:
+run 3A `reconciled`, gap_share 0.020096 (49.3: reconciled, 2.0096 %); run 3B `reconciled`,
+0.015600 (49.3: reconciled, 1.56 %). All 72 gap-grid cells match 49.3 in status and gap
+(`matches_49.3`: 72/72), the fixed rule at 10 % equals the replay on all 144 sourced cells, and
+the photo-visible rows are unchanged on all 144. 396/396 cases passed.
+
+### 85.8 Final run directory
+
+`$BASIS_EVAL_DATA_DIR/work/e2e_artifacts/balance_tolerance_2026-11-03_final`
+(tree link: `$BASIS_EVAL_DATA_DIR/verification/balance_tolerance/tolerance_0.10/balance_tolerance_2026-11-03_final`):
+`manifest.json`, `run.json`, `results.json`, `cells.json`, `tolerance.md`, `report.md`,
+`console.log`. Status ok, exit 0, 396 cases passed. Earlier runs: `balance_tolerance_2026-11-03`
+(the previous agent's; no factor column), `_run2` (no implied factor), `_run3` (identical to
+final).
+
+### 85.9 Verified vs not
+
+Verified (run, read, or re-run):
+
+- The RSMeans quote and page (from the PDF); the RSMeans contingencies; the ATG passages and
+  their pages; the absence of a numeric tolerance in the ATG; AACE 18R-97's matrix; Fannie Mae
+  B4-1.3-10 and -11 wording.
+- Every number in 85.5 (run 3 and final are cell-for-cell identical apart from runtime; run
+  1's fields equal the final's).
+- The regression; the two-check disagreement, both on the exports and on `allocate` directly.
+- Lint, format and types; the 10 new unit tests.
+
+Not verified:
+
+- AACE 56R-08 (the building version; paywalled).
+- Any second property. Both exports are one house, so every threshold above 3.44 % and below
+  8.33 % fits the data equally well.
+- The share-error comparison rests on one engineer's report.
+- The omission variants are deliberate defects, not observed field errors.
+- The implied factor stands in for `allocate`'s factor because a blocker withheld every real
+  allocation. The formula is `allocate`'s own, and the unit test checks it against `allocate`.
+- I could not identify the "probe fix" the previous agent mentioned; what was added is the
+  factor probe in 85.5.
+- Full test suites not run; `tests/LEDGER.md` row and the EVAL_REPORT section not written (both
+  outside this task's allowed edits). The section number 81 is the docstring's claim; check
+  open branches and the other agents' sections for a collision.
+
+### 85.10 Surprises, each re-run
+
+1. **The two 10 % checks disagree** on 7 cells (gaps 9.04-9.92 %): they reconcile while the
+   factor check reads outside. Re-run (run 3, then final): identical. Reproduced on
+   `allocate` in a unit test at 9.5 %. The docstring in `basis/domain/basis.py` and
+   STRUCTURE_MODEL.md 3.8 claim the opposite.
+2. **Share error runs against the gap on the 49.3 grid** (r = -0.25). The most accurate shares
+   of all (0.34 points on run 3A) belong to a setup with two omissions and a 12.2 % gap. My
+   explanation, *suspected, not tested*: skipping step 2 removes y39 model dollars, which
+   offsets Basis' known y39 overweight against the engineer (84-87 % against about 80 %).
+   Re-run: identical.
+3. **Omissions can cancel:** Specialties not added back plus small systems counted twice gives
+   a -0.04 % gap on run 3B. Re-run: identical.
+4. **No stored export allocates at all.** The `unpriced` blocker (EVAL 78; 69 assets with no
+   cost row, among them appliance, driveway, fence, patio, porch, sidewalk) withholds every
+   allocation, so the factor check never ran in the replay. Re-checked directly on the
+   production cell: `missing = ["blockers", "allocation"]`, reconciliation `reconciled` at
+   0.020096.
+
+## 86. The location price factor: state mean, ZIP city row and the alternatives (2026-11-03)
+
+Component `location_factor`, harness `evals.location_factor`, cost $0, no model call, no
+network fetch. This file has no client ZIP, address or dollar figure. It gives factors, shares,
+ratios and published table rows only.
+
+### 86.1 The standard (sources)
+
+**RSMeans: the primary source. Read in the corpus PDFs, not paraphrased from the web.**
+- Residential 2020 p.718 (PDF 732), "Location Factors - Residential" says: "To adjust these
+  costs to a specific location, simply multiply the base cost by the factor for that city...
+  arranged alphabetically by state and postal zip code numbers. For a city not listed, use
+  the factor for a nearby city with similar economic characteristics." The table has one
+  "Residential" column per three-digit ZIP prefix group.
+- Residential 2020 p.29 says the square-foot data is a national average, and "a location
+  factor based upon the first three digits of the ZIP code" is applied.
+- Residential p.287 and p.239 say: use the Location Factors to adjust estimate totals when
+  the project covers several trades, and the City Cost Index for single-trade or detailed
+  analysis. A whole-house study is multi-trade, so the Location Factor is the right tool.
+  The sample estimate applies it once, at the bottom. Applying it per row gives the same
+  total, apart from cent rounding (86.9, surprise 4).
+- **Residential vs commercial.** Building 2020 p.822 (PDF 838), "Location Factors -
+  Commercial", has the same rule for unlisted cities, but the factor is an index over 100 and
+  has MAT / INST / TOTAL columns. I read California's 37 TOTAL values from the page image. They
+  run 107.7-129.0, with a mean of 114.7 and a median of 113.3. The Residential table runs
+  0.94-1.07 with a mean of 1.001. Two examples: the Los Angeles row is 111.7 commercial vs 0.99
+  residential, and the lowest residential row is 109.1 vs 0.94. A single-family house priced from the
+  Residential book must use the Residential table, and the product does. Using the commercial
+  table would add roughly 11-16 points to every California dollar.
+- Gordian's own pages say the tables come from the same research (Residential p.287: the CCI
+  weighted-average row equals the location factor). Gordian's guidance for software users is
+  to check the mapped city, especially for rural ZIPs. Sources:
+  [Gordian CCI page](https://www.gordian.com/resources/city-cost-index/),
+  [Gordian FAQ](https://www.gordian.com/?p=8471).
+
+**Marshall & Swift (CoreLogic / Cotality).**
+- The Residential Cost Handbook's costs are national averages. A Local Multiplier from
+  Section F of the handbook converts them to the locality. The software picks it
+  "automatically ... based on the ZIP or Postal Code entered", lets the user override it
+  (0.1-6.00), and offers a separate Local Multiplier Adjustment for remote or resort
+  locations. The Current Cost Multiplier, a separate factor, moves costs in time.
+- Appraiser practice applies the multiplier to everything taken from the book (base,
+  square-foot and lump-sum adjustments) and not to locally derived costs.
+- The help pages I found say nothing about a ZIP with no multiplier of its own.
+- Sources: [Swift Estimator, Local Multiplier](https://www.swiftestimator.com/SE7Help/RE/Help/FieldHelp/CostAdjustments_LocalMultiplier.htm),
+  [Cotality Marshall & Swift](https://www.cotality.com/mortgage/appraiser-solutions/marshall-swift),
+  [AppraisersForum thread](https://appraisersforum.com/forums/threads/marshall-swift.101178/).
+  COST_INDICES.md section 3 already cites the CA Board of Equalization training material.
+
+**Craftsman (National Building Cost Manual and others).**
+- Area modification factors are keyed by the job site's postal code. Craftsman's help says to
+  "Enter the postal code for the job site" and shows "a nearby city and the recommended
+  modifiers". Modifiers can be applied to Material, Labor and Equipment separately.
+- An Indiana DLGF memo using Craftsman factors tabulates them by "Zip Prefix", so in practice
+  they are three-digit groups. That is inferred from a table header, not a stated rule.
+- I did not find a published rule for unlisted ZIPs.
+- Sources: [Craftsman, area cost modifications](https://intercom.help/craftsman/en/articles/5443296-area-cost-modifications),
+  [Indiana DLGF memo, location cost modifiers 2026](https://www.in.gov/dlgf/files/2025-memos/251031-Wood-Memo-Location-Cost-Modifiers-for-the-2026-Annual-Adjustment.pdf).
+
+**What all three agree on.**
+- Use national-average costs, times one locality multiplier chosen by the site's postal code
+  (a three-digit group in RSMeans and Craftsman).
+- When there is no row, a human picks a nearby comparable city: RSMeans by stated rule, the
+  others through an override or adjustment.
+- None of them publishes an automatic fallback such as a state mean.
+
+### 86.2 What was built
+
+- **`backEnd/evals/location_factor.py`** (left by the previous agent; I reviewed, extended and
+  tested it):
+  - Five resolutions per export, plus `--also-zip LABEL=ZIP` rows: `state_mean`, `zip_city`,
+    `nearest_prefix` (reports whether the prefix was absent), `state_median` and `national`.
+  - Each export goes through `reprice_export` with production pricing (installed cost and the
+    general contractor's O&P pro rata), then `structure_replay` via `structure_sweep.run_cell`
+    with the production variant, then the `e2e_report` scorer.
+  - `--regression` compares the `state_mean` cell field by field with a stored
+    `gap_sweep.json` production cell.
+  - Everything is recorded through `evals.record` as component `location_factor`, version
+    `rsmeans_2020_book`.
+  - The table never prints a ZIP, only the published row (city and factor).
+- **What I added this session:**
+  - `fallback_check_all()`, which runs the leave-one-out check over every state.
+  - `main` now writes the fallback check for the subject's state and for all states into
+    `run.json` and the table footer.
+  - A footer line stating the product's candidate order.
+  - A mypy fix.
+  - Docstring lines.
+  - Two assertions in the unit test.
+- **`backEnd/tests/unit/evals/test_location_factor.py`**: 13 tests on a synthetic two-state
+  factor table and a fabricated export.
+- **`backEnd/evals/reprice_export.py`**: an optional caller-chosen factor (86.10).
+
+### 86.3 The data
+
+- Exports: `live_2026-10-29_run3A/export/rev-5.json` and `live_2026-10-29_run3B/export/rev-1.json`.
+- Cost table: `costs/unit_costs_rsmeans_2020.json`.
+- Index: the July 2024 HCI from `cost_index_store_2026-10-30/hci_gordian_public.json`.
+- Labels: `e2e_rows_v1.json` and `engineer_report_v1.json`.
+- Location table: the released RSMeans Residential 2020 transcription.
+- **Location on the exports:**
+  - The intake has state CA and no ZIP. The product's candidate order is intake ZIP, intake
+    state, appraisal ZIP, appraisal state, so it priced on the CA mean. The live runs
+    themselves stored a factor of 1.150 labelled "state CA (intake)", from before section 45.
+    The replay reprices to today's 1.001.
+  - The appraisal's `subject.zip` was extracted faithfully: the appraisal prints that ZIP in
+    three places. Its prefix belongs to another state's row in the table (0.99). The same page prints
+    state CA, and a city name that the table lists only under a third state.
+  - The document is internally inconsistent: it looks like a sample appraisal.
+- **California spread** (Residential p.718, 37 rows):
+  - Mean 1.001, median 0.990, range 0.94-1.07 (13 points).
+  - 12 cities above the mean, 25 below, none at it.
+  - Largest deviations: +6.9 points above the mean and -6.1 below.
+  - Cities more than 3 points from the mean: 16. More than 5: 8. More than 6: 4.
+  - Mean absolute deviation 2.9 points.
+  - **The "up to six points on every dollar" claim (45.3) slightly understates it:** the
+    deviation reaches 6.9 points above and 6.1 below.
+
+### 86.4 The table
+
+From `location_factor.md` in the final run. Engineer: 14.3 / 0.4 / 5.1 / 80.2. The exact
+5-year share is 14.347, so 49.3's "14.4" is a rounding artefact (86.9, surprise 5).
+
+**How to read this table.** What changes when the location factor is resolved differently on
+a study that already ran? There is one table per study. Every row uses the same export, the
+same cost table, the same July 2024 index, the same production pricing and the same structure
+model. Only the location factor changes.
+
+- **Location factor resolved as**: the rule that picked the factor. "Today's result" is what
+  the product does on this study.
+- **Models**: the exact model id, its provider, the reasoning effort and the temperature as
+  sent. "No AI model" means the row replays stored results with no model call.
+- **Location price factor (table row)**: the multiplier applied to every priced dollar, and the
+  published table row it came from (city and factor) when a row was used.
+- **Priced total vs. state mean**: the itemized rows' total as a share of the state-mean row's
+  total (1.0000 means the same dollars).
+- **Gap to the price (%) / balances?**: how far the depreciated cost lands below the purchase
+  price less land, in percent (negative means above). "Reconciled" means within 10 %.
+- **Share of dollars by class: 5 / 7 / 15 / 39 years (%)**: how the dollars split across the
+  four tax classes.
+- **Class share error, average / worst (points)** (lower is better): the average and worst gap,
+  in percentage points, between our share and the engineer's across the four classes.
+- **Row-share distance (points)** (lower is better): total variation distance between our
+  dollar shares per engineer report line and the engineer's (0 = identical).
+- **Report lines found / in the right class (visible in photos)** (higher is better): the
+  regression line. It does not change with pricing.
+- **Wall time (ms)**: repricing, replay and scoring of the row, on this machine.
+- **Tokens (input / output)**: "None" means no model was called.
+
+#### Study A (run 3A, the study corrected at every gate)
+
+| Location factor resolved as | Models (provider, effort, temperature) | Location price factor (table row) | Priced total vs. state mean | Gap to the price (%) / balances? | Share of dollars by class: 5 / 7 / 15 / 39 years (%) | Class share error, average / worst (points) ↓ | Row-share distance (points) ↓ | Report lines found / in the right class (visible in photos) ↑ | Wall time (ms) | Tokens (input / output) |
+|---|---|---|---|---|---|---|---|---|---|---|
+| (a) State mean (today's result); 37 cities, 0.94-1.07 | No AI model | 1.001 | 1.0000 | +2.0 reconciled | 12.6 / 0.9 / 4.2 / 82.3 | 1.30 / 2.0 | 22.4 | 35 / 35 | 23 | None |
+| (b) City row of the appraisal ZIP's prefix; the prefix is another state's row, not CA | No AI model | 0.99 (another state's row) | 0.9883 | +3.1 reconciled | 12.6 / 0.9 / 4.2 / 82.3 | 1.31 / 2.0 | 22.4 | 35 / 35 | 25 | None |
+| (c) Nearest listed CA prefix (book's nearby-city rule); prefix absent from CA, nearest applied | No AI model | 0.99 (Los Angeles 0.99) | 0.9883 | +3.1 reconciled | 12.6 / 0.9 / 4.2 / 82.3 | 1.31 / 2.0 | 22.4 | 35 / 35 | 22 | None |
+| (d) State median; 12 above the mean, 25 below | No AI model | 0.990 | 0.9883 | +3.1 reconciled | 12.6 / 0.9 / 4.2 / 82.3 | 1.31 / 2.0 | 22.4 | 35 / 35 | 23 | None |
+| (e) National average, no adjustment (control) | No AI model | 1.000 | 0.9992 | +2.1 reconciled | 12.6 / 0.9 / 4.2 / 82.2 | 1.29 / 2.0 | 22.4 | 35 / 35 | 23 | None |
+
+#### Study B (run 3B, the uncorrected run)
+
+| Location factor resolved as | Models (provider, effort, temperature) | Location price factor (table row) | Priced total vs. state mean | Gap to the price (%) / balances? | Share of dollars by class: 5 / 7 / 15 / 39 years (%) | Class share error, average / worst (points) ↓ | Row-share distance (points) ↓ | Report lines found / in the right class (visible in photos) ↑ | Wall time (ms) | Tokens (input / output) |
+|---|---|---|---|---|---|---|---|---|---|---|
+| (a) State mean (today's result) | No AI model | 1.001 | 1.0000 | +1.6 reconciled | 9.4 / 0.9 / 4.3 / 85.4 | 2.85 / 5.1 | 22.4 | 35 / 34 | 24 | None |
+| (b) City row of the appraisal ZIP's prefix (another state's row) | No AI model | 0.99 (another state's row) | 0.9883 | +2.7 reconciled | 9.4 / 0.9 / 4.2 / 85.4 | 2.86 / 5.2 | 22.4 | 35 / 34 | 24 | None |
+| (c) Nearest listed CA prefix | No AI model | 0.99 (Los Angeles 0.99) | 0.9883 | +2.7 reconciled | 9.4 / 0.9 / 4.2 / 85.4 | 2.86 / 5.2 | 22.4 | 35 / 34 | 24 | None |
+| (d) State median | No AI model | 0.990 | 0.9883 | +2.7 reconciled | 9.4 / 0.9 / 4.2 / 85.4 | 2.86 / 5.2 | 22.4 | 35 / 34 | 52 | None |
+| (e) National average (control) | No AI model | 1.000 | 0.9992 | +1.7 reconciled | 9.4 / 0.9 / 4.3 / 85.4 | 2.85 / 5.1 | 22.4 | 35 / 34 | 24 | None |
+
+The whole run (14 cells) took 0.4 s.
+
+**Fallback check.** Each listed row is hidden in turn, and the question is which stand-in lands
+closer to its own factor (`fallback_check`):
+
+| Scope | Rows | State mean of the others: avg / worst (points) | Nearest other prefix: avg / worst (points) | State median of the others: avg (points) |
+|---|---|---|---|---|
+| California | 37 | 3.00 / 7.10 | 2.62 / 7.00 | 2.76 (scratch probe) |
+| Every state with more than one row | 650 (50 states) | 2.33 | 2.71 (closer in 13 states, mean closer in 35) | 2.33 (scratch probe) |
+
+### 86.5 The pick, with reasoning
+
+**Keep the production rule unchanged:**
+- Use the intake ZIP's three-digit city row from the Residential table.
+- Fall back to the state mean.
+- For these two studies, (a) the state mean stays the result.
+
+**Propose one guard (not implemented):** do not apply a ZIP's row when its state differs from
+the subject's state. Fall back to the state mean and flag it for review.
+
+Why:
+1. **The location factor cannot move the tax-class scores.**
+   - Every itemized row and the square-foot building model scale by the same factor, so the
+     class shares, class share error and row-share distance are flat across all five rows
+     (within 0.1 point).
+   - The factor moves only dollars and the gap, roughly one point of gap per point of factor:
+     the lowest California row's -6.1 points would take the gap from +2.0 to about +8 on study A.
+   - Every setup stays reconciled at 10 % on both studies. Accuracy against the engineer
+     cannot choose among them, so the choice rests on the standard.
+2. **The standard is the three-digit ZIP row of the Residential table.** All three sources
+   agree, and that is what `resolve_cost_index` does when the intake carries a ZIP. The
+   commercial table would be wrong for a house (11-16 points higher in CA).
+3. **(b) is wrong on this data.** The only ZIP on file belongs to another state's prefix, so the
+   row would be that state's city for a California property. `location_factor_for_zip` has no
+   cross-check against the state; the harness flags it ("prefix listed under another state, not CA: no
+   cross-check in the code"). That the factor matches the CA median (0.99) is a coincidence.
+   If an engineer typed that ZIP into the intake, today's product would apply the other
+   state's row silently. Hence the proposed guard.
+4. **Fallback for an unlisted prefix: keep the state mean.**
+   - Reading "nearby city" as the nearest prefix number is worse than the state mean
+     nationally (2.71 vs 2.33 points; worse in 35 of 50 states). California is one of the
+     exceptions (2.62 vs 3.00).
+   - The median ties the mean nationally (2.33 vs 2.33). It is better in CA (2.76 vs 3.00),
+     but by less than the spread and not across states.
+   - So neither alternative is a defensible default. The book's rule needs human judgment
+     ("similar economic characteristics"). The state mean with its range on the row, which the
+     reviewer can override with a ZIP, stays.
+5. **The national 1.000 control lands within 0.1 point of the CA mean.** For California the
+   state mean is close to the national average. The real exposure is the within-state spread
+   (-6.1 to +6.9 points), which only a correct ZIP removes.
+
+### 86.6 Regression result
+
+- **Against today's code: identical.**
+  - (a) reproduces the production cell `installed+gc|square_foot|mods=on|spec=building|small=carved`
+    of a fresh `evals.gap_sweep` run on today's code. Every compared field matches on both
+    exports: status, gap, implied factor, allocation factor, kind C, shares, errors, TVD, row
+    error, visible line. The run records this as `regression` cases, passed.
+  - The fresh gap sweep is identical, cell for cell except runtime, to
+    `gap_sweep_today_2026-11-03` (72/72).
+- **Against section 49.3's stored cells (`reconciliation_gap_2026-10-31/gap_sweep.json`): also
+  exact, once the code is put back to the version before EVAL 78.** On today's code the gap
+  (+2.0, +1.6), status and implied factor match 49.3, but the shares do not (12.6/82.3 vs
+  14.1/80.8 on study A) and the allocation factor is withheld. I bisected this with read-only
+  `git archive` trees in the scratchpad and gap_sweep runs:
+  - `8162a91^` reproduces 49.3 exactly: 14.1 / 0.9 / 4.2 / 80.8, 0.55, 23.1, allocation 1.022;
+    and 10.4 / 84.3, 2.34, 22.5, 1.017.
+  - `8162a91` (EVAL 78: placeholder unit costs removed, so light fixtures, outlets, carpet,
+    tile, cabinets and HVAC units price only from the table) moves the shares to today's values.
+  - `6285a15` (EVAL 78: blockers withhold the allocation; here one "unpriced" blocker, 69 assets
+    on 3A and 93 on 3B) drops the allocation factor.
+  - **Neither change involves the location factor.**
+  - Running the current `location_factor.py` and `reprice_export.py` on the `8162a91^` tree with
+    `--regression` against 49.3's file gives "identical: true" on both exports. The new code
+    path reproduces section 49.3's production cell exactly when everything else is held at the
+    section-49 code. That scratch run is under the scratchpad, not the verification tree.
+
+### 86.7 Final run directory
+
+`$BASIS_EVAL_DATA_DIR/work/e2e_artifacts/location_factor_2026-11-03_final`, filed at
+`verification/location_factor/rsmeans_2020_book/location_factor_2026-11-03_final`. It holds:
+- manifest, cases (16 passed, 0 failed), console log, report;
+- `run.json` with the setups, every cell, the spread, the fallback check and the regression;
+- `cells.json`;
+- `location_factor.md`.
+
+The determinism re-run is `location_factor_2026-11-03_final_rerun`: identical apart from
+timings. The regression input is `gap_sweep_today_2026-11-03_recheck/gap_sweep.json`.
+
+The two earlier runs, `location_factor_2026-11-03` and `location_factor_2026-11-03_vs_section49`,
+are the previous agent's, made before the fallback check was added. Their numbers match the
+final run's.
+
+### 86.8 Verified vs not
+
+**Verified:**
+- Every table number, run twice.
+- The regression (today's code exactly; 49.3 exactly on the pre-EVAL-78 code).
+- The cause of the 49.3 difference (bisected to two named commits).
+- The CA spread and the leave-one-out check.
+- Residential vs commercial values for CA, read from the book's page image at 150 dpi.
+- The appraisal's printed ZIP and state, read from the stored extraction text.
+- `test_location_factor.py` (13) and `test_gap_sweep.py` (3) pass.
+- `ruff check`, `ruff format --check` and `mypy` are clean on the three files, and
+  `mypy basis` is clean.
+- No client ZIP, city or address appears in the three repo files (grep).
+
+**Not verified or not done:**
+- Which real place the property is. Two further rows priced on the places the appraisal's
+  city name could mean are in the private run only (they would identify the property).
+- The commercial CA mean (114.7) is my transcription from the image, not a stored table.
+- The Craftsman three-digit rule is inferred from a state agency's table header.
+- Marshall & Swift's handling of unlisted ZIPs has no source found.
+- The state-cross-check guard is proposed, not built.
+- `tests/LEDGER.md` has no row for `test_location_factor.py` yet, and EVAL_REPORT has no
+  section (off-limits to me). The full suites were not run (as instructed).
+- The docstring was edited after the final run (text only, no behavioural change).
+
+### 86.9 Surprises, each re-run
+
+1. **The appraisal's own ZIP is not a California ZIP.** Its prefix is another state's row in
+   the table, and the city name is a city listed under a third state. Confirmed in three places in the
+   extraction text, so this is the document, not a misread. Today's lookup would apply
+   another state's row to a CA property without comment if that ZIP reached the intake.
+2. **The location factor leaves every share score unchanged.** Re-run: identical on both
+   exports in both runs. This follows from the uniform multiplier, and it means location
+   cannot be tuned against the engineer's shares.
+3. **Section 49.3's shares no longer reproduce on today's code.** The cause is two EVAL 78
+   commits, not location (86.6). The 49.3 numbers should be read as "before the
+   placeholder prices were removed".
+4. **The priced-total ratios are not exactly proportional.** 0.99 gives 0.9883, not the linear
+   0.9890. The unit cost is rounded to cents before it is multiplied by the quantity
+   (`estimate_cost`). On the 202 rows of $5 or more per unit the ratio is exactly linear
+   (0.9890, 0.9390, 0.9990). The 43 rows under $5 per unit (26 % of the dollars, large-quantity
+   SF rows) carry the rounding. This is standard unit-price practice, not a location defect.
+   It can move a total by about 0.1 % at a 6-point factor change.
+5. **Engineer's 5-year share:** the harness prints 14.3 (exact 14.347, half-up) where 49.3
+   printed 14.4.
+6. **The "six points" in 45.3** understates the deviation: 6.9 points above and 6.1 below.
+
+### 86.10 The `reprice_export` change, and why it is safe
+
+**What changed** (`git diff backEnd/evals/reprice_export.py`):
+- A frozen dataclass `LocationChoice(factor: Decimal, source: str)`.
+- A new keyword parameter `location_choice: LocationChoice | None = None`, last in
+  `reprice(...)`.
+- When it is given, the run prices on that factor and writes that source text on every
+  repriced row and in the takeoff block, in place of the ZIP or state lookup.
+- When it is `None`, the original lookup block runs unchanged; it is only indented under
+  `else`.
+
+**Why it is safe:**
+1. The default path's code is unchanged. On both live exports, nine cases each (bare /
+   installed / installed + pro rata, times no override / `state="NY"` / `zip_code="60601"`),
+   the modified `reprice` returns output identical to the HEAD version of the module (loaded
+   from `git show HEAD:...`): 18/18 identical documents and change summaries.
+2. Passing `LocationChoice` with the state mean's factor and source gives output identical to
+   the default path: 6/6.
+3. The parameter is keyword-only in practice (it comes last, with a default). The other
+   callers (`gap_sweep`, `balance_tolerance`, `takeoff_constants`, `structure_replay`) pass
+   keywords and do not use it. `test_gap_sweep.py` passes, and the unit test checks that
+   without a choice the state lookup runs as before (IL mean 0.959).
+4. `ruff` and `mypy` are clean.
+
+## 87. The measuring constants: which matter, and their best values (2026-11-03)
+
+Harness `backEnd/evals/takeoff_constants.py` (record component `takeoff_constants` v2),
+test `backEnd/tests/unit/evals/test_takeoff_constants.py`. No paid call, cost $0, Tokens
+"None" throughout. Final run directory:
+`$BASIS_EVAL_DATA_DIR/work/e2e_artifacts/takeoff_constants_2026-11-03_final/` (also linked
+under `$BASIS_EVAL_DATA_DIR/verification/takeoff_constants/v2/`).
+
+### 87.1 Answer first
+
+* **On the report's numbers, the exterior geometry does not matter at all.** Roof pitch, eave
+  overhang, wall height, window share, footprint shape and gutter eaves move the itemized
+  priced total by up to 2.3 % but the report's class shares, row-share distance and
+  reconciliation gap by exactly 0.00 points, in all 272 cells. Roof, siding and gutters are
+  39-year rows inside the RSMeans square-foot model, so the carve-out takes whatever they cost
+  back out of the same component: dollars move between building rows, not between classes.
+  The gap (+2.0 % on study A, +1.6 % on B) and "balances at 10 %" are also identical in every
+  cell, because every re-measured row is inside the model.
+* **What matters is the room-level geometry of 5-year rows:** the room perimeter coefficient
+  (`4 x sqrt(area)`; it drives baseboard, wainscot and countertop), the wainscot height,
+  the carpet waste factor and the countertop depth, then the bathroom, kitchen, hallway and
+  bedroom weights. Even these are small. Across the plausible range (the published values),
+  no single constant moves the report's average class error by more than 0.32 points, and
+  every published value at once moves it +0.09 points on A and 0.00 on B. Today's study A
+  error is 1.29 points; the EVAL 78 price changes alone moved it 0.74.
+* **The pick:** keep the exterior constants (the published values agree with today's or have
+  no effect on the report). Change two on their sources: the footprint aspect ratio 1.5 to
+  1.8, and the room weights to the NAHB 2019 room sizes as one set. Both are score-neutral
+  within 0.1 point. Flag one defect for Bryan: wainscot is measured 3 ft high but priced on
+  an RSMeans line for a 2 ft wainscot. Replace the wall-area constant (3.5 SF of wall per SF
+  of floor) with perimeter x ceiling height, as a formula change. Do not tune on this score:
+  both runs under-allocate the 5-year class, so the metric rewards anything that adds 5-year
+  dollars (carpet waste 1.38 "improves" it), whether or not it is physically right. All the
+  evidence is one property.
+
+### 87.2 The standard: sources and published values
+
+**How the established work gets these quantities.**
+
+* *Room sizes.* The only survey of room sizes found is NAHB's Special Study "Spaces in New
+  Homes" (Paul Emrath, 2019-03-14). In it, 153 builders allocated the finished area of their
+  typical new home, which averaged 2,913 SF. Table 2 gives each room's average size when it is
+  present as a separate room (all homes / homes under 2,000 SF / homes of 3,500 SF and up):
+  master bedroom 312 / 223 / 422; other bedrooms 503 / 285 / 791 in all; master bath
+  165 / 112 / 246; other baths 173 / 86 / 300 in all; kitchen 288 / 195 / 424; dining 209 /
+  139 / 294; living 343 / 272 / 421; family 398 / 302 / 484; laundry 104 / 72 / 162; entry
+  foyer 90 / 46 / 141; study/den 185 / 128 / 229; great room 827. Table 1 gives the average
+  allocation across all homes: kitchen area 326 SF (11.2 %), bedrooms 815 (28.0 %), "other"
+  332 (11.4 %, mostly hallways), and 79 SF of closets. I read both tables from the PDF's images
+  (the text carries only the shares). The prose gives 11.3 % for the master bedroom; Table 1
+  gives 10.7 % (312 / 2,913), and I used the table.
+  The Census Characteristics of New Housing gives counts, not room sizes: the median
+  completed single-family home was 2,142 SF in 2025. NAHB's reading of the 2024 Survey of
+  Construction: 47 % of starts had 3 bedrooms and 32.4 % had 4; 65 % had 2 full baths,
+  23.3 % 3, and 7.2 % 4 or more. From those counts I derived the per-room bedroom
+  (815 / 3.5 = 233 SF) and bath ((164 + 166) / 2.5 = 132 SF) values; they are labelled
+  derived.
+  What matters is the ratios: a room's area is GLA x w / W, and W is the sum of the same
+  weights, so scaling every weight together changes nothing. NAHB's ratios differ from
+  today's. Taking a bedroom as 1.0, the kitchen is 1.24 against today's 1.0, a bath 0.57
+  against 0.5, the living room 1.47 against 1.67, and laundry 0.45 against 0.33.
+* *Roof from footprint and pitch.* Roof area = plan area (footprint plus the overhang) x
+  sqrt(1 + (rise/12)^2): 1.054 at 4/12, 1.118 at 6/12, 1.202 at 8/12, 1.414 at 12/12. This is
+  the slope's secant, and every pitch-multiplier table and roofing calculator uses it. Waste
+  (10 % gable, 15 % hip) is an ordering allowance, not installed area. RSMeans Residential
+  2020 Gable End Roofing Systems (p. 194) prices per SF of *plan* area with a 1 ft overhang at
+  4/12: 1.160 SF of shingles, 0.083 LF of gutter and 0.083 LF of soffit per SF of plan. Hip
+  Roof Systems (p. 196) give 1.570 SF and 0.120 LF of gutter. The truss and rafter systems
+  also state "A one foot overhang is included". Today's formula on this house gives 1.209 SF
+  of roof per SF of plan at 6/12, or 1.140 at 4/12 against RSMeans' 1.160, so it agrees. NREL
+  ResStock puts every gable attic at 6:12 (`geometry_roof_pitch=6:12`) and eaves at 2 ft
+  (`geometry_eaves_depth=2`, 100 % of the stock).
+* *Siding from perimeter and story height.* Every estimating guide uses the gross wall
+  (perimeter x wall height, plus gable triangles), less the openings, plus 10-15 % ordering
+  waste (Kaycan's estimator uses 10 %). RSMeans Residential 2020 differs by material. The vinyl
+  and metal siding systems say "Subtract openings from wall area"; the wood siding, shingle
+  siding and brick veneer systems say "Do not subtract". Basis prices siding on the vinyl
+  line, so subtracting openings is consistent with it. ResStock's window-to-wall ratio is
+  6/9/12/15/18/30 % on 7.8/25/25/16/17/8.9 % of the stock: mean 0.14, median 0.12, windows
+  only. ResStock's single-family ceiling is 8 ft, so 8 ft plus about 1 ft of floor framing
+  gives the 9 ft per story Basis uses. Today's siding adds no gable triangles.
+* *Gutters from eave length.* Gutters run on the eaves, not the rakes. A gable roof is
+  guttered on its two long sides, a hip roof on every side (This Old House, Angi and RoofSnap
+  agree). RSMeans' 0.083 LF per SF of plan is the two eaves of a 24 ft deep house. Its hip
+  figure of 0.120 is 1.45 times that. Basis's geometric form (2 x (long side + 2 x overhang))
+  scales to a deeper footprint, which a fixed per-SF ratio cannot.
+* *Footprint shape.* ResStock sets `geometry_unit_aspect_ratio=1.8` for single-family
+  detached. RSMeans Residential 2020's square-foot models (living area and perimeter printed
+  per model) imply perimeter / sqrt(footprint) of 4.05-4.27, a 1.4:1 to 2.1:1 rectangle with
+  a median near 1.9. Today's value is 1.5.
+* *Craftsman National Construction Estimator:* not consulted (no copy available offline);
+  not verified.
+
+The published values and their sources are in the registry (`CONSTANTS`, each with
+`published_source`; ResStock's 2 ft eaves and the cost row's 2 ft wainscot are `extra`
+cells, outside the published set):
+
+| Constant | Today | Published (cell) | Source |
+|---|---|---|---|
+| footprint_aspect_ratio | 1.5 | 1.8 | ResStock options_lookup; RSMeans 2020 models 1.4-2.1 |
+| roof_pitch_factor | 1.118 (6/12) | 1.118; cells 4/12, 8/12, 12/12 | ResStock 6:12; secant formula |
+| eave_overhang_ft | 1 | 1; cell ResStock 2 ft | RSMeans 2020 systems: 1 ft; ResStock 2 ft |
+| story_wall_height_ft | 9 | 9 | ResStock 8 ft ceiling + framing (derived) |
+| wall_openings_share | 0.15 | 0.14 | ResStock WWR distribution mean (windows only) |
+| gutter_eaves | 2 | 2; cell hip 4 | RSMeans gable / hip systems; gutter guides |
+| garage_sf_per_car | 240 | 240 | 12 x 20 ft bay (not exercised: the garage area is printed) |
+| kitchen / bedroom / bathroom SF | 150 / 150 / 75 | 288 / 233 / 132 | NAHB 2019 Table 2 (bedroom, bath derived) |
+| living / family / dining / office / laundry / foyer SF | 250 / 250 / 150 / 120 / 50 / 60 | 343 / 398 / 209 / 185 / 104 / 90 | NAHB 2019 Table 2 |
+| other_room_sf (program) | 200 | 317 | mean of NAHB living, family, dining |
+| hallway, stairway, storage, mechanical, basement, "other" weight, half bath | 50, 40, 30, 40, 150, 150, 40 | none | no per-room survey figure |
+| wall_area_per_floor_sf | 3.5 | 2.6 | 4 x sqrt(150) x 8 ft / 150 (derived; 3.5 is an 84 SF room at 8 ft) |
+| carpet_waste / tile_waste | 1.10 / 1.15 | same | flooring and tile guides 10 %, 10-15 % |
+| wainscot_height_ft | 3 | 3; cell cost row 2 ft | trim guides 32-36 in; priced line RSMeans 06 22 13.45 5600 is "2' high" |
+| countertop_depth_ft | 25/12 | same | 25-25.5 in standard |
+| room_perimeter_coefficient | 4 (square) | 4.08 (a 1.5:1 room) | geometry; no survey of room shapes (derived) |
+
+Sources: NAHB study PDF https://www.nahb.org/-/media/224EC507D1B94735B1BDBC6C39B1E8E6.ashx ;
+https://eyeonhousing.org/2019/04/bedrooms-kitchens-consume-copious-space-in-new-homes/ ;
+https://www.nahb.org/blog/2025/11/three-bedroom-homes-reach-highest-market-share-since-2011 and
+https://eyeonhousing.org/2025/12/number-of-bathrooms-in-new-single-family-homes-in-2024/
+(figures taken from the search summaries; I did not open these two pages);
+https://www.census.gov/construction/chars/highlights.html ; ResStock
+`resources/options_lookup.tsv` and
+`docs/technical_reference_guide/characteristics/{options,assumptions}/{Eaves,Window Areas}.tex`
+on github.com/NREL/resstock (develop); RSMeans Residential 2020 (the private corpus PDF):
+the roofing systems pp. 194 and 196, the exterior wall systems, the square-foot models; the
+roof-pitch and siding and gutter sources in `docs/review_2026-10-15/TAKEOFF_RESEARCH.md`;
+https://kaycan.com/estimator/ ; https://www.thisoldhouse.com/gutters/reviews/how-to-measure-gutters .
+
+### 87.3 What was built
+
+The earlier attempt's harness and run (`takeoff_constants_2026-11-03`, v1) were complete as
+far as they went (234 cells, regression passing). On review they had five gaps, now fixed:
+
+1. **Published values corrected against the sources.** The earlier values mixed NAHB's
+   Table 1 (an allocation across all homes) with guesses: the living room at 205 SF where
+   Table 2 gives 343, and the office and laundry with no value where Table 2 gives 185 and
+   104. Every value is now Table 2's "when present", ResStock's file value or a derived
+   figure labelled as one. The cost book's 1 ft overhang is the published value, and
+   ResStock's 2 ft is a separate cell.
+2. **The "other room" constant was two assumptions moved as one.** The program's
+   `OTHER_ROOM_SF` (200) and `ROOM_WEIGHTS_SF["other"]` (150) are separate constants now;
+   the old pairing set both to 200 x f. `basement_room_sf` was added too (the "basement"
+   weight; it is exercised on B).
+3. **A constant the earlier harness missed:** the room perimeter coefficient. The `4` of
+   `4 x sqrt(area)` is a literal in `estimate_quantity`, so the harness scales `per_sf` on
+   every perimeter spec instead (baseboard, cabinet, countertop, crown, wainscot). The
+   overrides apply in registry order, so it composes with the wainscot and countertop
+   constants. It ranks first.
+4. **An itemized score next to the report's score.** The report's score could not show the
+   carve-out effect at all: building rows moved and nothing registered. Each cell now also
+   gives the priced rows' class shares before the structure model. These are not an accuracy
+   measure, because the concealed building is not itemized.
+5. **The 35.2 dump swept, not just replayed.** Every setup runs on the 376-asset dump at
+   its stored unit costs. The dump has no cost year, so it cannot be repriced.
+
+Also added: grouped published setups (geometry, room sizes, formulas, then all). A guard
+keeps a site item a room carries (a driveway on `method: area`) out of the room's area: the
+previous code gave it `1 EA`, which the existing dump test caught. Version v2, since the
+setups changed. Unit tests: 13 pass, 4 of them new (the perimeter coefficient and its order,
+the site-item guard, the share error and the engineer's shares, the dump sweep's arithmetic).
+`ruff check`, `ruff format --check` and `mypy` are clean on both files, and `mypy basis`
+is clean. `tooling/check_no_client_data.py --ci` passes, but it checks tracked files only,
+and both files are untracked; a grep finds no dollar figures, GLA or study id in them.
+
+### 87.4 The data
+
+* **Study A**: `live_2026-10-29_run3A/export/rev-5.json` (314 assets, the run the engineer
+  corrected at every gate). **Study B**: `live_2026-10-29_run3B/export/rev-1.json`
+  (381 assets). **35.2 dump**: `assets_11217e4e_rev3_measured.json` (376 assets) with
+  `fields_11217e4e.json` revision 3.
+* All three are the same client property: a two-story, six-bedroom, six-bath house with a
+  part-finished basement and an attached two-car garage whose area is printed. Its size falls
+  between NAHB's small and large tiers. They are scored against the same engineer's report
+  (`labels/engineer_report_v1.json`, `labels/e2e_rows_v1.json`; engineer 14.3 / 0.4 / 5.1 /
+  80.2). **One property is thin evidence**: every slope below is this house's, and A and B
+  are two runs of it, not two houses.
+* Pricing as in section 49: the 2020 RSMeans table, installed cost with the general
+  contractor's O&P spread pro rata, and the stored July 2024 index values. The structure
+  replay is the production variant.
+* Setups: today; each constant alone at 50, 75, 125 and 150 % of today (or its named
+  alternatives), plus its extra and published value; the three groups; all published. That
+  is 136 setups x 2 exports = 272 scored cells, plus 136 dump cells. Wall time is 9.2 s for
+  the run, about 30 ms per scored cell and 3 ms per dump cell. Cost $0.
+
+### 87.5 Regression
+
+* **Today's cell is today's production cell.** I ran `evals.gap_sweep` on today's code as an
+  independent path (no re-takeoff) and took its production variant (installed + GC |
+  square-foot | modifications on | residual written | small systems carved). The harness's
+  "today" cell equals it field for field on both exports: status, gap, implied factor,
+  allocation, kind C, every class share and error, TVD and mean row error. Values: A
+  12.6 / 0.9 / 4.2 / 82.2 with error 1.29 / 2.0, TVD 22.4, gap +2.0 reconciled; B 9.4 / 0.9 /
+  4.3 / 85.4 with 2.85 / 5.1, TVD 22.4, +1.6 reconciled. The photo-visible rows are 35/35 and
+  35/34 in all 272 cells. Every recomputed quantity under today's constants equals the stored
+  one: 0 moved on A, B and the dump.
+* **Section 49.3's stored numbers do not reproduce on today's code, and the cause is
+  verified.** I extracted the tree at `8162a91^` into the scratchpad with `git archive`
+  (no checkout) and ran `evals.gap_sweep` there. Its production cells reproduce 49.3 exactly:
+  A 14.1 / 0.9 / 4.2 / 80.8 with error 0.55 / 0.8, TVD 23.1, +2.0 reconciled, allocation
+  factor 1.022; B 10.4 / 0.9 / 4.3 / 84.3 with 2.34 / 4.1, TVD 22.5, +1.6, factor 1.017.
+  Repricing both exports on the old and new code gives the same priced counts (245, 288).
+  What differs is the unit price of five labels: light fixtures x0.239, outlets x0.594,
+  tile x0.415, carpet x0.545 and HVAC units x0.158 against the removed `TYPICAL_UNIT_COSTS`
+  placeholders (8162a91, EVAL 78). Carpet is the only 5-year one of the five, and its cut
+  moves A's 5-year share from 14.1 to 12.6 after the carve-out. The other four are 39-year
+  rows inside the model, so they are carved. The allocation factor is now null in every cell
+  (6285a15, EVAL 78): the result withholds the allocation while any blocker remains, such as
+  the unmeasured driveway or a row with no cost-book line. That has nothing to do with the
+  constants; the gap and status are unchanged.
+* **Section 35.2's stored numbers reproduce on today's takeoff, but only the takeoff.**
+  Re-measuring the dump under today's constants gives 73 of 73 measured quantities equal,
+  283 of 376 priced, 15 missing a measurement, 78 with no cost-book line, and itemized shares
+  35.3 / 4.9 / 12.0 / 47.8, all as 35.2 printed. That holds because the dump is re-priced at
+  its stored unit costs. Its carpet, tile, light-fixture, outlet and HVAC rows are priced from
+  `TYPICAL_UNIT_COSTS` (their `source_row` says so), which no longer exist. Repricing the dump
+  on today's code was not possible (it has no cost year) and was not done. It would differ
+  for the same reason 49.3 does.
+* **Determinism.** I re-ran the final code twice (`_final_rerun` and `_final_check`).
+  `sweep.json` is identical to `_final` except the runtimes.
+
+### 87.6 The tables
+
+#### Today's constants against the published values, by group
+
+**How to read this table.** If Basis used the published values (by group, then all at once), how would the priced assets, the class shares and the reconciliation change?
+
+- **Models**: the exact model id, its provider, the reasoning effort and the temperature as sent. Here no model runs: the takeoff, the pricing and the structure replay are deterministic.
+- **Study A / Study B: assets priced**: Itemized assets with a price, of the export's assets.
+- **Priced total (today = 1.00)**: The itemized rows' priced total relative to today's constants on the same export.
+- **Share of dollars by class: 5 / 7 / 15 / 39 years (%)**: The report's split after the structure model (what the client report shows); the engineer's is 14.3 / 0.4 / 5.1 / 80.2.
+- **Class share error, average / worst (points)** (lower is better): Average and worst gap, in percentage points, between our share and the engineer's across the four classes.
+- **Row-share distance (points)** (lower is better): How far our dollar shares per engineer report line are from the engineer's (total variation distance; 0 = identical).
+- **Gap to the price (%) / balances at 10 %?**: How far the depreciated cost lands below the purchase price less land, and whether that is within the 10 % tolerance ("reconciled").
+- **35.2 dump: itemized share by class**: The dump's priced rows split by class at their stored unit costs. There is no structure model, so the building is not in it and this is not comparable to the engineer's split; it shows movement only.
+- **Wall time per cell**: Takeoff, repricing, structure replay and scorer, in milliseconds.
+- **Tokens (input / output)**: Tokens the run used: input (what the model read) / output (what it wrote; "thinking" is the part spent reasoning, billed as output). "None" means no model ran.
+
+| Setup | Models (provider, effort, temperature) | Study A: assets priced | Study A: priced total (today = 1.00) | Study A: share of dollars by class: 5 / 7 / 15 / 39 years (%) | Study A: class share error, average / worst (points) ↓ | Study A: row-share distance (points) ↓ | Study A: gap to the price (%) / balances at 10 %? | Study B: assets priced | Study B: priced total (today = 1.00) | Study B: share of dollars by class: 5 / 7 / 15 / 39 years (%) | Study B: class share error, average / worst (points) ↓ | Study B: row-share distance (points) ↓ | Study B: gap to the price (%) / balances at 10 %? | 35.2 dump: assets priced | 35.2 dump: priced total (today = 1.00) | 35.2 dump: itemized share by class: 5 / 7 / 15 / 39 years (%) | Wall time per cell, A / B / dump (ms) | Tokens (input / output) |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| today · Today's constants (the regression line) | No AI model | 245 of 314 | 1.000 | 12.6 / 0.9 / 4.2 / 82.2 | 1.29 / 2.0 | 22.4 | +2.0 reconciled | 288 of 381 | 1.000 | 9.4 / 0.9 / 4.3 / 85.4 | 2.85 / 5.1 | 22.4 | +1.6 reconciled | 283 of 376 | 1.000 | 35.3 / 4.9 / 12.0 / 47.8 | 35 / 32 / 3 | None (no AI model) |
+| published geometry · Footprint 1.8:1, openings 14 % (pitch, overhang, wall height, gutters already the published values) | No AI model | 245 of 314 | 1.002 | 12.6 / 0.9 / 4.2 / 82.2 | 1.29 / 2.0 | 22.4 | +2.0 reconciled | 288 of 381 | 1.002 | 9.4 / 0.9 / 4.3 / 85.4 | 2.85 / 5.1 | 22.4 | +1.6 reconciled | 283 of 376 | 1.002 | 35.2 / 4.9 / 11.9 / 47.9 | 29 / 31 / 3 | None (no AI model) |
+| published room sizes · Every room weight at the NAHB 2019 survey's room size | No AI model | 245 of 314 | 1.000 | 12.4 / 0.9 / 4.2 / 82.4 | 1.38 / 2.2 | 22.6 | +2.0 reconciled | 288 of 381 | 1.002 | 9.4 / 0.9 / 4.3 / 85.4 | 2.85 / 5.1 | 22.5 | +1.6 reconciled | 283 of 376 | 1.005 | 36.0 / 4.9 / 11.9 / 47.2 | 30 / 31 / 3 | None (no AI model) |
+| published formulas · Wall area 2.6 SF per SF of floor, room perimeter 4.08 x sqrt(area) | No AI model | 245 of 314 | 0.992 | 12.6 / 0.9 / 4.2 / 82.2 | 1.30 / 2.0 | 22.2 | +2.0 reconciled | 288 of 381 | 0.995 | 9.4 / 0.9 / 4.3 / 85.4 | 2.85 / 5.1 | 22.3 | +1.6 reconciled | 283 of 376 | 0.993 | 35.6 / 5.0 / 12.0 / 47.4 | 29 / 31 / 3 | None (no AI model) |
+| all published · Every published value at once | No AI model | 245 of 314 | 0.995 | 12.4 / 0.9 / 4.2 / 82.4 | 1.38 / 2.2 | 22.3 | +2.0 reconciled | 288 of 381 | 0.999 | 9.4 / 0.9 / 4.3 / 85.4 | 2.85 / 5.1 | 22.4 | +1.6 reconciled | 283 of 376 | 1.000 | 36.2 / 4.9 / 11.9 / 46.9 | 30 / 54 / 3 | None (no AI model) |
+
+#### Each constant alone at its published or other sourced value
+
+**How to read this table.** Which sourced values, applied one at a time, move the report's class shares, and by how much?
+
+- **Models**: as above, no model runs.
+- **Priced total (today = 1.00)**: The itemized rows' priced total relative to today's constants.
+- **Share of dollars by class (Study A)**: After the structure model; the engineer's is 14.3 / 0.4 / 5.1 / 80.2.
+- **Class share error, average / worst (points)** (lower is better): Against the engineer's shares. Both runs under-allocate the 5-year class, so this rewards any added 5-year dollars; a lower number here is not by itself evidence that a value is right.
+- **Row-share distance (points)** (lower is better): Per engineer report line, total variation distance.
+- **35.2 dump: itemized share by class**: The dump's priced rows at their stored unit costs (movement only).
+- **Tokens (input / output)**: "None": no model ran.
+
+Every row is reconciled at the same gap as today (A +2.0, B +1.6), and the assets priced are unchanged (245 of 314, 288 of 381, 283 of 376).
+
+| Setup (one constant changed) | Models (provider, effort, temperature) | Study A: priced total (today = 1.00) | Study A: share of dollars by class: 5 / 7 / 15 / 39 years (%) | Study A: class share error, average / worst (points) ↓ | Study A: row-share distance (points) ↓ | Study B: priced total (today = 1.00) | Study B: class share error, average / worst (points) ↓ | Study B: row-share distance (points) ↓ | 35.2 dump: priced total (today = 1.00) | 35.2 dump: itemized share by class (%) | Tokens (input / output) |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| today · Today's constants | No AI model | 1.000 | 12.6 / 0.9 / 4.2 / 82.2 | 1.29 / 2.0 | 22.4 | 1.000 | 2.85 / 5.1 | 22.4 | 1.000 | 35.3 / 4.9 / 12.0 / 47.8 | None (no AI model) |
+| footprint 1.8:1 · ResStock / RSMeans models (today 1.5) | No AI model | 1.002 | 12.6 / 0.9 / 4.2 / 82.2 | 1.29 / 2.0 | 22.4 | 1.002 | 2.85 / 5.1 | 22.4 | 1.001 | 35.3 / 4.9 / 11.9 / 47.9 | None (no AI model) |
+| openings 14 % · ResStock window-to-wall mean (today 15 %) | No AI model | 1.000 | 12.6 / 0.9 / 4.2 / 82.2 | 1.29 / 2.0 | 22.4 | 1.000 | 2.85 / 5.1 | 22.4 | 1.000 | 35.3 / 4.9 / 11.9 / 47.8 | None (no AI model) |
+| overhang 2 ft · ResStock (today 1 ft = RSMeans) | No AI model | 1.003 | 12.6 / 0.9 / 4.2 / 82.2 | 1.29 / 2.0 | 22.4 | 1.003 | 2.85 / 5.1 | 22.4 | 1.002 | 35.2 / 4.9 / 11.9 / 47.9 | None (no AI model) |
+| pitch 4/12 · RSMeans systems' pitch (today 6/12 = ResStock) | No AI model | 0.998 | 12.6 / 0.9 / 4.2 / 82.2 | 1.29 / 2.0 | 22.4 | 0.998 | 2.85 / 5.1 | 22.4 | 0.999 | 35.4 / 4.9 / 12.0 / 47.8 | None (no AI model) |
+| pitch 8/12 · steeper alternative | No AI model | 1.002 | 12.6 / 0.9 / 4.2 / 82.2 | 1.29 / 2.0 | 22.4 | 1.002 | 2.85 / 5.1 | 22.4 | 1.002 | 35.2 / 4.9 / 11.9 / 47.9 | None (no AI model) |
+| gutters on 4 eaves · a hip roof (today 2: gable) | No AI model | 1.005 | 12.6 / 0.9 / 4.2 / 82.2 | 1.29 / 2.0 | 22.2 | 1.005 | 2.85 / 5.1 | 22.2 | 1.004 | 35.2 / 4.9 / 11.9 / 48.0 | None (no AI model) |
+| kitchen 288 SF · NAHB (today 150) | No AI model | 1.011 | 12.8 / 0.9 / 4.2 / 82.1 | 1.22 / 1.9 | 22.5 | 1.015 | 2.74 / 4.9 | 22.6 | 1.020 | 36.8 / 4.8 / 11.7 / 46.7 | None (no AI model) |
+| bedroom 233 SF · NAHB, derived (today 150) | No AI model | 0.998 | 12.7 / 0.9 / 4.2 / 82.1 | 1.23 / 1.9 | 22.3 | 0.986 | 2.88 / 5.2 | 22.1 | 0.987 | 34.8 / 5.0 / 12.1 / 48.1 | None (no AI model) |
+| bathroom 132 SF · NAHB, derived (today 75) | No AI model | 0.996 | 12.1 / 0.9 / 4.2 / 82.7 | 1.54 / 2.5 | 22.8 | 1.001 | 2.93 / 5.3 | 22.7 | 1.008 | 35.6 / 4.9 / 11.9 / 47.6 | None (no AI model) |
+| living room 343 SF · NAHB (today 250) | No AI model | 1.000 | 12.6 / 0.9 / 4.2 / 82.2 | 1.29 / 2.0 | 22.2 | 1.000 | 2.91 / 5.2 | 22.3 | 0.997 | 35.1 / 4.9 / 12.0 / 47.9 | None (no AI model) |
+| dining room 209 SF · NAHB (today 150) | No AI model | 0.998 | 12.6 / 0.9 / 4.2 / 82.2 | 1.29 / 2.0 | 22.3 | 1.003 | 2.79 / 5.0 | 22.4 | 0.999 | 35.3 / 4.9 / 12.0 / 47.8 | None (no AI model) |
+| office 185 SF · NAHB study/den (today 120) | No AI model | 0.998 | 12.6 / 0.9 / 4.2 / 82.2 | 1.29 / 2.0 | 22.3 | 1.000 | 2.82 / 5.1 | 22.3 | 0.999 | 35.3 / 4.9 / 12.0 / 47.8 | None (no AI model) |
+| laundry 104 SF · NAHB (today 50) | No AI model | 0.999 | 12.5 / 0.9 / 4.2 / 82.4 | 1.36 / 2.1 | 22.4 | 0.997 | 2.88 / 5.2 | 22.4 | 0.997 | 35.2 / 4.9 / 12.0 / 47.9 | None (no AI model) |
+| foyer 90 SF · NAHB (today 60; the x1.5 cell) | No AI model | 1.000 | 12.6 / 0.9 / 4.2 / 82.2 | 1.29 / 2.0 | 22.4 | 1.001 | 2.87 / 5.2 | 22.4 | 1.000 | 35.3 / 4.9 / 12.0 / 47.9 | None (no AI model) |
+| program 'other room' 317 SF · NAHB mean (today 200) | No AI model | 0.986 | 12.2 / 0.9 / 4.2 / 82.6 | 1.48 / 2.4 | 22.3 | 1.000 | 2.85 / 5.1 | 22.4 | 1.000 | 35.3 / 4.9 / 12.0 / 47.8 | None (no AI model) |
+| wall area 2.6 SF/SF · 150 SF room at 8 ft (today 3.5) | No AI model | 0.990 | 12.5 / 0.9 / 4.2 / 82.3 | 1.33 / 2.1 | 22.1 | 0.994 | 2.88 / 5.2 | 22.2 | 0.992 | 35.6 / 5.0 / 12.1 / 47.4 | None (no AI model) |
+| wainscot 2 ft · the priced RSMeans line's height (today 3 ft) | No AI model | 0.983 | 11.9 / 0.9 / 4.2 / 82.9 | 1.62 / 2.7 | 22.0 | 0.984 | 3.04 / 5.5 | 22.0 | 0.987 | 35.8 / 5.0 / 12.1 / 47.1 | None (no AI model) |
+| room perimeter 4.08 x sqrt(area) · a 1.5:1 room (today 4: square) | No AI model | 1.002 | 12.7 / 0.9 / 4.2 / 82.2 | 1.26 / 1.9 | 22.4 | 1.002 | 2.83 / 5.1 | 22.4 | 1.001 | 35.3 / 4.9 / 11.9 / 47.9 | None (no AI model) |
+
+#### Sensitivity: which constants matter
+
+**How to read this table.** Ranked by how far the report's class error moves when the constant changes, per unit of relative change.
+
+- **Models**: as above, no model runs.
+- **Report's class error per +100 % (points)**: The change in the report's average class-share error per +100 % change in the constant: a central difference over the 75 % and 125 % cells (the 4/12 to 8/12 pair for the pitch, today to hip for the gutters), averaged over A and B with each export in brackets. A negative value means the error falls as the constant grows. Divide by 4 for a ±25 % change.
+- **Itemized schedule class error per +100 % (points)**: The same slope on the itemized rows before the structure model. It shows the constants the carve-out hides; the itemized split lacks the concealed building, so it says nothing about accuracy.
+- **35.2 dump itemized class error per +100 %**: The same on the dump at its stored unit costs.
+- **Largest move of the report's class error (points)**: Over every cell of that constant on either export.
+- **Largest move of the priced total (%)**: Of the itemized rows, over every cell of that constant.
+- **Exercised**: Whether any cell moved a quantity on any export ("no": these exports cannot test it).
+- **Tokens (input / output)**: "None": no model ran.
+
+| Rank | Constant | Today | Range tested | Models (provider, effort, temperature) | Report's class error per +100 % (points): mean (A / B) | Itemized schedule class error per +100 % (points) | 35.2 dump itemized class error per +100 % (points) | Largest move of the report's class error (points) | Largest move of the priced total (%) | Exercised | Tokens (input / output) |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| 1 | room_perimeter_coefficient | 4 | 50, 75, 125, 150 % of today; published 4.08 | No AI model | -1.28 (-1.43 / -1.13) | +1.73 | -0.96 | 0.71 | 4.0 | yes | None (no AI model) |
+| 2 | wainscot_height_ft | 3 | 50, 75, 125, 150 % of today; cost row 2 ft (2) | No AI model | -0.77 (-0.96 / -0.57) | +0.95 | -1.06 | 0.48 | 2.5 | yes | None (no AI model) |
+| 3 | carpet_waste | 1.1 | 50, 75, 125, 150 % of today | No AI model | -0.75 (-0.89 / -0.61) | +1.12 | +1.34 | 0.45 | 2.3 | yes | None (no AI model) |
+| 4 | countertop_depth_ft | 2.0833 | 50, 75, 125, 150 % of today | No AI model | -0.28 (-0.20 / -0.35) | +0.43 | +0.34 | 0.17 | 0.9 | yes | None (no AI model) |
+| 5 | bathroom_sf | 75 | 50, 75, 125, 150 % of today; published 132 | No AI model | +0.22 (+0.34 / +0.10) | -0.54 | +0.12 | 0.24 | 0.4 | yes | None (no AI model) |
+| 6 | hallway_sf | 50 | 50, 75, 125, 150 % of today | No AI model | -0.13 (-0.13 / -0.12) | +0.24 | -0.12 | 0.07 | 0.3 | yes | None (no AI model) |
+| 7 | kitchen_sf | 150 | 50, 75, 125, 150 % of today; published 288 | No AI model | -0.12 (-0.11 / -0.14) | +0.01 | +0.71 | 0.12 | 1.5 | yes | None (no AI model) |
+| 8 | wall_area_per_floor_sf | 3.5 | 50, 75, 125, 150 % of today; published 2.6 | No AI model | -0.10 (-0.12 / -0.09) | -0.40 | -0.82 | 0.07 | 1.9 | yes | None (no AI model) |
+| 9 | dining_room_sf | 150 | 50, 75, 125, 150 % of today; published 209 | No AI model | -0.07 (+0.00 / -0.14) | +0.17 | +0.01 | 0.08 | 0.5 | yes | None (no AI model) |
+| 10 | bedroom_sf | 150 | 50, 75, 125, 150 % of today; published 233 | No AI model | -0.06 (-0.17 / +0.05) | +0.48 | -0.26 | 0.12 | 1.7 | yes | None (no AI model) |
+| 11 | living_room_sf | 250 | 50, 75, 125, 150 % of today; published 343 | No AI model | +0.06 (-0.03 / +0.15) | -0.18 | -0.18 | 0.09 | 0.2 | yes | None (no AI model) |
+| 12 | laundry_sf | 50 | 50, 75, 125, 150 % of today; published 104 | No AI model | +0.04 (+0.06 / +0.03) | -0.08 | -0.04 | 0.07 | 0.3 | yes | None (no AI model) |
+| 13 | mechanical_room_sf | 40 | 50, 75, 125, 150 % of today | No AI model | +0.04 (+0.05 / +0.03) | -0.06 | -0.06 | 0.03 | 0.1 | yes | None (no AI model) |
+| 14 | office_sf | 120 | 50, 75, 125, 150 % of today; published 185 | No AI model | -0.03 (+0.00 / -0.05) | +0.12 | +0.01 | 0.03 | 0.2 | yes | None (no AI model) |
+| 15 | foyer_sf | 60 | 50, 75, 125, 150 % of today; published 90 | No AI model | +0.01 (+0.00 / +0.03) | -0.06 | -0.03 | 0.02 | 0.1 | yes | None (no AI model) |
+| 16 | stairway_sf | 40 | 50, 75, 125, 150 % of today | No AI model | -0.01 (-0.01 / +0.00) | -0.02 | -0.01 | 0.01 | 0.1 | yes | None (no AI model) |
+| 17 | storage_sf | 30 | 50, 75, 125, 150 % of today | No AI model | -0.01 (+0.00 / -0.01) | +0.01 | +0.00 | 0.01 | 0.1 | yes | None (no AI model) |
+| 18 | story_wall_height_ft | 9 | 50, 75, 125, 150 % of today | No AI model | +0.00 (+0.00 / +0.00) | -0.96 | -0.90 | 0.00 | 2.3 | yes | None (no AI model) |
+| 19 | tile_waste | 1.15 | 50, 75, 125, 150 % of today | No AI model | +0.00 (+0.00 / +0.00) | -0.82 | +1.50 | 0.00 | 2.0 | yes | None (no AI model) |
+| 20 | roof_pitch_factor | 1.118 | 4/12, 8/12, 12/12 | No AI model | +0.00 (+0.00 / +0.00) | -0.69 | -0.64 | 0.00 | 0.9 | yes | None (no AI model) |
+| 21 | wall_openings_share | 0.15 | 50, 75, 125, 150 % of today; published 0.14 | No AI model | +0.00 (+0.00 / +0.00) | +0.17 | +0.15 | 0.00 | 0.4 | yes | None (no AI model) |
+| 22 | footprint_aspect_ratio | 1.5 | 50, 75, 125, 150 % of today; published 1.8 | No AI model | +0.00 (+0.00 / +0.00) | -0.14 | -0.14 | 0.00 | 0.4 | yes | None (no AI model) |
+| 23 | gutter_eaves | 2 | hip (4 sides) | No AI model | +0.00 (+0.00 / +0.00) | -0.10 | -0.10 | 0.00 | 0.5 | yes | None (no AI model) |
+| 24 | eave_overhang_ft | 1 | 50, 75, 125, 150 % of today; ResStock 2 ft (2) | No AI model | +0.00 (+0.00 / +0.00) | -0.05 | -0.05 | 0.00 | 0.3 | yes | None (no AI model) |
+| 25 | basement_room_sf | 150 | 50, 75, 125, 150 % of today | No AI model | +0.00 (+0.00 / +0.00) | -0.04 | -0.04 | 0.00 | 0.2 | yes | None (no AI model) |
+| 26 | other_room_sf | 200 | 50, 75, 125, 150 % of today; published 317 | No AI model | +0.00 (+0.00 / +0.00) | +0.00 | +0.00 | 0.18 | 1.4 | yes | None (no AI model) |
+| 27 | family_room_sf | 250 | 50, 75, 125, 150 % of today; published 398 | No AI model | +0.00 (+0.00 / +0.00) | +0.00 | +0.00 | 0.00 | 0.0 | no | None (no AI model) |
+| 28 | garage_sf_per_car | 240 | 50, 75, 125, 150 % of today | No AI model | +0.00 (+0.00 / +0.00) | +0.00 | +0.00 | 0.00 | 0.0 | no | None (no AI model) |
+| 29 | half_bath_sf | 40 | 50, 75, 125, 150 % of today | No AI model | +0.00 (+0.00 / +0.00) | +0.00 | +0.00 | 0.00 | 0.0 | no | None (no AI model) |
+| 30 | other_weight_sf | 150 | 50, 75, 125, 150 % of today | No AI model | +0.00 (+0.00 / +0.00) | +0.00 | +0.00 | 0.00 | 0.0 | no | None (no AI model) |
+
+The full per-cell grids (every 50 / 75 / 125 / 150 % cell on A, B and the dump) are in the
+run's `sweep.md` and `sweep.json`.
+
+### 87.7 Reading
+
+1. **The carve-out decides which constants can matter.** On these exports the re-measured
+   rows are roof, siding, gutters (39-year), tile, ceiling and most wall finish, concrete
+   floor (39-year), and carpet, baseboard, hard flooring, wainscot, countertop and two
+   wall-finish rows (5-year), plus landscaping (15-year, which no constant here moves). All of
+   them sit inside the square-foot model's components, so the building RCN, the gap and the
+   balance are fixed. The 39-year rows trade dollars with their component's residual: the
+   report's class shares do not move at all, and the row-share distance moves only when
+   dollars cross an engineer line (hip gutters 22.4 to 22.2). Only the 5-year rows move
+   dollars between classes, so the constants that matter are the ones that size them.
+2. **Ranking per unit change.** The leaders are the room perimeter coefficient (-1.28 points
+   per +100 %), wainscot height (-0.77), carpet waste (-0.75) and countertop depth (-0.28).
+   Next come the room weights that move area into or out of carpeted, trimmed rooms: bathroom
+   +0.22 (bath area is tile, so bigger baths mean less carpet and baseboard), hallway -0.13,
+   kitchen -0.12, then bedroom, dining and living within ±0.07. The geometry constants are
+   0.00 on the report. They are not 0.00 on the itemized schedule: wall height -0.96, roof
+   pitch -0.69, aspect ratio -0.14 there, against a largest priced-total move of 2.3 %. That
+   matters for the per-row dollars of Roofing, Facade and Gutters, not for the tax classes.
+3. **Within the plausible range, nothing moves the report much.** The largest single sourced
+   change is the cost row's 2 ft wainscot: +0.32 points on A and +0.19 on B. All the
+   published values together move A by +0.09 and B by 0.00. The bathroom weight at NAHB's
+   132 SF moves A by +0.24, the kitchen at 288 by -0.07 on A and -0.12 on B, and the 1.5:1
+   room perimeter by -0.03. For comparison, A and B, two runs of the same house, differ by
+   1.56 points.
+4. **A threshold constant.** `other_room_sf` has a central slope of 0 but moves A by 0.18
+   points at 150 % and at its published 317 SF. With it, the appraisal's room program
+   (2,768 SF of weight) outweighs A's photographed above-grade rooms (2,615), so the
+   denominator switches and every room shrinks 5.5 %. B (3,350) does not switch. The
+   denominator is close to its switch point on A, so the program constants and the room
+   weights must move together.
+5. **Not exercised by these exports:** family room (none photographed), half bath (the
+   appraisal prints 6.0 baths), garage per car (the garage area is printed), the "other"
+   weight (no room typed other). Also untested: the stories and basement-finish defaults,
+   which are printed here. One data point bears on the garage constant: the printed garage is
+   about 450 SF per car. The 240 SF fallback is a one-car bay, and two-car garages are built
+   at 360-480 SF, so 240 per car is a lower bound.
+
+### 87.8 The pick
+
+* **Keep** roof pitch 6/12 (ResStock, the formula), eave overhang 1 ft (RSMeans, the book
+  Basis prices from; ResStock's 2 ft disagrees and is recorded), story wall height 9 ft,
+  wall openings 15 % (ResStock's 14 % is windows only, and doors add a little), gable gutters
+  on 2 eaves, garage 240 SF per car (not exercised; a lower bound, as noted), carpet 10 % and
+  tile 15 % waste, countertop 25 in, and room perimeter `4 x sqrt(area)` (no survey of room
+  shapes; 4.08 is within 0.03 points). No score supports changing them, and the published
+  values agree or have no effect on the report.
+* **Change, on the sources (score-neutral):** `FOOTPRINT_ASPECT_RATIO` 1.5 to 1.8.
+  ResStock's single-family value and RSMeans' own model footprints agree; the report moves
+  0.00 points and the itemized total +0.15 %. Also **the room weights to NAHB 2019 Table 2
+  as one set** (kitchen 288, bedroom 233, bath 132, living 343, family 398, dining 209,
+  office 185, laundry 104, foyer 90, program "other" 317; the rest unchanged, having no
+  survey figure). Today's weights are legacy typical areas with no source. The set moves A
+  +0.09 and B 0.00 points, which is within what separates two runs of the house, and a
+  reviewer can trace every weight to a table. Ship it behind a setting, as AGENTS.md asks,
+  with this section as its evidence. Its limits: NAHB surveys new homes (typical 2,913 SF),
+  and the bedroom and bath values divide totals by assumed counts.
+* **Fix as formulas, not constants:** wall area as perimeter x ceiling height (8 ft,
+  ResStock) instead of 3.5 SF per SF of floor. 3.5 is the ratio of an 84 SF room at 8 ft, so it
+  overstates walls in every larger room. Paint and wall finish are mostly 39-year and carved,
+  so the report moves +0.04 points on A, but the per-row dollars are about 35 % high on a 150 SF room.
+  Separately, siding has no gable triangles (every siding guide adds them).
+* **Flag for Bryan (a defect, reported rather than tuned): wainscot.** The quantity is
+  perimeter x 3 ft, but the line it is priced on (RSMeans 06 22 13.45 5600) is a 2 ft high
+  wainscot, so the height and the price disagree. Either price a 3 ft line or measure at
+  2 ft. The 2 ft cell costs +0.32 points on A and +0.19 on B, because it removes 5-year
+  dollars. The choice is the engineer's.
+* **Worth measuring later, by effect:** (1) room dimensions from the appraisal's sketch page
+  or floor plans: perimeter, area and room shape, which replace the weights and the perimeter
+  coefficient together and are the top of the ranking; (2) the wainscot and countertop runs
+  from the photos or plans; (3) the site items aerial data can measure (driveway, walks,
+  fence, patio). Those are the 15-year rows the engineer has and Basis cannot price: A's
+  15-year share is 4.2 against 5.1. They are not constants, but no constant here moves the
+  15-year class at all. Roof area and pitch from aerial roof reports, and the wall area,
+  would only refine 39-year row dollars that the carve-out absorbs; worth it for row-level
+  defensibility, not for the tax classes.
+
+### 87.9 Verified and not verified
+
+Verified (run and read):
+
+* Today's cell equals today's production cell field for field on both exports. 49.3
+  reproduces exactly at `8162a91^`, and the difference is the five placeholder prices. The
+  35.2 dump's takeoff reproduces (73 of 73 quantities, its counts and shares).
+* All 272 scored cells: the same gap, the same reconciled status and the same 35/35 and
+  35/34 visible rows. The allocation is withheld in every cell on today's code.
+* The NAHB tables (read from the PDF's images), the ResStock file values, and the RSMeans
+  roofing and wall-system notes and quantities (read from the corpus PDF's pages).
+* Unit tests (13), ruff, ruff format, mypy; the final run re-run twice, identical.
+
+Not verified:
+
+* The NAHB 2024 bedroom and bath counts (from search summaries; the pages were not opened);
+  the per-room bedroom and bath values divide by assumed counts.
+* Craftsman's estimator (not consulted). RSMeans waste conventions for carpet and tile (that
+  the unit price already includes waste) were not checked, so the waste factors may count
+  waste twice.
+* Any property other than this one, and the 35.2 dump repriced on today's code (impossible
+  from the dump).
+* None of the picks is implemented. They are recommendations, and Bryan decides.
+
+### 87.10 Surprises, each re-run
+
+* **Zero report effect for every exterior constant.** I expected roof and siding to matter
+  because they move the itemized total by up to 2.3 %. I re-ran the cells (the final and two
+  re-runs agree) and read the carve-out code (`carve_out`: residual = top-down - itemized).
+  The structure model absorbs them by design.
+* **The sign of the score.** Carpet waste 1.38 (x1.25) "improves" A from 1.29 to 1.08. This
+  is the 5-year under-allocation, not evidence: the same score improves when the perimeter
+  coefficient rises to the physically odd 5 x sqrt(area). It is why the pick rests on the
+  sources.
+* **The first harness's "other room" constant** set the program value (200) and the
+  "other" weight (150) to one number. It is split now, and the `other_room_sf` threshold
+  (Reading 4) appears only after the split.
+* **The site-item guard.** The previous harness re-measured a driveway on `method: area` in
+  a measured room as `1 EA`. The real exports never hit it: 0 quantities moved under today's
+  constants before and after the guard. The unit test did.
+
+## 88. Basis's depreciation schedule against the engineer's (2026-11-03)
+
+Draft for an EVAL_REPORT section (not written into `EVAL_REPORT.md`). Shares, percentages, counts
+and years only; the dollars stay in the private run directory.
+
+**Which code and which data.** Basis's schedule is the stored **run 6 corrected export, revision 5**
+(`$BASIS_EVAL_DATA_DIR/work/e2e_artifacts/live_2026-11-01_run6_corrected/export/rev-5.json`,
+written 2026-11-01, sha256 `e0468e32…`), passed through **today's report code**: `basis/report/`
+at `6690f63` on `claude/free-comparisons`. The worktree is dirty only in `backEnd/evals/` and its
+tests; `basis/` has no local change. The report code reads the allocation the export already
+holds and does not price anything again, so the EVAL 78 commits (`8162a91`, no built-in prices;
+`6285a15`, unpriced rows withhold the allocation) do not change these numbers: the regression
+below shows today's code reproduces the stored schedule byte for byte. They would change a
+**fresh** run of this study today. That run would probably withhold the allocation, because the
+report lists 74 items awaiting a measurement, and EVAL 49.3's cells no longer reproduce (the
+sibling evaluation's note). I did not price the study again (that is `reprice_export.py`'s job).
+So everything here describes the schedule layer on the Nov-1 allocation, not today's full
+pipeline.
+
+### 88.1 The standard (sources read 2026-11-03)
+
+| Rule | What the source says | Source (date) |
+|---|---|---|
+| Methods and lives | 5 and 7-year: 200 % DB; 15-year: 150 % DB; 27.5 and 39-year: SL, mid-month. **QIP: 15-year, GDS straight line.** | Pub 946 (2025, "for use in preparing 2025 returns"), Table 4-1; IRC 168(b)(3)(G), 168(e)(6) (Cornell LII) |
+| QIP definition | "any improvement made by the taxpayer to an interior portion of a building which is nonresidential real property", placed in service after the building was first placed in service; not enlargements, elevators or escalators, or internal structural framework | IRC 168(e)(6)(A); Pub 946 (2025) ch. 4 ("made by you") |
+| Conventions | Half-year for 5/7/15-year unless the mid-quarter convention applies; mid-month for real property | Pub 946 (2025) ch. 4, "Which Convention Applies?" |
+| The 40 % test | Mid-quarter applies when the depreciable bases of MACRS property placed in service in the **last 3 months** of the tax year are **more than 40 %** of the year's total. The test leaves out nonresidential real property, residential rental property, railroad grading or tunnel bore, property placed in service and disposed of in the same year, and non-MACRS property. Basis for the test is after section 179 and the personal-use portion, and is **not reduced by the special depreciation allowance** | Pub 946 (2025) ch. 4; Instructions for Form 4562 (2025), column (e) |
+| First-year amount | Special allowance first (after section 179), then the Appendix A year-1 rate on the remaining basis | Instructions for Form 4562 (2025), line 14; Pub 946 ch. 3 |
+| Year-1 rates | HY (A-1): 20.00 / 14.29 / 5.00 % (5/7/15); MQ Q1 to Q4 (A-2 to A-5): 35/25/8.75, 25/17.85/6.25, 15/10.71/3.75, 5/3.57/1.25; 39-year MM (A-7a) month 12: 0.107 %; 27.5-year (A-6) month 12: 0.152 % | Pub 946 Appendix A. The IRS HTML prints the tables as images, so I re-derived the HY and MQ rates from the declining-balance rate × the year fraction (½; 7/8, 5/8, 3/8, 1/8). The A-7a March figure 2.033 % is quoted in the Pub 946 text, and the other months follow its 0.214 step. |
+| Bonus, acquired after 2017-09-27 and before 2025-01-20 | 100 % if placed in service before 2023, then minus 20 points a year: 80 % (2023), **60 % (2024)**, 40 % (2025), 20 % (2026), 0 after | TCJA 168(k)(6) as described in Notice 2026-11 §2.01 ("phased down by 20 percentage points annually"; "40 percent for qualified property placed in service during 2025"); Pub 946 (2025) What's New (40 % for 2025). The 20 % for 2026 comes from the pre-OBBBA 168(k)(6)(A) text, which Cornell LII now shows as "Repealed. Pub. L. 119-21 § 70301(b)(1)(B)". P.L. 119-21 § 70301(c) applies the change only to property acquired after 2025-01-19. |
+| Bonus, acquired after 2025-01-19 | **Permanent 100 %** (P.L. 119-21, enacted 2025-07-04, § 70301). Election (k)(10): 40 % (60 % for long-production property) for the first tax year ending after 2025-01-19. Election out by class: (k)(7). Acquisition date: written binding contract rules of Reg. 1.168(k)-2(b)(5), with the dates replaced | IRC 168(k)(1)(A), (k)(7), (k)(10) (Cornell LII); Notice 2026-11 (released 2026-01-14) §§ 2.02, 3.06, 4; Pub 946 (2025) What's New |
+| How the schedule is presented | Form 4562 Part III B columns: (a) classification, (b) month and year placed in service, (c) basis, (d) recovery period, (e) convention, (f) method, (g) depreciation deduction. The ATG wants a schedule of assets that ties to the depreciation records. Vendor marketing examples (no formal layout) show year-1 deductions with bonus by class. | Instructions for Form 4562 (2025); STUDY_REPORT_SPEC 11.5 and the anatomy note (ATG ch. 4 D.3); web search results 2026-11-03 (vendor pages, not authoritative) |
+
+### 88.2 What was built
+
+`backEnd/evals/schedule_vs_engineer.py` (`python -m evals.schedule_vs_engineer`) and
+`backEnd/tests/unit/evals/test_schedule_vs_engineer.py`. An earlier attempt wrote most of the
+harness. This session checked it against the sources and the data, then added the following:
+
+- **Basis's side** comes from the production code: `basis.report.model.build_report` and then
+  `basis.report.schedule.rows` (the rows the export step writes as `rev-<n>.schedule.csv`).
+  Basis's schedule prints the period, method, convention, the statutory bonus default and its
+  source. It prints **no first-year amount**: `basis/` has no first-year computation (checked by
+  grep). The harness computes first-year depreciation from the printed terms with the Appendix A
+  rates.
+- **The engineer's side** comes from `labels/engineer_report_v1.json` (46 rows: system, bucket,
+  cost) and `labels/e2e_rows_v1.json` (the row-to-label assignment). For terms the labels do not
+  carry, the harness reads `inputs/engineer_report.pdf` with pdfplumber
+  (`engineer_pdf_terms`). New this session: `engineer_choices` states whether the PDF prints
+  anything that would show an election.
+- **Row matching** reuses `evals.e2e_report.assign_assets` (the matching `e2e_report` scores
+  with: each pipeline asset is charged to at most one engineer row, by label, room type and
+  material). A schedule line follows its first asset id, and a folded copy follows its host. A
+  row's Basis period is the bucket that carries most of its allocated dollars.
+- **Rule sets**, each applied to both sides: `statutory` (what Basis prints: statutory bonus
+  default, half-year); `no_bonus` (election out, half-year); `mid_quarter` (statutory bonus,
+  mid-quarter); `no_bonus_mid_quarter`.
+- **Added this session:**
+  - `report_pdf_regression`: for each class, the stored report PDF's section-8 class row
+    (basis, lives, method, convention, in service, bonus default) must appear as built now.
+  - A note naming the other-period lines on a row whose majority period agrees.
+  - The term `depreciable`.
+  - A `--stored-report` option.
+  - A mid-quarter case detail that names the code location.
+  - Three unit tests.
+- **Gates:** 21 of 21 unit tests pass. `ruff check`, `ruff format --check` and `mypy` are clean
+  on both files.
+
+### 88.3 The data and what the engineer's report prints
+
+- Basis: 262 schedule lines, 4 classes. Acquired 2024-12-03 and placed in service 2024-12-03 (the
+  export's dates). Nonresidential real property.
+- Engineer: 46 rows (12 systems), 4 classes. The engineer's total equals Basis's depreciable
+  basis to the cent.
+- **The engineer's PDF** has 12 pages. Pages 1 to 3 have a text layer. Pages 4 to 12 are images,
+  and Tesseract OCR at 150 dpi (re-checked this session) finds no text on pages 4 to 11 (photos).
+  Page 12 (the appraisal sketch) has 88 words, none of them a schedule term.
+  - Found: `5 year`, `7 year`, `15 year`, `39 year` (pages 1 and 2) and `depreciable` (page 3,
+    the "Depreciable Cost" column header).
+  - Missing: recovery period, method, convention, half-year, mid-quarter, mid-month, bonus,
+    168(k), special depreciation, placed in service, acquired, first year, MACRS, 200, 150,
+    straight line, depreciation, 27.5 year.
+  - So the engineer gives only a recovery period and a cost per row. Their method, convention,
+    bonus and first-year figures are **implied**: the Pub 946 default for the period on the
+    export's dates. **The engineer's elections cannot be identified from the report.** The rule
+    sets show how far each election would move the result. They cannot show which one the
+    engineer took. (OUTPUT_REPORT_ANATOMY.md reached the same conclusion on 2026-10-29: the
+    report has no depreciation schedule, and whether one was delivered separately is open
+    question 9.1.)
+
+### 88.4 Results
+
+**How to read this table.** Does Basis put the same share of the basis in each IRS class as the engineer?
+
+- **Models**: No AI model (the comparison is arithmetic on stored files).
+- **Basis share** / **Engineer share**: The class's share of each side's total (the totals are equal).
+- **Difference (points)** (closer to 0 is better): Basis minus engineer, in percentage points. A difference within 1.0 point passes.
+- **Tokens**: None (no model call).
+
+| Class | Models | Basis share | Engineer share | Difference (points) | Tokens |
+|---|---|---|---|---|---|
+| 5-year property | No AI model | 14.56 % | 14.35 % | +0.21 | None |
+| 7-year property | No AI model | 0.94 % | 0.37 % | +0.57 | None |
+| 15-year land improvements | No AI model | 4.20 % | 5.05 % | −0.85 | None |
+| Nonresidential real property (39) | No AI model | 80.30 % | 80.23 % | +0.07 | None |
+
+**How to read this table.** How much of the basis does each side deduct in the first year, under each rule and election?
+
+- **Models**: No AI model.
+- **Rule set**: The bonus treatment and the convention applied to both sides. The 39-year class is mid-month in every set.
+- **Basis** / **Engineer (implied)**: First-year depreciation as a share of the depreciable basis. The engineer's side applies the same rules to the engineer's own rows and costs.
+- **Difference (points)** (closer to 0 is better): Basis minus engineer.
+- **Tokens**: None.
+
+| Rule set | Models | Basis | Engineer (implied) | Difference (points) | Tokens |
+|---|---|---|---|---|---|
+| statutory: 60 % bonus, half-year (what Basis prints) | No AI model | 13.21 % | 13.22 % | −0.01 | None |
+| no_bonus: elected out (168(k)(7)), half-year | No AI model | 3.34 % | 3.26 % | +0.08 | None |
+| mid_quarter: 60 % bonus, mid-quarter, Q4 rates | No AI model | 12.23 % | 12.27 % | −0.04 | None |
+| no_bonus_mid_quarter: elected out, mid-quarter | No AI model | 0.90 % | 0.88 % | +0.02 | None |
+
+**How to read this table.** On this study's rows, does the 40 % test call for mid-quarter, and what does each side print?
+
+- **Models**: No AI model.
+- **Last-quarter share**: The basis of non-real property placed in service in October to December, over the year's. Mid-quarter applies above 40 %. This covers this study's rows only; the taxpayer's other additions that year are unknown.
+- **Printed convention**: What each schedule prints on its 5, 7 and 15-year rows.
+- **Tokens**: None.
+
+| Side | Models | Last-quarter share | Mid-quarter by the test | Printed convention | Tokens |
+|---|---|---|---|---|---|
+| Basis | No AI model | 100.00 % | yes | HY (with the generic preparer's note) | None |
+| Engineer | No AI model | 100.00 % (export's date) | yes | not printed | None |
+
+**How to read this table.** Per engineer row, does Basis's schedule carry the same terms?
+
+- **Models**: No AI model.
+- **Rows**: The 46 engineer rows, grouped by outcome.
+- **Period agrees**: Whether the period of Basis's majority (by dollars) equals the engineer's.
+- **Method / convention / bonus**: Whether Basis's printed terms equal the Pub 946 terms for the engineer's period.
+- **First-year share of cost (statutory)**: Each side's first-year depreciation as a share of the row's own cost.
+- **Tokens**: None.
+
+| Outcome | Models | Rows | Period agrees | Method / convention / bonus | First-year share of cost (statutory) | Tokens |
+|---|---|---|---|---|---|---|
+| Charged, single period, agrees | No AI model | 34 | 34 | 34 of 34 identical | identical on every row (5-yr 68.00 %, 7-yr 65.72 %, 15-yr 62.00 %, 39-yr 0.11 %) | None |
+| Charged, majority agrees, some lines in another class | No AI model | 1 (report-01) | yes | identical on the majority lines | Basis 64.12 % vs 68.00 % | None |
+| Charged, period differs | No AI model | 1 (report-16) | no | SL/MM/none vs 200DB/HY/60 % | Basis 0.11 % vs 68.00 % | None |
+| Not charged (no Basis line) | No AI model | 10 (5.93 % of the engineer's total) | n/a | n/a | engineer 68.00 % (5-yr) or 62.00 % (15-yr) | None |
+
+Total: 35 of the 36 charged rows are in the engineer's period. **On every charged row whose
+periods agree, Basis's method, convention, bonus rate and first-year share equal the engineer's
+implied values exactly.** The schedule tables add no disagreement of their own: every row-level
+difference comes from classification or coverage upstream.
+
+Wall time is 1.5 s for the harness and 2.2 s for the whole process. Cost $0. Tokens: None. No AI
+model.
+
+### 88.5 Every row where Basis and the engineer differ, with the reason
+
+| Row / lines | Difference | Reason (kind) |
+|---|---|---|
+| report-16 Access Control (C) | Engineer 5-year; Basis 39-year (1 line): SL/MM/no bonus instead of 200DB/HY/60 % | **Classification difference**, not a schedule rule. Access control was already contested in EVAL 44 (memory note). The terms follow correctly from Basis's class. |
+| report-01 Cabinets / Millwork | 4 lines 5-year, 2 lines 39-year ("Built in shelving (wood)", 5.71 % of the row's dollars); first year 64.12 % vs 68.00 % | **Classification difference** on the two shelving lines (built-in treated as structural). |
+| report-08 Interior Half Walls, report-18 FF&E, report-20 Driveway, report-22 Sidewalks / Curbs, report-23 Exterior Fencing, report-24 Retaining Walls, report-25 Concrete Pads | No Basis line | **Coverage**: Basis detected each of these (half wall, furniture, driveway, parking lot, sidewalk, fence, retaining wall, concrete pad) but lists them as **awaiting a measurement**, outside the totals. The five paving and site rows are 4.85 % of the engineer's total. |
+| report-09 Door & Window Guards, report-11 Dryer Vents | No Basis line | **Coverage**: not detected (and not in the awaiting list). |
+| report-12 Specialty Electrical, Appliances / Electric Fireplace | No Basis line | **Vocabulary gap**: no pipeline label maps to the row. |
+| Basis line 87 Landscaping (15-year, 4.18 % of the basis) | Not charged: the engineer has no landscaping row | **Classification / takeoff**: sod over the site minus the footprint, flagged `takeoff:upper_bound` ("hardscape not deducted"). The 15-year shares agree within 0.85 points only because this line offsets the engineer's paving rows that Basis did not price. |
+| Basis lines 52, 54, 55, 184 to 189, 211, 220, 224 (laminate, mirrors, specialties residual, tiles; 3.78 % of the basis) | Not charged | Labels the engineer has no row for (the reasons are in `e2e_rows_v1.json` `unassigned`). Mirrors are split, 2 lines 5-year and 6 lines 39-year: a classification inconsistency inside one label, not a schedule rule. |
+| Convention, all 5/7/15-year rows | Basis prints **HY**. On this study's own rows the 40 % test gives **100 %** in Q4, so MQ applies unless the taxpayer placed enough other personal property in service earlier that year. | **Basis limitation (default), not an arithmetic bug.** `basis/report/tax.py` `TERMS` fixes `convention="HY"` for Y5/Y7/Y15, and `basis/report/schedule.py` `rows()` prints `t.convention` without looking at `date_placed_in_service`. `render.py` prints the generic `MID_QUARTER_NOTE` even when the date is in Q4. Effect if the preparer keeps the printed HY when MQ applies: first year 13.21 % instead of 12.23 % of basis (+0.98 points, ×1.08) with the 60 % bonus; 3.34 % instead of 0.90 % (×3.7) if elected out. Suggested fix (not made): when the placed-in-service date is in the last quarter, print "MQ likely: 100 % of this study's personal property is in Q4" or default to MQ with the note reversed. |
+| Bonus source text for 2026 placements (not this study) | `bonus_default` cites "Notice 2026-11 for 2026" | **Citation imprecision** (`basis/report/tax.py`, `bonus_default`, the `source=` string of the phase-down branch). Notice 2026-11 describes the 20-point phase-down and states 40 % for 2025. I found no 2026 rate stated in it (grep of the notice's text). The 20 % comes from TCJA 168(k)(6)(A) as it applies to pre-2025-01-20 acquisitions. The rate is right; the citation should name the statute. |
+| QIP (not this study) | `TERMS` has no 15-year **straight-line** QIP class. The only 15-year class is "land improvements", 150DB. | **Gap for improvement studies**, not a difference here: QIP must be "made by the taxpayer" after the building was first placed in service, so a purchased building's interior is not QIP. A renovation study would need a Y15 SL class. |
+
+No **bug** in the schedule arithmetic was found. Bonus 60 % for a 2024-12-03 acquisition placed
+in service the same day is correct. Real property is never given bonus. Methods and lives match
+Table 4-1. Mid-month for 39-year is correct.
+
+### 88.6 Regression
+
+| Check | Result |
+|---|---|
+| Schedule built now against the stored `rev-5.schedule.csv` (262 rows) | byte-identical |
+| Against the stored `rev-5.schedule.xlsx` | byte-identical |
+| Stored `rev-5.report.pdf`, report section 8 class table: each class's basis, GDS/ADS life, method, convention, in service and bonus default against the report built now | 4 of 4 class rows found as built now |
+
+So Basis's schedule equals what the stored run 6 export and report carry.
+
+### 88.7 Run directories
+
+- **Final:** `$BASIS_EVAL_DATA_DIR/predictions/schedule_vs_engineer_2026-11-03_run6_final`
+  (filed at `verification/preparer_schedule/template-1/`). 57 cases: 45 passed, 12 failed. The
+  failures are 10 uncharged rows, report-16 and the mid-quarter case.
+- `..._2026-11-03_run6`: an earlier run of the same harness before this session's additions. It
+  has the same numbers. It differs only in report-01's note and the `depreciable` term, and it
+  lacks the PDF regression case.
+- `..._2026-11-03_`: an earlier failed attempt (status `error`, 0 cases, a bad `--export` path
+  with " run5" appended). It is still filed in the verification tree; not deleted (cleanup is
+  the owner's call).
+- OCR scratch of the engineer PDF's image pages (private): `$BASIS_EVAL_DATA_DIR/work/schedule_vs_engineer_ocr/`.
+
+### 88.8 Verified vs not
+
+**Verified:**
+- The production schedule reproduces the stored CSV, XLSX and PDF class table.
+- The first-year totals, recomputed by hand from the class shares, match: 13.21 / 12.23 / 3.34 / 0.90 %.
+- The rerun in-process is identical to the run's `comparison.json`.
+- The engineer's PDF prints no schedule terms. Checked through the text layer, the OCR of pages
+  4 to 12 and the anatomy note.
+- The bonus rate for these dates, Pub 946's 40 % test wording, QIP's straight line and the
+  "made by the taxpayer" condition, and Notice 2026-11's content were read from the sources this
+  session.
+
+**Not verified:**
+- The engineer's actual elections and convention: they are not in the report, so the implied
+  side is a default, not the engineer's choice.
+- Whether the taxpayer had other additions in the tax year, which decides the 40 % test, and
+  the taxpayer's tax year (calendar assumed).
+- The Appendix A tables as images: the rates were re-derived, not read off the images.
+- A fresh pipeline run on today's code: the allocation might be withheld under EVAL 78.
+- The 20 % 2026 rate against the enacted pre-OBBBA statute text: not fetched, only inferred
+  from the notice and the repeal note.
+
+### 88.9 Surprises (re-run)
+
+1. **The 40 % test fires at 100 % on this study.** Placement on 2024-12-03 puts every
+   personal-property dollar in Q4. I re-ran it, same result, and checked the date in the stored
+   PDF (its section 8 prints 2024-12-03). Basis's printed HY is the wrong default for this date
+   unless the taxpayer had earlier additions.
+2. **The first-year totals agree to 0.01 points even though 10 engineer rows are missed.** The
+   offsets are Basis's landscaping upper bound against the engineer's unpriced paving, and
+   extra 5-year dollars elsewhere. Agreement in total is not agreement by row (the row table
+   shows the coverage gaps).
+3. **The engineer's report has no depreciation schedule at all.** The task assumed one could
+   be compared column by column. Only the recovery period can be compared directly.

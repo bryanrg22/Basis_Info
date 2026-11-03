@@ -41,6 +41,7 @@ import re
 import sys
 from collections import Counter
 from collections.abc import Mapping, Sequence
+from dataclasses import dataclass
 from decimal import ROUND_HALF_UP, Decimal
 from pathlib import Path
 from typing import Any
@@ -79,6 +80,16 @@ EXTRAPOLATED = "cost:YEAR_INDEX_MISSING"
 BUCKET_KEYS = {"y5": "y5", "y7": "y7", "y15": "y15", "y27_5": "y27_5", "y39": "y39"}
 
 
+@dataclass(frozen=True)
+class LocationChoice:
+    """A location factor the caller resolved itself (``evals.location_factor``: a state's
+    median, the national 1.000, a nearest listed prefix), with the source text written on
+    every repriced row in place of the ZIP or state lookup."""
+
+    factor: Decimal
+    source: str
+
+
 def _concealed(asset: Mapping[str, Any]) -> bool:
     inputs = asset.get("takeoff_inputs")
     return isinstance(inputs, dict) and bool(inputs.get("concealed"))
@@ -106,8 +117,10 @@ def reprice(
     supplement: Mapping[int, YearIndex] | None,
     cost_basis: CostBasis = "bare",
     overhead: OverheadAllocation = "none",
+    location_choice: LocationChoice | None = None,
 ) -> tuple[dict[str, Any], dict[str, Any]]:
-    """``(the repriced export, a summary of the run)``."""
+    """``(the repriced export, a summary of the run)``. ``location_choice`` prices on the
+    caller's factor and source text instead of looking ``zip_code`` or ``state`` up."""
     if document.get("format") not in EXPORT_FORMATS:
         raise ReplayError(f"not a study export (format {document.get('format')!r})")
     block = takeoff_block(document)
@@ -121,17 +134,21 @@ def reprice(
     state = state or _state_from(old_location_source)
 
     year = year_factor_index(cost_year, supplement)
-    location = None
-    if zip_code:
-        location = location_factor_for_zip(zip_code)
-        kind, value = "zip", zip_code
-    if location is None and state:
-        location = location_factor_for_state_code(state)
-        kind, value = "state", state
-    if location is None:
-        raise ReplayError("no location: pass --state or --zip (the export names neither)")
-    location_source = f"{kind} {value} ({origin}): {location.citation()}"
-    new_location = location.factor
+    if location_choice is not None:
+        location_source = location_choice.source
+        new_location = location_choice.factor
+    else:
+        location = None
+        if zip_code:
+            location = location_factor_for_zip(zip_code)
+            kind, value = "zip", zip_code
+        if location is None and state:
+            location = location_factor_for_state_code(state)
+            kind, value = "state", state
+        if location is None:
+            raise ReplayError("no location: pass --state or --zip (the export names neither)")
+        location_source = f"{kind} {value} ({origin}): {location.citation()}"
+        new_location = location.factor
     markup: Markup | None = None
     if overhead == "pro_rata":
         fields = field_rows(document)
