@@ -24,6 +24,9 @@ from PIL import Image, ImageDraw, ImageFont, ImageOps
 
 from basis.report.model import StudyReport, category_name
 from basis.report.render import ExhibitPhoto
+from basis.vision import heif
+
+heif.register()  # the photographs are read as uploaded, and an iPhone uploads HEIC
 
 LONG_SIDE: Final = 1200
 QUALITY: Final = 80

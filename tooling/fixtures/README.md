@@ -68,3 +68,13 @@ layer, photo sizes and vocabulary, qrels completeness, injected text present and
 hidden line white). `tooling/check_no_client_data.py` allowlists
 `backEnd/tests/fixtures/synthetic/` for these binary types; the 2 MB per-file limit is
 also enforced by pre-commit's `check-added-large-files`.
+
+## HEIC fixtures
+
+`make_heic_fixtures.py` writes `backEnd/tests/fixtures/heic/` (`photo.heic`,
+`rotated_90cw.heic`, `alpha.heic`): coloured rectangles drawn in the script, encoded by macOS
+`sips` because no Python package encodes HEIC without the GPL x265 encoder. It runs on macOS
+only, and its bytes depend on the macOS version, so the tests check what the files decode to
+rather than their hashes. After regenerating, re-pin the three files in
+`tooling/client_data_exceptions.txt` (EVAL_REPORT 81).
+
