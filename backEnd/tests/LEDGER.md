@@ -588,3 +588,10 @@ upload slow tests 142 passed.
 | `tests/integration/db/test_migrations.py` (0030) | `0030_operator_document_access`: `study_events.actor_type` takes `operator` and still refuses an unknown actor; with no access row the downgrade restores the 0029 snapshot exactly; with one it refuses (access records are never deleted); head `0030` | 1 test, pass |
 | `web/tests/client-errors-page.test.cjs` | Added: a `study_input` record lists its files with an Open button for confirmed files only, sizes and uploader, escaped; no list without a study; the content path, the prefilled reason; an opened file is inline only as an image or a PDF, any other type a download, all escaped | 2 tests, pass |
 | `tests/api/test_tenancy.py` | Changed: the `/v1/ops/` routes are outside the another-firm 404 walk (they cross firms by design); a new test asserts every firm member, the study's owner included, gets the same 403 for an existing and a missing id on each of them | 1 test added, pass (found by the full suite: the walk failed on the two new routes) |
+
+## Readable comparison tables (2026-11-02; EVAL_REPORT 80)
+
+| File | What it checks | Result |
+|---|---|---|
+| `tests/unit/test_developer_workflow_content.py` | Added: every comparison row has a plain name and its setup, each model's exact id appears in the cited section; every comparison is filed under a part of "How it works", and a part with none says why; figures compared with bold and code marks removed, "None (no AI model)" a placeholder | 86 passed |
+| `web/tests/developer-workflow.test.cjs` | Added: a dialog shows the question, plain setup names, exact models with provider, effort and temperature, the tokens column, the column legend and the model key; results grouped by part with the gap text; a setup without a model says so; names escaped | 13 passed |

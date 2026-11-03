@@ -66,10 +66,50 @@
    return html;
   }).join('');
  }
+ // One comparison, written for a person: the question it answered, what was tested, every
+ // setup with its exact models (provider, effort, temperature as sent), the measures with
+ // what each means and which way is better, tokens ("Not recorded" when the run kept none:
+ // never estimated), and what was chosen and why.
+ const BETTER={lower:'lower is better',higher:'higher is better'};
+ const ARROW={lower:'↓',higher:'↑'};
+ function setupCell(r,H){
+  const calls=Array.isArray(r.setup)?r.setup:[];
+  if(!calls.length)return `<span class="setup-none">${H.esc(r.setup_note||'No AI model')}</span>`;
+  return `<ul class="setup">${calls.map(c=>{
+   const facts=[c.provider,c.effort?`effort ${c.effort}`:null,c.temperature?`temperature ${c.temperature}`:null].filter(Boolean).map(H.esc).join(' · ');
+   return `<li>${c.role?`<span class="setup-role">${H.esc(c.role)}</span>`:''}<code>${H.esc(c.model)}</code>${facts?`<small>${facts}</small>`:''}</li>`;
+  }).join('')}${r.setup_note?`<li class="setup-note">${H.esc(r.setup_note)}</li>`:''}</ul>`;
+ }
+ function columnHead(label,note,H){
+  const better=note?.better&&BETTER[note.better];
+  return `<th scope="col">${H.esc(label)}${better?` <span class="better" title="${H.esc(better)}" aria-label="${H.esc(better)}">${ARROW[note.better]}</span>`:''}</th>`;
+ }
  function comparisonTable(c,H,open){
-  const rows=c.rows.map(r=>`<tr${r.selected?' class="selected-architecture"':''}><th scope="row">${r.selected?'<span class="selection-label">Selected</span>':''}${H.esc(r.name)}</th>${r.values.map(v=>`<td>${H.esc(v)}</td>`).join('')}</tr>`).join('');
-  const meta=[c.dataset,c.date].filter(Boolean).map(H.esc).join(' · ');
-  return `<details class="comparison"${open?' open':''}><summary><strong>${H.esc(c.title)}</strong> <span class="comparison-meta">${meta}${meta?' · ':''}${sectionLink(c.section,H)}</span></summary><div class="table-scroll" role="region" tabindex="0" aria-label="${H.esc(c.title)}"><table><thead><tr>${c.columns.map(h=>`<th>${H.esc(h)}</th>`).join('')}</tr></thead><tbody>${rows}</tbody></table></div>${c.winner?`<p class="comparison-why"><strong>Chosen:</strong> ${H.esc(c.winner)}.${c.why?' '+H.esc(c.why):''}</p>`:''}</details>`;
+  const notes=Array.isArray(c.column_notes)?c.column_notes:[];
+  const rows=c.rows.map(r=>`<tr${r.selected?' class="selected-architecture"':''}><th scope="row">${r.selected?'<span class="selection-label">Chosen</span>':''}${r.id?`<span class="row-id">${H.esc(r.id)}</span>`:''}${H.esc(r.name)}</th><td class="setup-cell">${setupCell(r,H)}</td>${r.values.map(v=>`<td>${H.esc(v)}</td>`).join('')}</tr>`).join('');
+  const head=`<th scope="col">${H.esc(c.columns[0])}</th><th scope="col">Models (provider · effort · temperature)</th>${c.columns.slice(1).map((h,i)=>columnHead(h,notes[i],H)).join('')}`;
+  const legend=notes.some(n=>n?.help)?`<dl class="column-legend">${c.columns.slice(1).map((h,i)=>notes[i]?.help?`<dt>${H.esc(h)}${notes[i].better?` <span class="better">${ARROW[notes[i].better]} ${H.esc(BETTER[notes[i].better])}</span>`:''}</dt><dd>${H.esc(notes[i].help)}</dd>`:'').join('')}</dl>`:'';
+  const meta=[c.date].filter(Boolean).map(H.esc).join(' · ');
+  return `<details class="comparison"${open?' open':''}><summary><strong>${H.esc(c.question||c.title)}</strong> <span class="comparison-meta">${meta}${meta?' · ':''}${sectionLink(c.section,H)}</span></summary>${c.dataset?`<p class="comparison-tested"><strong>What was tested:</strong> ${H.esc(c.dataset)}</p>`:''}<div class="table-scroll" role="region" tabindex="0" aria-label="${H.esc(c.question||c.title)}"><table class="comparison-table"><thead><tr>${head}</tr></thead><tbody>${rows}</tbody></table></div>${c.winner?`<p class="comparison-why"><strong>Chosen:</strong> ${H.esc(c.winner)}.${c.why?' '+H.esc(c.why):''}</p>`:''}${legend?`<details class="legend-wrap"><summary>What the columns mean</summary>${legend}</details>`:''}</details>`;
+ }
+ // The step's comparisons under the part of "How it works" each one measured; a part with
+ // none says so (and what is missing) instead of borrowing another part's table.
+ function comparisonsByPart(entry,results,H){
+  const list=results.comparisons||[];
+  const parts=entry.how.map((part,i)=>{
+   const mine=list.filter(c=>c.step===i+1);
+   const gap=results.gaps?.[String(i+1)];
+   const body=mine.length?mine.map((c,j)=>comparisonTable(c,H,j===0)).join(''):`<p class="not-compared">${H.esc(gap||'No comparison has been measured for this part yet.')}</p>`;
+   return `<section class="part-results"><h4><span class="step-number">${i+1}</span> ${H.esc(part.title)}</h4>${body}</section>`;
+  }).join('');
+  const whole=list.filter(c=>!(c.step>=1&&c.step<=entry.how.length));
+  return parts+(whole.length?`<section class="part-results"><h4>The whole step</h4>${whole.map(c=>comparisonTable(c,H,false)).join('')}</section>`:'');
+ }
+ // The model names the tables use, each with its exact id, provider and list price.
+ function modelKey(H){
+  const models=content?.models;
+  if(!models||!Object.keys(models).length)return '';
+  return `<details class="model-key"><summary>Model names used on this page</summary><table><thead><tr><th>Name</th><th>Exact model id</th><th>Provider</th><th>Price per million tokens (in / out)</th><th>Temperature</th></tr></thead><tbody>${Object.entries(models).map(([name,m])=>`<tr><th scope="row">${H.esc(name)}</th><td><code>${H.esc(m.id)}</code></td><td>${H.esc(m.provider)}</td><td>${H.esc(m.price||'—')}</td><td>${H.esc(m.temperature||'—')}</td></tr>`).join('')}</tbody></table></details>`;
  }
  function metricsTable(metrics,H){
   if(!metrics?.length)return '';
@@ -200,10 +240,10 @@
   const results=entry.results||{};
   const how=`<section><h3>How it works</h3><ol class="step-sequence">${entry.how.map((step,i)=>`<li><span class="step-number">${i+1}</span><div><strong>${H.esc(step.title)}</strong><p>${H.esc(step.detail)}</p><a class="source-ref" href="${H.esc(REPOSITORY+step.source)}" target="_blank" rel="noopener noreferrer">${H.esc(step.source.split('/').pop())} ↗</a></div></li>`).join('')}</ol></section>`;
   const runtime=`<section><h3>Current runtime</h3><div class="table-scroll" role="region" tabindex="0" aria-label="Current runtime"><table><thead><tr><th>System</th><th>Model</th><th>Hosting / provider</th><th>Adapter</th><th>Backups</th></tr></thead><tbody>${runtimeRows(entry.runtime,services,H)}</tbody></table></div><p class="detail-note">Every row is read from the connected health API: the model ids are what the worker reports it runs, hosting is what each process established about itself, and a backup is a configured fallback route. Service health never says whether a study is signed or completed.</p></section>`;
-  const comparisons=(results.comparisons||[]).map((c,i)=>comparisonTable(c,H,i===0)).join('');
+  const comparisons=comparisonsByPart(entry,results,H);
   const regression=results.regression?`<p class="regression-line"><strong>Regression:</strong> ${H.esc(results.regression.status)} (${sectionLink(results.regression.section,H)}). ${H.esc(results.regression.detail||'')}</p>`:'';
   const records=`<div class="run-records" id="run-records" data-step="${H.esc(node.id)}">${renderRunRecords(entry.components,runs,H)}</div>`;
-  const tests=`<section><h3>Tests &amp; results</h3><p>${H.esc(results.summary||'')}</p>${comparisons}${metricsTable(results.metrics,H)}${spendLine(results.spend,H)}${regression}<div class="source-links">${links(entry,H)}</div><p class="detail-note">Figures are copied verbatim from ${H.esc(content.source.report)} and checked against it by ${H.esc('backEnd/tests/unit/test_developer_workflow_content.py')}; they are historical measurements, not a live benchmark.</p>${records}</section>`;
+  const tests=`<section><h3>Tests &amp; results</h3><p>${H.esc(results.summary||'')}</p>${modelKey(H)}${comparisons}${metricsTable(results.metrics,H)}${spendLine(results.spend,H)}${regression}<div class="source-links">${links(entry,H)}</div><p class="detail-note">Figures are copied verbatim from ${H.esc(content.source.report)} and checked against it by ${H.esc('backEnd/tests/unit/test_developer_workflow_content.py')}; they are historical measurements, not a live benchmark.</p>${records}</section>`;
   const note=entry.note?`<p class="detail-note">${H.esc(entry.note)}</p>`:'';
   return how+runtime+note+tests;
  }

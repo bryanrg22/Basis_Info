@@ -15,7 +15,15 @@ source links. Nothing in it is computed at run time, so this test is what keeps 
 * every ``components`` entry (the registry components whose run records the dialog lists
   from ``GET /v1/ops/eval-runs``) is a released prompt name or a component a harness stands
   for in ``evals.record.HARNESS_COMPONENTS``, with none for an engineer's review;
-* the shape the renderer relies on holds (three explanation steps, one value per column).
+* the shape the renderer relies on holds (three explanation steps, one value per column);
+* every comparison row says, for a person, what was compared: a plain name and its setup,
+  each model of which (the exact id) appears in the cited section, so the page never names a
+  model the report does not; every comparison is filed under the part of "How it works" it
+  measured, and a part with no comparison says why (``gaps``) instead of borrowing a table.
+
+Bold and code marks are formatting, not content: a figure is compared with them removed on
+both sides. "Not measured", "—" (an empty cell) and "None (no AI model)" (no token figure
+applies) are the placeholders.
 """
 
 from __future__ import annotations
@@ -62,12 +70,17 @@ MODEL_SETTINGS = (
     "CLASSIFY_MODEL",
 )
 NOT_MEASURED = "Not measured"
+PLACEHOLDERS = (NOT_MEASURED, "—", "None (no AI model)")
 HEADING = re.compile(r"^(#{2,3}) (\d+(?:\.\d+)?)\b")
 
 
 @cache
 def content() -> dict[str, Any]:
     return json.loads(CONTENT.read_text())
+
+
+def plain(text: str) -> str:
+    return text.replace("**", "").replace("`", "")
 
 
 @cache
@@ -189,7 +202,7 @@ def test_every_figure_is_verbatim_in_its_report_section(step_id: str) -> None:
     missing = [
         (section, text)
         for section, text in figures(results)
-        if text != NOT_MEASURED and text not in sections().get(section, "")
+        if text not in PLACEHOLDERS and plain(text) not in plain(sections().get(section, ""))
     ]
     assert not missing, f"{step_id}: not found verbatim in its section: {missing}"
 
@@ -210,3 +223,29 @@ def test_no_client_data_or_provider_secret_in_the_content() -> None:
     text = CONTENT.read_text()
     for forbidden in ("sk-", "r8_", "basis-eval-data", "AKIA", "@gmail", ".pdf", ".jpg"):
         assert forbidden not in text, forbidden
+
+
+@pytest.mark.parametrize("step_id", STEP_IDS)
+def test_every_comparison_names_its_setups_and_their_models(step_id: str) -> None:
+    for comparison in content()["steps"][step_id]["results"].get("comparisons", []):
+        text = plain(sections()[comparison["section"]])
+        assert comparison.get("question"), comparison["title"]
+        assert len(comparison.get("column_notes", [])) == len(comparison["columns"]) - 1
+        for row in comparison["rows"]:
+            assert row.get("name") and isinstance(row.get("setup"), list), row
+            assert row["setup"] or row.get("setup_note"), row["name"]
+            for call in row["setup"]:
+                assert call["model"] in text, (comparison["section"], call["model"])
+                assert call.get("provider"), call
+
+
+@pytest.mark.parametrize("step_id", STEP_IDS)
+def test_every_part_has_its_comparisons_or_says_why_not(step_id: str) -> None:
+    step = content()["steps"][step_id]
+    results = step["results"]
+    parts = {c.get("step") for c in results.get("comparisons", [])}
+    for comparison in results.get("comparisons", []):
+        assert comparison.get("step") in range(1, len(step["how"]) + 1), comparison["title"]
+    gaps = results.get("gaps", {})
+    for number in range(1, len(step["how"]) + 1):
+        assert (number in parts) != (str(number) in gaps), (step_id, number)

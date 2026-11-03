@@ -195,3 +195,14 @@ table.run-records-table{min-width:1380px;font-size:12px}table.run-records-table 
 .selection{display:inline-block;margin-top:5px;font-size:11px;font-weight:600;padding:3px 7px;border-radius:5px;background:#f0f2f1;color:#596762}.selection-current{background:var(--green-soft);color:var(--green)}.selection-alternative{background:var(--amber-soft);color:var(--amber)}.selection-not_in_pipeline{background:#f5f6f5;color:#56655d;border:1px dashed #c5d4cb}
 .run-files{min-width:200px}.run-file{min-height:32px;padding:4px 9px;margin:2px 4px 2px 0;font-size:11px}.run-records-more{margin-top:12px;display:flex;align-items:center;gap:12px}.run-file-status{min-height:18px;font-size:12px;margin-top:8px}
 @media(pointer:coarse){.run-file{min-height:44px}}
+/* Comparison tables written for people: setups with their exact models, arrows for which way
+   is better, a legend of what each column means, results grouped by the part they measured. */
+.part-results{margin-top:18px}.part-results h4{display:flex;align-items:center;gap:10px;font-size:15px;margin:0 0 4px}.part-results h4 .step-number{width:26px;height:26px;font-size:13px}
+.not-compared{margin:8px 0 0;padding:10px 12px;border:1px dashed var(--line);border-radius:8px;color:var(--muted);font-size:13px}
+.comparison-tested{margin:8px 0 0;font-size:13px}
+.comparison-table th[scope=row]{min-width:220px;font-weight:600}.row-id{display:inline-block;margin-right:6px;padding:0 6px;border-radius:4px;background:#e7efe9;color:var(--muted);font-size:11px;font-weight:600}
+.setup-cell{min-width:240px}.setup{list-style:none;margin:0;padding:0;display:grid;gap:6px}.setup li{display:grid;gap:1px}.setup code{font-size:12px;word-break:break-all}.setup small{color:var(--muted);font-size:11px}.setup-role{font-size:11px;color:var(--ink);font-weight:600}.setup-none,.setup-note{color:var(--muted);font-size:12px}
+.better{color:var(--green);font-weight:700}
+.legend-wrap{margin-top:10px;font-size:13px}.legend-wrap summary{cursor:pointer;min-height:32px;color:var(--green);font-weight:600}.column-legend{display:grid;grid-template-columns:minmax(140px,240px) minmax(0,1fr);gap:6px 14px;margin:6px 0 0}.column-legend dt{font-weight:600}.column-legend dd{margin:0;color:var(--ink)}
+.model-key{margin-top:12px;border:1px solid var(--line);border-radius:8px;padding:8px 14px;font-size:13px}.model-key summary{cursor:pointer;min-height:36px;display:flex;align-items:center;font-weight:600}.model-key table{margin-top:6px}
+@media(max-width:600px){.column-legend{grid-template-columns:minmax(0,1fr)}.comparison-table th[scope=row]{min-width:160px}.setup-cell{min-width:200px}}

@@ -7,6 +7,43 @@ The client package never enters the repository. It lives in `BASIS_EVAL_DATA_DIR
 (mirrored to the private bucket `basis-eval-private`). This report quotes metrics only:
 no field values, file names, addresses or amounts from the package.
 
+## How to read this report
+
+Every section is one measurement, in the order it was made. The comparison tables that the
+developer page shows (and the tables they lead to) start with a **How to read this table** list:
+the question the table answered, what each column measures and which way is better (↑ higher
+is better, ↓ lower is better). Each row names its setup in plain words, then the exact models.
+
+**Model names.** The text uses short names; the exact ids, from `backEnd/basis/llm/cost.py`
+(price per million tokens, input / output):
+
+| Short name | Exact model id | Provider | Price (in / out) |
+|---|---|---|---|
+| sol | `gpt-6.1-sol` | OpenAI | $2 / $10 |
+| luna | `gpt-6-luna` | OpenAI | $0.10 / $0.50 |
+| luna 5.6 | `gpt-5.6-luna` | OpenAI | $0.20 / $1.20 |
+| terra | `gpt-5.6-terra` | OpenAI | $2 / $12 |
+| astra | `gpt-6-astra` | OpenAI | $10 / $50 |
+| Opus, Opus 5.5 | `claude-opus-5-5` | Anthropic | $4 / $20 |
+| Sonnet, Sonnet 5.5 | `claude-sonnet-5-5` | Anthropic | $2 / $10 |
+| gpt-4.1-mini | `gpt-4.1-mini` (Azure OpenAI or OpenAI) | Microsoft / OpenAI | $0.40 / $1.60 |
+| SAM 3 | `vufinder/sam3` on Replicate | Replicate | billed by seconds |
+
+**Settings.** *Effort* is how much a reasoning model thinks before answering (low, medium,
+high); it costs output tokens. *Temperature* is not sent to any of these reasoning models:
+the OpenAI gpt-5 and gpt-6 models and every Claude model take only their provider's default
+(`backEnd/basis/llm/providers.py`, `anthropic_provider.py`); gpt-4.1-mini, the one older model,
+is sent temperature 0. *Tokens* are what a run read (input) and wrote (output); "thinking" is
+the part of the output spent reasoning. Runs before the paid-call ledger (section 40) did not
+all keep token counts; those cells say "Not recorded", never an estimate.
+
+**Measures that recur.** *Count error (MAE)*: how many objects a count is off by, on average
+(lower is better). *Precision*: of what was found, the share that is really there. *Recall*:
+of what is really there, the share found. *F1*: the balance of the two. *pass^3*: right in all
+three runs. A *[95% range]* after a difference is a bootstrap interval: if it does not include
+0, the difference is real rather than noise. *Leave-one-photo-out*: a rule tuned on the other
+photos and scored on the one left out, so the score is not flattered by tuning on the answer.
+
 ## 1. What was measured
 
 One completed study (one appraisal, one engineer's report, 52 photos) and the six
@@ -1041,29 +1078,43 @@ error against the baseline. Cost is one prediction of the 52 photos (both calls 
 decomposed run); seconds are per photo for the counting call(s), in parallel where the
 pipeline would run them in parallel.
 
-| Variant | Count MAE | Exact | Bias | Count P / R | Diff [95% CI] | Label F1 | Room | $ / 52 | s / photo |
-|---|---|---|---|---|---|---|---|---|---|
-| **Baseline**: sol, decomposed, low | 0.180 | 0.865 | +0.03 | 0.84 / 0.87 | 0 | 0.741 | 0.90 | $0.79 | 11.1 |
-| 1a. sol, countables at medium | 0.176 | 0.865 | +0.02 | 0.85 / 0.87 | -0.003 [-0.026, +0.020] | 0.741 | 0.90 | $0.90 | 21.2 |
-| 1b. Opus 5.5 decomposed, low (sec. 14) | 0.166 | 0.876 | -0.05 | 0.90 / 0.83 | -0.014 [-0.049, +0.020] | 0.763 | 0.88 | $2.23 | 4.7 |
-| 1c. Opus 5.5, countables at medium | 0.150 | 0.889 | -0.06 | 0.92 / 0.83 | -0.030 [-0.072, +0.011] | 0.761 | 0.88 | $2.40 | 7.4 |
-| 1d. Opus 5.5, countables at high | 0.144 | 0.893 | -0.03 | 0.90 / 0.86 | -0.035 [-0.068, -0.003] | 0.764 | 0.88 | $2.54 | 9.0 |
-| 2a. 2 x 2 parts, separate calls, summed | 0.265 | 0.807 | -0.03 | 0.80 / 0.76 | +0.085 [+0.026, +0.150] | (n/a) | (n/a) | $1.82 | 13.2 |
-| 2b. photo + 4 parts in one call | 0.191 | 0.866 | +0.08 | 0.81 / 0.91 | +0.012 [-0.020, +0.052] | (n/a) | (n/a) | $1.04 | 11.1 |
-| 3a. sol, median of its 3 repeats | 0.170 | 0.872 | +0.02 | 0.85 / 0.88 | -0.010 [-0.026, +0.004] | 0.734 | 0.90 | $1.73 | 11.1 |
-| 3b. sol + Opus low, repeat by repeat (median of 2 = min) | 0.166 | 0.878 | -0.09 | 0.93 / 0.79 | -0.014 [-0.048, +0.017] | 0.766 | 0.90 | $3.02 | 11.1 |
-| 3c. sol + Opus low, median of all 6 samples | 0.147 | 0.888 | -0.05 | 0.91 / 0.84 | -0.032 [-0.061, -0.006] | 0.772 | 0.90 | $5.42 | 11.1 |
-| 4a. sol + SAM 3 per class, fitted in-sample | 0.129 | 0.903 | -0.07 | 0.94 / 0.84 | -0.050 [-0.092, -0.017] | 0.741 | 0.90 | $0.99 | 11.1 |
-| 4b. the same, leave-one-photo-out | 0.167 | 0.880 | -0.03 | 0.89 / 0.84 | -0.013 [-0.048, +0.025] | 0.741 | 0.90 | $0.99 | 11.1 |
-| **4c. sol low + Opus medium per class, leave-one-photo-out** | **0.124** | **0.899** | **-0.04** | **0.92 / 0.87** | **-0.056 [-0.093, -0.022]** | 0.741 | 0.90 | $2.20 | 11.1 |
-| 4d. the same with Opus high | 0.125 | 0.900 | -0.01 | 0.90 / 0.89 | -0.054 [-0.091, -0.022] | 0.741 | 0.90 | $2.34 | 11.1 |
-| 4e. 4c plus SAM 3 as a further source | 0.155 | 0.879 | -0.02 | 0.89 / 0.86 | -0.025 [-0.058, +0.005] | 0.741 | 0.90 | $2.40 | 11.1 |
-| 5a. SAM 3 detections confirmed by sol, alone | 0.373 | 0.798 | -0.30 | 0.89 / 0.45 | +0.193 (verified classes only) | | | $1.77 | not measured |
-| 5b. sol + confirmed detections per class | 0.184 | 0.863 | -0.01 | 0.86 / 0.84 | +0.004 [-0.027, +0.035] | 0.741 | 0.90 | $1.77 | |
-| 5c. 4c plus confirmed detections | 0.126 | 0.895 | -0.03 | 0.92 / 0.87 | -0.053 [-0.094, -0.015] | 0.741 | 0.90 | $3.18 | |
-| 6. 4c plus the lighting prompt on both models | 0.134 | 0.892 | -0.03 | 0.91 / 0.87 | -0.046 [-0.082, -0.013] | 0.741 | 0.90 | $3.61 | 11.1 |
-| 3+4. 4c on each model's median of 3 repeats | 0.103 | 0.917 | -0.04 | 0.94 / 0.89 | -0.077 [-0.116, -0.042] | 0.734 | 0.90 | $5.93 | 11.1 |
-| SAM 3 alone, v2 phrases, score 0.5 (sec. 10) | 0.587 | 0.734 | +0.45 | 0.51 / 0.89 | +0.407 | | | $0.20 | |
+**How to read this table.** Which setup counts the objects in a photo most accurately?
+
+- **Models**: the exact model id, its provider, the reasoning effort and the temperature as sent. "temperature default" means the model takes no temperature (reasoning models), so the provider's default applies.
+- **Count error per photo (MAE)** (lower is better): Average number of objects the count is off by, per photo and object type, against 191 hand-checked objects.
+- **Exactly right** (higher is better): Share of (photo, object type) pairs whose count is exactly right.
+- **Over / under count (bias)**: Average of counted minus real: positive means over-counting, negative under-counting.
+- **Precision / recall** (higher is better): Precision: of the objects counted, the share that are really there. Recall: of the real objects, the share counted.
+- **Change vs. the starting setup [95% range]** (lower is better): Change in count error against the first row; negative is fewer errors. If the bracket does not include 0, the difference is real, not noise.
+- **Right object types (F1)** (higher is better): How well the list of object types found matches the labels, ignoring counts.
+- **Room type right** (higher is better): Share of photos whose room type is right.
+- **Cost for 52 photos** (lower is better): Dollars for one pass over all 52 photos.
+- **Seconds per photo** (lower is better): Time per photo for the counting call(s), parallel calls counted once.
+- **Tokens (input / output)**: Tokens the run used: input (what the model read) / output (what it wrote; "thinking" is the part spent reasoning, billed as output). "Not recorded" means the run kept no token counts; nothing is estimated.
+
+| Setup | Models (provider, effort, temperature) | Count error per photo (MAE) ↓ | Exactly right ↑ | Over / under count (bias) | Precision / recall ↑ | Change vs. the starting setup [95% range] ↓ | Right object types (F1) ↑ | Room type right ↑ | Cost for 52 photos ↓ | Seconds per photo ↓ | Tokens (input / output) |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| **Start · One model (sol), two calls per photo: one counts objects, one reads surfaces** | count: `gpt-6.1-sol` (OpenAI, effort low, temperature default); surfaces: `gpt-6.1-sol` (OpenAI, effort low, temperature default) | 0.180 | 0.865 | +0.03 | 0.84 / 0.87 | 0 | 0.741 | 0.90 | $0.79 | 11.1 | Not recorded (per-photo runs kept no token counts) |
+| 1a · Same, with sol thinking more when counting (medium effort) | count: `gpt-6.1-sol` (OpenAI, effort medium, temperature default); surfaces: `gpt-6.1-sol` (OpenAI, effort low, temperature default) | 0.176 | 0.865 | +0.02 | 0.85 / 0.87 | -0.003 [-0.026, +0.020] | 0.741 | 0.90 | $0.90 | 21.2 | Not recorded (per-photo runs kept no token counts) |
+| 1b · Opus instead of sol for both calls | count: `claude-opus-5-5` (Anthropic, effort low, temperature default); surfaces: `claude-opus-5-5` (Anthropic, effort low, temperature default) | 0.166 | 0.876 | -0.05 | 0.90 / 0.83 | -0.014 [-0.049, +0.020] | 0.763 | 0.88 | $2.23 | 4.7 | Not recorded (per-photo runs kept no token counts) |
+| 1c · Opus, thinking more when counting (medium effort) | count: `claude-opus-5-5` (Anthropic, effort medium, temperature default); surfaces: `claude-opus-5-5` (Anthropic, effort low, temperature default) | 0.150 | 0.889 | -0.06 | 0.92 / 0.83 | -0.030 [-0.072, +0.011] | 0.761 | 0.88 | $2.40 | 7.4 | Not recorded (per-photo runs kept no token counts) |
+| 1d · Opus, thinking most when counting (high effort) | count: `claude-opus-5-5` (Anthropic, effort high, temperature default); surfaces: `claude-opus-5-5` (Anthropic, effort low, temperature default) | 0.144 | 0.893 | -0.03 | 0.90 / 0.86 | -0.035 [-0.068, -0.003] | 0.764 | 0.88 | $2.54 | 9.0 | Not recorded (per-photo runs kept no token counts) |
+| 2a · Each photo cut into four enlarged quarters, counted separately, then added up | count, one call per quarter: `gpt-6.1-sol` (OpenAI, effort low, temperature default); surfaces: `gpt-6.1-sol` (OpenAI, effort low, temperature default) | 0.265 | 0.807 | -0.03 | 0.80 / 0.76 | +0.085 [+0.026, +0.150] | (n/a) | (n/a) | $1.82 | 13.2 | Not recorded (per-photo runs kept no token counts) |
+| 2b · Whole photo plus its four enlarged quarters, counted in one call | count: `gpt-6.1-sol` (OpenAI, effort low, temperature default); surfaces: `gpt-6.1-sol` (OpenAI, effort low, temperature default) | 0.191 | 0.866 | +0.08 | 0.81 / 0.91 | +0.012 [-0.020, +0.052] | (n/a) | (n/a) | $1.04 | 11.1 | Not recorded (per-photo runs kept no token counts) |
+| 3a · Sol counts each photo three times; take the middle answer | count, 3 times: `gpt-6.1-sol` (OpenAI, effort low, temperature default); surfaces: `gpt-6.1-sol` (OpenAI, effort low, temperature default) | 0.170 | 0.872 | +0.02 | 0.85 / 0.88 | -0.010 [-0.026, +0.004] | 0.734 | 0.90 | $1.73 | 11.1 | Not recorded (per-photo runs kept no token counts) |
+| 3b · Sol and Opus both count; take the lower of the two each time | count: `gpt-6.1-sol` (OpenAI, effort low, temperature default); count: `claude-opus-5-5` (Anthropic, effort low, temperature default); surfaces: `gpt-6.1-sol` (OpenAI, effort low, temperature default) | 0.166 | 0.878 | -0.09 | 0.93 / 0.79 | -0.014 [-0.048, +0.017] | 0.766 | 0.90 | $3.02 | 11.1 | Not recorded (per-photo runs kept no token counts) |
+| 3c · Sol and Opus each count three times; take the middle of the six answers | count, 3 times: `gpt-6.1-sol` (OpenAI, effort low, temperature default); count, 3 times: `claude-opus-5-5` (Anthropic, effort low, temperature default); surfaces: `gpt-6.1-sol` (OpenAI, effort low, temperature default) | 0.147 | 0.888 | -0.05 | 0.91 / 0.84 | -0.032 [-0.061, -0.006] | 0.772 | 0.90 | $5.42 | 11.1 | Not recorded (per-photo runs kept no token counts) |
+| 4a · Sol's counts, with the SAM 3 detector allowed to lower a count per object type (rule tuned on the same photos it was scored on) | count: `gpt-6.1-sol` (OpenAI, effort low, temperature default); surfaces: `gpt-6.1-sol` (OpenAI, effort low, temperature default); detector: `SAM 3 (vufinder/sam3 on Replicate)` (Replicate) | 0.129 | 0.903 | -0.07 | 0.94 / 0.84 | -0.050 [-0.092, -0.017] | 0.741 | 0.90 | $0.99 | 11.1 | Not recorded (per-photo runs kept no token counts) |
+| 4b · Same as 4a, but each photo scored with a rule tuned on the other 51 photos | count: `gpt-6.1-sol` (OpenAI, effort low, temperature default); surfaces: `gpt-6.1-sol` (OpenAI, effort low, temperature default); detector: `SAM 3 (vufinder/sam3 on Replicate)` (Replicate) | 0.167 | 0.880 | -0.03 | 0.89 / 0.84 | -0.013 [-0.048, +0.025] | 0.741 | 0.90 | $0.99 | 11.1 | Not recorded (per-photo runs kept no token counts) |
+| **4c · Two models count each photo; each object type is taken from the model that counts it better (tuned on the other photos)** | counts exterior lights, outlets: `gpt-6.1-sol` (OpenAI, effort low, temperature default); counts windows, doors, light fixtures, cabinets: `claude-opus-5-5` (Anthropic, effort medium, temperature default); surfaces: `gpt-6.1-sol` (OpenAI, effort low, temperature default) | **0.124** | **0.899** | **-0.04** | **0.92 / 0.87** | **-0.056 [-0.093, -0.022]** | 0.741 | 0.90 | $2.20 | 11.1 | Not recorded offline. The same setup run live on the same 52 photos (section 23, run 3): Opus 222,927 in / 26,292 out; sol counting 115,572 in / 23,742 out; sol surfaces 95,084 in / 12,438 out |
+| 4d · Same as 4c, with Opus thinking most (high effort) | count: `gpt-6.1-sol` (OpenAI, effort low, temperature default); count: `claude-opus-5-5` (Anthropic, effort high, temperature default); surfaces: `gpt-6.1-sol` (OpenAI, effort low, temperature default) | 0.125 | 0.900 | -0.01 | 0.90 / 0.89 | -0.054 [-0.091, -0.022] | 0.741 | 0.90 | $2.34 | 11.1 | Not recorded (per-photo runs kept no token counts) |
+| 4e · Same as 4c, plus the SAM 3 detector as a third choice per object type | count: `gpt-6.1-sol` (OpenAI, effort low, temperature default); count: `claude-opus-5-5` (Anthropic, effort medium, temperature default); surfaces: `gpt-6.1-sol` (OpenAI, effort low, temperature default); detector: `SAM 3 (vufinder/sam3 on Replicate)` (Replicate) | 0.155 | 0.879 | -0.02 | 0.89 / 0.86 | -0.025 [-0.058, +0.005] | 0.741 | 0.90 | $2.40 | 11.1 | Not recorded (per-photo runs kept no token counts) |
+| 5a · SAM 3 finds objects; sol confirms each one, box by box; nothing else counts | detector: `SAM 3 (vufinder/sam3 on Replicate)` (Replicate); confirms each box: `gpt-6.1-sol` (OpenAI, effort low, temperature default) | 0.373 | 0.798 | -0.30 | 0.89 / 0.45 | +0.193 (verified classes only) |  |  | $1.77 | not measured | Not recorded (per-photo runs kept no token counts) |
+| 5b · Sol's counts, or the confirmed SAM 3 boxes, per object type | count: `gpt-6.1-sol` (OpenAI, effort low, temperature default); surfaces: `gpt-6.1-sol` (OpenAI, effort low, temperature default); detector: `SAM 3 (vufinder/sam3 on Replicate)` (Replicate); confirms each box: `gpt-6.1-sol` (OpenAI, effort low, temperature default) | 0.184 | 0.863 | -0.01 | 0.86 / 0.84 | +0.004 [-0.027, +0.035] | 0.741 | 0.90 | $1.77 |  | Not recorded (per-photo runs kept no token counts) |
+| 5c · Same as 4c, plus SAM 3 boxes that sol confirmed one at a time | count: `gpt-6.1-sol` (OpenAI, effort low, temperature default); count: `claude-opus-5-5` (Anthropic, effort medium, temperature default); surfaces: `gpt-6.1-sol` (OpenAI, effort low, temperature default); detector: `SAM 3 (vufinder/sam3 on Replicate)` (Replicate); confirms each box: `gpt-6.1-sol` (OpenAI, effort low, temperature default) | 0.126 | 0.895 | -0.03 | 0.92 / 0.87 | -0.053 [-0.094, -0.015] | 0.741 | 0.90 | $3.18 |  | Not recorded (per-photo runs kept no token counts) |
+| 6 · Same as 4c, plus a separate lighting and outlets call on both models | count: `gpt-6.1-sol` (OpenAI, effort low, temperature default); count: `claude-opus-5-5` (Anthropic, effort medium, temperature default); lighting and outlets: `gpt-6.1-sol` (OpenAI, effort low, temperature default); lighting and outlets: `claude-opus-5-5` (Anthropic, effort medium, temperature default); surfaces: `gpt-6.1-sol` (OpenAI, effort low, temperature default) | 0.134 | 0.892 | -0.03 | 0.91 / 0.87 | -0.046 [-0.082, -0.013] | 0.741 | 0.90 | $3.61 | 11.1 | Not recorded (per-photo runs kept no token counts) |
+| 3+4 · Same as 4c, but each model counts every photo three times and the middle answer is used | count, 3 times: `gpt-6.1-sol` (OpenAI, effort low, temperature default); count, 3 times: `claude-opus-5-5` (Anthropic, effort medium, temperature default); surfaces: `gpt-6.1-sol` (OpenAI, effort low, temperature default) | 0.103 | 0.917 | -0.04 | 0.94 / 0.89 | -0.077 [-0.116, -0.042] | 0.734 | 0.90 | $5.93 | 11.1 | Not recorded (per-photo runs kept no token counts) |
+| SAM 3 · Object detector alone (SAM 3), no language model | detector: `SAM 3 (vufinder/sam3 on Replicate)` (Replicate) | 0.587 | 0.734 | +0.45 | 0.51 / 0.89 | +0.407 |  |  | $0.20 |  | None (detector; billed by time: 52 calls, 205 s) |
 
 Notes on the table. Self-consistency rows (3a, 3c, 3+4) are one aggregated answer per photo
 built from three or six calls, so they are scored as one prediction, not three independent
@@ -1232,27 +1283,42 @@ one-photo rooms (`--single-photo-rooms per-photo`: their per-photo analysis is t
 The gold ceiling on report rows is 32 of 39 (the human inventory misses FF&E because the labels
 file loose furniture as `other`, LABEL_GUIDE section 4).
 
-| Variant | Count MAE | Exact-count rate | Signed bias | Rooms exact (of 33) | Label F1 | Identical across 3 repeats | Report rows (of 39), pass^3 | Material present (of 9) | Cost, 3 repeats | Rows missed |
-|---|---|---|---|---|---|---|---|---|---|---|
-| **Baseline**: reconciliation `room_inventory/v1`, Azure `gpt-4.1-mini` | 0.72 | 0.55 | +0.27 | 0.3 | 0.80 | 19 | 32, 0.82 | 8 | $0.18 | Wall Coverings |
-| Heuristic merge only (largest per-photo count, no call) | 0.52 | 0.60 | +0.03 | 2.0 | 0.84 | 33 | 31 | 8 | $0 | Wall Coverings, FF&E |
-| v1, multi only (the baseline run, one-photo rooms replaced by the heuristic) | 0.62 | 0.59 | +0.15 | 2.0 | 0.83 | 26 | 32, 0.82 | 8 | $0.07 | Wall Coverings |
-| (a) `room_inventory/v2` (per-label accounting), `gpt-4.1-mini` | 0.66 | 0.57 | +0.35 | 2.0 | 0.84 | 30 | 31, 0.79 | 8 | $0.20 | Wall Coverings, FF&E |
-| (b) overlap merge, `photo_overlap/v1` judgments by `gpt-4.1-mini` (OpenAI) | 0.51 | 0.61 | +0.05 | 2.0 | 0.84 | 32 | 31, 0.79 | 8 | $0.27 | Wall Coverings, FF&E |
-| (b) overlap merge, judgments by `gpt-6.1-sol` low | 0.52 | 0.60 | +0.28 | 2.0 | 0.84 | 31 | 31, 0.79 | 8 | $1.32 | Wall Coverings, FF&E |
-| Materials `disagree` trigger, `surface_material/v1`, `gpt-4.1-mini` (on the baseline) | 0.68 | 0.55 | +0.22 | 0.7 | 0.80 | 21 | 32, 0.82 | 8 | $0.19 | Wall Coverings |
-| Materials `sensitive`, v1, `gpt-4.1-mini` | 0.68 | 0.55 | +0.23 | 0.0 | 0.80 | 25 | 33, 0.85 (spurious, see 16.4) | 9 | $0.22 | none |
-| Materials `sensitive`, v2, Sonnet 5.5 | 0.69 | 0.55 | +0.22 | 0.0 | 0.80 | 22 | 33, 0.85 | 9 | $0.56 | none |
-| Materials `sensitive`, v3, Sonnet 5.5 | 0.72 | 0.54 | +0.25 | 0.0 | 0.80 | 19 | 33, 0.85 | 9 | $0.57 | none |
-| Reconciler v2 on Opus 5.5 low, all rooms | 0.62 | 0.58 | +0.40 | 0.3 | 0.78 | 7 | 33, 0.85 | 9 | $3.30 | none |
-| Reconciler v2 on `gpt-6.1-sol` low, all rooms (2 repeats; see below) | 0.76 | 0.49 | +0.51 | 0.0 | 0.74 | 16 | 32, 0.82 | 8 | $0.88 | Wall Coverings |
-| Reconciler `room_inventory/v3` on Opus 5.5 low, multi only | 0.44 | 0.63 | +0.15 | 2.3 | 0.84 | 27 | 31, 0.79 | 8 | $1.16 | Wall Coverings, FF&E |
-| Reconciler v3 on Sonnet 5.5 low, multi only | 0.42 | 0.64 | +0.11 | 2.7 | 0.85 | 26 | 31, 0.79 | 7 | $0.57 | Wall Coverings, FF&E |
-| v3 Sonnet multi only + overlap hints (Sonnet judgments) | 0.46 | 0.64 | +0.06 | 2.0 | 0.84 | 27 | 31, 0.79 | 8 | $2.35 | Wall Coverings, FF&E |
-| **Recommended**: v3 Sonnet multi only + materials `sensitive` v3 Sonnet | **0.43** | **0.63** | +0.10 | 2.7 | **0.85** | 28 | **32, 0.82** | **9** | $0.99 | FF&E |
-| Opus input: baseline (v1, `gpt-4.1-mini`) | 0.51 | 0.69 | +0.09 | 6.0 | 0.88 | 25 | 31, 0.79 | 8 | $0.17 | Retaining Walls, Painting |
-| Opus input: heuristic merge only | 0.42 | 0.71 | -0.01 | 7.0 | 0.89 | 33 | 30 | 8 | $0 | FF&E, Retaining Walls, Painting |
-| **Opus input: recommended** | **0.34** | **0.72** | +0.06 | 6.7 | **0.90** | 29 | 31, 0.79 | **9** | $0.94 | FF&E, Retaining Walls |
+**How to read this table.** How should one room's photos be combined so every object is counted once?
+
+- **Models**: the exact model id, its provider, the reasoning effort and the temperature as sent. "temperature default" means the model takes no temperature (reasoning models), so the provider's default applies.
+- **Count error per room (MAE)** (lower is better): Average number of objects off, per room and object type, against the hand-labelled inventory of 33 rooms.
+- **Exactly right** (higher is better): Share of (room, object type) pairs with exactly the right count.
+- **Over / under count (bias)**: Average of counted minus real: positive means duplicates were counted, negative that objects were missed.
+- **Rooms fully right (of 33)** (higher is better): Rooms whose whole inventory is exactly right.
+- **Right object types (F1)** (higher is better): How well the object types listed for each room match the labels, ignoring counts.
+- **Rooms identical in all 3 runs** (higher is better): Rooms whose answer did not change between runs (stability).
+- **Report lines with evidence (of 39), share in all 3 runs** (higher is better): How many of the engineer's photo-visible report lines have the evidence they need, and the share that do so in every run.
+- **Materials found (of 9)** (higher is better): Of the report lines that need a material, how many get one.
+- **Cost (3 runs)** (lower is better): Dollars for three runs of the room step on the property.
+- **Report lines missed**: Report lines left without evidence.
+- **Tokens (input / output)**: Tokens the run used: input (what the model read) / output (what it wrote; "thinking" is the part spent reasoning, billed as output). "Not recorded" means the run kept no token counts; nothing is estimated.
+
+| Setup | Models (provider, effort, temperature) | Count error per room (MAE) ↓ | Exactly right ↑ | Over / under count (bias) | Rooms fully right (of 33) ↑ | Right object types (F1) ↑ | Rooms identical in all 3 runs ↑ | Report lines with evidence (of 39), share in all 3 runs ↑ | Materials found (of 9) ↑ | Cost (3 runs) ↓ | Report lines missed | Tokens (input / output) |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| **Start · Original pipeline: a small older model rewrites every room's list from its photos' lists** | combines every room: `gpt-4.1-mini` (Azure OpenAI, effort none (not a reasoning model), temperature 0) | 0.72 | 0.55 | +0.27 | 0.3 | 0.80 | 19 | 32, 0.82 | 8 | $0.18 | Wall Coverings | 270,387 in (180,352 cached) / 45,435 out, 102 calls |
+| rule · No AI: per room, keep the largest count any one photo saw | No AI model | 0.52 | 0.60 | +0.03 | 2.0 | 0.84 | 33 | 31 | 8 | $0 | Wall Coverings, FF&E | None (no AI model) |
+| v1 · Original model only for rooms with several photos; one-photo rooms keep their photo's list | combines multi-photo rooms: `gpt-4.1-mini` (Azure OpenAI, effort none (not a reasoning model), temperature 0) | 0.62 | 0.59 | +0.15 | 2.0 | 0.83 | 26 | 32, 0.82 | 8 | $0.07 | Wall Coverings | Not recorded |
+| a · Small model with a stricter prompt that accounts for every photo's count | combines every room: `gpt-4.1-mini` (Azure OpenAI, effort none (not a reasoning model), temperature 0) | 0.66 | 0.57 | +0.35 | 2.0 | 0.84 | 30 | 31, 0.79 | 8 | $0.20 | Wall Coverings, FF&E | 319,836 in (209,536 cached) / 43,315 out, 102 calls |
+| b · Small model judges which objects two photos share; a rule merges the counts | judges overlap: `gpt-4.1-mini` (OpenAI, effort none (not a reasoning model), temperature 0) | 0.51 | 0.61 | +0.05 | 2.0 | 0.84 | 32 | 31, 0.79 | 8 | $0.27 | Wall Coverings, FF&E | Not recorded |
+| b · Same overlap rule, sol judging which objects two photos share | judges overlap: `gpt-6.1-sol` (OpenAI, effort low, temperature default) | 0.52 | 0.60 | +0.28 | 2.0 | 0.84 | 31 | 31, 0.79 | 8 | $1.32 | Wall Coverings, FF&E | Not recorded |
+| mat · Start, plus a material re-check when photos disagree | combines every room: `gpt-4.1-mini` (Azure OpenAI, effort none (not a reasoning model), temperature 0); material re-check: `gpt-4.1-mini` (Azure OpenAI, effort none (not a reasoning model), temperature 0) | 0.68 | 0.55 | +0.22 | 0.7 | 0.80 | 21 | 32, 0.82 | 8 | $0.19 | Wall Coverings | Not recorded |
+| mat · Start, plus a material re-check on every material that decides the tax class | combines every room: `gpt-4.1-mini` (Azure OpenAI, effort none (not a reasoning model), temperature 0); material re-check: `gpt-4.1-mini` (Azure OpenAI, effort none (not a reasoning model), temperature 0) | 0.68 | 0.55 | +0.23 | 0.0 | 0.80 | 25 | 33, 0.85 (spurious, see 16.4) | 9 | $0.22 | none | Not recorded |
+| mat · Same re-check, done by Sonnet (prompt v2) | combines every room: `gpt-4.1-mini` (Azure OpenAI, effort none (not a reasoning model), temperature 0); material re-check: `claude-sonnet-5-5` (Anthropic, effort low, temperature default) | 0.69 | 0.55 | +0.22 | 0.0 | 0.80 | 22 | 33, 0.85 | 9 | $0.56 | none | Not recorded |
+| mat · Same re-check, done by Sonnet (prompt v3) | combines every room: `gpt-4.1-mini` (Azure OpenAI, effort none (not a reasoning model), temperature 0); material re-check: `claude-sonnet-5-5` (Anthropic, effort low, temperature default) | 0.72 | 0.54 | +0.25 | 0.0 | 0.80 | 19 | 33, 0.85 | 9 | $0.57 | none | Not recorded |
+| v2 · Opus rewrites every room's list (stricter prompt), one-photo rooms too | combines every room: `claude-opus-5-5` (Anthropic, effort low, temperature default) | 0.62 | 0.58 | +0.40 | 0.3 | 0.78 | 7 | 33, 0.85 | 9 | $3.30 | none | 473,122 in / 70,467 out (747 thinking), 102 calls |
+| v2 · Sol rewrites every room's list (stricter prompt); stopped after 2 runs | combines every room: `gpt-6.1-sol` (OpenAI, effort low, temperature default) | 0.76 | 0.49 | +0.51 | 0.0 | 0.74 | 16 | 32, 0.82 | 8 | $0.88 | Wall Coverings | 192,346 in (50,560 cached) / 49,840 out (5,804 thinking), 68 calls |
+| v3 · Opus combines only rooms with several photos (prompt v3) | combines multi-photo rooms: `claude-opus-5-5` (Anthropic, effort low, temperature default) | 0.44 | 0.63 | +0.15 | 2.3 | 0.84 | 27 | 31, 0.79 | 8 | $1.16 | Wall Coverings, FF&E | 160,992 in / 26,047 out (460 thinking), 27 calls |
+| v3 · Sonnet combines only rooms with several photos (prompt v3) | combines multi-photo rooms: `claude-sonnet-5-5` (Anthropic, effort low, temperature default) | 0.42 | 0.64 | +0.11 | 2.7 | 0.85 | 26 | 31, 0.79 | 7 | $0.57 | Wall Coverings, FF&E | 160,992 in / 25,072 out, 27 calls |
+| v3 · Same, plus Sonnet's judgments of which objects photos share | combines multi-photo rooms: `claude-sonnet-5-5` (Anthropic, effort low, temperature default); judges overlap: `claude-sonnet-5-5` (Anthropic, effort low, temperature default) | 0.46 | 0.64 | +0.06 | 2.0 | 0.84 | 27 | 31, 0.79 | 8 | $2.35 | Wall Coverings, FF&E | Not recorded |
+| **Chosen · Sonnet combines rooms with several photos and re-checks every material that decides the tax class** | combines multi-photo rooms: `claude-sonnet-5-5` (Anthropic, effort low, temperature default); material re-check: `claude-sonnet-5-5` (Anthropic, effort low, temperature default) | **0.43** | **0.63** | +0.10 | 2.7 | **0.85** | 28 | **32, 0.82** | **9** | $0.99 | FF&E | Combining: 160,992 in / 24,510 out, 27 calls. Material re-check: not recorded (83 calls) |
+| Opus in · Start, fed Opus's photo answers instead of sol's | combines every room: `gpt-4.1-mini` (Azure OpenAI, effort none (not a reasoning model), temperature 0) | 0.51 | 0.69 | +0.09 | 6.0 | 0.88 | 25 | 31, 0.79 | 8 | $0.17 | Retaining Walls, Painting | 258,783 in (181,504 cached) / 38,707 out, 102 calls |
+| Opus in · No AI rule, fed Opus's photo answers | No AI model | 0.42 | 0.71 | -0.01 | 7.0 | 0.89 | 33 | 30 | 8 | $0 | FF&E, Retaining Walls, Painting | None (no AI model) |
+| **Opus in · Chosen setup, fed Opus's photo answers** | combines multi-photo rooms: `claude-sonnet-5-5` (Anthropic, effort low, temperature default); material re-check: `claude-sonnet-5-5` (Anthropic, effort low, temperature default) | **0.34** | **0.72** | +0.06 | 6.7 | **0.90** | 29 | 31, 0.79 | **9** | $0.94 | FF&E, Retaining Walls | Combining: 159,105 in / 23,085 out, 27 calls. Material re-check: not recorded (77 calls) |
 
 On the 8 multi-photo rooms, where de-duplication can act (identical is of 8; the 25 one-photo
 rooms are deterministic in every "multi only" row, so the all-room identical counts above are at
@@ -1499,15 +1565,29 @@ reasoning model. For classification, the OpenAI reasoning models ran at `none` a
 
 ### 17.1 Field extraction
 
-| Model | effort | Fields right, repeat 1 | mean of 3 | critical (12), mean of 3 | pass^3 | critical pass^3 | before the guard, mean of 3 | cost per study | seconds per call |
-|---|---|---|---|---|---|---|---|---|---|
-| gpt-4o-mini (current default) | - | 0.253 | 0.249 | 0.167 | 0.240 | 0.167 | 0.262 | $0.0025 | 12.6 |
-| gpt-5.2 (Bryan's `.env`) | low | 0.867 | 0.880 | 1.000 | 0.867 | 1.000 | 0.880 | $0.0591 | 33.5 |
-| gpt-5.4-mini | low | 0.813 | 0.782 | 0.889 | 0.707 | 0.833 | 0.800 | $0.0197 | 15.4 |
-| **gpt-6-luna** | low | 0.867 | **0.924** | **1.000** | 0.853 | 1.000 | 0.924 | **$0.0024** | 17.0 |
-| gpt-6.1-sol | low | 0.880 | 0.880 | 1.000 | 0.880 | 1.000 | 0.880 | $0.0376 | 22.9 |
-| claude-sonnet-5-5 | low | 0.947 | 0.916 | 1.000 | 0.853 | 1.000 | 0.916 | $0.0610 | 14.0 |
-| claude-opus-5-5 | low | 0.973 | 0.911 | 1.000 | 0.880 | 1.000 | 0.911 | $0.1221 | 18.9 |
+**How to read this table.** Which model reads an appraisal's fields best for the money?
+
+- **Models**: the exact model id, its provider, the reasoning effort and the temperature as sent. "temperature default" means the model takes no temperature (reasoning models), so the provider's default applies.
+- **Reasoning effort**: How much the model was asked to think before answering ('-' = the model has no such setting).
+- **Fields right, run 1** (higher is better): Share of the client appraisal's 75 labelled fields read right on the first run.
+- **Fields right, average of 3 runs** (higher is better): The same share, averaged over three runs.
+- **Critical fields right (12), average of 3** (higher is better): The same, on the 12 fields marked critical.
+- **Fields right in all 3 runs** (higher is better): Share of fields read right on every one of the three runs (consistency).
+- **Critical fields right in all 3 runs** (higher is better): The same, on the 12 critical fields.
+- **Fields right before the copy check (average of 3)** (higher is better): The average before Basis drops values not found word for word in the page text.
+- **Cost per appraisal** (lower is better): Model spend to read one appraisal once, at list prices.
+- **Seconds per call** (lower is better): Time for the one model call.
+- **Tokens (input / output)**: Tokens the run used: input (what the model read) / output (what it wrote; "thinking" is the part spent reasoning, billed as output). "Not recorded" means the run kept no token counts; nothing is estimated.
+
+| Model | Models (provider, effort, temperature) | Reasoning effort | Fields right, run 1 ↑ | Fields right, average of 3 runs ↑ | Critical fields right (12), average of 3 ↑ | Fields right in all 3 runs ↑ | Critical fields right in all 3 runs ↑ | Fields right before the copy check (average of 3) ↑ | Cost per appraisal ↓ | Seconds per call ↓ | Tokens (input / output) |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| 4o-mini · OpenAI gpt-4o-mini, the default at the time (no reasoning) | reads all 75 fields in one call: `gpt-4o-mini` (OpenAI, effort none (not a reasoning model), temperature 0) | - | 0.253 | 0.249 | 0.167 | 0.240 | 0.167 | 0.262 | $0.0025 | 12.6 | 29,874 in / 4,914 out, 3 calls (one per run; thinking not recorded) |
+| 5.2 · OpenAI gpt-5.2 (the model in the developer's local settings) | reads all 75 fields in one call: `gpt-5.2` (OpenAI, effort low, temperature default) | low | 0.867 | 0.880 | 1.000 | 0.867 | 1.000 | 0.880 | $0.0591 | 33.5 | 29,868 in / 8,934 out, 3 calls (one per run; thinking not recorded) |
+| 5.4-mini · OpenAI gpt-5.4-mini | reads all 75 fields in one call: `gpt-5.4-mini` (OpenAI, effort low, temperature default) | low | 0.813 | 0.782 | 0.889 | 0.707 | 0.833 | 0.800 | $0.0197 | 15.4 | 29,868 in / 8,164 out, 3 calls (one per run; thinking not recorded) |
+| **luna · OpenAI gpt-6-luna, the cheapest (chosen)** | reads all 75 fields in one call: `gpt-6-luna` (OpenAI, effort low, temperature default) | low | 0.867 | **0.924** | **1.000** | 0.853 | 1.000 | 0.924 | **$0.0024** | 17.0 | 29,868 in / 8,157 out, 3 calls (one per run; thinking not recorded) |
+| sol · OpenAI gpt-6.1-sol | reads all 75 fields in one call: `gpt-6.1-sol` (OpenAI, effort low, temperature default) | low | 0.880 | 0.880 | 1.000 | 0.880 | 1.000 | 0.880 | $0.0376 | 22.9 | 29,868 in / 5,302 out, 3 calls (one per run; thinking not recorded) |
+| Sonnet · Anthropic Claude Sonnet 5.5 | reads all 75 fields in one call: `claude-sonnet-5-5` (Anthropic, effort low, temperature default) | low | 0.947 | 0.916 | 1.000 | 0.853 | 1.000 | 0.916 | $0.0610 | 14.0 | 49,098 in / 8,471 out, 3 calls (one per run; thinking not recorded) |
+| Opus · Anthropic Claude Opus 5.5 | reads all 75 fields in one call: `claude-opus-5-5` (Anthropic, effort low, temperature default) | low | 0.973 | 0.911 | 1.000 | 0.880 | 1.000 | 0.911 | $0.1221 | 18.9 | 49,098 in / 8,488 out, 3 calls (one per run; thinking not recorded) |
 
 Paired over the 75 fields (mean of 3 per field, bootstrap 95% interval), gpt-6-luna minus:
 Opus +0.013 [-0.009, 0.036], Sonnet +0.009 [-0.018, 0.044], gpt-5.2 +0.044 [-0.027, 0.12],
@@ -2494,13 +2574,25 @@ reconciliation call then de-duplicates objects that are in different rooms (bias
 Re-running the section 16.5 room step offline on the **same live per-photo outputs**
 (`evals.predict_rooms --per-photo` on the analyses the worker stored, one repeat each):
 
-| Grouping | count MAE | exact | bias | rooms exact | label F1 | report rows | cost |
-|---|---|---|---|---|---|---|---|
-| Model room identity (production, live) | 0.68 | 0.45 | -0.09 | 3 of 33 | 0.68 | 32 of 39 | $0.29 |
-| File name, no aliases (49 rooms, summed into the labelled 33) | 0.65 | 0.61 | +0.51 | 4 of 33 | 0.89 | 32 of 39 | $0.19 |
-| File name and the engineer's aliases (section 16) | **0.40** | 0.69 | +0.09 | 4 of 33 | 0.89 | 32 of 39 | $0.33 |
-| Defaults (run 3, sol + fusion input): model room identity, live | 0.60 | 0.51 | -0.23 | 2 of 33 | 0.69 | 32 of 39 | $0.35 |
-| Defaults: file name and aliases, same live input | **0.45** | 0.65 | +0.05 | 4 of 33 | 0.85 | 32 of 39 | $0.32 |
+**How to read this table.** How should photos be grouped into rooms before they are combined?
+
+- **Models**: the exact model id, its provider, the reasoning effort and the temperature as sent. "temperature default" means the model takes no temperature (reasoning models), so the provider's default applies.
+- **Count error per room (MAE)** (lower is better): Average number of objects off, per room and object type, against the hand-labelled inventory of 33 rooms.
+- **Exactly right** (higher is better): Share of (room, object type) pairs with exactly the right count.
+- **Over / under count (bias)**: Average of counted minus real: positive means duplicates were counted, negative that objects were missed.
+- **Rooms fully right** (higher is better): Rooms whose whole inventory is exactly right (of 33).
+- **Right object types (F1)** (higher is better): How well the object types listed for each room match the labels, ignoring counts.
+- **Report lines with evidence** (higher is better): How many of the engineer's photo-visible report lines (of 39) have the evidence they need.
+- **Cost** (lower is better): Dollars for one run of the room step on the property.
+- **Tokens (input / output)**: Tokens the run used: input (what the model read) / output (what it wrote; "thinking" is the part spent reasoning, billed as output). "Not recorded" means the run kept no token counts; nothing is estimated.
+
+| How photos are grouped into rooms | Models (provider, effort, temperature) | Count error per room (MAE) ↓ | Exactly right ↑ | Over / under count (bias) | Rooms fully right ↑ | Right object types (F1) ↑ | Report lines with evidence ↑ | Cost ↓ | Tokens (input / output) |
+|---|---|---|---|---|---|---|---|---|---|
+| live · The model's guess of room type and floor groups the photos (Opus photo answers) | combines multi-photo rooms: `claude-sonnet-5-5` (Anthropic, effort low, temperature default); material re-check: `claude-sonnet-5-5` (Anthropic, effort low, temperature default) | 0.68 | 0.45 | -0.09 | 3 of 33 | 0.68 | 32 of 39 | $0.29 | Not recorded |
+| names · Rooms from photo file names only; views of one room stay separate | combines multi-photo rooms: `claude-sonnet-5-5` (Anthropic, effort low, temperature default); material re-check: `claude-sonnet-5-5` (Anthropic, effort low, temperature default) | 0.65 | 0.61 | +0.51 | 4 of 33 | 0.89 | 32 of 39 | $0.19 | Combining: 15,519 in / 2,856 out, 3 calls. Material re-check: not recorded |
+| names + aliases · Rooms from file names plus the engineer's 16 room merges (Opus photo answers) | combines multi-photo rooms: `claude-sonnet-5-5` (Anthropic, effort low, temperature default); material re-check: `claude-sonnet-5-5` (Anthropic, effort low, temperature default) | **0.40** | 0.69 | +0.09 | 4 of 33 | 0.89 | 32 of 39 | $0.33 | Combining: 53,239 in / 8,214 out, 9 calls. Material re-check: not recorded |
+| live · The model's room guess groups the photos (default photo answers: sol plus Opus) | combines multi-photo rooms: `claude-sonnet-5-5` (Anthropic, effort low, temperature default); material re-check: `claude-sonnet-5-5` (Anthropic, effort low, temperature default) | 0.60 | 0.51 | -0.23 | 2 of 33 | 0.69 | 32 of 39 | $0.35 | Combining: 72,620 in / 12,452 out, 10 calls. Material re-check: 31,944 in / 1,261 out, 15 calls |
+| names + aliases · File names plus the engineer's merges (default photo answers: sol plus Opus) | combines multi-photo rooms: `claude-sonnet-5-5` (Anthropic, effort low, temperature default); material re-check: `claude-sonnet-5-5` (Anthropic, effort low, temperature default) | **0.45** | 0.65 | +0.05 | 4 of 33 | 0.85 | 32 of 39 | $0.32 | Combining: 53,777 in / 7,954 out, 9 calls. Material re-check: not recorded |
 
 The first three rows are run 2's per-photo outputs (Opus); the last two run 3's (offline
 reference on the sol input: 0.43).
@@ -2781,11 +2873,26 @@ production binds). Both arms: claude-sonnet-5-5 at effort low, 6,000 output toke
 shown for reference; it was not re-run. Per-row paired bootstrap over the 46 rows of the
 mean over three repeats.
 
-| Arm | Bucket right, mean of 3 | repeat 1 | pass^3 | citations verified, 3 repeats (repeat 1) | rows with a verified citation, 3 repeats (repeat 1) | needs review | searches per row | loop failures (of 138) | cost per study | seconds per row |
-|---|---|---|---|---|---|---|---|---|---|---|
-| `--store parser --search bm25` | 0.652 | 0.652 | 0.609 | 0.989, 176 / 178 (1.000, 57) | 0.986 (0.978) | 0.457 | 1.12 | 0 | $1.209 | 5.4 |
-| `--store parser --search hybrid` | 0.652 | 0.652 | 0.609 | 0.995, 182 / 183 (1.000, 62) | 1.000 (1.000) | 0.435 | 1.08 | 0 | $1.139 | 5.2 |
-| section 17 (pymupdf store, BM25) | 0.688 | 0.674 | 0.630 | 0.970, 164 / 169 (0.964, 55) | 0.957 (0.957) | 0.464 | 1.07 | 0 | $1.247 | 5.9 |
+**How to read this table.** Does adding meaning-based search help the classifier find and cite the IRS rules?
+
+- **Models**: the exact model id, its provider, the reasoning effort and the temperature as sent. "temperature default" means the model takes no temperature (reasoning models), so the provider's default applies.
+- **Right tax class, average of 3 runs** (higher is better): Share of the engineer's 46 schedule lines put in the engineer's tax class, averaged over three runs.
+- **Right tax class, run 1** (higher is better): The same share on the first run.
+- **Right in all 3 runs** (higher is better): Share of lines in the right class on every run (consistency).
+- **IRS citations that check out, 3 runs (run 1)** (higher is better): Share of IRS quotes whose text is found on the cited passage, with the count; run 1 in brackets.
+- **Lines with a checked citation, 3 runs (run 1)** (higher is better): Share of lines carrying at least one IRS citation that checks out; run 1 in brackets.
+- **Sent to the engineer for review** (lower is better): Share of lines flagged for the engineer to check; less is less work.
+- **Searches per line**: Average searches of the IRS documents per line (fewer is cheaper).
+- **Failed answers (of 138)** (lower is better): Answers (46 lines x 3 runs) where the classifier failed and the line would fall back to 39 years.
+- **Cost for the 46 lines** (lower is better): Model spend to classify the 46 lines once.
+- **Seconds per line** (lower is better): Time to classify one line.
+- **Tokens (input / output)**: Tokens the run used: input (what the model read) / output (what it wrote; "thinking" is the part spent reasoning, billed as output). "Not recorded" means the run kept no token counts; nothing is estimated.
+
+| How the classifier searches the IRS documents | Models (provider, effort, temperature) | Right tax class, average of 3 runs ↑ | Right tax class, run 1 ↑ | Right in all 3 runs ↑ | IRS citations that check out, 3 runs (run 1) ↑ | Lines with a checked citation, 3 runs (run 1) ↑ | Sent to the engineer for review ↓ | Searches per line | Failed answers (of 138) ↓ | Cost for the 46 lines ↓ | Seconds per line ↓ | Tokens (input / output) |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| keyword · Keyword search over the IRS documents (production) | classifies each asset (tool loop with IRS search): `claude-sonnet-5-5` (Anthropic, effort low, temperature default) | 0.652 | 0.652 | 0.609 | 0.989, 176 / 178 (1.000, 57) | 0.986 (0.978) | 0.457 | 1.12 | 0 | $1.209 | 5.4 | 1,501,760 in / 62,200 out, 323 calls (3 runs of 46 lines; thinking not recorded) |
+| hybrid · Keyword and meaning-based search, merged by rank | classifies each asset (tool loop with IRS search): `claude-sonnet-5-5` (Anthropic, effort low, temperature default); meaning-based search (local, no paid call): `sentence-transformers/all-MiniLM-L6-v2 (pinned revision)` (local (Hugging Face, in the worker)) | 0.652 | 0.652 | 0.609 | 0.995, 182 / 183 (1.000, 62) | 1.000 (1.000) | 0.435 | 1.08 | 0 | $1.139 | 5.2 | 1,403,619 in / 60,863 out, 312 calls (3 runs of 46 lines; thinking not recorded) |
+| sec. 17 · Earlier run: keyword search over the older page-text index | classifies each asset (tool loop with IRS search): `claude-sonnet-5-5` (Anthropic, effort low, temperature default) | 0.688 | 0.674 | 0.630 | 0.970, 164 / 169 (0.964, 55) | 0.957 (0.957) | 0.464 | 1.07 | 0 | $1.247 | 5.9 | 1,554,483 in / 63,280 out, 320 calls (3 runs of 46 lines; thinking not recorded) |
 
 The repeat-1 figures are what `evals.run --predictions` reports (`citation_validity`,
 `rows_with_verified_citation`); the three-repeat figures are over every repeat.
@@ -2923,15 +3030,27 @@ own ADE20K class names (`--candidates observed`; `basis.vision.ade20k` maps 39 c
 door and light classes split interior/exterior by the share of sky and outdoor classes in the
 photo); the detectors are prompted with SAM 3's phrase pool, one phrase per pass.
 
-| System (191 verified boxes, 52 photos) | mAP@0.5 (LOO) | Count MAE, per-photo yardstick | Diff vs 4c [95% CI] | Count P / R | Label F1 (photo) | s / photo | Cost |
-|---|---|---|---|---|---|---|---|
-| **Current best counts (4c, VLM)** | n/a | **0.124** | 0 | 0.92 / 0.87 | 0.73 | 11 | $1.87 / 52 |
-| SAM 3 v3, per class LOO (section 19) | 0.763 | 0.260 | +0.136 [+0.062, +0.225] | 0.77 / 0.82 | n/a | 3.2 | ~$0.15 |
-| Mask2Former Swin-L, ADE20K panoptic | 0.219 | 0.542 | +0.418 [+0.287, +0.567] | 0.60 / 0.36 | 0.39 | 0.15 (MPS) | $0 local |
-| OneFormer Swin-L, ADE20K panoptic | 0.189 | 0.526 | +0.402 [+0.268, +0.556] | 0.62 / 0.36 | 0.32 | 1.3 (CPU) | $0 local |
-| OWLv2-L (SAM 3 phrase pool) | 0.663 | 0.407 | +0.283 [+0.187, +0.392] | 0.67 / 0.65 | n/a | 1.7 (MPS) | $0 local |
-| Grounding DINO-B (SAM 3 phrase pool) | 0.439 | 0.452 | +0.328 [+0.204, +0.478] | 0.70 / 0.46 | n/a | 24 (MPS) | $0 local |
-| LLMDet-B (SAM 3 phrase pool; 26.12) | 0.279 | 0.529 | +0.405 [+0.275, +0.565] | 0.66 / 0.28 | n/a | 22 (MPS) | $0 local |
+**How to read this table.** Can a dedicated object detector or segmenter count better than the language models?
+
+- **Models**: the exact model id, its provider, the reasoning effort and the temperature as sent. "temperature default" means the model takes no temperature (reasoning models), so the provider's default applies.
+- **Box accuracy (mAP@0.5)** (higher is better): How well the boxes a detector draws match the hand-checked boxes (a box counts if it overlaps by half); n/a for systems that draw no boxes.
+- **Count error per photo (MAE)** (lower is better): Average number of objects the count is off by, per photo and object type.
+- **Change vs. the current counts [95% range]** (lower is better): Change in count error against the current setup (4c); positive is more errors.
+- **Precision / recall** (higher is better): Precision: of the objects counted, the share really there. Recall: of the real objects, the share counted.
+- **Right object types (F1)** (higher is better): How well the object types found match the labels.
+- **Seconds per photo** (lower is better): Time per photo (MPS is the Mac's graphics chip, CPU its processor).
+- **Cost** (lower is better): Dollars for the 52 photos.
+- **Tokens (input / output)**: Tokens the run used: input (what the model read) / output (what it wrote; "thinking" is the part spent reasoning, billed as output). "Not recorded" means the run kept no token counts; nothing is estimated.
+
+| System | Models (provider, effort, temperature) | Box accuracy (mAP@0.5) ↑ | Count error per photo (MAE) ↓ | Change vs. the current counts [95% range] ↓ | Precision / recall ↑ | Right object types (F1) ↑ | Seconds per photo ↓ | Cost ↓ | Tokens (input / output) |
+|---|---|---|---|---|---|---|---|---|---|
+| **4c · Current: two language models count each photo (section 15's winner)** | count: `gpt-6.1-sol` (OpenAI, effort low, temperature default); count: `claude-opus-5-5` (Anthropic, effort medium, temperature default) | n/a | **0.124** | 0 | 0.92 / 0.87 | 0.73 | 11 | $1.87 / 52 | Not recorded (per-photo runs kept no token counts) |
+| SAM 3 · SAM 3 detector, phrases and thresholds tuned per object type | detector: `SAM 3 (vufinder/sam3 on Replicate)` (Replicate) | 0.763 | 0.260 | +0.136 [+0.062, +0.225] | 0.77 / 0.82 | n/a | 3.2 | ~$0.15 | None (detector) |
+| seg · Off-the-shelf indoor scene segmenter (Mask2Former), run on this Mac | segmenter: `facebook/mask2former-swin-large-ade-panoptic` (local (Hugging Face)) | 0.219 | 0.542 | +0.418 [+0.287, +0.567] | 0.60 / 0.36 | 0.39 | 0.15 (MPS) | $0 local | None (local model) |
+| seg · Off-the-shelf indoor scene segmenter (OneFormer), run on this Mac | segmenter: `shi-labs/oneformer_ade20k_swin_large` (local (Hugging Face)) | 0.189 | 0.526 | +0.402 [+0.268, +0.556] | 0.62 / 0.36 | 0.32 | 1.3 (CPU) | $0 local | None (local model) |
+| det · Open-vocabulary detector (Google OWLv2) given text phrases, run on this Mac | detector: `google/owlv2-large-patch14-ensemble` (local (Hugging Face)) | 0.663 | 0.407 | +0.283 [+0.187, +0.392] | 0.67 / 0.65 | n/a | 1.7 (MPS) | $0 local | None (local model) |
+| det · Open-vocabulary detector (Grounding DINO) given text phrases, run on this Mac | detector: `IDEA-Research/grounding-dino-base` (local (Hugging Face)) | 0.439 | 0.452 | +0.328 [+0.204, +0.478] | 0.70 / 0.46 | n/a | 24 (MPS) | $0 local | None (local model) |
+| det · Open-vocabulary detector (LLMDet) given text phrases, run on this Mac | detector: `iSEE-Laboratory/llmdet_base` (local (Hugging Face)) | 0.279 | 0.529 | +0.405 [+0.275, +0.565] | 0.66 / 0.28 | n/a | 22 (MPS) | $0 local | None (local model) |
 
 No detector wins a class against the VLM counts (per class: OWLv2 ties on light fixtures,
 0.12 MAE; OneFormer 0.15 there; every other class is worse by 0.2 to 0.9). The segmenters
@@ -2951,13 +3070,26 @@ call per surface with the whole photo first and the crop second, closed-choice p
 `surface_crop_material/v1` (a wall also gets its lower band: wainscot or chair-rail
 wallpaper). Three repeats on Sonnet 5.5 (low) and gpt-6.1-sol (low); 86 crops per repeat.
 
-| Source | Floor hit (32) | Wall hit (12) | Wainscot (3) | Ceiling (11) | All hit / exact (58) | Answered | Diff vs per-photo [95% CI] | $ / study |
-|---|---|---|---|---|---|---|---|---|
-| Per-photo surfaces call, Opus (current) | 0.78 | 0.58 | 1.00 | 0.18 | 0.64 / 0.62 | 0.69 | 0 | (in the per-photo cost) |
-| Crops, Sonnet low | 0.66 | 0.83 | 0.67 | 0.64 | 0.69 / 0.67 | 0.74 | +0.052 [-0.103, +0.207] | $0.58 |
-| Crops, sol low | 0.69 | 0.78 | 0.67 | 0.64 | 0.70 / 0.68 | 0.79 | +0.057 [-0.098, +0.207] | $0.38 |
-| **Crops, else per-photo (Sonnet)** | 0.78 | 0.83 | 1.00 | 0.73 | **0.79 / 0.78** | 0.88 | **+0.155 [+0.034, +0.276]** | $0.58 |
-| Crops, else per-photo (sol) | 0.79 | 0.78 | 1.00 | 0.73 | 0.79 / 0.77 | 0.90 | +0.149 [+0.023, +0.276] | $0.38 |
+**How to read this table.** Does looking at a cut-out of each surface read its material better than the whole photo?
+
+- **Models**: the exact model id, its provider, the reasoning effort and the temperature as sent. "temperature default" means the model takes no temperature (reasoning models), so the provider's default applies.
+- **Floors right (of 32)** (higher is better): Share of the 32 labelled floors where a material given is the labelled one.
+- **Walls right (of 12)** (higher is better): The same for the 12 labelled walls.
+- **Wainscot right (of 3)** (higher is better): The same for the 3 labelled wainscot bands.
+- **Ceilings right (of 11)** (higher is better): The same for the 11 labelled ceilings.
+- **All surfaces: right / exactly right (of 58)** (higher is better): Right: a material given is the labelled one. Exactly right: the materials given are exactly the labelled ones.
+- **Surfaces answered** (higher is better): Share of the 58 surfaces given any material at all.
+- **Change vs. the whole-photo call [95% range]** (higher is better): Change in the all-surfaces score against the current whole-photo call; if the bracket excludes 0 the gain is real.
+- **Cost per study** (lower is better): Dollars for the material calls on one study.
+- **Tokens (input / output)**: Tokens the run used: input (what the model read) / output (what it wrote; "thinking" is the part spent reasoning, billed as output). "Not recorded" means the run kept no token counts; nothing is estimated.
+
+| Where the material answer comes from | Models (provider, effort, temperature) | Floors right (of 32) ↑ | Walls right (of 12) ↑ | Wainscot right (of 3) ↑ | Ceilings right (of 11) ↑ | All surfaces: right / exactly right (of 58) ↑ | Surfaces answered ↑ | Change vs. the whole-photo call [95% range] ↑ | Cost per study ↓ | Tokens (input / output) |
+|---|---|---|---|---|---|---|---|---|---|---|
+| current · Opus reads surfaces from each whole photo (current) | surfaces in each whole photo: `claude-opus-5-5` (Anthropic, effort low, temperature default) | 0.78 | 0.58 | 1.00 | 0.18 | 0.64 / 0.62 | 0.69 | 0 | (in the per-photo cost) | Not collected for this table (run files not read) |
+| crops Sonnet · Each surface cut out and enlarged; Sonnet names its material | cuts out walls, floors, ceilings: `facebook/mask2former-swin-large-ade-panoptic` (local (Hugging Face)); material of each cut-out: `claude-sonnet-5-5` (Anthropic, effort low, temperature default) | 0.66 | 0.83 | 0.67 | 0.64 | 0.69 / 0.67 | 0.74 | +0.052 [-0.103, +0.207] | $0.58 | Not collected for this table (run files not read) |
+| crops sol · Each surface cut out and enlarged; sol names its material | cuts out walls, floors, ceilings: `facebook/mask2former-swin-large-ade-panoptic` (local (Hugging Face)); material of each cut-out: `gpt-6.1-sol` (OpenAI, effort low, temperature default) | 0.69 | 0.78 | 0.67 | 0.64 | 0.70 / 0.68 | 0.79 | +0.057 [-0.098, +0.207] | $0.38 | Not collected for this table (run files not read) |
+| **crops else photo, Sonnet · Sonnet's cut-out answer where there is one, else the whole-photo answer** | cuts out walls, floors, ceilings: `facebook/mask2former-swin-large-ade-panoptic` (local (Hugging Face)); material of each cut-out: `claude-sonnet-5-5` (Anthropic, effort low, temperature default); surfaces in each whole photo: `claude-opus-5-5` (Anthropic, effort low, temperature default) | 0.78 | 0.83 | 1.00 | 0.73 | **0.79 / 0.78** | 0.88 | **+0.155 [+0.034, +0.276]** | $0.58 | Not collected for this table (run files not read) |
+| crops else photo, sol · Sol's cut-out answer where there is one, else the whole-photo answer | cuts out walls, floors, ceilings: `facebook/mask2former-swin-large-ade-panoptic` (local (Hugging Face)); material of each cut-out: `gpt-6.1-sol` (OpenAI, effort low, temperature default); surfaces in each whole photo: `claude-opus-5-5` (Anthropic, effort low, temperature default) | 0.79 | 0.78 | 1.00 | 0.73 | 0.79 / 0.77 | 0.90 | +0.149 [+0.023, +0.276] | $0.38 | Not collected for this table (run files not read) |
 
 The crops read walls and ceilings better (painted block, plank walls; the per-photo call
 rarely lists a ceiling at all). Their floor loss is coverage, not reading: 10 of the 11
@@ -3048,22 +3180,36 @@ repeats, with the paired difference over rooms. Rows = report rows evidenced of 
 against the labelled inventory. Cost per study (52 photos, one prediction) for the vision
 step it replaces; seconds = wall time of one study's calls in this harness (concurrency 4).
 
-| Architecture | Counts (photo) | Label F1 (room) | Room counts [Diff, 95% CI] | Rows (pass^3) | Row precision | Qty WAPE / cost-weighted | Materials hit | $ / study | Wall s |
-|---|---|---|---|---|---|---|---|---|---|
-| **Current pipeline** (per photo Opus + room step; 4c counts) | **0.124** | 0.900 | 0.350 | **37 (0.97)** | 0.86 | 0.175 / **0.064** | 0.64 | ~$2.65 (+$1.87 for 4c counts) | not re-measured |
-| a. ADE20K segmenter as counter (best: OneFormer) | 0.526 | n/a | n/a | n/a | n/a | n/a | n/a | $0 | 68 |
-| b. Open-vocabulary detector (best: OWLv2) | 0.407 | n/a | n/a | n/a | n/a | n/a | n/a | $0 | 88 |
-| c. Crop materials, else per-photo, on the current rooms | 0.124 | 0.900 | 0.350 | 37 (0.97) | 0.86 | 0.175 / 0.064 | **0.79** | +$0.38 to $0.58 | +50 to 80 |
-| d1. Room call v1, Opus medium (old furniture rule) | n/a | 0.821 | 0.420 [+0.114: +0.066, +0.163] | 36 (0.92) | 0.87 | 0.335 / 0.081 | n/a | $1.03 | 63 |
-| d2. Room call v2, Opus medium | n/a | 0.917 | 0.269 [-0.068: -0.115, -0.017] | 36 (0.92) | 0.90 | **0.086** / 0.062 | n/a | $1.18 | 79 |
-| d3. Room call v2, sol low | n/a | 0.868 | 0.341 [-0.015: -0.079, +0.050] | 36 (0.95) | 0.89 | 0.096 / 0.111 | n/a | $0.39 | 115 |
-| d4. Whole property, Opus medium | n/a | 0.888 | 0.335 [-0.032: -0.125, +0.049] | 36 (0.92) | 0.90 | 0.137 / 0.155 | n/a | $0.49 | 126 |
-| d5. Whole property, sol low | n/a | 0.884 | 0.451 [+0.026: -0.058, +0.118] | 34 (0.89) | 0.88 | 0.199 / 0.210 | n/a | $0.17 | 189 |
-| d6. Photos to schedule, Opus medium | n/a | n/a | n/a | 34.7 (avg) | 0.85 | 0.345 / 0.424 | n/a | $0.34 | 82 |
-| d7. Photos to schedule, sol low | n/a | n/a | n/a | 34.3 (avg) | 0.85 | 0.608 / 0.501 | n/a | $0.10 | 80 |
-| e1. Countables at max effort, Opus (untestable at the current output budget; see 26.12) | not measured (294/306 attempts rejected for credit, 5/12 truncated) | n/a | n/a | n/a | n/a | n/a | n/a | $0.57 recorded (real: 26.12) | not measured |
-| **e2. Room call v2, Opus high** | n/a | **0.923** | **0.236 [-0.112: -0.187, -0.048]** | 36 (0.95) | 0.89 | 0.086 / 0.079 | n/a | $1.35 | 90 |
-| **f. e2 inside, current pipeline outside** (in-sample rule) | n/a | 0.898 | 0.277 [-0.067: -0.110, -0.023] | **37 (0.97)** | 0.86 | 0.090 / 0.085 | n/a | ~$1.35 + exterior per-photo | ~90 |
+**How to read this table.** Is one model call per room (or per house) better than analysing each photo and then combining?
+
+- **Models**: the exact model id, its provider, the reasoning effort and the temperature as sent. "temperature default" means the model takes no temperature (reasoning models), so the provider's default applies.
+- **Count error per photo (MAE)** (lower is better): Average objects off per photo and object type; n/a for setups that do not count per photo.
+- **Right object types per room (F1)** (higher is better): How well each room's object types match the labels.
+- **Count error per room [change vs. current, 95% range]** (lower is better): Average objects off per room and object type; the bracket is the change against the current pipeline (negative is better).
+- **Report lines with evidence (of 38) (share in all 3 runs)** (higher is better): How many photo-visible report lines have the evidence they need, and the share that do so every run.
+- **Report lines correctly claimed** (higher is better): Of the report lines the setup claims evidence for, the share that are really in the engineer's report.
+- **Quantity error: overall / weighted by dollars** (lower is better): For the 17 report lines that need a count: total count error over total true count, and the same weighted by each line's share of the study's cost.
+- **Right materials** (higher is better): Share of labelled materials the setup gets right.
+- **Cost per study** (lower is better): Dollars for one pass over the property's 52 photos.
+- **Seconds per study** (lower is better): Wall-clock seconds for one study's calls, 4 at a time.
+- **Tokens (input / output)**: Tokens the run used: input (what the model read) / output (what it wrote; "thinking" is the part spent reasoning, billed as output). "Not recorded" means the run kept no token counts; nothing is estimated.
+
+| Architecture | Models (provider, effort, temperature) | Count error per photo (MAE) ↓ | Right object types per room (F1) ↑ | Count error per room [change vs. current, 95% range] ↓ | Report lines with evidence (of 38) (share in all 3 runs) ↑ | Report lines correctly claimed ↑ | Quantity error: overall / weighted by dollars ↓ | Right materials ↑ | Cost per study ↓ | Seconds per study ↓ | Tokens (input / output) |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| **Current · Analyse each photo, then combine per room; counts from the two-model setup (4c)** | photo analysis: `claude-opus-5-5` (Anthropic, effort low, temperature default); count: `gpt-6.1-sol` (OpenAI, effort low, temperature default); count: `claude-opus-5-5` (Anthropic, effort medium, temperature default); combines multi-photo rooms: `claude-sonnet-5-5` (Anthropic, effort low, temperature default); material re-check: `claude-sonnet-5-5` (Anthropic, effort low, temperature default) | **0.124** | 0.900 | 0.350 | **37 (0.97)** | 0.86 | 0.175 / **0.064** | 0.64 | ~$2.65 (+$1.87 for 4c counts) | not re-measured | Photo calls: not recorded. Combining: 160,890 in / 25,726 out, 27 calls (3 runs) |
+| a · Indoor scene segmenter counts the objects (OneFormer), no language model | segmenter: `shi-labs/oneformer_ade20k_swin_large` (local (Hugging Face)) | 0.526 | n/a | n/a | n/a | n/a | n/a | n/a | $0 | 68 | None (local model) |
+| b · Open-vocabulary detector counts the objects (OWLv2), no language model | detector: `google/owlv2-large-patch14-ensemble` (local (Hugging Face)) | 0.407 | n/a | n/a | n/a | n/a | n/a | n/a | $0 | 88 | None (local model) |
+| c · Current pipeline, with materials read from cut-out surfaces | photo analysis: `claude-opus-5-5` (Anthropic, effort low, temperature default); combines multi-photo rooms: `claude-sonnet-5-5` (Anthropic, effort low, temperature default); cuts out surfaces: `facebook/mask2former-swin-large-ade-panoptic` (local (Hugging Face)); material from crops: `claude-sonnet-5-5` (Anthropic, effort low, temperature default) | 0.124 | 0.900 | 0.350 | 37 (0.97) | 0.86 | 0.175 / 0.064 | **0.79** | +$0.38 to $0.58 | +50 to 80 | Not recorded |
+| d1 · One Opus call per room sees all that room's photos (first prompt) | one call per room: `claude-opus-5-5` (Anthropic, effort medium, temperature default) | n/a | 0.821 | 0.420 [+0.114: +0.066, +0.163] | 36 (0.92) | 0.87 | 0.335 / 0.081 | n/a | $1.03 | 63 | 420,291 in / 69,902 out (8,271 thinking), 99 calls (3 runs) |
+| d2 · One Opus call per room sees all that room's photos (fixed prompt) | one call per room: `claude-opus-5-5` (Anthropic, effort medium, temperature default) | n/a | 0.917 | 0.269 [-0.068: -0.115, -0.017] | 36 (0.92) | 0.90 | **0.086** / 0.062 | n/a | $1.18 | 79 | 511,965 in / 64,193 out (10,178 thinking), 99 calls (3 runs) |
+| d3 · One sol call per room sees all that room's photos | one call per room: `gpt-6.1-sol` (OpenAI, effort low, temperature default) | n/a | 0.868 | 0.341 [-0.015: -0.079, +0.050] | 36 (0.95) | 0.89 | 0.096 / 0.111 | n/a | $0.39 | 115 | 312,774 in (124,032 cached) / 54,921 out (11,556 thinking), 99 calls (3 runs) |
+| d4 · One Opus call sees all 52 photos and lists every room | one call per house: `claude-opus-5-5` (Anthropic, effort medium, temperature default) | n/a | 0.888 | 0.335 [-0.032: -0.125, +0.049] | 36 (0.92) | 0.90 | 0.137 / 0.155 | n/a | $0.49 | 126 | 116,439 in / 50,038 out (9,798 thinking), 3 calls (3 runs) |
+| d5 · One sol call sees all 52 photos and lists every room | one call per house: `gpt-6.1-sol` (OpenAI, effort low, temperature default) | n/a | 0.884 | 0.451 [+0.026: -0.058, +0.118] | 34 (0.89) | 0.88 | 0.199 / 0.210 | n/a | $0.17 | 189 | 98,907 in (65,792 cached) / 31,358 out (124 thinking), 3 calls (3 runs) |
+| d6 · One Opus call goes straight from all photos to the asset schedule | photos to schedule: `claude-opus-5-5` (Anthropic, effort medium, temperature default) | n/a | n/a | n/a | 34.7 (avg) | 0.85 | 0.345 / 0.424 | n/a | $0.34 | 82 | 114,534 in / 27,958 out (14,017 thinking), 3 calls (3 runs) |
+| d7 · One sol call goes straight from all photos to the asset schedule | photos to schedule: `gpt-6.1-sol` (OpenAI, effort low, temperature default) | n/a | n/a | n/a | 34.3 (avg) | 0.85 | 0.608 / 0.501 | n/a | $0.10 | 80 | 98,064 in (65,280 cached) / 11,377 out (340 thinking), 3 calls (3 runs) |
+| e1 · Opus counting at maximum thinking (could not be completed) | count: `claude-opus-5-5` (Anthropic, effort max, temperature default) | not measured (294/306 attempts rejected for credit, 5/12 truncated) | n/a | n/a | n/a | n/a | n/a | n/a | $0.57 recorded (real: 26.12) | not measured | Not recorded |
+| **e2 · One Opus call per room sees all its photos, thinking most (high effort)** | one call per room: `claude-opus-5-5` (Anthropic, effort high, temperature default) | n/a | **0.923** | **0.236 [-0.112: -0.187, -0.048]** | 36 (0.95) | 0.89 | 0.086 / 0.079 | n/a | $1.35 | 90 | 511,965 in / 99,681 out (43,964 thinking), 99 calls (3 runs) |
+| **f · Indoor rooms: one Opus call per room; outdoor areas: the current pipeline** | one call per indoor room: `claude-opus-5-5` (Anthropic, effort high, temperature default); outdoor photo analysis: `claude-opus-5-5` (Anthropic, effort low, temperature default); combines outdoor areas: `claude-sonnet-5-5` (Anthropic, effort low, temperature default) | n/a | 0.898 | 0.277 [-0.067: -0.110, -0.023] | **37 (0.97)** | 0.86 | 0.090 / 0.085 | n/a | ~$1.35 + exterior per-photo | ~90 | Indoor: 446,037 in / 86,548 out (37,336 thinking), 90 calls. Outdoor combining: 65,517 in / 9,874 out, 9 calls. Outdoor photo calls: not recorded |
 
 Many systems are compared with one baseline on
 one study, so a single interval that just excludes zero is weak evidence; e2's (-0.187 to
@@ -3528,14 +3674,28 @@ the deterministic heuristic room inventory built from each per-photo repeat (no 
 only the surfaces call differs); room-level P / R is that inventory's surface labels against
 the room labels.
 
-| Surfaces call | Room accuracy, mean of 3 | Room pass^3 | Surfaces P / R / F1, per photo | All labels P / R / F1 (repeat 1) | Room-level surfaces P / R | Report rows evidenced (of 38), mean of 3 | Material present (of 8) | Cost per 52 photos | Seconds per photo |
-|---|---|---|---|---|---|---|---|---|---|
-| **v1**: gpt-6.1-sol (12.1, baseline) | 0.891 | 0.865 | 0.580 / 0.772 / 0.663 | 0.66 / 0.82 / 0.73 | 0.707 / 0.869 | 30.3 | 7.3 | $0.329 | 7.7 |
-| v1: gpt-6-luna | 0.897 | 0.846 | 0.655 / 0.719 / 0.685 | 0.70 / 0.79 / 0.75 | 0.788 / 0.820 | 31.3 | 8.0 | **$0.018** | 4.1 |
-| v1: gpt-5.6-luna | 0.885 | 0.846 | 0.607 / 0.746 / 0.669 | 0.68 / 0.80 / 0.73 | 0.725 / 0.865 | 32.0 | 8.0 | $0.036 | 3.6 |
-| **v2**: gpt-6.1-sol (baseline) | 0.872 | 0.865 | 0.588 / 0.804 / 0.679 | 0.66 / 0.83 / 0.74 | 0.721 / 0.919 | 33.0 | 8.0 | $0.336 | 6.8 |
-| **v2: gpt-6-luna** | 0.878 | 0.846 | 0.650 / 0.731 / 0.688 | 0.69 / 0.80 / 0.74 | 0.783 / 0.860 | 32.7 | 8.0 | **$0.019** | 4.1 |
-| v2: gpt-5.6-luna | 0.885 | 0.846 | 0.616 / 0.754 / 0.678 | 0.68 / 0.82 / 0.74 | 0.717 / 0.878 | 33.0 | 8.0 | $0.038 | 3.8 |
+**How to read this table.** Which model reads surfaces and room type well enough for the least money?
+
+- **Models**: the exact model id, its provider, the reasoning effort and the temperature as sent. "temperature default" means the model takes no temperature (reasoning models), so the provider's default applies.
+- **Room type right (average of 3 runs)** (higher is better): Share of the 52 photos whose room type is right, averaged over 3 runs.
+- **Room type right in all 3 runs** (higher is better): Share of photos whose room type is right every time.
+- **Surfaces: precision / recall / F1** (higher is better): Precision: of the surfaces listed, the share really there. Recall: of the real surfaces, the share listed. F1 balances the two.
+- **All labels: precision / recall / F1 (run 1)** (higher is better): The same three measures over every label (objects and surfaces), first run.
+- **Surfaces per room: precision / recall** (higher is better): The same, after a room's photos are combined.
+- **Report lines with evidence (of 38, average of 3)** (higher is better): How many of the engineer's photo-visible report lines have the evidence they need.
+- **Materials found (of 8)** (higher is better): Of the report lines that need a material (for example wallpaper versus paint), how many get one.
+- **Cost for 52 photos** (lower is better): Dollars for the surfaces call over all 52 photos.
+- **Seconds per photo** (lower is better): Time per photo for the surfaces call.
+- **Tokens (input / output)**: Tokens the run used: input (what the model read) / output (what it wrote; "thinking" is the part spent reasoning, billed as output). "Not recorded" means the run kept no token counts; nothing is estimated.
+
+| Setup (the surfaces and room-type call) | Models (provider, effort, temperature) | Room type right (average of 3 runs) ↑ | Room type right in all 3 runs ↑ | Surfaces: precision / recall / F1 ↑ | All labels: precision / recall / F1 (run 1) ↑ | Surfaces per room: precision / recall ↑ | Report lines with evidence (of 38, average of 3) ↑ | Materials found (of 8) ↑ | Cost for 52 photos ↓ | Seconds per photo ↓ | Tokens (input / output) |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| **v1 start · Sol, first prompt (the starting point)** | surfaces and room type: `gpt-6.1-sol` (OpenAI, effort low, temperature default) | 0.891 | 0.865 | 0.580 / 0.772 / 0.663 | 0.66 / 0.82 / 0.73 | 0.707 / 0.869 | 30.3 | 7.3 | $0.329 | 7.7 | Not recorded (per-photo runs kept no token counts) |
+| v1 · Luna (cheapest), first prompt | surfaces and room type: `gpt-6-luna` (OpenAI, effort low, temperature default) | 0.897 | 0.846 | 0.655 / 0.719 / 0.685 | 0.70 / 0.79 / 0.75 | 0.788 / 0.820 | 31.3 | 8.0 | **$0.018** | 4.1 | Not recorded (per-photo runs kept no token counts) |
+| v1 · Older cheap model (gpt-5.6-luna), first prompt | surfaces and room type: `gpt-5.6-luna` (OpenAI, effort low, temperature default) | 0.885 | 0.846 | 0.607 / 0.746 / 0.669 | 0.68 / 0.80 / 0.73 | 0.725 / 0.865 | 32.0 | 8.0 | $0.036 | 3.6 | Not recorded (per-photo runs kept no token counts) |
+| **v2 start · Sol, newer prompt (the starting point)** | surfaces and room type: `gpt-6.1-sol` (OpenAI, effort low, temperature default) | 0.872 | 0.865 | 0.588 / 0.804 / 0.679 | 0.66 / 0.83 / 0.74 | 0.721 / 0.919 | 33.0 | 8.0 | $0.336 | 6.8 | Not recorded (per-photo runs kept no token counts) |
+| **v2 · Luna (cheapest), newer prompt** | surfaces and room type: `gpt-6-luna` (OpenAI, effort low, temperature default) | 0.878 | 0.846 | 0.650 / 0.731 / 0.688 | 0.69 / 0.80 / 0.74 | 0.783 / 0.860 | 32.7 | 8.0 | **$0.019** | 4.1 | Not recorded (per-photo runs kept no token counts) |
+| v2 · Older cheap model (gpt-5.6-luna), newer prompt | surfaces and room type: `gpt-5.6-luna` (OpenAI, effort low, temperature default) | 0.885 | 0.846 | 0.616 / 0.754 / 0.678 | 0.68 / 0.82 / 0.74 | 0.717 / 0.878 | 33.0 | 8.0 | $0.038 | 3.8 | Not recorded (per-photo runs kept no token counts) |
 
 Paired differences against gpt-6.1-sol on the same prompt (photos for room accuracy, F1 and
 per-photo P / R; rooms for room-level P / R):
@@ -3595,14 +3755,28 @@ run's most common answer over the repeats is that material (`GOLD_MATERIAL` in t
 the labels' free text, such as `painted_block`, to the enum, `painted_masonry`); three of the
 20 are not listed by any run (the per-photo input misses them).
 
-| Reconciler (= material model) | Count MAE | Exact-count rate | Signed bias | Label F1 | 8 multi-photo rooms: MAE / exact / bias | Report rows (of 38), pass^3 | Material present (of 8) | Labelled surfaces with the right material (of 20) | Cost per run |
-|---|---|---|---|---|---|---|---|---|---|
-| **claude-sonnet-5-5** (16.5, baseline) | 0.388 | 0.68 | +0.00 | 0.87 | 0.56 / 0.61 / -0.09 | 30, 0.79 | 8 | **17** | $0.314 |
-| gpt-6.1-sol | 0.390 | 0.66 | +0.10 | 0.87 | 0.55 / 0.57 / +0.20 | 33, 0.82 | 8 | 14 | $0.263 |
-| gpt-5.6-terra | 0.426 | 0.67 | +0.03 | 0.85 | 0.65 / 0.59 / -0.02 | 31, 0.79 | 8 | 12 | about $0.36 (repriced; see below) |
-| gpt-6-luna | 0.393 | 0.66 | +0.08 | 0.86 | 0.56 / 0.57 / +0.14 | 30, 0.79 | 8 | 14 | **$0.014** |
-| gpt-6-luna, second look on Sonnet 5.5 | 0.437 | 0.65 | +0.05 | 0.86 | 0.69 / 0.53 / +0.05 | 30, 0.79 | 8 | 16 | $0.157 |
-| gpt-5.6-luna | 0.401 | 0.67 | +0.05 | 0.86 | 0.59 / 0.59 / +0.04 | 30, 0.79 | 8 | 12 | $0.030 |
+**How to read this table.** Which model combines a room's photos and checks materials well enough for the least money?
+
+- **Models**: the exact model id, its provider, the reasoning effort and the temperature as sent. "temperature default" means the model takes no temperature (reasoning models), so the provider's default applies.
+- **Count error per room (MAE)** (lower is better): Average number of objects off, per room and object type, against the hand-labelled inventory of 33 rooms.
+- **Exactly right** (higher is better): Share of (room, object type) pairs with exactly the right count.
+- **Over / under count (bias)**: Average of counted minus real: positive means duplicates were counted, negative that objects were missed.
+- **Right object types (F1)** (higher is better): How well the object types listed for each room match the labels, ignoring counts.
+- **The 8 rooms with several photos: error / exactly right / bias**: The same count measures on the only rooms where the model is called.
+- **Report lines with evidence (of 38), share in all 3 runs** (higher is better): How many of the engineer's photo-visible report lines have the evidence they need, and the share that do so every run.
+- **Materials found (of 8)** (higher is better): Of the report lines that need a material, how many get one.
+- **Right material (of 20 labelled surfaces)** (higher is better): Of 20 wall finishes, wainscoting and tile with a labelled material, how many get that material.
+- **Cost per run** (lower is better): Dollars for one run of the room step on the property.
+- **Tokens (input / output)**: Tokens the run used: input (what the model read) / output (what it wrote; "thinking" is the part spent reasoning, billed as output). "Not recorded" means the run kept no token counts; nothing is estimated.
+
+| Setup (combining model = material model unless stated) | Models (provider, effort, temperature) | Count error per room (MAE) ↓ | Exactly right ↑ | Over / under count (bias) | Right object types (F1) ↑ | The 8 rooms with several photos: error / exactly right / bias | Report lines with evidence (of 38), share in all 3 runs ↑ | Materials found (of 8) ↑ | Right material (of 20 labelled surfaces) ↑ | Cost per run ↓ | Tokens (input / output) |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| **Start · Sonnet combines rooms and re-checks materials (current)** | combines multi-photo rooms: `claude-sonnet-5-5` (Anthropic, effort low, temperature default); material re-check: `claude-sonnet-5-5` (Anthropic, effort low, temperature default) | 0.388 | 0.68 | +0.00 | 0.87 | 0.56 / 0.61 / -0.09 | 30, 0.79 | 8 | **17** | $0.314 | Combining: 159,105 in / 23,085 out, 27 calls (3 runs). Material re-check: not recorded |
+| sol · Sol combines rooms and re-checks materials | combines multi-photo rooms: `gpt-6.1-sol` (OpenAI, effort low, temperature default); material re-check: `gpt-6.1-sol` (OpenAI, effort low, temperature default) | 0.390 | 0.66 | +0.10 | 0.87 | 0.55 / 0.57 / +0.20 | 33, 0.82 | 8 | 14 | $0.263 | Combining: 106,029 in (62,976 cached) / 26,601 out (4,613 thinking), 27 calls. Material re-check: not recorded |
+| terra · Mid-price model (terra) combines rooms and re-checks materials | combines multi-photo rooms: `gpt-5.6-terra` (OpenAI, effort low, temperature default); material re-check: `gpt-5.6-terra` (OpenAI, effort low, temperature default) | 0.426 | 0.67 | +0.03 | 0.85 | 0.65 / 0.59 / -0.02 | 31, 0.79 | 8 | 12 | about $0.36 (repriced; see below) | Combining: 106,029 in (64,256 cached) / 46,385 out (26,591 thinking), 27 calls. Material re-check: not recorded |
+| luna · Luna (cheapest) combines rooms and re-checks materials | combines multi-photo rooms: `gpt-6-luna` (OpenAI, effort low, temperature default); material re-check: `gpt-6-luna` (OpenAI, effort low, temperature default) | 0.393 | 0.66 | +0.08 | 0.86 | 0.56 / 0.57 / +0.14 | 30, 0.79 | 8 | 14 | **$0.014** | Combining: 106,029 in (55,808 cached) / 31,061 out (13,193 thinking), 27 calls. Material re-check: not recorded |
+| luna + Sonnet · Luna combines rooms; Sonnet re-checks materials | combines multi-photo rooms: `gpt-6-luna` (OpenAI, effort low, temperature default); material re-check: `claude-sonnet-5-5` (Anthropic, effort low, temperature default) | 0.437 | 0.65 | +0.05 | 0.86 | 0.69 / 0.53 / +0.05 | 30, 0.79 | 8 | 16 | $0.157 | Combining: 106,029 in (88,960 cached) / 32,024 out (13,938 thinking), 27 calls. Material re-check: not recorded |
+| luna 5.6 · Older cheap model (gpt-5.6-luna) combines rooms and re-checks materials | combines multi-photo rooms: `gpt-5.6-luna` (OpenAI, effort low, temperature default); material re-check: `gpt-5.6-luna` (OpenAI, effort low, temperature default) | 0.401 | 0.67 | +0.05 | 0.86 | 0.59 / 0.59 / +0.04 | 30, 0.79 | 8 | 12 | $0.030 | Combining: 106,029 in (52,736 cached) / 30,574 out (12,224 thinking), 27 calls. Material re-check: not recorded |
 
 Paired bootstrap over rooms of the per-room count MAE (each room's mean absolute error over
 its labels, averaged over the repeats), candidate minus Sonnet: gpt-6.1-sol +0.016 [-0.024,
@@ -3680,14 +3854,30 @@ The harness's `citation_validity` and `rows_with_verified_citation` are repeat 1
 both are shown over the three repeats too, and the paired comparisons use the three-repeat
 values.
 
-| Model | effort | Bucket right, repeat 1 | mean of 3 | pass^3 | macro-F1, repeat 1 | Citations verified, repeat 1 / all 3 | Rows with a verified citation, repeat 1 / mean of 3 | Needs review, mean of 3 | Loop failures (of 138) | Cost per study (46 rows) | Seconds per row |
-|---|---|---|---|---|---|---|---|---|---|---|---|
-| **claude-sonnet-5-5** (re-run, baseline) | low | 0.717 | 0.696 | 0.652 | 0.704 | 0.942 / **0.964** | 0.913 / 0.942 | **0.43** | 0 | $1.282 | 5.1 |
-| claude-sonnet-5-5 (17.2) | low | 0.674 | 0.688 | 0.630 | 0.600 | 0.964 / 0.970 | 0.957 / 0.957 | 0.46 | 0 | $1.247 | 5.9 |
-| claude-opus-5-5 (17.2) | low | 0.696 | 0.703 | 0.696 | 0.541 | 0.959 / 0.982 | 1.000 / 1.000 | 0.36 | 0 | $1.919 | 9.1 |
-| gpt-6-luna (with 24's fix) | none | 0.674 | 0.652 | 0.630 | 0.522 | 0.914 / 0.946 | 0.935 / 0.957 | 0.55 | **0** | **$0.052** | 6.2 |
-| gpt-5.6-luna | none | 0.739 | **0.717** | 0.674 | 0.584 | 0.932 / 0.884 | 0.957 / 0.957 | 0.43 | 0 | $0.083 | 5.2 |
-| gpt-5.6-terra | none | 0.696 | 0.696 | 0.652 | 0.651 | 0.924 / 0.933 | 0.935 / 0.957 | 0.51 | 0 | $0.639 | 5.2 |
+**How to read this table.** Which is the cheapest model that classifies assets as well as the current one?
+
+- **Models**: the exact model id, its provider, the reasoning effort and the temperature as sent. "temperature default" means the model takes no temperature (reasoning models), so the provider's default applies.
+- **Reasoning effort**: How much the model was asked to think ('none' for OpenAI here: its tool calls refuse reasoning).
+- **Right tax class, run 1** (higher is better): Share of the engineer's 46 schedule lines put in the engineer's tax class (5, 7, 15 or 39 years), first run.
+- **Right tax class, average of 3 runs** (higher is better): The same share, averaged over three runs.
+- **Right in all 3 runs** (higher is better): Share of lines in the right class on every run (consistency).
+- **Balanced score across classes (macro-F1), run 1** (higher is better): Accuracy averaged over the four tax classes so rare classes count as much as common ones; first run.
+- **IRS citations that check out, run 1 / all 3 runs** (higher is better): Share of the classifier's IRS quotes whose text is found on the cited passage.
+- **Lines with a checked citation, run 1 / average of 3** (higher is better): Share of lines carrying at least one IRS citation that checks out.
+- **Sent to the engineer for review (average of 3)** (lower is better): Share of lines the classifier flags for the engineer to check; less is less work.
+- **Failed answers (of 138)** (lower is better): Answers (46 lines x 3 runs) where the classifier failed and the line would fall back to 39 years.
+- **Cost for the 46 lines** (lower is better): Model spend to classify the 46 lines once.
+- **Seconds per line** (lower is better): Time to classify one line.
+- **Tokens (input / output)**: Tokens the run used: input (what the model read) / output (what it wrote; "thinking" is the part spent reasoning, billed as output). "Not recorded" means the run kept no token counts; nothing is estimated.
+
+| Model | Models (provider, effort, temperature) | Reasoning effort | Right tax class, run 1 ↑ | Right tax class, average of 3 runs ↑ | Right in all 3 runs ↑ | Balanced score across classes (macro-F1), run 1 ↑ | IRS citations that check out, run 1 / all 3 runs ↑ | Lines with a checked citation, run 1 / average of 3 ↑ | Sent to the engineer for review (average of 3) ↓ | Failed answers (of 138) ↓ | Cost for the 46 lines ↓ | Seconds per line ↓ | Tokens (input / output) |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| **Sonnet · Claude Sonnet 5.5, re-run on current code (current choice)** | classifies each asset (tool loop with IRS search): `claude-sonnet-5-5` (Anthropic, effort low, temperature default) | low | 0.717 | 0.696 | 0.652 | 0.704 | 0.942 / **0.964** | 0.913 / 0.942 | **0.43** | 0 | $1.282 | 5.1 | 1,613,931 in / 61,829 out, 328 calls (3 runs of 46 lines; thinking not recorded) |
+| Sonnet (sec. 17) · Claude Sonnet 5.5, earlier run (section 17) | classifies each asset (tool loop with IRS search): `claude-sonnet-5-5` (Anthropic, effort low, temperature default) | low | 0.674 | 0.688 | 0.630 | 0.600 | 0.964 / 0.970 | 0.957 / 0.957 | 0.46 | 0 | $1.247 | 5.9 | 1,554,483 in / 63,280 out, 320 calls (3 runs of 46 lines; thinking not recorded) |
+| Opus (sec. 17) · Claude Opus 5.5, earlier run (section 17) | classifies each asset (tool loop with IRS search): `claude-opus-5-5` (Anthropic, effort low, temperature default) | low | 0.696 | 0.703 | 0.696 | 0.541 | 0.959 / 0.982 | 1.000 / 1.000 | 0.36 | 0 | $1.919 | 9.1 | 1,113,189 in / 65,219 out, 276 calls (3 runs of 46 lines; thinking not recorded) |
+| luna · OpenAI gpt-6-luna, after the class-code length fix (section 24) | classifies each asset (tool loop with IRS search): `gpt-6-luna` (OpenAI, effort none, temperature default) | none | 0.674 | 0.652 | 0.630 | 0.522 | 0.914 / 0.946 | 0.935 / 0.957 | 0.55 | **0** | **$0.052** | 6.2 | 1,356,472 in / 42,272 out, 427 calls (3 runs of 46 lines; thinking not recorded) |
+| luna 5.6 · OpenAI gpt-5.6-luna (older cheap model) | classifies each asset (tool loop with IRS search): `gpt-5.6-luna` (OpenAI, effort none, temperature default) | none | 0.739 | **0.717** | 0.674 | 0.584 | 0.932 / 0.884 | 0.957 / 0.957 | 0.43 | 0 | $0.083 | 5.2 | 995,702 in / 40,601 out, 340 calls (3 runs of 46 lines; thinking not recorded) |
+| terra · OpenAI gpt-5.6-terra (mid-price model) | classifies each asset (tool loop with IRS search): `gpt-5.6-terra` (OpenAI, effort none, temperature default) | none | 0.696 | 0.696 | 0.652 | 0.651 | 0.924 / 0.933 | 0.935 / 0.957 | 0.51 | 0 | $0.639 | 5.2 | 730,459 in / 37,966 out, 290 calls (3 runs of 46 lines; thinking not recorded) |
 
 Paired over the 46 rows, candidate minus the Sonnet re-run (bucket right, rows with a
 verified citation and needs review as per-row means over the repeats; citation validity as
@@ -4359,12 +4549,33 @@ The API and `process_assets` fixes (the hash embedder of these steps never held 
 `CLASSIFY_CONCURRENCY=4`, `PHOTO_CONCURRENCY=5`, `LOCALIZER_CONCURRENCY=3`, `DB_POOL_SIZE=5`),
 one worker process:
 
-| Run | Studies | Completed | Held failed | Failed attempts | Makespan (min, real) | Studies/hour | Run p50 (s) | Run p95 (s) | Appraisal gate p95 (s) | Assets gate p95 (s) | Activity slots max / backlog max | Schedule-to-start <= 1 s | PG conns max / idle in tx | Worker CPU % p95 / max | Worker RSS MB | Cost / completed study |
-|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
-| c-s1 | 1 | 1 | 0 | 0 | 10.2 | 5.9 | 609 | 609 | 130 | 584 | 7 / 0 | 100% | 7 / 1 | 20 / 29 | 415 | $6.07 |
-| c-s5 | 5 | 5 | 0 | 0 | 45.8 | 6.6 | 2,745 | 2,746 | 288 | 2,737 | 32 / 0 | 100% | 11 / 3 | 21 / 51 | 463 | $6.07 |
-| c-s10 | 10 | 10 | 0 | 0 | 90.9 | 6.6 | 5,451 | 5,455 | 489 | 5,435 | 62 / 0 | 100% | 11 / 5 | 24 / 67 | 430 | $6.07 |
-| c-s25 | 25 | 25 | 0 | 0 | 226.9 | 6.6 | 13,590 | 13,602 | 1,545 | 13,593 | 100 / 102 | 20% | 11 / 6 | 25 / 108 | 537 | $6.07 |
+**How to read this table.** How many studies an hour can one worker process at the production settings?
+
+- **Models**: the exact model id, its provider, the reasoning effort and the temperature as sent. "temperature default" means the model takes no temperature (reasoning models), so the provider's default applies.
+- **Studies started at once**: How many studies were started at the same moment against one worker process.
+- **Finished** (higher is better): Studies that finished.
+- **Stuck after a failure** (lower is better): Studies held at a failed step.
+- **Failed step attempts** (lower is better): Workflow step attempts that failed and were retried.
+- **Time for all to finish (minutes)** (lower is better): Real minutes from the start until the last study finished.
+- **Studies per hour** (higher is better): Finished studies per hour for one worker process, in real time.
+- **Typical study time (s, median)** (lower is better): Seconds from start to finish for the median study.
+- **Slow study time (s, 95th percentile)** (lower is better): Seconds from start to finish that 95 % of studies beat.
+- **Wait for the appraisal review (s, 95th percentile)** (lower is better): Seconds from start until the appraisal review opens, 95th percentile across studies.
+- **Wait for the assets review (s, 95th percentile)** (lower is better): Seconds from start until the assets review opens, 95th percentile across studies.
+- **Worker job slots in use, most / jobs waiting, most** (lower is better): Most of the worker's 100 job slots in use at once, and the longest queue of jobs waiting for a slot.
+- **Jobs started within 1 second** (higher is better): Share of workflow jobs that started within 1 second of being scheduled.
+- **Database connections, most / idle mid-transaction** (lower is better): Most database connections open at once, and most left idle inside an open transaction.
+- **Worker processor use (% of one core, 95th percentile / most)** (lower is better): How busy the worker's processor was (100 % = one full core).
+- **Worker memory (MB)** (lower is better): Memory the worker process used.
+- **Recorded cost per study (fake)**: Spend the fake providers recorded per study, priced from the live study's tokens; not real spend. Equal across rows means nothing was retried.
+- **Tokens (input / output)**: Tokens the run used: input (what the model read) / output (what it wrote; "thinking" is the part spent reasoning, billed as output). "Not recorded" means the run kept no token counts; nothing is estimated.
+
+| Load test run (settings, studies at once) | Models (provider, effort, temperature) | Studies started at once | Finished ↑ | Stuck after a failure ↓ | Failed step attempts ↓ | Time for all to finish (minutes) ↓ | Studies per hour ↑ | Typical study time (s, median) ↓ | Slow study time (s, 95th percentile) ↓ | Wait for the appraisal review (s, 95th percentile) ↓ | Wait for the assets review (s, 95th percentile) ↓ | Worker job slots in use, most / jobs waiting, most ↓ | Jobs started within 1 second ↑ | Database connections, most / idle mid-transaction ↓ | Worker processor use (% of one core, 95th percentile / most) ↓ | Worker memory (MB) ↓ | Recorded cost per study (fake) | Tokens (input / output) |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| c-s1 · Production settings (4 AI calls at once), 1 study | stand in for every AI call, SAM 3 and Azure DI: `fake providers timed like the live study (no real AI call)` (none (test fakes)) | 1 | 1 | 0 | 0 | 10.2 | 5.9 | 609 | 609 | 130 | 584 | 7 / 0 | 100% | 7 / 1 | 20 / 29 | 415 | $6.07 | None real (fake providers, no AI call). The fakes report the live study's average: about 2,259,205 in / 141,897 out per study (550 calls) |
+| c-s5 · Production settings, 5 studies at once | stand in for every AI call, SAM 3 and Azure DI: `fake providers timed like the live study (no real AI call)` (none (test fakes)) | 5 | 5 | 0 | 0 | 45.8 | 6.6 | 2,745 | 2,746 | 288 | 2,737 | 32 / 0 | 100% | 11 / 3 | 21 / 51 | 463 | $6.07 | None real (fake providers, no AI call). The fakes report the live study's average: about 2,259,205 in / 141,897 out per study (550 calls) |
+| c-s10 · Production settings, 10 studies at once | stand in for every AI call, SAM 3 and Azure DI: `fake providers timed like the live study (no real AI call)` (none (test fakes)) | 10 | 10 | 0 | 0 | 90.9 | 6.6 | 5,451 | 5,455 | 489 | 5,435 | 62 / 0 | 100% | 11 / 5 | 24 / 67 | 430 | $6.07 | None real (fake providers, no AI call). The fakes report the live study's average: about 2,259,205 in / 141,897 out per study (550 calls) |
+| c-s25 · Production settings, 25 studies at once | stand in for every AI call, SAM 3 and Azure DI: `fake providers timed like the live study (no real AI call)` (none (test fakes)) | 25 | 25 | 0 | 0 | 226.9 | 6.6 | 13,590 | 13,602 | 1,545 | 13,593 | 100 / 102 | 20% | 11 / 6 | 25 / 108 | 537 | $6.07 | None real (fake providers, no AI call). The fakes report the live study's average: about 2,259,205 in / 141,897 out per study (550 calls) |
 
 API latency in the same steps, with the tuned steps of 32.6 for comparison (the clients poll
 every 0.5 s at scale 0.1, so the API sees ten times the real polling rate of N engineers):
@@ -4409,14 +4620,35 @@ Reading:
 and `l12` also emulate our accounts' rate limits (`LOAD_PROVIDER_LIMITS`, section 3 of
 LOAD_TESTING.md); `h` and `l12` run at scale 0.5 instead of 0.1:
 
-| Run | Studies | Completed | Held failed | Failed attempts | Makespan (min, real) | Studies/hour | Run p50 (s) | Run p95 (s) | Appraisal gate p95 (s) | Assets gate p95 (s) | Activity slots max / backlog max | Schedule-to-start <= 1 s | PG conns max / idle in tx | Worker CPU % p95 / max | Worker RSS MB | Cost / completed study |
-|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
-| b-s5 | 5 | 5 | 0 | 0 | 5.7 | 52.3 | 333 | 344 | 123 | 282 | 45 / 0 | 100% | 11 / 4 | 58 / 58 | 473 | $6.07 |
-| b-s10 | 10 | 10 | 0 | 0 | 11.1 | 54.2 | 653 | 664 | 145 | 429 | 87 / 0 | 100% | 11 / 5 | 78 / 86 | 508 | $6.07 |
-| b-s25 | 25 | 25 | 0 | 0 | 26.9 | 55.7 | 1,586 | 1,608 | 290 | 979 | 100 / 123 | 56% | 11 / 7 | 102 / 104 | 519 | $6.07 |
-| blim-s25 | 25 | 25 | 0 | 0 | 26.9 | 55.7 | 1,586 | 1,606 | 282 | 965 | 100 / 129 | 53% | 11 / 6 | 100 / 103 | 515 | $6.07 |
-| h-s25 | 25 | 25 | 0 | 0 | 26.1 | 57.4 | 1,536 | 1,566 | 208 | 848 | 100 / 125 | 41% | 12 / 5 | 39 / 81 | 532 | $6.15 |
-| l12-s25 | 25 | 25 | 0 | 0 | 14.4 | 104.0 | 854 | 864 | 218 | 858 | 100 / 126 | 25% | 11 / 5 | 42 / 88 | 535 | $6.15 |
+**How to read this table.** How far does raising the number of AI calls at once raise one worker's capacity?
+
+- **Models**: the exact model id, its provider, the reasoning effort and the temperature as sent. "temperature default" means the model takes no temperature (reasoning models), so the provider's default applies.
+- **Studies started at once**: How many studies were started at the same moment against one worker process.
+- **Finished** (higher is better): Studies that finished.
+- **Stuck after a failure** (lower is better): Studies held at a failed step.
+- **Failed step attempts** (lower is better): Workflow step attempts that failed and were retried.
+- **Time for all to finish (minutes)** (lower is better): Real minutes from the start until the last study finished.
+- **Studies per hour** (higher is better): Finished studies per hour for one worker process, in real time.
+- **Typical study time (s, median)** (lower is better): Seconds from start to finish for the median study.
+- **Slow study time (s, 95th percentile)** (lower is better): Seconds from start to finish that 95 % of studies beat.
+- **Wait for the appraisal review (s, 95th percentile)** (lower is better): Seconds from start until the appraisal review opens, 95th percentile across studies.
+- **Wait for the assets review (s, 95th percentile)** (lower is better): Seconds from start until the assets review opens, 95th percentile across studies.
+- **Worker job slots in use, most / jobs waiting, most** (lower is better): Most of the worker's 100 job slots in use at once, and the longest queue of jobs waiting for a slot.
+- **Jobs started within 1 second** (higher is better): Share of workflow jobs that started within 1 second of being scheduled.
+- **Database connections, most / idle mid-transaction** (lower is better): Most database connections open at once, and most left idle inside an open transaction.
+- **Worker processor use (% of one core, 95th percentile / most)** (lower is better): How busy the worker's processor was (100 % = one full core).
+- **Worker memory (MB)** (lower is better): Memory the worker process used.
+- **Recorded cost per study (fake)**: Spend the fake providers recorded per study, priced from the live study's tokens; not real spend. Equal across rows means nothing was retried.
+- **Tokens (input / output)**: Tokens the run used: input (what the model read) / output (what it wrote; "thinking" is the part spent reasoning, billed as output). "Not recorded" means the run kept no token counts; nothing is estimated.
+
+| Load test run (settings, studies at once) | Models (provider, effort, temperature) | Studies started at once | Finished ↑ | Stuck after a failure ↓ | Failed step attempts ↓ | Time for all to finish (minutes) ↓ | Studies per hour ↑ | Typical study time (s, median) ↓ | Slow study time (s, 95th percentile) ↓ | Wait for the appraisal review (s, 95th percentile) ↓ | Wait for the assets review (s, 95th percentile) ↓ | Worker job slots in use, most / jobs waiting, most ↓ | Jobs started within 1 second ↑ | Database connections, most / idle mid-transaction ↓ | Worker processor use (% of one core, 95th percentile / most) ↓ | Worker memory (MB) ↓ | Recorded cost per study (fake) | Tokens (input / output) |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| b-s5 · Tuned: 64 AI calls and 16 classifier calls at once, 5 studies | stand in for every AI call, SAM 3 and Azure DI: `fake providers timed like the live study (no real AI call)` (none (test fakes)) | 5 | 5 | 0 | 0 | 5.7 | 52.3 | 333 | 344 | 123 | 282 | 45 / 0 | 100% | 11 / 4 | 58 / 58 | 473 | $6.07 | None real (fake providers, no AI call). The fakes report the live study's average: about 2,259,205 in / 141,897 out per study (550 calls) |
+| b-s10 · Tuned, 10 studies at once | stand in for every AI call, SAM 3 and Azure DI: `fake providers timed like the live study (no real AI call)` (none (test fakes)) | 10 | 10 | 0 | 0 | 11.1 | 54.2 | 653 | 664 | 145 | 429 | 87 / 0 | 100% | 11 / 5 | 78 / 86 | 508 | $6.07 | None real (fake providers, no AI call). The fakes report the live study's average: about 2,259,205 in / 141,897 out per study (550 calls) |
+| b-s25 · Tuned, 25 studies at once | stand in for every AI call, SAM 3 and Azure DI: `fake providers timed like the live study (no real AI call)` (none (test fakes)) | 25 | 25 | 0 | 0 | 26.9 | 55.7 | 1,586 | 1,608 | 290 | 979 | 100 / 123 | 56% | 11 / 7 | 102 / 104 | 519 | $6.07 | None real (fake providers, no AI call). The fakes report the live study's average: about 2,259,205 in / 141,897 out per study (550 calls) |
+| blim-s25 · Tuned, our providers' rate limits simulated, 25 studies | stand in for every AI call, SAM 3 and Azure DI: `fake providers timed like the live study (no real AI call)` (none (test fakes)) | 25 | 25 | 0 | 0 | 26.9 | 55.7 | 1,586 | 1,606 | 282 | 965 | 100 / 129 | 53% | 11 / 6 | 100 / 103 | 515 | $6.07 | None real (fake providers, no AI call). The fakes report the live study's average: about 2,259,205 in / 141,897 out per study (550 calls) |
+| h-s25 · Tuned, rate limits simulated, test clock sped up less (x2), 25 studies | stand in for every AI call, SAM 3 and Azure DI: `fake providers timed like the live study (no real AI call)` (none (test fakes)) | 25 | 25 | 0 | 0 | 26.1 | 57.4 | 1,536 | 1,566 | 208 | 848 | 100 / 125 | 41% | 12 / 5 | 39 / 81 | 532 | $6.15 | None real (fake providers, no AI call). The fakes report the live study's average: about 2,259,205 in / 141,897 out per study (550 calls) |
+| l12-s25 · Tuned plus 12 SAM 3 jobs at once, rate limits simulated, 25 studies (proposed for launch) | stand in for every AI call, SAM 3 and Azure DI: `fake providers timed like the live study (no real AI call)` (none (test fakes)) | 25 | 25 | 0 | 0 | 14.4 | 104.0 | 854 | 864 | 218 | 858 | 100 / 126 | 25% | 11 / 5 | 42 / 88 | 535 | $6.15 | None real (fake providers, no AI call). The fakes report the live study's average: about 2,259,205 in / 141,897 out per study (550 calls) |
 
 Reading:
 
@@ -4572,10 +4804,17 @@ per-engineer limit is 60 mutations a minute (`RATE_LIMIT_MUTATIONS_PER_MIN`, S1)
 at 1 study as at 25; the system answered each request in about 15 ms. Five engineers
 uploading at once, the limit only changed (`upload-only` steps, scale 1.0):
 
-| Mutation limit per engineer | Upload of 53 documents (p50 / max) | 429s |
-|---|---|---|
-| 60 a minute (default) | 61.5 s / 61.5 s | 5 |
-| 300 a minute | 2.9 s / 2.9 s | 0 |
+**How to read this table.** Does the per-engineer request limit slow down uploading a study?
+
+- **Models**: the exact model id, its provider, the reasoning effort and the temperature as sent. "temperature default" means the model takes no temperature (reasoning models), so the provider's default applies.
+- **Upload of one study's 53 files (median / worst)** (lower is better): Seconds to upload one study's 53 files, median and worst of five engineers uploading at once.
+- **Requests refused** (lower is better): Requests the limit refused (HTTP 429) during the uploads.
+- **Tokens (input / output)**: Tokens the run used: input (what the model read) / output (what it wrote; "thinking" is the part spent reasoning, billed as output). "Not recorded" means the run kept no token counts; nothing is estimated.
+
+| Write-request limit per engineer | Models (provider, effort, temperature) | Upload of one study's 53 files (median / worst) ↓ | Requests refused ↓ | Tokens (input / output) |
+|---|---|---|---|---|
+| 60/min · Allow 60 write requests a minute per engineer (current default) | No AI model | 61.5 s / 61.5 s | 5 | None (no AI model) |
+| 300/min · Allow 300 write requests a minute per engineer (proposed) | No AI model | 2.9 s / 2.9 s | 0 | None (no AI model) |
 
 Setting `RATE_LIMIT_MUTATIONS_PER_MIN=300` keeps the abuse guard (a client is still held to
 5 a second) and lets a whole study upload without throttling. Not changed here: it is the
@@ -4835,10 +5074,17 @@ boxes takes the header over the column; a lower-case sentence option wraps to th
 page, and an option printed as text (UAD 3.6) must be in the quote and not on a line with
 boxes.
 
-| Checked option found among the checked boxes' labels | Geometry | Azure DI key-value pairs |
-|---|---|---|
-| client (24 checkbox fields) | 0.958 | 0.875 |
-| synthetic_1004 (657) | 0.985 | 0.849 |
+**How to read this table.** How should Basis tell which option a ticked checkbox stands for?
+
+- **Models**: the exact model id, its provider, the reasoning effort and the temperature as sent. "temperature default" means the model takes no temperature (reasoning models), so the provider's default applies.
+- **Client appraisal (24 checkbox fields)** (higher is better): Share of checkbox fields whose ticked option is found among the ticked boxes' labels, on the client's appraisal.
+- **Generated test appraisals (657 checkbox fields)** (higher is better): The same share on the generated standard appraisal forms.
+- **Tokens (input / output)**: Tokens the run used: input (what the model read) / output (what it wrote; "thinking" is the part spent reasoning, billed as output). "Not recorded" means the run kept no token counts; nothing is estimated.
+
+| How checkbox labels are found | Models (provider, effort, temperature) | Client appraisal (24 checkbox fields) ↑ | Generated test appraisals (657 checkbox fields) ↑ | Tokens (input / output) |
+|---|---|---|---|---|
+| geometry · Label = the words right after each box on the page (Basis's rule; production) | page words and checkbox positions: `prebuilt-layout (Azure Document Intelligence)` (Azure) | 0.958 | 0.985 | None (no AI model); Azure's page reading has no tokens |
+| Azure pairs · Azure's own pairing of each box with a label | key-value pairs add-on: `prebuilt-layout (Azure Document Intelligence)` (Azure) | 0.875 | 0.849 | None (no AI model); Azure's page reading has no tokens |
 
 ### 33.5 Method and model sweep
 
@@ -4867,14 +5113,39 @@ does nothing for UAD 3.6.
 
 16-document subset (both clients, 6 GSE, 8 synthetic including 2 scans), all fields:
 
-| System | Model | Accuracy | Wrong | Missed | Critical | $ / doc |
-|---|---|---|---|---|---|---|
-| production | luna | 0.825 | 147 | 140 | 0.948 | 0.002 |
-| checkbox_context | luna / Haiku / Sonnet / Opus / Sol | 0.884 / 0.876 / 0.876 / 0.909 / 0.911 | | | | 0.002-0.160 |
-| llm_all | luna / Haiku / Sonnet / Sol | 0.843 / 0.866 / 0.903 / **0.940** | 24 / 44 / 34 / 33 | | 0.948 / 0.833 / 0.990 / **1.000** | 0.004-0.110 |
-| vote llm_all -> cc, luna (2 runs) | | 0.910 / 0.900 | 48 | 51 | 0.969 | 0.006 |
-| vote llm_all Sonnet -> cc Opus (2 runs) | | 0.928 / 0.927 | 60 | 27 | 0.958 | 0.270 |
-| vote llm_all Sol -> cc Sol | | 0.934 | 40 | 15 | 0.969 | 0.12 |
+**How to read this table.** Which method and model read an appraisal's fields most accurately?
+
+- **Models**: the exact model id, its provider, the reasoning effort and the temperature as sent. "temperature default" means the model takes no temperature (reasoning models), so the provider's default applies.
+- **Model**: The short model name; the Models column gives the exact id.
+- **Fields right (incl. correctly blank)** (higher is better): Share of all 2,113 checked field slots on 16 appraisals read right, a correctly left-blank field counting as right.
+- **Wrong values** (lower is better): Fields given a value that is the wrong one (blanks not counted).
+- **Missed values** (lower is better): Fields printed on the form but left blank.
+- **Critical fields right** (higher is better): The same share on the 96 critical field slots (6 fields x 16 appraisals); 1.000 means all right.
+- **AI cost per appraisal** (lower is better): Model spend per appraisal at list prices; Azure's page reading not included.
+- **Tokens (input / output)**: Tokens the run used: input (what the model read) / output (what it wrote; "thinking" is the part spent reasoning, billed as output). "Not recorded" means the run kept no token counts; nothing is estimated.
+
+| Method | Models (provider, effort, temperature) | Model | Fields right (incl. correctly blank) ↑ | Wrong values ↓ | Missed values ↓ | Critical fields right ↑ | AI cost per appraisal ↓ | Tokens (input / output) |
+|---|---|---|---|---|---|---|---|---|
+| **one read · One AI call reads the whole appraisal, quoting every value from the page (production)** | reads page text and checkboxes: `prebuilt-layout (Azure Document Intelligence)` (Azure); reads the whole appraisal in one call: `gpt-6.1-sol` (OpenAI, effort low, temperature default) | Sol | **0.940** | 33 |  | **1.000** | 0.072 | 218,360 in / 72,072 out (246 thinking), 16 calls |
+| vote sol · Sol reads everything, then a second sol call fills its blanks | reads page text and checkboxes: `prebuilt-layout (Azure Document Intelligence)` (Azure); reads the whole appraisal in one call: `gpt-6.1-sol` (OpenAI, effort low, temperature default); fills missing fields, seeing each checkbox's label: `gpt-6.1-sol` (OpenAI, effort low, temperature default) | Sol | 0.934 | 40 | 15 | 0.969 | 0.12 | 423,996 in / 108,860 out (335 thinking), 32 calls |
+| vote Sonnet + Opus · Sonnet reads everything, then Opus fills its blanks (run twice) | reads page text and checkboxes: `prebuilt-layout (Azure Document Intelligence)` (Azure); reads the whole appraisal in one call: `claude-sonnet-5-5` (Anthropic, effort low, temperature default); fills missing fields, seeing each checkbox's label: `claude-opus-5-5` (Anthropic, effort low, temperature default) | Sonnet, Opus | 0.928 / 0.927 | 60 | 27 | 0.958 | 0.270 | Run 1: 703,296 in / 163,423 out; run 2: 703,296 / 163,840; 32 calls each (no thinking reported) |
+| checkbox labels · Azure's form reader, then one sol call that also sees each checkbox's label | reads page text and checkboxes: `prebuilt-layout (Azure Document Intelligence)` (Azure); fills missing fields, seeing each checkbox's label: `gpt-6.1-sol` (OpenAI, effort low, temperature default) | Sol | 0.911 |  |  |  | 0.049 | 205,636 in / 36,788 out (89 thinking), 16 calls |
+| checkbox labels · Azure's form reader, then one Opus call that also sees each checkbox's label | reads page text and checkboxes: `prebuilt-layout (Azure Document Intelligence)` (Azure); fills missing fields, seeing each checkbox's label: `claude-opus-5-5` (Anthropic, effort low, temperature default) | Opus | 0.909 |  |  |  | 0.160 | 341,893 in / 59,851 out (no thinking reported), 16 calls |
+| vote luna · Luna reads everything, then a second luna call fills its blanks (run twice) | reads page text and checkboxes: `prebuilt-layout (Azure Document Intelligence)` (Azure); reads the whole appraisal in one call: `gpt-6-luna` (OpenAI, effort low, temperature default); fills missing fields, seeing each checkbox's label: `gpt-6-luna` (OpenAI, effort low, temperature default) | luna | 0.910 / 0.900 | 48 | 51 | 0.969 | 0.006 | Run 1: 423,996 in / 108,618 out (5,606 thinking); run 2: 423,996 / 112,604 (6,884); 32 calls each |
+| one read · One Sonnet call reads the whole appraisal, quoting every value | reads page text and checkboxes: `prebuilt-layout (Azure Document Intelligence)` (Azure); reads the whole appraisal in one call: `claude-sonnet-5-5` (Anthropic, effort low, temperature default) | Sonnet | 0.903 | 34 |  | 0.990 | 0.110 | 361,403 in / 103,572 out (no thinking reported), 16 calls |
+| checkbox labels · Azure's form reader, then one luna call that also sees each checkbox's label | reads page text and checkboxes: `prebuilt-layout (Azure Document Intelligence)` (Azure); fills missing fields, seeing each checkbox's label: `gpt-6-luna` (OpenAI, effort low, temperature default) | luna | 0.884 |  |  |  | 0.003 | 205,636 in / 40,686 out (3,312 thinking), 16 calls |
+| checkbox labels · Azure's form reader, then one Haiku call that also sees each checkbox's label | reads page text and checkboxes: `prebuilt-layout (Azure Document Intelligence)` (Azure); fills missing fields, seeing each checkbox's label: `claude-haiku-5-5` (Anthropic, effort low, temperature default) | Haiku | 0.876 |  |  |  |  | Not recorded (run records not collected) |
+| checkbox labels · Azure's form reader, then one Sonnet call that also sees each checkbox's label | reads page text and checkboxes: `prebuilt-layout (Azure Document Intelligence)` (Azure); fills missing fields, seeing each checkbox's label: `claude-sonnet-5-5` (Anthropic, effort low, temperature default) | Sonnet | 0.876 |  |  |  |  | Not recorded (run records not collected) |
+| one read · One Haiku call reads the whole appraisal, quoting every value | reads page text and checkboxes: `prebuilt-layout (Azure Document Intelligence)` (Azure); reads the whole appraisal in one call: `claude-haiku-5-5` (Anthropic, effort low, temperature default) | Haiku | 0.866 | 44 |  | 0.833 |  | 361,403 in / 170,693 out (63,105 thinking), 16 calls |
+| one read · One luna call reads the whole appraisal, quoting every value | reads page text and checkboxes: `prebuilt-layout (Azure Document Intelligence)` (Azure); reads the whole appraisal in one call: `gpt-6-luna` (OpenAI, effort low, temperature default) | luna | 0.843 | 24 |  | 0.948 | 0.004 | 218,360 in / 67,932 out (2,294 thinking), 16 calls |
+| old pipeline · Old pipeline: Azure's form reader, then luna fills only the fields it missed | reads page text and checkboxes: `prebuilt-layout (Azure Document Intelligence)` (Azure); fills the missing fields: `gpt-6-luna` (OpenAI, effort low, temperature default) | luna | 0.825 | 147 | 140 | 0.948 | 0.002 | 190,376 in / 42,302 out (5,171 thinking), 16 calls |
+
+Split on 2026-11-02 from the grouped table this section first printed (one row per method,
+the models' figures separated by `/`): every figure is that table's, and a per-document cost is
+the run's recorded total over its 16 appraisals (Sol $1.157, Sonnet $1.759, Opus with checkbox
+labels $2.565, Sol with checkbox labels $0.779, luna with checkbox labels $0.041, luna $0.056);
+the Haiku runs' and Sonnet-with-checkbox-labels' costs were not collected. Blank cells were not
+scored per model in this table.
 
 Sol's single grounded call has the best overall score, the fewest wrong values and every
 critical field right; votes fill its misses (44 to 15) but added spurious values, mostly the
@@ -5027,12 +5298,20 @@ low, the most accurate single method of 33.5. The single repeat 33.11 asked for 
   differences are the derived site-area fields (13 more correct on the 9 documents, 20 on the
   15, none wrong).
 
-| replay, gpt-6.1-sol low | documents | headline accuracy | spurious |
-|---|---|---|---|
-| `llm_all`, units description as recorded (predictions identical to the 33.9 run) | 15 of 16 | 0.953 (1,423 / 1,493) | 7 |
-| `production`, units description as recorded | 15 of 16 | 0.967 (1,443 / 1,493) | 7 |
-| `llm_all`, this commit | 9 of 16 | 0.979 (1,054 / 1,077) | 5 |
-| `production`, this commit | 9 of 16 | 0.991 (1,067 / 1,077) | 5 |
+**How to read this table.** Does the production code read appraisals as well as the sweep's winning method?
+
+- **Models**: the exact model id, its provider, the reasoning effort and the temperature as sent. "temperature default" means the model takes no temperature (reasoning models), so the provider's default applies.
+- **Appraisals replayed (of 16)**: How many of the 16 appraisals had a matching recorded call to replay with no network.
+- **Printed fields read right** (higher is better): Share of the fields printed on the form read with the right value (right / printed in brackets).
+- **Invented values** (lower is better): Values returned for fields the form leaves blank.
+- **Tokens (input / output)**: Tokens the run used: input (what the model read) / output (what it wrote; "thinking" is the part spent reasoning, billed as output). "Not recorded" means the run kept no token counts; nothing is estimated.
+
+| Replay of recorded sol calls | Models (provider, effort, temperature) | Appraisals replayed (of 16) | Printed fields read right ↑ | Invented values ↓ | Tokens (input / output) |
+|---|---|---|---|---|---|
+| one read, as recorded · The sweep's single AI read, units caption as first recorded | page text and checkboxes (recorded, replayed): `prebuilt-layout (Azure Document Intelligence)` (Azure); reads the appraisal (recorded calls replayed, no new spend): `gpt-6.1-sol` (OpenAI, effort low, temperature default) | 15 of 16 | 0.953 (1,423 / 1,493) | 7 | Recorded calls: 209,157 in / 63,789 out (644 thinking), 15 calls; no new spend |
+| production, as recorded · Production path (AI read, highlight rules, derived site area), same replay | page text and checkboxes (recorded, replayed): `prebuilt-layout (Azure Document Intelligence)` (Azure); reads the appraisal (recorded calls replayed, no new spend): `gpt-6.1-sol` (OpenAI, effort low, temperature default) | 15 of 16 | 0.967 (1,443 / 1,493) | 7 | Same 15 recorded calls: 209,157 in / 63,789 out (644 thinking); no new spend |
+| one read, now · The sweep's single AI read on current code (9 appraisals match) | page text and checkboxes (recorded, replayed): `prebuilt-layout (Azure Document Intelligence)` (Azure); reads the appraisal (recorded calls replayed, no new spend): `gpt-6.1-sol` (OpenAI, effort low, temperature default) | 9 of 16 | 0.979 (1,054 / 1,077) | 5 | Recorded calls: 109,312 in / 42,936 out (101 thinking), 9 calls; no new spend |
+| production, now · Production path on current code (9 appraisals match) | page text and checkboxes (recorded, replayed): `prebuilt-layout (Azure Document Intelligence)` (Azure); reads the appraisal (recorded calls replayed, no new spend): `gpt-6.1-sol` (OpenAI, effort low, temperature default) | 9 of 16 | 0.991 (1,067 / 1,077) | 5 | Same 9 recorded calls: 109,312 in / 42,936 out (101 thinking); no new spend |
 
 The 33.9 run scored 0.951 (1,420 / 1,493, 10 spurious) on the truth of that day; its
 predictions are unchanged, and the GSE truth has been revised since (scored on the truth of
@@ -5305,24 +5584,40 @@ result. Every input was present in the extraction (GLA, site area, state from Az
 stories, basement area and finish, garage line and cars, room counts and the effective
 date from the model fallback), so no fallback was used. Classification unchanged.
 
-| | before | after |
-|---|---|---|
-| assets priced | 249 of 376 | **283 of 376** |
-| `cross:COST_NEEDS_QUANTITY` | 49 | **15** (driveway 6, sidewalk 3, fence 2, pads 2, retaining wall 1, patio 1) |
-| `cross:COST_ROW_MISSING` | 78 | 78 |
-| priced total | 1.00 | 1.33 x |
-| priced total / engineer's basis | 0.32 | 0.42 |
-| engineer rows evidenced / bucket right | 37 / 26 | 37 / 26 (unchanged) |
+**How to read this table.** Does measuring areas from the appraisal let Basis price more of the assets?
+
+- **Models**: the exact model id, its provider, the reasoning effort and the temperature as sent. "temperature default" means the model takes no temperature (reasoning models), so the provider's default applies.
+- **Assets with a price (of 376)** (higher is better): Assets of the stored study that got a cost.
+- **Assets missing a measurement** (lower is better): Assets left unpriced because no quantity was available (in brackets: which ones).
+- **Assets with no cost-book line** (lower is better): Assets with no matching line in the cost table.
+- **Priced total (before = 1.00)**: Total priced dollars relative to before.
+- **Priced total / engineer's basis**: Priced total as a share of the engineer's cost basis (replacement cost against allocated basis, so not expected to be 1).
+- **Report lines found / in the right tax class** (higher is better): Engineer's report lines with our assets, and of those, the ones in the engineer's tax class.
+- **Tokens (input / output)**: Tokens the run used: input (what the model read) / output (what it wrote; "thinking" is the part spent reasoning, billed as output). "Not recorded" means the run kept no token counts; nothing is estimated.
+
+| How quantities are measured | Models (provider, effort, temperature) | Assets with a price (of 376) ↑ | Assets missing a measurement ↓ | Assets with no cost-book line ↓ | Priced total (before = 1.00) | Priced total / engineer's basis | Report lines found / in the right tax class ↑ | Tokens (input / output) |
+|---|---|---|---|---|---|---|---|---|
+| before · Rooms priced on a typical area; roof, siding and gutters unpriced | No AI model | 249 of 376 | 49 | 78 | 1.00 | 0.32 | 37 / 26 | None (no AI model) |
+| after · Room areas shared out from the appraisal's living area; roof, siding, gutters measured | No AI model | **283 of 376** | **15** (driveway 6, sidewalk 3, fence 2, pads 2, retaining wall 1, patio 1) | 78 | 1.33 x | 0.42 | 37 / 26 (unchanged) | None (no AI model) |
 
 Bucket shares of the priced total, against the engineer's shares of the basis (the
 comparable metric; dollars are replacement cost vs allocated basis and are not compared):
 
-| Bucket | Engineer | Before | After (all priced) | After (assets matched to an engineer row) |
-|---|---|---|---|---|
-| 5-year | 14.3% | 45.1% | 35.3% | 38.1% |
-| 7-year | 0.4% | 5.9% | 4.9% | 5.7% |
-| 15-year | 5.1% | 0.8% | 12.0% | 0.8% |
-| 39-year | 80.2% | 48.2% | 47.8% | 55.4% |
+**How to read this table.** After measuring, how do the priced dollars split across the tax classes, against the engineer?
+
+- **Models**: the exact model id, its provider, the reasoning effort and the temperature as sent. "temperature default" means the model takes no temperature (reasoning models), so the provider's default applies.
+- **5-year class share**: Share of the priced dollars in the 5-year class.
+- **7-year class share**: Share of the priced dollars in the 7-year class.
+- **15-year class share**: Share of the priced dollars in the 15-year class.
+- **39-year class share**: Share of the priced dollars in the 39-year building class.
+- **Tokens (input / output)**: Tokens the run used: input (what the model read) / output (what it wrote; "thinking" is the part spent reasoning, billed as output). "Not recorded" means the run kept no token counts; nothing is estimated.
+
+| Pricing | Models (provider, effort, temperature) | 5-year class share | 7-year class share | 15-year class share | 39-year class share | Tokens (input / output) |
+|---|---|---|---|---|---|---|
+| Engineer · The engineer's own report (the answer key) | No AI model | 14.3% | 0.4% | 5.1% | 80.2% | None (the engineer's report) |
+| before · Before: rooms priced on a typical area, outside items unpriced | No AI model | 45.1% | 5.9% | 0.8% | 48.2% | None (no AI model) |
+| after, all · After measuring: every priced asset | No AI model | 35.3% | 4.9% | 12.0% | 47.8% | None (no AI model) |
+| after, matched · After measuring: only assets matched to an engineer report line | No AI model | 38.1% | 5.7% | 0.8% | 55.4% | None (no AI model) |
 
 Row movers (pipeline / engineer dollar ratio per engineer row, before -> after): Roofing
 Systems 0 -> 0.37, Exterior Facade 0 -> 0.28, Gutter Systems 0 -> 0.37 (the three now
@@ -5656,12 +5951,19 @@ which is why nothing had shown this. No model calls; no client dollar appears he
 (M-series, home network) with `HF_HOME` pointed at an empty directory, then again on the
 same directory:
 
-| Cache state | First `embed` | Second `embed` |
-|---|---|---|
-| empty (download 90.9 MB `model.safetensors` + tokenizer, then load) | **186.8 s** | 0.01 s |
-| same run repeated later the same afternoon (download fallback, 39.4) | **298.5 s** | 0.03 s |
-| warm (files present, Hub reachable: one HEAD per file) | 7.8 s | 0.01 s |
-| warm, `HF_HUB_OFFLINE=1` | 6.7 s | 0.01 s |
+**How to read this table.** How long does the search model take to load, depending on what is already downloaded?
+
+- **Models**: the exact model id, its provider, the reasoning effort and the temperature as sent. "temperature default" means the model takes no temperature (reasoning models), so the provider's default applies.
+- **First use (seconds)** (lower is better): Seconds for the first 64-text embedding, including downloading and loading the model when needed.
+- **Next use (seconds)** (lower is better): Seconds for the next 64-text embedding once loaded.
+- **Tokens (input / output)**: Tokens the run used: input (what the model read) / output (what it wrote; "thinking" is the part spent reasoning, billed as output). "Not recorded" means the run kept no token counts; nothing is estimated.
+
+| Search model on the laptop | Models (provider, effort, temperature) | First use (seconds) ↓ | Next use (seconds) ↓ | Tokens (input / output) |
+|---|---|---|---|---|
+| empty · Nothing downloaded yet: download the model (91 MB), then load it | search model: `sentence-transformers/all-MiniLM-L6-v2 (pinned revision)` (local (Hugging Face, in the worker)) | **186.8 s** | 0.01 s | None (local model, no paid call; tokens not counted) |
+| empty, later · Same, repeated later that afternoon (slower download) | search model: `sentence-transformers/all-MiniLM-L6-v2 (pinned revision)` (local (Hugging Face, in the worker)) | **298.5 s** | 0.03 s | None (local model, no paid call; tokens not counted) |
+| cached · Model already downloaded; still checks the download site per file | search model: `sentence-transformers/all-MiniLM-L6-v2 (pinned revision)` (local (Hugging Face, in the worker)) | 7.8 s | 0.01 s | None (local model, no paid call; tokens not counted) |
+| cached, offline · Model already downloaded; offline mode, no check | search model: `sentence-transformers/all-MiniLM-L6-v2 (pinned revision)` (local (Hugging Face, in the worker)) | 6.7 s | 0.01 s | None (local model, no paid call; tokens not counted) |
 
 So a cold cache is six to ten times the heartbeat window, and even a warm load is a quarter
 of it on a fast laptop; a throttled Cloud Run vCPU would not have much margin either. In a
@@ -5731,14 +6033,21 @@ retry and resumes with it (the rows already written are reused).
 
 ### 39.4 Verification
 
-| Measurement | Before (main `9c8f443`, `basis-backend:before`) | After (this branch, `basis-backend:warm`) |
-|---|---|---|
-| fresh container, Hub unreachable, first embed | `OSError` (no cache in the image) | `warm()` **2.9 s from cache**, as user `basis`, `HF_HUB_OFFLINE=1` and the endpoint a dead port; the 64-text embed after it 0.10 s |
-| fresh container, network on, first embed | **137.7 s** (download + load, inside the activity) | 0.10 s after the warm-up (the load happened before polling) |
-| worker start (container, Temporal dev server on the host, no database) | model loaded by the first study's `ingest_appraisal` | `embedding model warm ... from cache in 4.8 s` → `worker started` → `/health` `ok`; SIGTERM drains and stops in 2 s |
-| host, cache warm, Hub endpoint a dead port | 7.8 s with a HEAD per file (fails if the Hub is unreachable) | 6.7 s, `source=cache`, no request made |
-| host, cache empty (the fallback) | 186.8 s / 298.5 s | 298.5 s with the warning, `source=download` |
-| image content size | 519 MB | 603 MB (+88 MB cache) |
+**How to read this table.** Does shipping the search model inside the worker, loaded before work starts, fix the first-job failure?
+
+- **Models**: the exact model id, its provider, the reasoning effort and the temperature as sent. "temperature default" means the model takes no temperature (reasoning models), so the provider's default applies.
+- **New worker without internet: first use**: What happens on the first embedding in a new worker that cannot reach the download site.
+- **New worker with internet: first use** (lower is better): Time for the first embedding in a new worker.
+- **Worker start-up**: What the worker does when it starts.
+- **Laptop, model cached, download site unreachable** (lower is better): Time to load the cached model when the download site cannot be reached.
+- **Laptop, nothing cached (fallback)** (lower is better): Time when the model must be downloaded first.
+- **Worker image size** (lower is better): Size of the worker's software image; the new one carries the model.
+- **Tokens (input / output)**: Tokens the run used: input (what the model read) / output (what it wrote; "thinking" is the part spent reasoning, billed as output). "Not recorded" means the run kept no token counts; nothing is estimated.
+
+| Worker image | Models (provider, effort, temperature) | New worker without internet: first use | New worker with internet: first use ↓ | Worker start-up | Laptop, model cached, download site unreachable ↓ | Laptop, nothing cached (fallback) ↓ | Worker image size ↓ | Tokens (input / output) |
+|---|---|---|---|---|---|---|---|---|
+| before · Old worker: model downloaded during the first job | search model: `sentence-transformers/all-MiniLM-L6-v2 (pinned revision)` (local (Hugging Face, in the worker)) | `OSError` (no cache in the image) | **137.7 s** (download + load, inside the activity) | model loaded by the first study's `ingest_appraisal` | 7.8 s with a HEAD per file (fails if the Hub is unreachable) | 186.8 s / 298.5 s | 519 MB | None (local model, no paid call; tokens not counted) |
+| after · New worker: model shipped inside and loaded before work starts (chosen) | search model: `sentence-transformers/all-MiniLM-L6-v2 (pinned revision)` (local (Hugging Face, in the worker)) | `warm()` **2.9 s from cache**, as user `basis`, `HF_HUB_OFFLINE=1` and the endpoint a dead port; the 64-text embed after it 0.10 s | 0.10 s after the warm-up (the load happened before polling) | `embedding model warm ... from cache in 4.8 s` → `worker started` → `/health` `ok`; SIGTERM drains and stops in 2 s | 6.7 s, `source=cache`, no request made | 298.5 s with the warning, `source=download` | 603 MB (+88 MB cache) | None (local model, no paid call; tokens not counted) |
 
 Tests (all run here; the full suite's count is in the PR):
 
@@ -6231,19 +6540,29 @@ gate for the nine convention rows (43 `asset` corrections, each with a reason na
 row); approving that gate promoted the revision's rulings. Study B was the same property
 with every gate approved as it opened (run 1's behaviour), at the same firm.
 
-| | run 1 (pipeline alone) | run 2 (corrected gates) | **study A** (corrected + rulings) | **study B** (pipeline + conventions) | engineer |
-|---|---|---|---|---|---|
-| assets | 382 | 310 | 314 | 381 | |
-| evidenced rows (of 38) | 35 | 36 | 35 | 35 | |
-| bucket right by count | 24 of 35 | 24 of 36 | **35 of 35** | **34 of 35** | |
-| wrong-bucket rows | 11 | 12 | 0 | 1 (Fireplaces) | |
-| bucket shares y5 / y7 / y15 / y39 (%) | 37.4 / 2.5 / 11.9 / 48.2 | 38.0 / 2.4 / 11.2 / 48.5 | 31.3 / 2.4 / 11.1 / 55.1 | 24.5 / 2.5 / 11.9 / 61.1 | 14.4 / 0.4 / 5.1 / 80.2 |
-| 39-year share error (points) | 32.0 | 31.8 | 25.1 | 19.2 | |
-| classification: model calls / assets | 486 / 382 | 386 / 310 | 694 / 314 (two passes) | **157 / 381** | |
-| assets classified from a convention | 0 | 0 | 0 | **151** | |
-| classifier spend | $5.41 | $4.29 | $7.68 | **$1.76** | |
-| study spend (ledger, incl. Azure DI and SAM 3) | $7.67 | $6.63 | $10.16 | **$4.01** | |
-| workflow wall clock | 29.6 min (19 min on defect A) | 11.0 min | 9.5 min | 7.7 min | |
+**How to read this table.** Do the engineer's corrections and the firm's reused rulings make the study match the engineer?
+
+- **Models**: the exact model id, its provider, the reasoning effort and the temperature as sent. "temperature default" means the model takes no temperature (reasoning models), so the provider's default applies.
+- **Assets**: Assets in the study's schedule.
+- **Report lines found (of 38)** (higher is better): How many of the engineer's 38 report lines visible in photos got at least one of our assets.
+- **Found lines in the right tax class** (higher is better): Of the lines found, how many our assets put in the engineer's tax class.
+- **Found lines in the wrong tax class** (lower is better): Lines found but put in a different tax class from the engineer's.
+- **Share of dollars by class: 5 / 7 / 15 / 39 years (%)**: How the study's dollars split across the four tax classes; compare with the engineer's column.
+- **39-year share error (points)** (lower is better): Gap between our 39-year share and the engineer's 80.2 %.
+- **Classifier AI calls / assets**: AI calls the asset classifier made, and the number of assets it covered.
+- **Assets classified from the firm's rulings** (higher is better): Assets classified by reusing the firm's stored rulings, with no AI call.
+- **Classifier spend** (lower is better): Dollars spent on the classifier's AI calls.
+- **Study spend** (lower is better): All paid calls of the study, including Azure's document reading and SAM 3.
+- **Elapsed time** (lower is better): Start to finish, including waits at the reviews.
+- **Tokens (input / output)**: Tokens the run used: input (what the model read) / output (what it wrote; "thinking" is the part spent reasoning, billed as output). "Not recorded" means the run kept no token counts; nothing is estimated.
+
+| Live study | Models (provider, effort, temperature) | Assets | Report lines found (of 38) ↑ | Found lines in the right tax class ↑ | Found lines in the wrong tax class ↓ | Share of dollars by class: 5 / 7 / 15 / 39 years (%) | 39-year share error (points) ↓ | Classifier AI calls / assets | Assets classified from the firm's rulings ↑ | Classifier spend ↓ | Study spend ↓ | Elapsed time ↓ | Tokens (input / output) |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| run 1 · Run 1: the pipeline alone, every review approved as the AI left it | counts objects in each photo (with sol): `claude-opus-5-5` (Anthropic, effort not recorded, temperature default); counts objects in each photo: `gpt-6.1-sol` (OpenAI, effort not recorded, temperature default); surfaces and room type per photo: `gpt-6-luna` (OpenAI, effort not recorded, temperature default); reads the appraisal's pages and checkboxes: `prebuilt-layout (Azure Document Intelligence)` (Azure); reads the appraisal's fields: `gpt-6.1-sol` (OpenAI, effort not recorded, temperature default); outlines each counted object: `SAM 3 (vufinder/sam3 on Replicate)` (Replicate); combines each room's photos: `gpt-6-luna` (OpenAI, effort not recorded, temperature default); material re-check: `claude-sonnet-5-5` (Anthropic, effort not recorded, temperature default); classifies assets into tax classes: `claude-sonnet-5-5` (Anthropic, effort not recorded, temperature default) | 382 | 35 | 24 of 35 | 11 | 37.4 / 2.5 / 11.9 / 48.2 | 32.0 | 486 / 382 | 0 | $5.41 | $7.67 | 29.6 min (19 min on defect A) | 2,821,612 in / 164,862 out, 672 AI calls (thinking not recorded then); plus 52 SAM 3 runs |
+| run 2 · Run 2: engineer corrected the reviews, no stored rulings yet | counts objects in each photo (with sol): `claude-opus-5-5` (Anthropic, effort not recorded, temperature default); counts objects in each photo: `gpt-6.1-sol` (OpenAI, effort not recorded, temperature default); surfaces and room type per photo: `gpt-6-luna` (OpenAI, effort not recorded, temperature default); reads the appraisal's pages and checkboxes: `prebuilt-layout (Azure Document Intelligence)` (Azure); reads the appraisal's fields: `gpt-6.1-sol` (OpenAI, effort not recorded, temperature default); outlines each counted object: `SAM 3 (vufinder/sam3 on Replicate)` (Replicate); combines each room's photos: `gpt-6-luna` (OpenAI, effort not recorded, temperature default); material re-check: `claude-sonnet-5-5` (Anthropic, effort not recorded, temperature default); classifies assets into tax classes: `claude-sonnet-5-5` (Anthropic, effort not recorded, temperature default) | 310 | 36 | 24 of 36 | 12 | 38.0 / 2.4 / 11.2 / 48.5 | 31.8 | 386 / 310 | 0 | $4.29 | $6.63 | 11.0 min | Not recorded (this run's record kept dollars only, no token counts) |
+| **study A · Study A: engineer corrected every review and ruled on disputed lines** | counts objects in each photo (with sol): `claude-opus-5-5` (Anthropic, effort medium, temperature default); counts objects in each photo: `gpt-6.1-sol` (OpenAI, effort low, temperature default); surfaces and room type per photo: `gpt-6-luna` (OpenAI, effort low, temperature default); reads the appraisal's pages and checkboxes: `prebuilt-layout (Azure Document Intelligence)` (Azure); reads the appraisal's fields: `gpt-6.1-sol` (OpenAI, effort low, temperature default); outlines each counted object: `SAM 3 (vufinder/sam3 on Replicate)` (Replicate); combines each room's photos: `gpt-6-luna` (OpenAI, effort low, temperature default); material re-check: `claude-sonnet-5-5` (Anthropic, effort low, temperature default); classifies assets into tax classes: `claude-sonnet-5-5` (Anthropic, effort low, temperature default) | 314 | 35 | **35 of 35** | 0 | 31.3 / 2.4 / 11.1 / 55.1 | 25.1 | 694 / 314 (two passes) | 0 | $7.68 | $10.16 | 9.5 min | 3,809,546 in / 211,296 out (18,702 thinking, OpenAI only), 884 AI calls (two classification passes); plus 1 Azure DI read and 52 SAM 3 runs |
+| **study B · Study B: no corrections, reused study A's rulings** | counts objects in each photo (with sol): `claude-opus-5-5` (Anthropic, effort medium, temperature default); counts objects in each photo: `gpt-6.1-sol` (OpenAI, effort low, temperature default); surfaces and room type per photo: `gpt-6-luna` (OpenAI, effort low, temperature default); reads the appraisal's pages and checkboxes: `prebuilt-layout (Azure Document Intelligence)` (Azure); reads the appraisal's fields: `gpt-6.1-sol` (OpenAI, effort low, temperature default); outlines each counted object: `SAM 3 (vufinder/sam3 on Replicate)` (Replicate); combines each room's photos: `gpt-6-luna` (OpenAI, effort low, temperature default); material re-check: `claude-sonnet-5-5` (Anthropic, effort low, temperature default); classifies assets into tax classes: `claude-sonnet-5-5` (Anthropic, effort low, temperature default) | 381 | 35 | **34 of 35** | 1 (Fireplaces) | 24.5 / 2.5 / 11.9 / 61.1 | 19.2 | **157 / 381** | **151** | **$1.76** | **$4.01** | 7.7 min | 1,284,643 in / 106,598 out (15,862 thinking, OpenAI only), 343 AI calls; plus 1 Azure DI read and 52 SAM 3 runs (no tokens) |
+| Engineer · The engineer's own report (the answer key) | No AI model |  |  |  |  | 14.4 / 0.4 / 5.1 / 80.2 |  |  |  |  |  |  | None (the engineer's report) |
 
 What the conventions layer did, verified in the database and the API:
 
@@ -6720,19 +7039,32 @@ reported as not sourced. The photo-visible rows' scores (35 of 35 and 34 of 35 r
 42.5) are unchanged under every variant (the regression check). The 36 sourced variants on
 each export, abridged (the full table is the sweep's `sweep.md`):
 
-| Variant (RCN + split + carve + depreciation) | Run 3A: status, gap % of B | 39-year share | bucket error, mean / max (points) | TVD | Run 3B: status, gap | 39-year share | bucket error, mean / max | TVD |
-|---|---|---|---|---|---|---|---|---|
-| square_foot + rsmeans + carve + physical **(pick)** | reconciled, +8.0 | 83.9 % | 2.06 / 3.6 | 21.1 | reconciled, +7.2 | 86.7 % | 3.50 / 6.5 | 21.8 |
-| square_foot + rsmeans + carve + age-life | identical to the row above: the two rates coincide (21.4 %) on this appraisal | | | | | | | |
-| square_foot + nahb + carve + physical | reconciled, +6.0 | 84.2 % | 2.23 / 4.0 | 24.8 | reconciled, +5.2 | 87.0 % | 3.64 / 6.8 | 24.7 |
-| appraisal_total + rsmeans + carve + physical **(runner-up)** | reconciled, +3.4 | 84.6 % | 2.43 / 4.4 | 21.1 | reconciled, +2.6 | 87.4 % | 3.79 / 7.1 | 22.2 |
-| appraisal_parts + rsmeans + carve + physical | reconciled, +2.3 | 84.8 % | 2.52 / 4.6 | 21.1 | reconciled, +1.5 | 87.5 % | 3.86 / 7.3 | 22.3 |
-| appraisal_total + nahb + carve + physical | reconciled, +1.3 | 85.0 % | 2.59 / 4.7 | 24.6 | reconciled, +0.5 | 87.7 % | 3.92 / 7.4 | 24.6 |
-| appraisal_total + rsmeans + top-down + physical | unreconciled, -19.8 | 87.6 % | 3.84 / 7.4 | 23.2 | unreconciled, -18.5 | 89.6 % | 4.84 / 9.4 | 24.6 |
-| square_foot + rsmeans + top-down + physical | unreconciled, -15.2 | 87.1 % | 3.60 / 6.9 | 22.8 | unreconciled, -13.9 | 89.2 % | 4.65 / 9.0 | 24.3 |
-| any + any + any + none | not checked (no rate: RCN against the basis) | as its depreciated twin | | | not checked | | | |
-| any + marshall_swift + any + any | not sourced | | | | not sourced | | | |
-| before (section 42.5: no structure rows, uniform step-up) | step-up 2.39 (error) | 55.1 % | 12.5 / 25.1 | 47.8 | step-up 2.50 (error) | 61.1 % | 9.6 / 19.2 | 48.9 |
+**How to read this table.** How should Basis price the building systems no photo shows, so the schedule balances to the price?
+
+- **Models**: the exact model id, its provider, the reasoning effort and the temperature as sent. "temperature default" means the model takes no temperature (reasoning models), so the provider's default applies.
+- **Study A: balances to the price? (gap, %)**: Whether the depreciated cost lands within 10 % of the purchase price less land ('reconciled'), and how far below it, in percent (negative = above). Study A is the engineer-corrected live study.
+- **Study A: share in the 39-year class**: Share of the schedule's dollars in the 39-year building class; closer to the engineer's 80.2 % is better.
+- **Study A: class share error, average / worst (points)** (lower is better): Average and worst gap, in percentage points, between our dollar share and the engineer's across the 5, 7, 15 and 39-year classes.
+- **Study A: row-share distance (points)** (lower is better): How far our dollar shares per engineer report line are from the engineer's, in points (total variation distance; 0 = identical).
+- **Study B: balances to the price? (gap, %)**: Whether the depreciated cost lands within 10 % of the purchase price less land ('reconciled'), and how far below it, in percent (negative = above). Study B is the uncorrected live study.
+- **Study B: share in the 39-year class**: Share of the schedule's dollars in the 39-year building class; closer to the engineer's 80.2 % is better.
+- **Study B: class share error, average / worst (points)** (lower is better): Average and worst gap, in percentage points, between our dollar share and the engineer's across the 5, 7, 15 and 39-year classes.
+- **Study B: row-share distance (points)** (lower is better): How far our dollar shares per engineer report line are from the engineer's, in points (total variation distance; 0 = identical).
+- **Tokens (input / output)**: Tokens the run used: input (what the model read) / output (what it wrote; "thinking" is the part spent reasoning, billed as output). "Not recorded" means the run kept no token counts; nothing is estimated.
+
+| How the building's hidden systems are priced | Models (provider, effort, temperature) | Study A: balances to the price? (gap, %) | Study A: share in the 39-year class | Study A: class share error, average / worst (points) ↓ | Study A: row-share distance (points) ↓ | Study B: balances to the price? (gap, %) | Study B: share in the 39-year class | Study B: class share error, average / worst (points) ↓ | Study B: row-share distance (points) ↓ | Tokens (input / output) |
+|---|---|---|---|---|---|---|---|---|---|---|
+| pick · RSMeans square-foot cost, RSMeans split, photographed items subtracted, appraiser's depreciation (chosen) | No AI model | reconciled, +8.0 | 83.9 % | 2.06 / 3.6 | 21.1 | reconciled, +7.2 | 86.7 % | 3.50 / 6.5 | 21.8 | None (no AI model) |
+| age-life · Same, depreciated by age and life instead (same rate here, so identical) | No AI model | identical to the row above: the two rates coincide (21.4 %) on this appraisal |  |  |  |  |  |  |  | None (no AI model) |
+| NAHB split · Same, but split into systems by NAHB home-building cost shares | No AI model | reconciled, +6.0 | 84.2 % | 2.23 / 4.0 | 24.8 | reconciled, +5.2 | 87.0 % | 3.64 / 6.8 | 24.7 | None (no AI model) |
+| runner-up · Cost from the appraisal's printed total, otherwise as chosen | No AI model | reconciled, +3.4 | 84.6 % | 2.43 / 4.4 | 21.1 | reconciled, +2.6 | 87.4 % | 3.79 / 7.1 | 22.2 | None (no AI model) |
+| appraisal lines · Cost from the appraisal's itemized cost lines, otherwise as chosen | No AI model | reconciled, +2.3 | 84.8 % | 2.52 / 4.6 | 21.1 | reconciled, +1.5 | 87.5 % | 3.86 / 7.3 | 22.3 | None (no AI model) |
+| appraisal + NAHB · Appraisal's printed total, split by NAHB cost shares | No AI model | reconciled, +1.3 | 85.0 % | 2.59 / 4.7 | 24.6 | reconciled, +0.5 | 87.7 % | 3.92 / 7.4 | 24.6 | None (no AI model) |
+| appraisal, no subtraction · Appraisal's total, photographed items not subtracted (counted twice) | No AI model | unreconciled, -19.8 | 87.6 % | 3.84 / 7.4 | 23.2 | unreconciled, -18.5 | 89.6 % | 4.84 / 9.4 | 24.6 | None (no AI model) |
+| square-foot, no subtraction · RSMeans square-foot cost, photographed items not subtracted (counted twice) | No AI model | unreconciled, -15.2 | 87.1 % | 3.60 / 6.9 | 22.8 | unreconciled, -13.9 | 89.2 % | 4.65 / 9.0 | 24.3 | None (no AI model) |
+| no depreciation · Any variant with no depreciation applied (cannot balance to the price) | No AI model | not checked (no rate: RCN against the basis) | as its depreciated twin |  |  | not checked |  |  |  | None (no AI model) |
+| Marshall & Swift · Marshall & Swift system split: not possible, licensed handbook not available | No AI model | not sourced |  |  |  | not sourced |  |  |  | None (no AI model) |
+| before · Before: no hidden building systems, schedule scaled up by one factor | No AI model | step-up 2.39 (error) | 55.1 % | 12.5 / 25.1 | 47.8 | step-up 2.50 (error) | 61.1 % | 9.6 / 19.2 | 48.9 | None (no AI model) |
 
 Kind C rows: every reconciled variant produces all eight, priced, with seven in the
 engineer's bucket (Access Control: engineer 5-year, rules building, contested). The ranking
@@ -6889,19 +7221,28 @@ concealed rows, and `evals.structure_replay` then rebuilds them on the same fact
 service 2024-12-03), California, no ZIP on the intake. Before = section 44's artifacts (the
 same replay with the placeholder factors).
 
-| | Run 3A before | Run 3A after | Run 3B before | Run 3B after |
-|---|---|---|---|---|
-| Year factor (2024) | 1.15 (placeholder) | 1.0000 (Jan 2020 index, assumption, flagged) | 1.15 | 1.0000 |
-| Location factor (CA) | 1.150 (placeholder) | 1.001 (mean of 37 cities, .94-1.07) | 1.150 | 1.001 |
-| Priced itemized total, after / before | | 0.7561 | | 0.7560 |
-| Bucket shares y5 / y7 / y15 / y39 (%) | 11.28 / 0.86 / 3.99 / 83.87 | 11.28 / 0.87 / 3.96 / 83.90 | 8.38 / 0.86 / 4.02 / 86.74 | 8.38 / 0.86 / 3.99 / 86.78 |
-| Bucket share error, mean / max (points) | 2.07 / 3.6 | 2.08 / 3.7 | 3.50 / 6.5 | 3.52 / 6.5 |
-| Row-share distance (TVD, points) | 21.05 | 21.05 | 21.80 | 21.80 |
-| Photo-visible rows evidenced / bucket right | 35 / 35 | 35 / 35 | 35 / 34 | 35 / 34 |
-| Kind C rows produced / bucket right | 8 / 7 | 8 / 7 | 8 / 7 | 8 / 7 |
-| Reconciliation | reconciled, RCNLD 8.0 % below B | unreconciled, 30.4 % below B | reconciled, 7.2 % below | unreconciled, 29.8 % below |
-| Implied uniform factor on RCNLD | 0.856 | 1.131 | 0.848 | 1.121 |
-| Allocation | 1.089 on RCNLD | withheld (`missing: allocation`) | 1.080 | withheld |
+**How to read this table.** What changes when the hand-typed price factors are replaced by a cited RSMeans index?
+
+- **Models**: the exact model id, its provider, the reasoning effort and the temperature as sent. "temperature default" means the model takes no temperature (reasoning models), so the provider's default applies.
+- **Year price factor (2024)**: Multiplier that brings the cost book's prices to 2024.
+- **Location price factor (California)**: Multiplier for California prices.
+- **Itemized total vs. placeholder**: Total priced for the itemized assets, as a share of the placeholder run's total.
+- **Share of dollars by class: 5 / 7 / 15 / 39 years (%)**: How the dollars split across the four tax classes; the engineer's is 14.4 / 0.4 / 5.1 / 80.2.
+- **Class share error, average / worst (points)** (lower is better): Average and worst gap, in percentage points, between our dollar share and the engineer's across the 5, 7, 15 and 39-year classes.
+- **Row-share distance (points)** (lower is better): How far our dollar shares per engineer report line are from the engineer's, in points (total variation distance; 0 = identical).
+- **Report lines found / in the right class (visible in photos)** (higher is better): Engineer report lines that photos can show: found by our assets, and of those in the engineer's tax class.
+- **Hidden building systems produced / in the right class** (higher is better): Of the engineer's 8 concealed building lines (foundation, framing and the like): produced, and in the engineer's class.
+- **Balances to the price?**: Whether the depreciated cost is within 10 % of the purchase price less land ('reconciled'), and how far below it.
+- **Scale factor needed to match the price**: The single factor that would make the depreciated cost equal the purchase price less land; 1.0 is a perfect match.
+- **Price allocation**: The factor used to share the price over the assets, or 'withheld' when the costs do not balance.
+- **Tokens (input / output)**: Tokens the run used: input (what the model read) / output (what it wrote; "thinking" is the part spent reasoning, billed as output). "Not recorded" means the run kept no token counts; nothing is estimated.
+
+| Price index used | Models (provider, effort, temperature) | Year price factor (2024) | Location price factor (California) | Itemized total vs. placeholder | Share of dollars by class: 5 / 7 / 15 / 39 years (%) | Class share error, average / worst (points) ↓ | Row-share distance (points) ↓ | Report lines found / in the right class (visible in photos) ↑ | Hidden building systems produced / in the right class ↑ | Balances to the price? | Scale factor needed to match the price | Price allocation | Tokens (input / output) |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| A, placeholder · Study A, hand-typed placeholder price factors (1.15 x 1.15) | No AI model | 1.15 (placeholder) | 1.150 (placeholder) |  | 11.28 / 0.86 / 3.99 / 83.87 | 2.07 / 3.6 | 21.05 | 35 / 35 | 8 / 7 | reconciled, RCNLD 8.0 % below B | 0.856 | 1.089 on RCNLD | None (no AI call: replays stored results) |
+| A, 2020 index · Study A, RSMeans January 2020 index used for 2024 (flagged) | No AI model | 1.0000 (Jan 2020 index, assumption, flagged) | 1.001 (mean of 37 cities, .94-1.07) | 0.7561 | 11.28 / 0.87 / 3.96 / 83.90 | 2.08 / 3.7 | 21.05 | 35 / 35 | 8 / 7 | unreconciled, 30.4 % below B | 1.131 | withheld (`missing: allocation`) | None (no AI call: replays stored results) |
+| B, placeholder · Study B, hand-typed placeholder price factors (1.15 x 1.15) | No AI model | 1.15 | 1.150 |  | 8.38 / 0.86 / 4.02 / 86.74 | 3.50 / 6.5 | 21.80 | 35 / 34 | 8 / 7 | reconciled, 7.2 % below | 0.848 | 1.080 | None (no AI call: replays stored results) |
+| B, 2020 index · Study B, RSMeans January 2020 index used for 2024 (flagged) | No AI model | 1.0000 | 1.001 | 0.7560 | 8.38 / 0.86 / 3.99 / 86.78 | 3.52 / 6.5 | 21.80 | 35 / 34 | 8 / 7 | unreconciled, 29.8 % below | 1.121 | withheld | None (no AI call: replays stored results) |
 
 The "before" column is the sweep's cell for the production variant (square_foot + rsmeans +
 carve + appraisal_physical, section 44.3, `sweep.json`), the same replay with the placeholder
@@ -7191,20 +7532,29 @@ Both studies: cost year 2024 (placed in service 2024-12-03), California, no ZIP 
 239.1 = 1.2330), entered as the store's value, every other input unchanged. "Placeholder" is
 section 44's run with the hand-typed 1.15 x 1.15.
 
-| | Run 3A, section 45 | Run 3A, now | Run 3B, section 45 | Run 3B, now |
-|---|---|---|---|---|
-| Year factor (2024) | 1.0000 (Jan 2020 index, assumption, flagged) | 1.2330 (July 2024 = 294.8, cited; no assumption, no flag) | 1.0000 | 1.2330 |
-| Location factor (CA) | 1.001 (mean of 37 cities) | 1.001 | 1.001 | 1.001 |
-| Priced itemized total, as a share of the placeholder's | 0.7561 | 0.9336 | 0.7560 | 0.9336 |
-| Bucket shares y5 / y7 / y15 / y39 (%) | 11.28 / 0.87 / 3.96 / 83.90 | 11.27 / 0.86 / 4.01 / 83.85 | 8.38 / 0.86 / 3.99 / 86.78 | 8.37 / 0.86 / 4.04 / 86.73 |
-| Bucket share error, mean / max (points) | 2.08 / 3.7 | 2.06 / 3.6 | 3.52 / 6.5 | 3.49 / 6.5 |
-| Row-share distance (TVD, points) | 21.05 | 21.05 | 21.80 | 21.79 |
-| Photo-visible rows evidenced / bucket right | 35 / 35 | 35 / 35 | 35 / 34 | 35 / 34 |
-| Kind C rows produced / bucket right | 8 / 7 | 8 / 7 | 8 / 7 | 8 / 7 |
-| RCN / B, RCNLD / B | 0.886, 0.696 | 1.092, 0.858 | 0.893, 0.702 | 1.102, 0.866 |
-| Reconciliation | unreconciled, RCNLD 30.4 % below B | unreconciled, 14.2 % below B | unreconciled, 29.8 % below | unreconciled, 13.4 % below |
-| Implied uniform factor on RCNLD | 1.131 | 0.917 | 1.121 | 0.909 |
-| Allocation | withheld | withheld (`missing: allocation`) | withheld | withheld |
+**How to read this table.** What changes when the published July 2024 RSMeans index replaces the 2020 one?
+
+- **Models**: the exact model id, its provider, the reasoning effort and the temperature as sent. "temperature default" means the model takes no temperature (reasoning models), so the provider's default applies.
+- **Year price factor (2024)**: Multiplier that brings the cost book's prices to 2024.
+- **Location price factor (California)**: Multiplier for California prices.
+- **Itemized total vs. placeholder**: Total priced for the itemized assets, as a share of the placeholder run's total.
+- **Share of dollars by class: 5 / 7 / 15 / 39 years (%)**: How the dollars split across the four tax classes; the engineer's is 14.4 / 0.4 / 5.1 / 80.2.
+- **Class share error, average / worst (points)** (lower is better): Average and worst gap, in percentage points, between our dollar share and the engineer's across the 5, 7, 15 and 39-year classes.
+- **Row-share distance (points)** (lower is better): How far our dollar shares per engineer report line are from the engineer's, in points (total variation distance; 0 = identical).
+- **Report lines found / in the right class (visible in photos)** (higher is better): Engineer report lines that photos can show: found by our assets, and of those in the engineer's tax class.
+- **Hidden building systems produced / in the right class** (higher is better): Of the engineer's 8 concealed building lines (foundation, framing and the like): produced, and in the engineer's class.
+- **Cost new / price, depreciated cost / price**: Replacement cost new and depreciated cost, each as a share of the purchase price less land.
+- **Balances to the price?**: Whether the depreciated cost is within 10 % of the purchase price less land ('reconciled'), and how far below it.
+- **Scale factor needed to match the price**: The single factor that would make the depreciated cost equal the purchase price less land; 1.0 is a perfect match.
+- **Price allocation**: The factor used to share the price over the assets, or 'withheld' when the costs do not balance.
+- **Tokens (input / output)**: Tokens the run used: input (what the model read) / output (what it wrote; "thinking" is the part spent reasoning, billed as output). "Not recorded" means the run kept no token counts; nothing is estimated.
+
+| Price index used | Models (provider, effort, temperature) | Year price factor (2024) | Location price factor (California) | Itemized total vs. placeholder | Share of dollars by class: 5 / 7 / 15 / 39 years (%) | Class share error, average / worst (points) ↓ | Row-share distance (points) ↓ | Report lines found / in the right class (visible in photos) ↑ | Hidden building systems produced / in the right class ↑ | Cost new / price, depreciated cost / price | Balances to the price? | Scale factor needed to match the price | Price allocation | Tokens (input / output) |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| A, 2020 index · Study A, RSMeans January 2020 index used for 2024 (flagged) | No AI model | 1.0000 (Jan 2020 index, assumption, flagged) | 1.001 (mean of 37 cities) | 0.7561 | 11.28 / 0.87 / 3.96 / 83.90 | 2.08 / 3.7 | 21.05 | 35 / 35 | 8 / 7 | 0.886, 0.696 | unreconciled, RCNLD 30.4 % below B | 1.131 | withheld | None (no AI call: replays stored results) |
+| A, 2024 index · Study A, published July 2024 RSMeans index (production) | No AI model | 1.2330 (July 2024 = 294.8, cited; no assumption, no flag) | 1.001 | 0.9336 | 11.27 / 0.86 / 4.01 / 83.85 | 2.06 / 3.6 | 21.05 | 35 / 35 | 8 / 7 | 1.092, 0.858 | unreconciled, 14.2 % below B | 0.917 | withheld (`missing: allocation`) | None (no AI call: replays stored results) |
+| B, 2020 index · Study B, RSMeans January 2020 index used for 2024 (flagged) | No AI model | 1.0000 | 1.001 | 0.7560 | 8.38 / 0.86 / 3.99 / 86.78 | 3.52 / 6.5 | 21.80 | 35 / 34 | 8 / 7 | 0.893, 0.702 | unreconciled, 29.8 % below | 1.121 | withheld | None (no AI call: replays stored results) |
+| B, 2024 index · Study B, published July 2024 RSMeans index (production) | No AI model | 1.2330 | 1.001 | 0.9336 | 8.37 / 0.86 / 4.04 / 86.73 | 3.49 / 6.5 | 21.79 | 35 / 34 | 8 / 7 | 1.102, 0.866 | unreconciled, 13.4 % below | 0.909 | withheld | None (no AI call: replays stored results) |
 
 ### 47.4 Reading
 
@@ -7339,18 +7689,32 @@ into another room, its photos' labels), with `entry` as hallway and `stairs` as 
 name is scored against the engineer's own words without the leading floor, which checks the
 format, not a model. Ranges are over repeats.
 
-| answers | scenario | | rooms | name | room type | floor | all three | Ambiguous rooms | photos unassigned |
-|---|---|---|---|---|---|---|---|---|---|
-| live studies (4) | file names | before | 49 | 13 | 43–45 | 45–49 | 9–13 | 1–2 | 0 |
-| | | after | 49 | 49 | 48–49 | 48–49 | 48–49 | 0 | 0 |
-| | with the 16 aliases | before | 33 | 3 | 29–31 | 31–33 | 1–3 | 0–1 | 0 |
-| | | after | 33 | 33 | 32–33 | 32–33 | 32–33 | 0 | 0 |
-| | camera names | both | 17–19 | – | – | – | – | 0 | 1–2 |
-| stored run (3) | file names | before | 49 | 13 | 42–44 | 49 | 13 | 3–4 | 0 |
-| | | after | 49 | 49 | 49 | 49 | 49 | 0 | 0 |
-| | with the 16 aliases | before | 33 | 3 | 29–30 | 33 | 3 | 1–2 | 0 |
-| | | after | 33 | 33 | 33 | 33 | 33 | 0 | 0 |
-| | camera names | both | 13–14 | – | – | – | – | 0 | 3–4 |
+**How to read this table.** Does reading the room's name first give rooms the right name, type and floor?
+
+- **Models**: the exact model id, its provider, the reasoning effort and the temperature as sent. "temperature default" means the model takes no temperature (reasoning models), so the provider's default applies.
+- **Rooms grouped by**: File names: 49 rooms from photo file names. With the 16 aliases: merged into the engineer's 33 rooms. Camera names: rooms from the AI's guess.
+- **Rule**: Before: the old rule (the AI's vote only). After: the room name's words first, then the photos' vote.
+- **Rooms**: Rooms produced (ranges are over studies or repeats).
+- **Name right** (higher is better): Rooms whose name matches the engineer's words.
+- **Room type right** (higher is better): Rooms with the right room type.
+- **Floor right** (higher is better): Rooms with the right floor.
+- **All three right** (higher is better): Rooms with name, type and floor all right.
+- **Rooms typed 'ambiguous'** (lower is better): Rooms left with no clear type.
+- **Photos with no room** (lower is better): Photos left in the Unassigned room.
+- **Tokens (input / output)**: Tokens the run used: input (what the model read) / output (what it wrote; "thinking" is the part spent reasoning, billed as output). "Not recorded" means the run kept no token counts; nothing is estimated.
+
+| Answers, grouping and rule | Models (provider, effort, temperature) | Rooms grouped by | Rule | Rooms | Name right ↑ | Room type right ↑ | Floor right ↑ | All three right ↑ | Rooms typed 'ambiguous' ↓ | Photos with no room ↓ | Tokens (input / output) |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| live, file names, before · Live answers, rooms from file names, old rule | room type and floor answers, recorded earlier (inferred); not called here: `gpt-6-luna` (OpenAI, effort low, temperature default) | file names | before | 49 | 13 | 43–45 | 45–49 | 9–13 | 1–2 | 0 | None (no AI call: replays the room rule on stored answers) |
+| live, file names, after · Live answers, rooms from file names, name-first rule | room type and floor answers, recorded earlier (inferred); not called here: `gpt-6-luna` (OpenAI, effort low, temperature default) |  | after | 49 | 49 | 48–49 | 48–49 | 48–49 | 0 | 0 | None (no AI call: replays the room rule on stored answers) |
+| live, merged, before · Live answers, rooms merged as the engineer did, old rule | room type and floor answers, recorded earlier (inferred); not called here: `gpt-6-luna` (OpenAI, effort low, temperature default) | with the 16 aliases | before | 33 | 3 | 29–31 | 31–33 | 1–3 | 0–1 | 0 | None (no AI call: replays the room rule on stored answers) |
+| live, merged, after · Live answers, rooms merged as the engineer did, name-first rule | room type and floor answers, recorded earlier (inferred); not called here: `gpt-6-luna` (OpenAI, effort low, temperature default) |  | after | 33 | 33 | 32–33 | 32–33 | 32–33 | 0 | 0 | None (no AI call: replays the room rule on stored answers) |
+| live, camera names · Live answers, camera-style file names: rooms from the AI's guess (unchanged) | room type and floor answers, recorded earlier (inferred); not called here: `gpt-6-luna` (OpenAI, effort low, temperature default) | camera names | both | 17–19 | – | – | – | – | 0 | 1–2 | None (no AI call: replays the room rule on stored answers) |
+| stored, file names, before · Stored sol answers, rooms from file names, old rule | room type and floor answers, recorded earlier; not called here: `gpt-6.1-sol` (OpenAI, effort low, temperature default) | file names | before | 49 | 13 | 42–44 | 49 | 13 | 3–4 | 0 | None (no AI call: replays the room rule on stored answers) |
+| stored, file names, after · Stored sol answers, rooms from file names, name-first rule | room type and floor answers, recorded earlier; not called here: `gpt-6.1-sol` (OpenAI, effort low, temperature default) |  | after | 49 | 49 | 49 | 49 | 49 | 0 | 0 | None (no AI call: replays the room rule on stored answers) |
+| stored, merged, before · Stored sol answers, rooms merged as the engineer did, old rule | room type and floor answers, recorded earlier; not called here: `gpt-6.1-sol` (OpenAI, effort low, temperature default) | with the 16 aliases | before | 33 | 3 | 29–30 | 33 | 3 | 1–2 | 0 | None (no AI call: replays the room rule on stored answers) |
+| stored, merged, after · Stored sol answers, rooms merged as the engineer did, name-first rule | room type and floor answers, recorded earlier; not called here: `gpt-6.1-sol` (OpenAI, effort low, temperature default) |  | after | 33 | 33 | 33 | 33 | 33 | 0 | 0 | None (no AI call: replays the room rule on stored answers) |
+| stored, camera names · Stored sol answers, camera-style file names: rooms from the AI's guess (unchanged) | room type and floor answers, recorded earlier; not called here: `gpt-6.1-sol` (OpenAI, effort low, temperature default) | camera names | both | 13–14 | – | – | – | – | 0 | 3–4 | None (no AI call: replays the room rule on stored answers) |
 
 Per photo (the type of the room each photo is in against its own label), file names: 45–48
 of 52 before, 51–52 after. All three fields right over every room and repeat: 46 of 196 → 194
@@ -7457,16 +7821,29 @@ appraisal's cost new; the residual reported or written; the small systems added 
 36 cells per export, every one scored by the e2e scorer with the July 2024 index (section 47),
 cost $0, about 10 ms a cell. Each step added in turn:
 
-| Step | 3A gap / status | 3A shares y5 / y7 / y15 / y39 | 3A bucket error mean / max | 3A TVD | 3B gap / status | 3B shares | 3B bucket error | 3B TVD |
-|---|---|---|---|---|---|---|---|---|
-| Before (section 47) | +14.2 unreconciled | 11.3 / 0.9 / 4.0 / 83.8 | 2.06 / 3.6 | 21.1 | +13.4 unreconciled | 8.4 / 0.9 / 4.0 / 86.7 | 3.49 / 6.5 | 21.8 |
-| + modifications | +6.4 reconciled | 10.3 / 0.8 / 3.7 / 85.2 | 2.69 / 5.0 | 20.9 | +5.6 reconciled | 7.7 / 0.8 / 3.7 / 87.8 | 4.00 / 7.6 | 22.6 |
-| + residual written | +2.7 | 9.9 / 0.8 / 3.5 / 85.8 | 2.96 / 5.5 | 20.6 | +2.2 | 7.4 / 0.8 / 3.6 / 88.3 | 4.21 / 8.0 | 21.8 |
-| + small systems carved | +3.2 | 10.0 / 0.8 / 3.6 / 85.7 | 2.92 / 5.5 | 20.7 | +2.8 | 7.5 / 0.8 / 3.6 / 88.2 | 4.17 / 7.9 | 22.0 |
-| + Total Incl O&P | +2.0 | 12.1 / 0.9 / 4.2 / 82.8 | 1.56 / 2.5 | 21.4 | +1.6 | 9.0 / 0.9 / 4.3 / 85.8 | 3.08 / 5.6 | 22.0 |
-| + GC O&P pro rata: **production** | **+2.0 reconciled** | **14.1 / 0.9 / 4.2 / 80.8** | **0.55 / 0.8** | 23.1 | **+1.6 reconciled** | **10.4 / 0.9 / 4.3 / 84.3** | **2.34 / 4.1** | 22.5 |
-| Appraisal's cost new, every other change | -1.7 reconciled | 13.6 / 0.9 / 4.1 / 81.5 | 0.88 / 1.2 | 22.9 | -2.1 reconciled | 10.1 / 0.9 / 4.1 / 84.9 | 2.61 / 4.7 | 22.5 |
-| Each alone: Total Incl O&P + GC O&P | +11.5 unreconciled | 15.6 / 1.1 / 4.7 / 78.7 | 0.97 / 1.5 | 24.6 | +10.5 unreconciled | 11.5 / 1.0 / 4.7 / 82.8 | 1.61 / 2.9 | 23.1 |
+**How to read this table.** Which documented corrections close the gap between our cost and the purchase price?
+
+- **Models**: the exact model id, its provider, the reasoning effort and the temperature as sent. "temperature default" means the model takes no temperature (reasoning models), so the provider's default applies.
+- **Study A: gap to the price (%) / balances?**: Whether the depreciated cost lands within 10 % of the purchase price less land ('reconciled'), and how far below it, in percent (negative = above).
+- **Study A: share of dollars by class: 5 / 7 / 15 / 39 years (%)**: How the dollars split across the 5, 7, 15 and 39-year classes; the engineer's is 14.4 / 0.4 / 5.1 / 80.2.
+- **Study A: class share error, average / worst (points)** (lower is better): Average and worst gap, in percentage points, between our dollar share and the engineer's across the 5, 7, 15 and 39-year classes.
+- **Study A: row-share distance (points)** (lower is better): How far our dollar shares per engineer report line are from the engineer's, in points (total variation distance; 0 = identical).
+- **Study B: gap to the price (%) / balances?**: Whether the depreciated cost lands within 10 % of the purchase price less land ('reconciled'), and how far below it, in percent (negative = above).
+- **Study B: share of dollars by class: 5 / 7 / 15 / 39 years (%)**: How the dollars split across the 5, 7, 15 and 39-year classes; the engineer's is 14.4 / 0.4 / 5.1 / 80.2.
+- **Study B: class share error, average / worst (points)** (lower is better): Average and worst gap, in percentage points, between our dollar share and the engineer's across the 5, 7, 15 and 39-year classes.
+- **Study B: row-share distance (points)** (lower is better): How far our dollar shares per engineer report line are from the engineer's, in points (total variation distance; 0 = identical).
+- **Tokens (input / output)**: Tokens the run used: input (what the model read) / output (what it wrote; "thinking" is the part spent reasoning, billed as output). "Not recorded" means the run kept no token counts; nothing is estimated.
+
+| Change added, one at a time | Models (provider, effort, temperature) | Study A: gap to the price (%) / balances? | Study A: share of dollars by class: 5 / 7 / 15 / 39 years (%) | Study A: class share error, average / worst (points) ↓ | Study A: row-share distance (points) ↓ | Study B: gap to the price (%) / balances? | Study B: share of dollars by class: 5 / 7 / 15 / 39 years (%) | Study B: class share error, average / worst (points) ↓ | Study B: row-share distance (points) ↓ | Tokens (input / output) |
+|---|---|---|---|---|---|---|---|---|---|---|
+| before · Before these changes: priced with the July 2024 index (section 47) | No AI model | +14.2 unreconciled | 11.3 / 0.9 / 4.0 / 83.8 | 2.06 / 3.6 | 21.1 | +13.4 unreconciled | 8.4 / 0.9 / 4.0 / 86.7 | 3.49 / 6.5 | 21.8 | None (no AI model) |
+| + modifications · Add: price the house's six baths and hot-water heat as RSMeans modifications | No AI model | +6.4 reconciled | 10.3 / 0.8 / 3.7 / 85.2 | 2.69 / 5.0 | 20.9 | +5.6 reconciled | 7.7 / 0.8 / 3.7 / 87.8 | 4.00 / 7.6 | 22.6 | None (no AI model) |
+| + residual · Add: count the leftover specialties cost (cabinets, counters) in the building | No AI model | +2.7 | 9.9 / 0.8 / 3.5 / 85.8 | 2.96 / 5.5 | 20.6 | +2.2 | 7.4 / 0.8 / 3.6 / 88.3 | 4.21 / 8.0 | 21.8 | None (no AI model) |
+| + no double count · Add: stop counting fire alarm, data cabling and locks twice | No AI model | +3.2 | 10.0 / 0.8 / 3.6 / 85.7 | 2.92 / 5.5 | 20.7 | +2.8 | 7.5 / 0.8 / 3.6 / 88.2 | 4.17 / 7.9 | 22.0 | None (no AI model) |
+| + installed cost · Add: price itemized lines at installed cost, with contractor overhead and profit | No AI model | +2.0 | 12.1 / 0.9 / 4.2 / 82.8 | 1.56 / 2.5 | 21.4 | +1.6 | 9.0 / 0.9 / 4.3 / 85.8 | 3.08 / 5.6 | 22.0 | None (no AI model) |
+| production · Add: spread the general contractor's overhead and profit over every line (chosen) | No AI model | **+2.0 reconciled** | **14.1 / 0.9 / 4.2 / 80.8** | **0.55 / 0.8** | 23.1 | **+1.6 reconciled** | **10.4 / 0.9 / 4.3 / 84.3** | **2.34 / 4.1** | 22.5 | None (no AI model) |
+| appraisal cost · Every change, but building cost from the appraisal's cost new | No AI model | -1.7 reconciled | 13.6 / 0.9 / 4.1 / 81.5 | 0.88 / 1.2 | 22.9 | -2.1 reconciled | 10.1 / 0.9 / 4.1 / 84.9 | 2.61 / 4.7 | 22.5 | None (no AI model) |
+| overhead only · Only the two overhead-and-profit changes, without the others | No AI model | +11.5 unreconciled | 15.6 / 1.1 / 4.7 / 78.7 | 0.97 / 1.5 | 24.6 | +10.5 unreconciled | 11.5 / 1.0 / 4.7 / 82.8 | 1.61 / 2.9 | 23.1 | None (no AI model) |
 
 Engineer: 14.4 / 0.4 / 5.1 / 80.2. Gap is B less RCNLD over B. Kind C rows: 8 produced, 7 in
 the engineer's bucket in every cell (Access Control, section 44). Regression line: the
@@ -7730,15 +8107,22 @@ migrations 0019 to 0021 applied). Private report: `E2E_LIVE_RUN5_2026-11-01.md` 
 
 **Results, run 4 (section 50) against run 5:**
 
-| | run 4 | run 5 |
-|---|---|---|
-| completed, failures | yes, 0 (11.4 min) | yes, 0 (5.3 min) |
-| bucket right by count | 27/35 | 34/35 |
-| max bucket share error | 6.9 points | 3.3 points |
-| 39-year share (engineer 80.2 %) | 87.1 % | 83.5 % |
-| assets from the firm's rulings | 0 of 384 | 200 of 384 |
-| classifier calls | 477 | 15 |
-| study spend | 7.73 | 2.86 |
+**How to read this table.** After the release fix, does the firm's past rulings get reused, and does the study improve?
+
+- **Models**: the exact model id, its provider, the reasoning effort and the temperature as sent. "temperature default" means the model takes no temperature (reasoning models), so the provider's default applies.
+- **Finished, failed steps (minutes)**: Whether the study finished, how many workflow steps failed, and its processing time.
+- **Report lines in the right tax class (of 35)** (higher is better): Of the 35 engineer report lines our study found, how many land in the engineer's tax class.
+- **Worst class share error** (lower is better): Largest gap, in percentage points, between our share of dollars and the engineer's in any tax class.
+- **Share in the 39-year class (engineer 80.2 %)**: Share of the study's dollars in the 39-year building class; closer to the engineer's 80.2 % is better.
+- **Assets classified from the firm's past rulings** (higher is better): Assets classified by reusing the firm's earlier engineer rulings, with no AI call, out of all assets.
+- **Classifier count (mixed units)** (lower is better): Run 4's 477 counts the classifier's AI calls; run 5's 15 counts assets the AI classified (its ledger shows 37 calls).
+- **Study spend (US dollars)** (lower is better): Paid AI and service spend for the study from the call ledger (models, Azure document reading, SAM 3).
+- **Tokens (input / output)**: Tokens the run used: input (what the model read) / output (what it wrote; "thinking" is the part spent reasoning, billed as output). "Not recorded" means the run kept no token counts; nothing is estimated.
+
+| Live study | Models (provider, effort, temperature) | Finished, failed steps (minutes) | Report lines in the right tax class (of 35) ↑ | Worst class share error ↓ | Share in the 39-year class (engineer 80.2 %) | Assets classified from the firm's past rulings ↑ | Classifier count (mixed units) ↓ | Study spend (US dollars) ↓ | Tokens (input / output) |
+|---|---|---|---|---|---|---|---|---|---|
+| run 4 · Live run 4: the firm's past rulings hidden by the release (before the fix) | counts objects in each photo (with sol): `claude-opus-5-5` (Anthropic, effort medium, temperature default); counts objects in each photo: `gpt-6.1-sol` (OpenAI, effort low, temperature default); surfaces and room type per photo: `gpt-6-luna` (OpenAI, effort low, temperature default); reads the appraisal's pages and checkboxes: `prebuilt-layout (Azure Document Intelligence)` (Azure); reads the appraisal's fields: `gpt-6.1-sol` (OpenAI, effort low, temperature default); outlines each counted object: `SAM 3 (vufinder/sam3 on Replicate)` (Replicate); combines each room's photos: `gpt-6-luna` (OpenAI, effort low, temperature default); material re-check: `claude-sonnet-5-5` (Anthropic, effort low, temperature default); classifies assets into tax classes: `claude-sonnet-5-5` (Anthropic, effort low, temperature default) | yes, 0 (11.4 min) | 27/35 | 6.9 points | 87.1 % | 0 of 384 | 477 | 7.73 | 2,764,509 in / 161,071 out (14,780 thinking, OpenAI only), 659 AI calls; plus 1 Azure DI read and 52 SAM 3 runs (no tokens) |
+| run 5 · Live run 5: the firm's past rulings reused after the fix | counts objects in each photo (with sol): `claude-opus-5-5` (Anthropic, effort medium, temperature default); counts objects in each photo: `gpt-6.1-sol` (OpenAI, effort low, temperature default); surfaces and room type per photo: `gpt-6-luna` (OpenAI, effort low, temperature default); reads the appraisal's pages and checkboxes: `prebuilt-layout (Azure Document Intelligence)` (Azure); reads the appraisal's fields: `gpt-6.1-sol` (OpenAI, effort low, temperature default); outlines each counted object: `SAM 3 (vufinder/sam3 on Replicate)` (Replicate); combines each room's photos: `gpt-6-luna` (OpenAI, effort low, temperature default); material re-check: `claude-sonnet-5-5` (Anthropic, effort low, temperature default); classifies assets into tax classes: `claude-sonnet-5-5` (Anthropic, effort low, temperature default) | yes, 0 (5.3 min) | 34/35 | 3.3 points | 83.5 % | 200 of 384 | 15 | 2.86 | 720,421 in / 86,560 out (15,947 thinking, OpenAI only), 223 AI calls; plus 1 Azure DI read and 52 SAM 3 runs (no tokens) |
 
 The replay in section 50 predicted 34/35; the live run gives 34/35. The remaining wrong row is
 Fireplaces (5-year by the firm, 39-year by the rules table); why no ruling matched it is open.
@@ -7765,11 +8149,19 @@ approval outvoted a correction. CLASSIFICATION_CONVENTIONS.md section 11 has the
 
 **Replays of run 5's export** (no paid run), the production router each time:
 
-| rows | served by rulings | bucket right | max share error |
-|---|---|---|---|
-| every row, rule as before | 201 | 34/35 | 3.3 points |
-| decisions only (29 rows) | 47 | 35/35 | 1.8 points |
-| every row, decisions first | 201 | 35/35 | 1.8 points |
+**How to read this table.** Which rule for reusing the firm's rulings keeps the engineer's decisions on top?
+
+- **Models**: the exact model id, its provider, the reasoning effort and the temperature as sent. "temperature default" means the model takes no temperature (reasoning models), so the provider's default applies.
+- **Assets classified from rulings** (higher is better): Assets of run 5's 384 classified from the firm's stored rulings instead of the AI.
+- **Report lines in the right tax class (of 35)** (higher is better): Of the 35 engineer report lines found, how many land in the engineer's tax class.
+- **Worst class share error** (lower is better): Largest gap, in percentage points, between our share of dollars and the engineer's in any tax class.
+- **Tokens (input / output)**: Tokens the run used: input (what the model read) / output (what it wrote; "thinking" is the part spent reasoning, billed as output). "Not recorded" means the run kept no token counts; nothing is estimated.
+
+| Which stored rulings are reused, and in what order | Models (provider, effort, temperature) | Assets classified from rulings ↑ | Report lines in the right tax class (of 35) ↑ | Worst class share error ↓ | Tokens (input / output) |
+|---|---|---|---|---|---|
+| as before · All rulings reused; an approved AI answer could outvote an engineer's correction | No AI model | 201 | 34/35 | 3.3 points | None (no AI call: replays stored results); run 5's own tokens are under section 53 |
+| decisions only · Only the engineer's own decisions reused (29 lines); approved AI answers not | No AI model | 47 | 35/35 | 1.8 points | None (no AI call: replays stored results) |
+| decisions first · All rulings reused, engineer decisions outrank approved AI answers (chosen) | No AI model | 201 | 35/35 | 1.8 points | None (no AI call: replays stored results) |
 
 Decisions only would hand about 140 items per study back to the model (about 1.50 a study at run
 5's prices). Decisions first keeps the 35/35 and the 201 served, with the blanket rows still in
@@ -7790,13 +8182,20 @@ a round trip, without guessing at any layout? Research and every mapping decisio
 
 ### 55.1 What is public, from the vendors' own documentation
 
-| Package | Published | Not published |
-|---|---|---|
-| Thomson Reuters Fixed Assets CS | the Excel import's fields and limits: Description 0-45 "no quotation marks or commas", Method list (`M`, `M SL`, `150 DB`, ...), Life and ADS Life 1-99, Real property `R`, Force Mid Qtr Y/N, "Any Excel date format"; 168(k) applied by the package itself (no field) | the template's heading row (exported from the product) |
-| Sage Fixed Assets Depreciation | the whole Custom Import Helper (user guide Appendix C): five critical fields, two-letter method codes (`MF`, `MA`, ...), Declining Balance % in its own column, `168 Allow %` required with `MA`, lives as YYMM, Property Type letters, Mid-Quarter Flag, dates MM/DD/YYYY, field widths; field order free | nothing needed |
-| Intuit ProConnect / Lacerte | Intuit's Depreciation template (17 headings) and data rules (25-character description, mm/dd/yyyy, Category 1-8, Method numbers); Lacerte's wizard takes CSV/XLS only | nothing needed (Form and Activity numbers depend on the return) |
-| CCH ProSystem fx Fixed Assets | the mechanism: Excel headings mapped in a translation table; date in service and method required; each distinct method value mapped by hand; sample file ships with the product | field names, method and convention option names, limits |
-| Bloomberg Tax Fixed Assets | the mechanism: a CSV Import wizard that maps columns; convention solved, forced or "As Is" | the Import Guide (field names, codes, date format) |
+**How to read this table.** What does each fixed-asset package publish about importing a depreciation schedule?
+
+- **Models**: the exact model id, its provider, the reasoning effort and the temperature as sent. "temperature default" means the model takes no temperature (reasoning models), so the provider's default applies.
+- **What the vendor publishes**: The import fields, codes and limits the vendor's own documents give.
+- **What the vendor does not publish**: What had to be left open because the vendor does not document it.
+- **Tokens (input / output)**: Tokens the run used: input (what the model read) / output (what it wrote; "thinking" is the part spent reasoning, billed as output). "Not recorded" means the run kept no token counts; nothing is estimated.
+
+| Tax software package | Models (provider, effort, temperature) | What the vendor publishes | What the vendor does not publish | Tokens (input / output) |
+|---|---|---|---|---|
+| Fixed Assets CS · Import layout for Thomson Reuters Fixed Assets CS | No AI model | the Excel import's fields and limits: Description 0-45 "no quotation marks or commas", Method list (`M`, `M SL`, `150 DB`, ...), Life and ADS Life 1-99, Real property `R`, Force Mid Qtr Y/N, "Any Excel date format"; 168(k) applied by the package itself (no field) | the template's heading row (exported from the product) | None (no AI model) |
+| Sage · Import layout for Sage Fixed Assets Depreciation | No AI model | the whole Custom Import Helper (user guide Appendix C): five critical fields, two-letter method codes (`MF`, `MA`, ...), Declining Balance % in its own column, `168 Allow %` required with `MA`, lives as YYMM, Property Type letters, Mid-Quarter Flag, dates MM/DD/YYYY, field widths; field order free | nothing needed | None (no AI model) |
+| ProConnect / Lacerte · Import layout for Intuit ProConnect and Lacerte | No AI model | Intuit's Depreciation template (17 headings) and data rules (25-character description, mm/dd/yyyy, Category 1-8, Method numbers); Lacerte's wizard takes CSV/XLS only | nothing needed (Form and Activity numbers depend on the return) | None (no AI model) |
+| CCH · Import layout for CCH ProSystem fx Fixed Assets | No AI model | the mechanism: Excel headings mapped in a translation table; date in service and method required; each distinct method value mapped by hand; sample file ships with the product | field names, method and convention option names, limits | None (no AI model) |
+| Bloomberg · Import layout for Bloomberg Tax Fixed Assets | No AI model | the mechanism: a CSV Import wizard that maps columns; convention solved, forced or "As Is" | the Import Guide (field names, codes, date format) | None (no AI model) |
 
 ### 55.2 Built
 
@@ -8499,17 +8898,26 @@ row table). Baselines: run 5 (section 53, plain) and run 3's study A (section 42
 
 **Results:**
 
-| | run 5 plain | run 6 plain | run 3 corrected | run 6 corrected |
-|---|---|---|---|---|
-| completed; activities failed | yes; 0 | yes; 22 (see below) | yes; 0 | yes; 0 |
-| processing time | 5.3 min | 7.4 min | - | 8.5 min incl. four reopened gates |
-| evidenced rows (of 38 photo-visible) | 35 | 34 | 35 | 35 |
-| bucket right, of evidenced | 34/35 | 34/34 | 35/35 | 35/35 |
-| max bucket share error (points) | 3.3 | 1.9 | - | 0.8 |
-| 39-year share (engineer 80.2 %) | 83.5 % | 82.2 % | - | 80.3 % |
-| assets from the firm's rulings | 200/384 | 176/366 | - | 160/340 |
-| rulings the engineer had to post | - | 0 | 9 | 1 |
-| study spend | 2.86 | 2.12 | - | 3.55 |
+**How to read this table.** Does the final build still produce a correct study live, with and without the engineer's corrections?
+
+- **Models**: the exact model id, its provider, the reasoning effort and the temperature as sent. "temperature default" means the model takes no temperature (reasoning models), so the provider's default applies.
+- **Finished; failed steps**: Whether the study finished, and how many workflow steps failed (run 6 plain's 22 failed while the host computer had no network).
+- **Processing time** (lower is better): Minutes from start to the finished report, not counting the engineer's time at the reviews.
+- **Report lines found (of 38 visible in photos)** (higher is better): How many of the engineer's 38 report lines that photos can show got at least one of our assets.
+- **Found lines in the right tax class** (higher is better): Of the lines found, how many land in the engineer's tax class (5, 7, 15 or 39 years).
+- **Worst class share error (points)** (lower is better): Largest gap, in percentage points, between our share of dollars and the engineer's in any of the four tax classes.
+- **Share in the 39-year class (engineer 80.2 %)**: Share of the study's dollars in the 39-year building class; closer to the engineer's 80.2 % is better.
+- **Assets classified from the firm's past rulings** (higher is better): Assets classified by reusing the firm's earlier engineer rulings, with no AI call, out of all assets.
+- **Rulings the engineer had to enter** (lower is better): Corrections the engineer had to make at the assets review ('-' = not a corrected study).
+- **Study spend (US dollars)** (lower is better): Paid AI and service spend for the study from the call ledger (models, Azure document reading, SAM 3).
+- **Tokens (input / output)**: Tokens the run used: input (what the model read) / output (what it wrote; "thinking" is the part spent reasoning, billed as output). "Not recorded" means the run kept no token counts; nothing is estimated.
+
+| Live study | Models (provider, effort, temperature) | Finished; failed steps | Processing time ↓ | Report lines found (of 38 visible in photos) ↑ | Found lines in the right tax class ↑ | Worst class share error (points) ↓ | Share in the 39-year class (engineer 80.2 %) | Assets classified from the firm's past rulings ↑ | Rulings the engineer had to enter ↓ | Study spend (US dollars) ↓ | Tokens (input / output) |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| run 5 · Live run 5 (earlier build), every review approved as the AI left it | counts objects in each photo (with sol): `claude-opus-5-5` (Anthropic, effort medium, temperature default); counts objects in each photo: `gpt-6.1-sol` (OpenAI, effort low, temperature default); surfaces and room type per photo: `gpt-6-luna` (OpenAI, effort low, temperature default); reads the appraisal's pages and checkboxes: `prebuilt-layout (Azure Document Intelligence)` (Azure); reads the appraisal's fields: `gpt-6.1-sol` (OpenAI, effort low, temperature default); outlines each counted object: `SAM 3 (vufinder/sam3 on Replicate)` (Replicate); combines each room's photos: `gpt-6-luna` (OpenAI, effort low, temperature default); material re-check: `claude-sonnet-5-5` (Anthropic, effort low, temperature default); classifies assets into tax classes: `claude-sonnet-5-5` (Anthropic, effort low, temperature default) | yes; 0 | 5.3 min | 35 | 34/35 | 3.3 | 83.5 % | 200/384 | - | 2.86 | 720,421 in / 86,560 out (15,947 thinking, OpenAI only), 223 AI calls; plus 1 Azure DI read and 52 SAM 3 runs (no tokens) |
+| run 6 plain · Live run 6 (final build), every review approved as the AI left it | counts objects in each photo (with sol): `claude-opus-5-5` (Anthropic, effort medium, temperature default); counts objects in each photo: `gpt-6.1-sol` (OpenAI, effort low, temperature default); surfaces and room type per photo: `gpt-6-luna` (OpenAI, effort low, temperature default); reads the appraisal's pages and checkboxes: `prebuilt-layout (Azure Document Intelligence)` (Azure); reads the appraisal's fields: `gpt-6.1-sol` (OpenAI, effort low, temperature default); outlines each counted object: `SAM 3 (vufinder/sam3 on Replicate)` (Replicate); combines each room's photos: `gpt-6-luna` (OpenAI, effort low, temperature default); material re-check: `claude-sonnet-5-5` (Anthropic, effort low, temperature default); classifies assets into tax classes: `claude-sonnet-5-5` (Anthropic, effort low, temperature default) | yes; 22 (see below) | 7.4 min | 34 | 34/34 | 1.9 | 82.2 % | 176/366 | 0 | 2.12 | 431,960 in / 66,739 out (11,756 thinking, OpenAI only), 140 AI calls; plus 1 Azure DI read and 45 SAM 3 runs. Room-step and classifier calls failed in a network outage and are not in the record |
+| run 3 corrected · Live run 3 study A, engineer corrected every review (earlier baseline) | counts objects in each photo (with sol): `claude-opus-5-5` (Anthropic, effort medium, temperature default); counts objects in each photo: `gpt-6.1-sol` (OpenAI, effort low, temperature default); surfaces and room type per photo: `gpt-6-luna` (OpenAI, effort low, temperature default); reads the appraisal's pages and checkboxes: `prebuilt-layout (Azure Document Intelligence)` (Azure); reads the appraisal's fields: `gpt-6.1-sol` (OpenAI, effort low, temperature default); outlines each counted object: `SAM 3 (vufinder/sam3 on Replicate)` (Replicate); combines each room's photos: `gpt-6-luna` (OpenAI, effort low, temperature default); material re-check: `claude-sonnet-5-5` (Anthropic, effort low, temperature default); classifies assets into tax classes: `claude-sonnet-5-5` (Anthropic, effort low, temperature default) | yes; 0 | - | 35 | 35/35 | - | - | - | 9 | - | 3,809,546 in / 211,296 out (18,702 thinking, OpenAI only), 884 AI calls (two classification passes); plus 1 Azure DI read and 52 SAM 3 runs |
+| run 6 corrected · Live run 6 (final build), engineer corrected every review | counts objects in each photo (with sol): `claude-opus-5-5` (Anthropic, effort medium, temperature default); counts objects in each photo: `gpt-6.1-sol` (OpenAI, effort low, temperature default); surfaces and room type per photo: `gpt-6-luna` (OpenAI, effort low, temperature default); reads the appraisal's pages and checkboxes: `prebuilt-layout (Azure Document Intelligence)` (Azure); reads the appraisal's fields: `gpt-6.1-sol` (OpenAI, effort low, temperature default); outlines each counted object: `SAM 3 (vufinder/sam3 on Replicate)` (Replicate); combines each room's photos: `gpt-6-luna` (OpenAI, effort low, temperature default); material re-check: `claude-sonnet-5-5` (Anthropic, effort low, temperature default); classifies assets into tax classes: `claude-sonnet-5-5` (Anthropic, effort low, temperature default) | yes; 0 | 8.5 min incl. four reopened gates | 35 | 35/35 | 0.8 | 80.3 % | 160/340 | 1 | 3.55 | 1,000,029 in / 111,811 out (18,804 thinking, OpenAI only), 285 AI calls; plus 1 Azure DI read and 52 SAM 3 runs (no tokens) |
 
 The Fireplaces row, wrong in run 5 because an approved model answer outranked the engineer's
 ruling, is right in both studies: section 54's rule (#109) is confirmed live. The corrected study
@@ -9243,13 +9651,20 @@ preview, and a new section "Earlier signed reports · Revision 1 · signed Nov 1
 its own download (`GET .../report?format=pdf&revision=1`, from `GET .../revisions`). Preview
 and sign: "Study completed · Revision 2 is approved and signed…".
 
-| | revision 1 | revision 2 |
-|---|---|---|
-| `report_signatures` row | sha256 `6f4f64c6…`, versions 1 / 2 | sha256 `234b8bba…`, versions 1 / 3 |
-| `report.signed` event | 1, same sha256 | 1, same sha256 |
-| signed file in storage | 1 | 1 |
-| `GET .../report?revision=n` | `…-rev-1-report-signed.pdf`, bytes identical to the download taken before the reopen | `…-rev-2-report-signed.pdf` (the default) |
-| `GET .../revisions` | origin start, exported, signed, not current | origin reopen, exported, signed, current |
+**How to read this table.** After a signed report is reopened and signed again, is each signed version kept intact?
+
+- **Models**: the exact model id, its provider, the reasoning effort and the temperature as sent. "temperature default" means the model takes no temperature (reasoning models), so the provider's default applies.
+- **Signature record**: The stored signature: the file's fingerprint (sha256) and the record's version numbers.
+- **Signing events on the timeline**: Signing events recorded, and whether they carry the same file fingerprint.
+- **Signed files stored**: Signed PDFs kept for the revision (1 expected).
+- **Download of that revision's report**: What the report download returns for that revision.
+- **What the revisions list says**: How the revisions list describes it: how it began, exported, signed, current or not.
+- **Tokens (input / output)**: Tokens the run used: input (what the model read) / output (what it wrote; "thinking" is the part spent reasoning, billed as output). "Not recorded" means the run kept no token counts; nothing is estimated.
+
+| Report revision | Models (provider, effort, temperature) | Signature record | Signing events on the timeline | Signed files stored | Download of that revision's report | What the revisions list says | Tokens (input / output) |
+|---|---|---|---|---|---|---|---|
+| rev 1 · The original signed report, kept and still downloadable | No AI model | sha256 `6f4f64c6…`, versions 1 / 2 | 1, same sha256 | 1 | `…-rev-1-report-signed.pdf`, bytes identical to the download taken before the reopen | origin start, exported, signed, not current | None (offline test fixtures stand in for every AI call) |
+| rev 2 · Reopened at the assets review after a change, approved and signed again | No AI model | sha256 `234b8bba…`, versions 1 / 3 | 1, same sha256 | 1 | `…-rev-2-report-signed.pdf` (the default) | origin reopen, exported, signed, current | None (offline test fixtures stand in for every AI call) |
 
 ### 72.3 Defects found and fixed (each with a test)
 
@@ -9993,3 +10408,65 @@ second while the product is new.
   Bryan's to write, not a code change.
 * Listing the files records nothing on the timeline (names and sizes, no content). The API log
   has a line for it.
+
+## 80. The comparison tables, written for people (2026-11-02)
+
+Bryan, reading 15.1 and the developer page's step dialogs: the tables named setups the way
+their harnesses did ("4c. sol low + Opus medium per class, leave-one-photo-out"), named models
+by nickname without the exact id, effort or temperature, gave no tokens, and some steps had no
+comparison for some of their parts. Nothing was re-run for this section: every figure is the
+one already printed; what was added was read from the run records and the code.
+
+What changed, in the 32 comparison tables the developer page shows or that its parts lead to
+(15.1, 16.2, 17.1, 23.3, 25.2, 26.2, 26.3, 26.8, 28.1, 28.2, 28.3, 32.5, 32.6, 32.10, 33.4, 33.5,
+33.12, 35.2 (two), 39, 39.4, 42.5, 44.3, 45.3, 47.3, 48.4, 49.3, 53, 54, 55, 63, 72.2):
+
+- **How to read this table** above each: the question it answered, what each column measures
+  and which way is better (↑ / ↓).
+- Each row starts with its old id (4c, d2, run 5) and a plain name, then a **Models** column:
+  every call's exact model id, provider, reasoning effort and temperature as sent, and a
+  **Tokens** column. Tables printed with setups as columns (63, 53, 42.5, 72.2, 39.4, 35.2,
+  45.3, 47.3, 33.4) are turned so each setup is a row; 33.5's grouped table (several models a
+  row, figures separated by `/`) is split into one row per model.
+- A key at the top of the report gives every short model name's exact id, provider and price
+  (from `backEnd/basis/llm/cost.py`), and what effort, temperature and tokens mean.
+
+Where the facts came from, verified rather than assumed:
+
+- **Temperature** (`backEnd/basis/llm/providers.py` and `anthropic_provider.py`): no OpenAI
+  gpt-5 or gpt-6 model and no Claude model is sent a temperature; they take the provider's
+  default and cannot be set. Only the older non-reasoning models (`gpt-4.1-mini`,
+  `gpt-4o-mini`) are sent 0. The live studies' call ledgers store temperature as null on every
+  call, which agrees.
+- **Effort**: each run's `run.json`, or the ledger of a live study; the earliest live runs (42.5
+  runs 1 and 2) did not store it, and say "not recorded".
+- **Tokens**: summed from each run's saved API usage (one row, 26.8's e2, re-added by hand from
+  its 99 raw responses: 511,965 in / 99,681 out, 43,964 thinking, exactly as printed), from
+  `run.json`, or from a live export's spend rollup. **Not recorded**: every per-photo run (15.1,
+  28.1, the per-photo part of 26.2 and 26.8: their files keep the answer and the cost, no
+  usage), every material second look and 16.2's overlap judgments (cost only), live run 2 (dollars
+  only), and two of 33.5's checkbox runs (Haiku, Sonnet), whose records were not collected. Those
+  cells say so; nothing is estimated from cost. 15.1's 4c row also gives the tokens of the same
+  setup run live on the same 52 photos (section 23, run 3). Section 32's load runs used fake
+  providers and say so.
+
+Corrections found on the way:
+
+- 33.5's per-model cost: luna with the checkbox labels is $0.041 for 16 appraisals, 0.003 a
+  document; the developer page had shown the grouped range's lower end, 0.002. The costs the page
+  had shown as "Not measured" for Sol with checkbox labels (0.049), Opus with checkbox labels
+  (0.160) and Sonnet's single read (0.110) are the runs' recorded totals.
+- The model key's Sonnet price is $2 / $10 (cost.py), not the $2.40 / $12 first drafted.
+
+On the developer page each step's results are now filed under the part of "How it works" they
+measured (Classify & cost: classification, then measuring and pricing (35.2, 45.3, 47.3), then
+the structure model and reconciliation (44.3, 49.3)). A part with no comparison says why rather
+than borrowing a table: reading the PDF and the presence checks in appraisal reading (no method
+was compared, 33.9 and 33.10 tuned one), starting a study and opening the rooms review (pass/fail
+rules, not alternatives), recording the spend, the report details, and the time an engineer
+takes at each review (not timed yet). `backEnd/tests/unit/test_developer_workflow_content.py`
+now also checks that every model a row names appears in its section and that every part has a
+table or a reason.
+
+What this does not do: the other tables of this report keep their original form; the 4c and other
+per-photo token counts are known only by re-running those paid calls, which was not done.
