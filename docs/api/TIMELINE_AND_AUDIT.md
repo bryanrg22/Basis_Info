@@ -57,7 +57,7 @@ GET /v1/studies/{id}/timeline?limit=200&cursor=<next_cursor>&event_type=activity
 | Member | Meaning |
 |---|---|
 | `event_type` | A dotted name from the vocabulary below: repeatable, each value 1 to 100 characters without a NUL (else 422), the same rule on the activity routes. |
-| `actor_type`, `actor_id` | Who caused it: `engineer` (`actor_id` is the user), `model` (a model call's output), `system` (the workflow, a rule, bookkeeping). |
+| `actor_type`, `actor_id` | Who caused it: `engineer` (`actor_id` is the user), `model` (a model call's output), `system` (the workflow, a rule, bookkeeping), `operator` (Basis support opened an uploaded file; `actor_id` the operator, migration `0030`). |
 | `stage`, `revision` | The study's at the time. |
 | `workflow_id`, `run_id`, `activity`, `activity_id`, `attempt` | The Temporal execution and the activity attempt, on activity events. |
 | `started_at`, `duration_ms` | An attempt's start (the worker's clock) and its duration (measured on the worker, so it never depends on two clocks). |
@@ -97,6 +97,7 @@ GET /v1/studies/{id}/timeline?limit=200&cursor=<next_cursor>&event_type=activity
 | `client.error` | engineer | the web app reported an error this user hit in the browser while on the study (`POST /v1/client-errors`, docs/api/CLIENT_ERRORS.md); written only when the reporter can see the study | `entity_type` `client_error`, `entity_id` the `client_errors` record (the whole event), `code` the failed request's catalogue code, `request_id` the report's own, `stage`/`revision` the study row's; `detail`: `kind`, `level`, `error_type`, `message` (500 chars), `route`, `screen`, `client_revision`, `client_stage`, `http` {method, route, status, code, request_id}, `build_sha`, `event_id`. Not an engineer action: the audit does not list it; `GET /v1/me/activity` does |
 | `convention.promoted` | engineer | `promote_conventions` promoted an approved asset's ruling to the firm's conventions | `actor_id` the approving reviewer; `entity_id` the asset; `detail` key, bucket, `agrees_with_rules`, `rule_key`, outcome (`created`, `confirmed`, `replaced`), approvals, method, cited |
 | `convention.replaced` | engineer | the approved answer differed from the firm's convention for the key, which it replaced | `code` `BASIS-ASSETS-013`; `before` the replaced convention, `after` the new one; `detail.key` |
+| `operator.document_accessed` | operator | Basis support opened one of the study's uploaded files (`GET /v1/ops/studies/{id}/documents/{id}/content`, docs/api/OPS_DOCUMENTS.md); recorded before the bytes are read | `entity_type` `document`, `entity_id` the document, `actor_id` the operator's user; `detail`: `reason`, `client_error_id`, `filename`, `kind`, `sha256`, `bytes`. Not an engineer action: the audit does not list it |
 
 Not recorded per row, on purpose: the model's `photo_objects` (SAM 3 candidates, tens per
 photo) and the rows a model call wrote (components, fields): the activity event carries the

@@ -50,3 +50,16 @@ test('the brief is one plain-text block with every fact, the stack, the context,
  const bare=M.brief({...record,study_id:null,org_id:null,event:{firm:{org_id:'x'},study:{study_id:'y'}}},null);
  assert.match(bare,/Issue: 0123456789abcdef/);assert.match(bare,/org_id unverified \(claimed x\)/);assert.match(bare,/y \(not visible to the reporter\)/);assert.match(bare,/request_id=\(none: not an API failure\)/);assert.match(bare,/Last actions \(0, oldest first\)/);
 });
+test('a study_input record lists the firm\'s files with an Open button; unconfirmed files and records without a study have none',()=>{
+ const docs=[{document_id:'d1',kind:'appraisal',filename:'<b>appraisal</b>.pdf',content_type:'application/pdf',bytes:2483021,sha256:'ab'.repeat(32),uploaded_by:'aaaaaaaa-0000-4000-8000-000000000000',uploaded_at:'2026-11-02T10:00:00+00:00',storage_uri:'gs://b/x'},{document_id:'d2',kind:'photo',filename:'kitchen.jpg',content_type:'image/jpeg',bytes:900,sha256:'cd'.repeat(32),uploaded_by:null,uploaded_at:null,storage_uri:'gs://b/y'}];
+ const r={...record,kind:'study_input',error_type:'input:gla',event:{documents:docs}};
+ const html=M.detail(r,null);
+ assert.match(html,/Files the firm uploaded \(2\)/);assert.match(html,/the firm sees it/);
+ assert.match(html,/data-open="d1"/);assert.doesNotMatch(html,/data-open="d2"/);assert.match(html,/not confirmed/);
+ assert.match(html,/2\.4 MB/);assert.match(html,/900 B/);assert.match(html,/by aaaaaaaa/);
+ assert.doesNotMatch(html,/<b>appraisal/);assert.match(html,/&lt;b&gt;appraisal/);
+ assert.equal(M.files({...r,study_id:null}),'');assert.equal(M.files(record),'');
+ assert.equal(M.filePath('s/1','d 1'),'/v1/ops/studies/s%2F1/documents/d%201/content');
+ assert.equal(M.accessReason(r),'support: study_input input:gla (record 11111111)');
+ assert.equal(M.size(1536),'1.5 KB');assert.equal(M.size(undefined),'—');
+});

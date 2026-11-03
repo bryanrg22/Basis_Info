@@ -7160,6 +7160,255 @@
         }
       }
     },
+    "/v1/ops/studies/{study_id}/documents": {
+      "get": {
+        "tags": [
+          "ops"
+        ],
+        "summary": "A study's uploaded files, any firm (platform operators)",
+        "description": "Every document of the study with its uploader, for support. Operators only (`OPS_OPERATOR_UIDS`); a firm role never grants it (docs/api/OPS_DOCUMENTS.md).",
+        "operationId": "list_study_documents_v1_ops_studies__study_id__documents_get",
+        "security": [
+          {
+            "FirebaseIdToken": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "study_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "description": "Study id.",
+              "title": "Study Id"
+            },
+            "description": "Study id."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OpsStudyDocumentsOut"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing, malformed, expired or revoked bearer token.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation failed (`errors` lists each field), or an `Idempotency-Key` was reused with a different request.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Rate limit exceeded; see `Retry-After`.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "A dependency (the database) is unavailable; see `Retry-After`.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Your role is too low for this action (the study or firm is visible to you); `no-firm`: you are not a member of any firm; `email-unverified`: your sign-in does not verify the invited email.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found, or not visible to you (the two are indistinguishable).",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/ops/studies/{study_id}/documents/{document_id}/content": {
+      "get": {
+        "tags": [
+          "ops"
+        ],
+        "summary": "Open a firm's uploaded file (platform operators; every open is recorded)",
+        "description": "The document's bytes, as the firm's own `.../content` serves them, never cached. Each open appends `operator.document_accessed` to the study's timeline (the operator, the reason, the file) before the bytes are read; the firm sees it. Operators only (`OPS_OPERATOR_UIDS`; docs/api/OPS_DOCUMENTS.md).",
+        "operationId": "open_study_document_v1_ops_studies__study_id__documents__document_id__content_get",
+        "security": [
+          {
+            "FirebaseIdToken": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "study_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "description": "Study id.",
+              "title": "Study Id"
+            },
+            "description": "Study id."
+          },
+          {
+            "name": "document_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "description": "Document id.",
+              "title": "Document Id"
+            },
+            "description": "Document id."
+          },
+          {
+            "name": "reason",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 3,
+              "maxLength": 300,
+              "description": "Why the file is opened (what support is helping with); recorded on the study's timeline, which the firm sees. No client figures.",
+              "title": "Reason"
+            },
+            "description": "Why the file is opened (what support is helping with); recorded on the study's timeline, which the firm sees. No client figures."
+          },
+          {
+            "name": "client_error_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "The missing-input or browser error record the open comes from.",
+              "title": "Client Error Id"
+            },
+            "description": "The missing-input or browser error record the open comes from."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The document's bytes, with its registered content type."
+          },
+          "401": {
+            "description": "Missing, malformed, expired or revoked bearer token.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation failed (`errors` lists each field), or an `Idempotency-Key` was reused with a different request.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Rate limit exceeded; see `Retry-After`.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "A dependency (the database) is unavailable; see `Retry-After`.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Your role is too low for this action (the study or firm is visible to you); `no-firm`: you are not a member of any firm; `email-unverified`: your sign-in does not verify the invited email.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found, or not visible to you (the two are indistinguishable).",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflicts with the current state (stale stage or revision, duplicate, archived, upload mismatch, or the same `Idempotency-Key` still in flight).",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/v1/studies/{study_id}/photos/{document_id}/objects": {
       "get": {
         "tags": [
@@ -11132,7 +11381,8 @@
             "enum": [
               "engineer",
               "model",
-              "system"
+              "system",
+              "operator"
             ],
             "title": "Actor Type"
           },
@@ -11147,7 +11397,7 @@
               }
             ],
             "title": "Actor Id",
-            "description": "The engineer (`users.id`), when one acted."
+            "description": "The engineer (`users.id`), when one acted; for `operator`, the Basis support operator who opened a file."
           },
           "stage": {
             "anyOf": [
@@ -17987,7 +18237,8 @@
             "enum": [
               "engineer",
               "model",
-              "system"
+              "system",
+              "operator"
             ],
             "title": "Actor Type"
           },
@@ -18002,7 +18253,7 @@
               }
             ],
             "title": "Actor Id",
-            "description": "The engineer (`users.id`), when one acted."
+            "description": "The engineer (`users.id`), when one acted; for `operator`, the Basis support operator who opened a file."
           },
           "stage": {
             "anyOf": [
@@ -20371,6 +20622,84 @@
         ],
         "title": "NotProducedOut"
       },
+      "OpsDocumentOut": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id"
+          },
+          "study_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Study Id"
+          },
+          "kind": {
+            "$ref": "#/components/schemas/DocumentKind"
+          },
+          "filename": {
+            "type": "string",
+            "title": "Filename"
+          },
+          "content_type": {
+            "type": "string",
+            "title": "Content Type"
+          },
+          "bytes": {
+            "type": "integer",
+            "title": "Bytes"
+          },
+          "sha256": {
+            "type": "string",
+            "title": "Sha256"
+          },
+          "uploaded_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Uploaded At",
+            "description": "Null until the upload is confirmed."
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          },
+          "uploaded_by": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Uploaded By",
+            "description": "The user who registered the upload."
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "study_id",
+          "kind",
+          "filename",
+          "content_type",
+          "bytes",
+          "sha256",
+          "uploaded_at",
+          "created_at",
+          "uploaded_by"
+        ],
+        "title": "OpsDocumentOut"
+      },
       "OpsHealthOut": {
         "properties": {
           "schema_version": {
@@ -20392,6 +20721,56 @@
           "services"
         ],
         "title": "OpsHealthOut"
+      },
+      "OpsStudyDocumentsOut": {
+        "properties": {
+          "study_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Study Id"
+          },
+          "property_name": {
+            "type": "string",
+            "title": "Property Name"
+          },
+          "status": {
+            "$ref": "#/components/schemas/StudyStatus"
+          },
+          "org_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Org Id"
+          },
+          "firm_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Firm Name"
+          },
+          "documents": {
+            "items": {
+              "$ref": "#/components/schemas/OpsDocumentOut"
+            },
+            "type": "array",
+            "title": "Documents",
+            "description": "Every document of the study, oldest first, confirmed or not."
+          }
+        },
+        "type": "object",
+        "required": [
+          "study_id",
+          "property_name",
+          "status",
+          "org_id",
+          "firm_name",
+          "documents"
+        ],
+        "title": "OpsStudyDocumentsOut"
       },
       "OrgActivityOut": {
         "properties": {
@@ -24103,7 +24482,8 @@
             "enum": [
               "engineer",
               "model",
-              "system"
+              "system",
+              "operator"
             ],
             "title": "Entered By",
             "description": "`engineer`: a decision moved the study; `system`: the workflow did."

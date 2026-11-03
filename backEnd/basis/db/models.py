@@ -1001,9 +1001,10 @@ class StudyEvent(Base):
     ``event_type`` is a dotted name (``stage.entered``, ``activity.completed``,
     ``review.decided``, ``entity.corrected`` ...; the vocabulary is
     :mod:`basis.db.repositories.study_event`). ``actor_type`` says who caused it: an
-    ``engineer`` (``actor_id`` is the user), the ``model`` (a model call's output) or the
-    ``system`` (the workflow, a rule, bookkeeping). ``stage``/``revision`` are the study's
-    at the time; an activity event carries ``activity``, ``activity_id``, ``attempt`` and the
+    ``engineer`` (``actor_id`` is the user), the ``model`` (a model call's output), the
+    ``system`` (the workflow, a rule, bookkeeping) or an ``operator`` (Basis support opening an
+    uploaded file, ``actor_id`` the operator; migration ``0030``). ``stage``/``revision`` are
+    the study's at the time; an activity event carries ``activity``, ``activity_id``, ``attempt`` and the
     execution (``workflow_id``/``run_id``, Temporal's ids); an entity event names the row
     (``entity_type``, ``entity_id``) with ``before``/``after``; ``code`` is the error code of
     a failure (docs/ERROR_CODES.md); ``detail`` holds the rest (durations, counts, reasons).
@@ -1011,7 +1012,9 @@ class StudyEvent(Base):
 
     __tablename__ = "study_events"
     __table_args__ = (
-        CheckConstraint("actor_type IN ('engineer', 'model', 'system')", name="actor_valid"),
+        CheckConstraint(
+            "actor_type IN ('engineer', 'model', 'system', 'operator')", name="actor_valid"
+        ),
         CheckConstraint("duration_ms IS NULL OR duration_ms >= 0", name="duration_nonnegative"),
         UniqueConstraint("seq"),
         Index(None, "study_id", "seq"),
