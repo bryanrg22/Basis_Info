@@ -77,7 +77,7 @@
  });
  let activeStep=null;
  // The explanations and measured results (workflow-content.json) load once; a dialog opened
- // before they arrive shows the runtime table and says the content is not loaded.
+ // before they arrive says the content is not loaded.
  const contentLoaded=BasisArchitecture.load().then(ok=>{if(activeStep&&$('architecture-dialog').open){renderStep(activeStep);loadRuns(activeStep)}return ok});
  // Run records (GET /v1/ops/eval-runs) per step: read once per dialog opening while
  // diagnostics are connected; older pages are appended on request.

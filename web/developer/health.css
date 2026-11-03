@@ -180,7 +180,7 @@ th .provider-logo{width:18px;height:18px;flex-basis:18px}
 }
 @media(max-width:600px){.service-group summary{grid-template-columns:minmax(0,1fr) 18px}.step-sequence li:not(:last-child):after{right:auto;left:24px;bottom:-33px}}
 
-/* Step dialogs: the runtime table lists a system, then one row per model role it runs. */
+/* Runtime rows (no longer rendered in the step dialogs; kept for the styles they share). */
 .runtime-system{display:flex;align-items:center;gap:10px}.runtime-system>span{display:flex;flex-direction:column;gap:4px}.runtime-name{font-weight:600}.runtime-route th{padding-left:34px;font-weight:400}.runtime-route small{color:var(--muted);font-size:11px}.runtime-route code{font-size:11px}.runtime-system .status{font-size:11px;padding:3px 6px}
 #architecture-content table th,#architecture-content table td{padding:9px 12px;border-bottom:1px solid var(--line);vertical-align:top}#architecture-content table thead th{background:#f3f7f4;font-weight:600;color:var(--muted);font-size:12px}#architecture-content table tbody tr:last-child th,#architecture-content table tbody tr:last-child td{border-bottom:0}
 .source-ref{font-size:12px;color:var(--muted)}
@@ -206,3 +206,20 @@ table.run-records-table{min-width:1380px;font-size:12px}table.run-records-table 
 .legend-wrap{margin-top:10px;font-size:13px}.legend-wrap summary{cursor:pointer;min-height:32px;color:var(--green);font-weight:600}.column-legend{display:grid;grid-template-columns:minmax(140px,240px) minmax(0,1fr);gap:6px 14px;margin:6px 0 0}.column-legend dt{font-weight:600}.column-legend dd{margin:0;color:var(--ink)}
 .model-key{margin-top:12px;border:1px solid var(--line);border-radius:8px;padding:8px 14px;font-size:13px}.model-key summary{cursor:pointer;min-height:36px;display:flex;align-items:center;font-weight:600}.model-key table{margin-top:6px}
 @media(max-width:600px){.column-legend{grid-template-columns:minmax(0,1fr)}.comparison-table th[scope=row]{min-width:160px}.setup-cell{min-width:200px}}
+/* Step dialogs: larger section titles; each part lists the systems it runs, with logos. */
+.dialog-section{margin-top:28px}.dialog-section:first-child{margin-top:8px}
+.dialog-section-title{font-size:22px;line-height:1.25;font-weight:700;margin:0 0 14px;padding-bottom:8px;border-bottom:1px solid var(--line)}
+.part-results h4{font-size:17px}
+.uses{list-style:none;margin:12px 0 10px;padding:12px 0 0;border-top:1px solid rgba(36,78,61,.15);display:grid;gap:10px}
+.uses li{display:flex;align-items:flex-start;gap:10px}.uses .provider-logo{flex:0 0 auto;width:22px;height:22px;margin-top:2px}
+.uses-dot{flex:0 0 auto;width:22px;height:22px;border-radius:6px;background:#dbe7df;margin-top:2px}
+.uses li>span{display:grid;gap:1px;min-width:0}.uses-name{font-size:12px;font-weight:600;color:var(--ink)}
+.uses code{font-size:12.5px;word-break:break-word}.uses small{color:var(--muted);font-size:11.5px}
+/* A scroll that reaches the end of an open dialog stays in it (no scroll chaining to the page
+   behind), and the page itself does not scroll while a modal dialog is open. */
+dialog{overscroll-behavior:contain}
+html:has(dialog[open]){overflow:hidden}
+/* The systems list sits inside a step box: it must not inherit the box's padding, background
+   or the arrow drawn between steps. */
+.step-sequence .uses li{padding:0;background:none;border-radius:0;position:static;flex-direction:row;gap:10px}
+.step-sequence .uses li::after,.step-sequence .uses li:not(:last-child)::after{content:none;display:none}

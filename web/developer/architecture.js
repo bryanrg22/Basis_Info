@@ -1,8 +1,9 @@
 /* Step dialogs of the Cost Segregation Workflow: what each step runs, on which systems, and
    what was measured. The text and the figures come from workflow-content.json (every
    figure verbatim from EVAL_REPORT.md, every source path real: both are checked by
-   backEnd/tests/unit/test_developer_workflow_content.py). The runtime table comes only from
-   the health feed (GET /v1/ops/health): a model id, a host or a backup is never typed here.
+   backEnd/tests/unit/test_developer_workflow_content.py). Each part of "How it works" lists
+   the systems it runs today; a model there is the production default of basis/config.py,
+   which the same test checks, and live health stays on the Systems list above the workflow.
    The "Run records" block under Tests & results lists the evaluation registry's runs for the
    step's components (workflow-content.json maps each step to them) from GET /v1/ops/eval-runs,
    with the same unavailable, unauthorized and no-data states as the health feed; every figure
@@ -231,21 +232,29 @@
   const seen=new Set();
   return all.filter(l=>!seen.has(l.path)&&seen.add(l.path)).map(l=>`<a href="${H.esc(REPOSITORY+l.path)}" target="_blank" rel="noopener noreferrer">${H.esc(l.label)} ↗</a>`).join('');
  }
+ // The systems a part runs today, from the content file (models are the production defaults
+ // of basis/config.py, checked by test_developer_workflow_content.py): logo, what it does,
+ // the exact system, its provider, and for a model its effort and temperature.
+ function usesList(uses,H){
+  if(!Array.isArray(uses)||!uses.length)return '';
+  return `<ul class="uses">${uses.map(u=>{
+   const facts=[u.provider,u.effort?`effort ${u.effort}`:null,u.temperature?`temperature ${u.temperature}`:null].filter(Boolean).map(H.esc).join(' · ');
+   return `<li>${(u.brand&&H.logo(u.brand))||'<span class="uses-dot" aria-hidden="true"></span>'}<span><span class="uses-name">${H.esc(u.name)}</span><code>${H.esc(u.system)}</code>${facts?`<small>${facts}</small>`:''}</span></li>`;
+  }).join('')}</ul>`;
+ }
  function render(node,services,H,runs){
   const entry=content?.steps?.[node.id];
   if(!entry){
-   const rows=node.services.map(id=>({service:id}));
-   return `<section><h3>How it works</h3><p class="detail-note">${H.esc(contentError||'The workflow content has not loaded yet.')} Explanations and measured results are in ${H.esc(CONTENT_PATH)}.</p></section><section><h3>Current runtime</h3><div class="table-scroll" role="region" tabindex="0" aria-label="Current runtime"><table><thead><tr><th>System</th><th>Model</th><th>Hosting / provider</th><th>Adapter</th><th>Backups</th></tr></thead><tbody>${runtimeRows(rows,services,H)}</tbody></table></div><p class="detail-note">Runtime fields come from the connected health API. Service health never says whether a study is signed or completed.</p></section>`;
+   return `<section class="dialog-section"><h3 class="dialog-section-title">How it works</h3><p class="detail-note">${H.esc(contentError||'The workflow content has not loaded yet.')} Explanations and measured results are in ${H.esc(CONTENT_PATH)}.</p></section>`;
   }
   const results=entry.results||{};
-  const how=`<section><h3>How it works</h3><ol class="step-sequence">${entry.how.map((step,i)=>`<li><span class="step-number">${i+1}</span><div><strong>${H.esc(step.title)}</strong><p>${H.esc(step.detail)}</p><a class="source-ref" href="${H.esc(REPOSITORY+step.source)}" target="_blank" rel="noopener noreferrer">${H.esc(step.source.split('/').pop())} ↗</a></div></li>`).join('')}</ol></section>`;
-  const runtime=`<section><h3>Current runtime</h3><div class="table-scroll" role="region" tabindex="0" aria-label="Current runtime"><table><thead><tr><th>System</th><th>Model</th><th>Hosting / provider</th><th>Adapter</th><th>Backups</th></tr></thead><tbody>${runtimeRows(entry.runtime,services,H)}</tbody></table></div><p class="detail-note">Every row is read from the connected health API: the model ids are what the worker reports it runs, hosting is what each process established about itself, and a backup is a configured fallback route. Service health never says whether a study is signed or completed.</p></section>`;
+  const how=`<section class="dialog-section"><h3 class="dialog-section-title">How it works</h3><ol class="step-sequence">${entry.how.map((step,i)=>`<li><span class="step-number">${i+1}</span><div><strong>${H.esc(step.title)}</strong><p>${H.esc(step.detail)}</p>${usesList(step.uses,H)}<a class="source-ref" href="${H.esc(REPOSITORY+step.source)}" target="_blank" rel="noopener noreferrer">Code: ${H.esc(step.source.split('/').pop())} ↗</a></div></li>`).join('')}</ol></section>`;
   const comparisons=comparisonsByPart(entry,results,H);
   const regression=results.regression?`<p class="regression-line"><strong>Regression:</strong> ${H.esc(results.regression.status)} (${sectionLink(results.regression.section,H)}). ${H.esc(results.regression.detail||'')}</p>`:'';
   const records=`<div class="run-records" id="run-records" data-step="${H.esc(node.id)}">${renderRunRecords(entry.components,runs,H)}</div>`;
-  const tests=`<section><h3>Tests &amp; results</h3><p>${H.esc(results.summary||'')}</p>${modelKey(H)}${comparisons}${metricsTable(results.metrics,H)}${spendLine(results.spend,H)}${regression}<div class="source-links">${links(entry,H)}</div><p class="detail-note">Figures are copied verbatim from ${H.esc(content.source.report)} and checked against it by ${H.esc('backEnd/tests/unit/test_developer_workflow_content.py')}; they are historical measurements, not a live benchmark.</p>${records}</section>`;
+  const tests=`<section class="dialog-section"><h3 class="dialog-section-title">Tests &amp; results</h3><p>${H.esc(results.summary||'')}</p>${modelKey(H)}${comparisons}${metricsTable(results.metrics,H)}${spendLine(results.spend,H)}${regression}<div class="source-links">${links(entry,H)}</div><p class="detail-note">Figures are copied verbatim from ${H.esc(content.source.report)} and checked against it by ${H.esc('backEnd/tests/unit/test_developer_workflow_content.py')}; they are historical measurements, not a live benchmark.</p>${records}</section>`;
   const note=entry.note?`<p class="detail-note">${H.esc(entry.note)}</p>`:'';
-  return how+runtime+note+tests;
+  return how+note+tests;
  }
  function componentsOf(stepId){const list=content?.steps?.[stepId]?.components;return Array.isArray(list)?list.filter(c=>typeof c==='string'):[]}
  const api={CONTENT_PATH,REPOSITORY,load,setContent,validContent,render,runtimeRows,renderRunRecords,runsMessage,validRunsPage,componentsOf,fileName,duration,get content(){return content},get contentError(){return contentError}};

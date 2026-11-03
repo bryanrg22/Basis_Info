@@ -79,23 +79,24 @@ test('every workflow box has a simple three-step explanation and source links',(
  for(const node of H.FLOW.flat()){
   assert.equal(CONTENT.steps[node.id].how.length,3);
   const html=A.render(node,services,H);
-  assert.ok(html.includes('How it works'));assert.ok(html.includes('Current runtime'));assert.ok(html.includes('https://github.com/bryanrg22/Basis_Info/blob/main/'));
+  assert.ok(html.includes('How it works'));assert.ok(html.includes('Tests &amp; results'));assert.ok(!html.includes('Current runtime'));assert.ok(html.includes('https://github.com/bryanrg22/Basis_Info/blob/main/'));
  }
  const rows=CONTENT.steps.photos.results.comparisons[0].rows;
  assert.equal(rows[0].selected,true);
  assert.ok(rows[0].values.includes('0.124')&&rows[0].values.includes('$2.20'));
  assert.ok(rows.some(r=>r.values.includes('Not measured')));
  const photos=A.render(H.FLOW.flat().find(n=>n.id==='photos'),services,H);
- assert.ok(photos.includes('stored as box and mask'));
+ assert.ok(photos.includes('draws an outline around each counted object'));
  assert.ok(photos.includes('historical measurements, not a live benchmark'));
 });
-test('workflow detail escapes runtime metadata and exposes keyboard dialog controls',()=>{
+test('workflow detail shows no live feed text, the flow escapes it, and dialogs open from the keyboard',()=>{
  const A=require('../developer/architecture.js');
  A.setContent(JSON.parse(require('node:fs').readFileSync(require('node:path').join(__dirname,'..','developer','workflow-content.json'),'utf8')));
  const services=H.snapshot(basic,{schema_version:1,services:[{id:'vision',...ok,model:'<img src=x onerror=alert(1)>',hosting:'<script>host</script>',fallbacks:['<script>backup</script>']}]},now);
  const html=A.render(H.FLOW.flat().find(n=>n.id==='photos'),services,H);
+ // The dialog shows no live feed text at all; the flow cards that do show it escape it.
  assert.ok(!html.includes('<img src=x'));assert.ok(!html.includes('<script>'));
- assert.ok(html.includes('&lt;script&gt;backup'));
+ const flow=H.renderFlow(services);assert.ok(!flow.includes('<img src=x')&&flow.includes('&lt;img src=x'));
  assert.equal((H.renderFlow(services).match(/aria-haspopup="dialog"/g)||[]).length,H.FLOW.flat().length);
 });
 

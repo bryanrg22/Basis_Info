@@ -23,19 +23,73 @@
   "upload": {
    "how": [
     {
-     "title": "Register and upload",
-     "detail": "Each appraisal and photo is registered with its sha256, uploaded to a signed URL that lasts 15 minutes, then confirmed. A lost upload is resumed by re-issuing the URL; the same file registered twice at once is handled safely.",
-     "source": "backEnd/basis/api/routes/documents.py"
+     "title": "Upload the files",
+     "detail": "The engineer uploads the appraisal and the property photos. Basis checks each file arrived whole (by its fingerprint), and an interrupted upload can be resumed.",
+     "source": "backEnd/basis/api/routes/documents.py",
+     "uses": [
+      {
+       "name": "Basis API",
+       "system": "FastAPI",
+       "brand": "fastapi",
+       "provider": "Basis"
+      },
+      {
+       "name": "File storage",
+       "system": "Google Cloud Storage",
+       "brand": null,
+       "provider": "Google Cloud (a local folder in development)"
+      },
+      {
+       "name": "Database",
+       "system": "PostgreSQL",
+       "brand": "postgresql",
+       "provider": "Basis"
+      }
+     ]
     },
     {
-     "title": "Intake, then start",
-     "detail": "Start is refused until the intake (property use, placed-in-service date, state, basis) and an appraisal are present. The study's first revision and its Temporal workflow are created together.",
-     "source": "backEnd/basis/api/routes/studies.py"
+     "title": "Fill in the property details, then start",
+     "detail": "A study cannot start until the property details (use, date placed in service, state, price) and the appraisal are in. Starting creates the study's first version.",
+     "source": "backEnd/basis/api/routes/studies.py",
+     "uses": [
+      {
+       "name": "Basis API",
+       "system": "FastAPI",
+       "brand": "fastapi",
+       "provider": "Basis"
+      },
+      {
+       "name": "Database",
+       "system": "PostgreSQL",
+       "brand": "postgresql",
+       "provider": "Basis"
+      },
+      {
+       "name": "Workflow engine",
+       "system": "Temporal",
+       "brand": "temporal",
+       "provider": "Temporal"
+      }
+     ]
     },
     {
-     "title": "A worker takes it",
-     "detail": "A worker polling the basis-studies task queue records the run start, moves the study to extracting and fans out the appraisal and photo activities in parallel. A worker loads its embedding model before it polls, so the first ingest cannot miss its heartbeat.",
-     "source": "backEnd/basis/workflow/study_workflow.py"
+     "title": "A worker picks it up",
+     "detail": "A Basis worker takes the study and starts reading the appraisal and the photos at the same time.",
+     "source": "backEnd/basis/workflow/study_workflow.py",
+     "uses": [
+      {
+       "name": "Workflow engine",
+       "system": "Temporal",
+       "brand": "temporal",
+       "provider": "Temporal"
+      },
+      {
+       "name": "Indexes the text for search",
+       "system": "all-MiniLM-L6-v2 (Sentence Transformers)",
+       "brand": null,
+       "provider": "runs on the Basis worker"
+      }
+     ]
     }
    ],
    "runtime": [
@@ -619,19 +673,69 @@
   "extract": {
    "how": [
     {
-     "title": "Ingest the report PDF",
-     "detail": "ingest_appraisal picks the extraction source (a PDF, a UAD 3.6 ZIP, or a bare MISMO XML's companion PDF), parses its layout, chunks the text per page with whole tables kept, embeds the chunks and publishes the study corpus, so every citation names its source document.",
-     "source": "backEnd/basis/activities/ingest_appraisal.py"
+     "title": "Take in the appraisal",
+     "detail": "Basis accepts a PDF or the newer UAD 3.6 file. It reads the pages and indexes the text, so every value it reports can point back to the page it came from.",
+     "source": "backEnd/basis/activities/ingest_appraisal.py",
+     "uses": [
+      {
+       "name": "Reads the PDF's text and layout",
+       "system": "Azure Document Intelligence (prebuilt-layout)",
+       "brand": "azure",
+       "provider": "Microsoft Azure"
+      },
+      {
+       "name": "Indexes the text for search",
+       "system": "all-MiniLM-L6-v2 (Sentence Transformers)",
+       "brand": null,
+       "provider": "runs on the Basis worker"
+      }
+     ]
     },
     {
      "title": "Read the fields",
-     "detail": "A UAD 3.6 XML is read directly, with highlight regions from the PDF. A PDF gets Azure Document Intelligence's page text and one grounded call on EXTRACTION_GROUNDED_MODEL that reads every field with a verbatim quote, each value checked against its quote; when that call cannot run, the Azure DI pipeline with one TEXT_MODEL call fills the fields still missing.",
-     "source": "backEnd/basis/activities/extract_fields.py"
+     "detail": "One AI call reads every field (living area, year built, price and the rest) and must quote the exact words from the page for each value; a value its quote does not support is thrown out. A UAD 3.6 file is read directly, with no AI. If the AI call cannot run, a cheaper backup fills what is missing.",
+     "source": "backEnd/basis/activities/extract_fields.py",
+     "uses": [
+      {
+       "name": "Reads every field, quoting the page",
+       "system": "gpt-6.1-sol",
+       "brand": "openai",
+       "provider": "OpenAI",
+       "effort": "low",
+       "temperature": "default (not settable)",
+       "setting": "extraction_grounded_model",
+       "effort_setting": "extraction_grounded_reasoning_effort"
+      },
+      {
+       "name": "Backup: fills fields still missing",
+       "system": "gpt-6-luna",
+       "brand": "openai",
+       "provider": "OpenAI",
+       "effort": "low",
+       "temperature": "default (not settable)",
+       "setting": "text_model",
+       "effort_setting": "extraction_reasoning_effort"
+      },
+      {
+       "name": "Reads the PDF's text and layout",
+       "system": "Azure Document Intelligence (prebuilt-layout)",
+       "brand": "azure",
+       "provider": "Microsoft Azure"
+      }
+     ]
     },
     {
-     "title": "Validate and gate",
-     "detail": "Values are checked (types, ranges, presence rules, cross-field consistency) with their sources kept; a missing or conflicting critical field flags the appraisal review, where the engineer's corrections overwrite fields as source manual.",
-     "source": "backEnd/basis/extraction/validation.py"
+     "title": "Check the values",
+     "detail": "Values are checked for type, range and consistency. A missing or conflicting key field is flagged for the engineer at the appraisal review.",
+     "source": "backEnd/basis/extraction/validation.py",
+     "uses": [
+      {
+       "name": "No AI in this part",
+       "system": "Rules and stored data",
+       "brand": null,
+       "provider": "Basis"
+      }
+     ]
     }
    ],
    "runtime": [
@@ -1556,19 +1660,71 @@
   "photos": {
    "how": [
     {
-     "title": "Prepare and count",
-     "detail": "analyze_photo resizes, strips EXIF and re-encodes each photo, then makes two concurrent structured calls: countable objects on VISION_MODEL and surfaces, materials and room identity on VISION_SURFACES_MODEL, merged into one analysis with one components row per kind.",
-     "source": "backEnd/basis/vision/analyze.py"
+     "title": "Count and describe each photo",
+     "detail": "Each photo is cleaned (resized, location data removed) and sent to two small AI calls at once: one counts the objects (windows, doors, lights, outlets, cabinets) and one reads surfaces and the room type.",
+     "source": "backEnd/basis/vision/analyze.py",
+     "uses": [
+      {
+       "name": "Counts objects in each photo",
+       "system": "gpt-6.1-sol",
+       "brand": "openai",
+       "provider": "OpenAI",
+       "effort": "low",
+       "temperature": "default (not settable)",
+       "setting": "vision_model",
+       "effort_setting": "vision_reasoning_effort"
+      },
+      {
+       "name": "Reads surfaces and the room type",
+       "system": "gpt-6-luna",
+       "brand": "openai",
+       "provider": "OpenAI",
+       "effort": "low",
+       "temperature": "default (not settable)",
+       "setting": "vision_surfaces_model",
+       "effort_setting": "vision_reasoning_effort"
+      }
+     ]
     },
     {
-     "title": "Fuse counts per class",
-     "detail": "A third concurrent countables call on VISION_FUSION_MODEL supplies the count for the classes where it measured better (the per-class table of section 15.4). The stored analysis records which model gave each count; a failed second call keeps the base counts and flags the photo instead of failing it.",
-     "source": "backEnd/basis/vision/fusion.py"
+     "title": "Take each count from the better model",
+     "detail": "A second model counts the same photo. For each kind of object, Basis keeps the count from the model that measured more accurate on it. If the second call fails, the first count stands and the photo is flagged.",
+     "source": "backEnd/basis/vision/fusion.py",
+     "uses": [
+      {
+       "name": "Counts objects in each photo",
+       "system": "gpt-6.1-sol",
+       "brand": "openai",
+       "provider": "OpenAI",
+       "effort": "low",
+       "temperature": "default (not settable)",
+       "setting": "vision_model",
+       "effort_setting": "vision_reasoning_effort"
+      },
+      {
+       "name": "Second count, used where it is better",
+       "system": "claude-opus-5-5",
+       "brand": "claude",
+       "provider": "Anthropic",
+       "effort": "medium",
+       "temperature": "default (not settable)",
+       "setting": "vision_fusion_model",
+       "effort_setting": "vision_fusion_reasoning_effort"
+      }
+     ]
     },
     {
      "title": "Outline every object",
-     "detail": "localize_photo sends the photo's countable labels as phrases to SAM 3 in one full-frame prediction; every instance is stored as box and mask, counted when its score clears its class threshold, so an engineer can inspect and select objects. It runs behind the rooms review and never fails the study.",
-     "source": "backEnd/basis/activities/localize_photo.py"
+     "detail": "SAM 3 draws an outline around each counted object so the engineer can see and check it. It runs in the background and never holds up the study.",
+     "source": "backEnd/basis/activities/localize_photo.py",
+     "uses": [
+      {
+       "name": "Outlines each object",
+       "system": "SAM 3",
+       "brand": "meta",
+       "provider": "Meta; run self-hosted or on Replicate"
+      }
+     ]
     }
    ],
    "runtime": [
@@ -2523,19 +2679,49 @@
   "photo-results": {
    "how": [
     {
-     "title": "Group by file name",
-     "detail": "Photos whose file names name the same room, plus the engineer's room aliases, share one room; the model's room identity groups a photo only when its name says nothing. Grouping by the model alone merged distinct rooms, and grouping without aliases counted views of one room twice.",
-     "source": "backEnd/basis/vision/rooms.py"
+     "title": "Group photos into rooms",
+     "detail": "Photos are grouped by their file names (\"Kitchen 1\", \"Kitchen 2\"), plus the room merges the engineer makes. The AI's guess is used only when a file name says nothing.",
+     "source": "backEnd/basis/vision/rooms.py",
+     "uses": [
+      {
+       "name": "No AI in this part",
+       "system": "Rules and stored data",
+       "brand": null,
+       "provider": "Basis"
+      }
+     ]
     },
     {
-     "title": "Name, type and floor",
-     "detail": "Each room is named from its file name without the floor, typed from the name's words first and the photos' room answers second, and floored from the file name first. A change is a room.voted event naming the source of each field; a room the engineer corrected is never re-voted. No model call is made.",
-     "source": "backEnd/basis/activities/reconcile_rooms.py"
+     "title": "Name each room",
+     "detail": "Each room's name, type and floor come from its file name first and the photos' answers second. No AI call is made here.",
+     "source": "backEnd/basis/activities/reconcile_rooms.py",
+     "uses": [
+      {
+       "name": "No AI in this part",
+       "system": "Rules and stored data",
+       "brand": null,
+       "provider": "Basis"
+      }
+     ]
     },
     {
      "title": "Open the rooms review",
-     "detail": "The rooms review opens once every photo is analyzed and voted. Ambiguous photos stay in Unassigned, SAM 3 outlines continue in the background, and a photo whose analysis failed keeps its failure code for the engineer.",
-     "source": "backEnd/basis/workflow/study_workflow.py"
+     "detail": "Once every photo is analysed, the engineer reviews the rooms. Unclear photos wait in an unassigned list.",
+     "source": "backEnd/basis/workflow/study_workflow.py",
+     "uses": [
+      {
+       "name": "Basis API",
+       "system": "FastAPI",
+       "brand": "fastapi",
+       "provider": "Basis"
+      },
+      {
+       "name": "Database",
+       "system": "PostgreSQL",
+       "brand": "postgresql",
+       "provider": "Basis"
+      }
+     ]
     }
    ],
    "runtime": [
@@ -3155,19 +3341,63 @@
   "inventory": {
    "how": [
     {
-     "title": "Rebuild each room's input",
-     "detail": "reconcile_rooms reads the approved room's photos in file-name order with each photo's component rows (so corrections carried into the revision are what is reconciled) and the prepared images from storage. A room whose photos did not change keeps its inventory.",
-     "source": "backEnd/basis/activities/reconcile_rooms.py"
+     "title": "Gather each room's photos",
+     "detail": "For each approved room, Basis collects its photos and what was found in them, including the engineer's corrections. A room that did not change keeps its list.",
+     "source": "backEnd/basis/activities/reconcile_rooms.py",
+     "uses": [
+      {
+       "name": "Database",
+       "system": "PostgreSQL",
+       "brand": "postgresql",
+       "provider": "Basis"
+      },
+      {
+       "name": "File storage",
+       "system": "Google Cloud Storage",
+       "brand": null,
+       "provider": "Google Cloud (a local folder in development)"
+      }
+     ]
     },
     {
-     "title": "Count each component once",
-     "detail": "A one-photo room takes its photo's analysis as its inventory. A multi-photo room gets one room_inventory call on ROOM_MODEL that lists every component once across the room's photos, with the photos it was seen in. An unusable answer falls back to the heuristic merge and flags the room.",
-     "source": "backEnd/basis/vision/room_step.py"
+     "title": "Count each object once",
+     "detail": "A room with one photo keeps that photo's list. A room with several photos gets one AI call that counts every object once across the photos, so a window seen twice is not counted twice.",
+     "source": "backEnd/basis/vision/room_step.py",
+     "uses": [
+      {
+       "name": "Counts each object once per room",
+       "system": "gpt-6-luna",
+       "brand": "openai",
+       "provider": "OpenAI",
+       "effort": "low",
+       "temperature": "default (not settable)",
+       "setting": "room_model",
+       "effort_setting": "room_reasoning_effort"
+      }
+     ]
     },
     {
-     "title": "Second look at materials",
-     "detail": "Wainscoting, wall finish and tile get a material second look on ROOM_MATERIALS_MODEL (from Mask2Former surface crops when MATERIALS_SECOND_LOOK=surface_crops). The result is one components row per component with raw.source = room_inventory, which process_assets uses instead of the per-photo rows.",
-     "source": "backEnd/basis/vision/surface_material.py"
+     "title": "Check the materials",
+     "detail": "Wall finishes, wainscoting and tile get a second look to confirm the material, because it can change the tax class.",
+     "source": "backEnd/basis/vision/surface_material.py",
+     "uses": [
+      {
+       "name": "Second look at materials",
+       "system": "claude-sonnet-5-5",
+       "brand": "claude",
+       "provider": "Anthropic",
+       "effort": "low",
+       "temperature": "default (not settable)",
+       "setting": "room_materials_model",
+       "effort_setting": "room_materials_reasoning_effort"
+      },
+      {
+       "name": "Cuts out wall and floor surfaces (off by default)",
+       "system": "Mask2Former",
+       "brand": "meta",
+       "provider": "Meta; runs on the Basis worker"
+      }
+     ]
     }
    ],
    "runtime": [
@@ -4388,19 +4618,53 @@
   "assets": {
    "how": [
     {
-     "title": "Classify",
-     "detail": "Each component is classified by the firm's conventions first (prefetched by context key), then the IRS rules table with the component's room, then the bounded residual classifier on CLASSIFY_MODEL, whose tool calls search the reference corpus and the study's own appraisal. Every model answer keeps its citations, verified against the chunk text; a convention outranks a model answer at every tier.",
-     "source": "backEnd/basis/classify/router.py"
+     "title": "Classify each item",
+     "detail": "Each item gets its tax class from the firm's own past rulings first, then the IRS rules table, and only then from an AI classifier that must cite the IRS text it relied on.",
+     "source": "backEnd/basis/classify/router.py",
+     "uses": [
+      {
+       "name": "Classifies what no rule decides, with citations",
+       "system": "claude-sonnet-5-5",
+       "brand": "claude",
+       "provider": "Anthropic",
+       "effort": "low",
+       "temperature": "default (not settable)",
+       "setting": "classify_model",
+       "effort_setting": "classify_reasoning_effort"
+      },
+      {
+       "name": "Searches the IRS documents for citations",
+       "system": "Keyword search (BM25)",
+       "brand": null,
+       "provider": "runs on the Basis worker"
+      }
+     ]
     },
     {
      "title": "Measure and price",
-     "detail": "Quantities come from the appraisal's areas (gross living area shared over rooms by type weight, basement and garage areas, footprint and site for property-level rows), measured once per room and takeoff row. Each row is priced from the RSMeans cost table at the study's year index and location factor, with the full cost trail written on the row.",
-     "source": "backEnd/basis/domain/costs.py"
+     "detail": "Quantities come from the appraisal's areas (living area, basement, garage, lot). Each item is priced from RSMeans, adjusted for the study's year and location, and every step of the price is kept.",
+     "source": "backEnd/basis/domain/costs.py",
+     "uses": [
+      {
+       "name": "Unit prices",
+       "system": "RSMeans cost data",
+       "brand": null,
+       "provider": "Gordian (licensed books)"
+      }
+     ]
     },
     {
-     "title": "Add the structure and reconcile",
-     "detail": "The structure model prices the concealed systems from the RSMeans square-foot model (or the appraisal's cost approach), carves out what the photos evidenced, depreciates the whole and reconciles the total to the purchase price less land. A gap outside the tolerance flags the assets review and withholds the allocation.",
-     "source": "backEnd/basis/domain/structure.py"
+     "title": "Add what photos cannot show, then balance",
+     "detail": "Hidden building systems (framing, plumbing, wiring) are priced from the RSMeans square-foot model. The total is checked against the purchase price minus land; a gap that is too large is flagged and holds the report.",
+     "source": "backEnd/basis/domain/structure.py",
+     "uses": [
+      {
+       "name": "Unit prices",
+       "system": "RSMeans cost data",
+       "brand": null,
+       "provider": "Gordian (licensed books)"
+      }
+     ]
     }
    ],
    "runtime": [
@@ -5730,19 +5994,43 @@
   "output": {
    "how": [
     {
-     "title": "Promote the rulings",
-     "detail": "After the assets approval, promote_conventions turns the engineer's corrections and the cited model answers of the approved revision into the firm's conventions, so the next study's identical component is classified from them at no cost.",
-     "source": "backEnd/basis/activities/promote_conventions.py"
+     "title": "Remember the engineer's rulings",
+     "detail": "After approval, the engineer's corrections become the firm's rulings, so the next study classifies the same item the same way at no AI cost.",
+     "source": "backEnd/basis/activities/promote_conventions.py",
+     "uses": [
+      {
+       "name": "Database",
+       "system": "PostgreSQL",
+       "brand": "postgresql",
+       "provider": "Basis"
+      }
+     ]
     },
     {
-     "title": "Export the revision",
-     "detail": "export_report writes the approved revision as canonical JSON (extraction, rooms, components, the evidence pack with citations, provenance, timeline) and a CSV of its assets. The same revision exports byte-identical files with the same sha256.",
-     "source": "backEnd/basis/activities/export_report.py"
+     "title": "Export the study",
+     "detail": "The approved study is saved as data, a spreadsheet and an evidence pack with every citation. The same study always exports the same files.",
+     "source": "backEnd/basis/activities/export_report.py",
+     "uses": [
+      {
+       "name": "File storage",
+       "system": "Google Cloud Storage",
+       "brand": null,
+       "provider": "Google Cloud (a local folder in development)"
+      }
+     ]
     },
     {
-     "title": "Record the spend",
-     "detail": "summary.spend rolls up every paid call by stage, activity, component, model and kind (calls, tokens, dollars, latency), and rev-n.calls.jsonl is the transcript of each call with its prompt and raw response. Exporting files does not complete the study: Report & sign does.",
-     "source": "docs/api/SPEND.md"
+     "title": "Record the cost",
+     "detail": "Every AI call is recorded with its tokens and dollars, by step and by model. Exporting files does not complete the study; signing the report does.",
+     "source": "docs/api/SPEND.md",
+     "uses": [
+      {
+       "name": "Database",
+       "system": "PostgreSQL",
+       "brand": "postgresql",
+       "provider": "Basis"
+      }
+     ]
     }
    ],
    "runtime": [
@@ -6475,19 +6763,61 @@
   "report-sign": {
    "how": [
     {
-     "title": "Complete details",
-     "detail": "The firm profile and the study details the report needs are saved. The report is rendered from the export with Typst, chosen because it produced byte-identical PDFs on the Mac and in the Linux worker image.",
-     "source": "backEnd/basis/report/render.py"
+     "title": "Fill in the report details",
+     "detail": "The firm's profile and the study's details for the report are saved.",
+     "source": "backEnd/basis/report/render.py",
+     "uses": [
+      {
+       "name": "Basis API",
+       "system": "FastAPI",
+       "brand": "fastapi",
+       "provider": "Basis"
+      },
+      {
+       "name": "Database",
+       "system": "PostgreSQL",
+       "brand": "postgresql",
+       "provider": "Basis"
+      }
+     ]
     },
     {
      "title": "Preview and sign",
-     "detail": "An engineer or owner opens the preview; signing re-renders it and compares the sha256, refusing a changed preview or revision (412 BASIS-REPORT-010). The signature row, the report.signed event and the signed PDF are written together under one Idempotency-Key.",
-     "source": "backEnd/basis/api/routes/report.py"
+     "detail": "The engineer opens the PDF preview and signs it. Basis signs exactly the preview that was opened: it refuses a changed preview or revision and asks for a fresh one.",
+     "source": "backEnd/basis/api/routes/report.py",
+     "uses": [
+      {
+       "name": "Draws the PDF report",
+       "system": "Typst 0.15",
+       "brand": null,
+       "provider": "runs on the Basis worker"
+      },
+      {
+       "name": "Sign-in",
+       "system": "Firebase Auth",
+       "brand": "firebase",
+       "provider": "Google Firebase"
+      }
+     ]
     },
     {
      "title": "After signing",
-     "detail": "A signed PDF is immutable. A later change to the inputs marks the study changed since signing; Start a new revision reopens the assets review, re-exports and signs the next revision while the earlier signed PDF stays byte-identical.",
-     "source": "docs/api/REPORT.md"
+     "detail": "A signed report never changes. If the study needs a change later, a new version is reviewed and signed, and the earlier signed PDF is kept.",
+     "source": "docs/api/REPORT.md",
+     "uses": [
+      {
+       "name": "File storage",
+       "system": "Google Cloud Storage",
+       "brand": null,
+       "provider": "Google Cloud (a local folder in development)"
+      },
+      {
+       "name": "Database",
+       "system": "PostgreSQL",
+       "brand": "postgresql",
+       "provider": "Basis"
+      }
+     ]
     }
    ],
    "runtime": [
@@ -6719,19 +7049,61 @@
   "appraisal-review": {
    "how": [
     {
-     "title": "Compare fields",
-     "detail": "Each extracted value is shown with its source in the appraisal (the quote, page and region); flagged, missing and conflicting fields are listed first.",
-     "source": "backEnd/basis/api/routes/decisions.py"
+     "title": "Compare each value with its source",
+     "detail": "Each value is shown next to the words on the appraisal page it came from. Flagged, missing and conflicting fields come first.",
+     "source": "backEnd/basis/api/routes/decisions.py",
+     "uses": [
+      {
+       "name": "Basis API",
+       "system": "FastAPI",
+       "brand": "fastapi",
+       "provider": "Basis"
+      }
+     ]
     },
     {
      "title": "Correct values",
-     "detail": "Field corrections and added fields are saved with a reason; on a rejection extract_fields runs again and applies them as source manual.",
-     "source": "backEnd/basis/activities/corrections.py"
+     "detail": "The engineer corrects or adds a field with a reason; the correction replaces the AI's value.",
+     "source": "backEnd/basis/activities/corrections.py",
+     "uses": [
+      {
+       "name": "Basis API",
+       "system": "FastAPI",
+       "brand": "fastapi",
+       "provider": "Basis"
+      },
+      {
+       "name": "Database",
+       "system": "PostgreSQL",
+       "brand": "postgresql",
+       "provider": "Basis"
+      }
+     ]
     },
     {
-     "title": "Approve or correct",
-     "detail": "The API stores the decision (corrections are append-only; a draft is kept on the server until it is sent) and the outbox relay delivers it to the workflow at least once. A rejection starts the next revision: apply_corrections copies what the stage does not recompute and reruns only the affected work.",
-     "source": "backEnd/basis/activities/apply_corrections.py"
+     "title": "Approve or send back",
+     "detail": "The engineer's decision is saved (a draft is kept while they work). Sending it back starts a new version that redoes only the work the corrections affect.",
+     "source": "backEnd/basis/activities/apply_corrections.py",
+     "uses": [
+      {
+       "name": "Basis API",
+       "system": "FastAPI",
+       "brand": "fastapi",
+       "provider": "Basis"
+      },
+      {
+       "name": "Database",
+       "system": "PostgreSQL",
+       "brand": "postgresql",
+       "provider": "Basis"
+      },
+      {
+       "name": "Workflow engine",
+       "system": "Temporal",
+       "brand": "temporal",
+       "provider": "Temporal"
+      }
+     ]
     }
    ],
    "runtime": [
@@ -7588,19 +7960,61 @@
   "rooms-review": {
    "how": [
     {
-     "title": "Organize photos",
-     "detail": "Every photo is placed in its room; names, types and floors are checked, with the unplaced photos and their failure codes listed.",
-     "source": "backEnd/basis/api/routes/decisions.py"
+     "title": "Put every photo in its room",
+     "detail": "The engineer checks each room's photos, name, type and floor; photos without a room are listed with the reason.",
+     "source": "backEnd/basis/api/routes/decisions.py",
+     "uses": [
+      {
+       "name": "Basis API",
+       "system": "FastAPI",
+       "brand": "fastapi",
+       "provider": "Basis"
+      }
+     ]
     },
     {
-     "title": "Correct rooms",
-     "detail": "Rooms are created, renamed, merged or removed and photos moved; a rejection re-votes the rooms and re-analyzes only the photos flagged.",
-     "source": "backEnd/basis/activities/corrections.py"
+     "title": "Correct the rooms",
+     "detail": "Rooms can be created, renamed, merged or removed and photos moved. Only the photos affected are analysed again.",
+     "source": "backEnd/basis/activities/corrections.py",
+     "uses": [
+      {
+       "name": "Basis API",
+       "system": "FastAPI",
+       "brand": "fastapi",
+       "provider": "Basis"
+      },
+      {
+       "name": "Database",
+       "system": "PostgreSQL",
+       "brand": "postgresql",
+       "provider": "Basis"
+      }
+     ]
     },
     {
-     "title": "Approve or correct",
-     "detail": "The API stores the decision (corrections are append-only; a draft is kept on the server until it is sent) and the outbox relay delivers it to the workflow at least once. A rejection starts the next revision: apply_corrections copies what the stage does not recompute and reruns only the affected work.",
-     "source": "backEnd/basis/activities/apply_corrections.py"
+     "title": "Approve or send back",
+     "detail": "The engineer's decision is saved (a draft is kept while they work). Sending it back starts a new version that redoes only the work the corrections affect.",
+     "source": "backEnd/basis/activities/apply_corrections.py",
+     "uses": [
+      {
+       "name": "Basis API",
+       "system": "FastAPI",
+       "brand": "fastapi",
+       "provider": "Basis"
+      },
+      {
+       "name": "Database",
+       "system": "PostgreSQL",
+       "brand": "postgresql",
+       "provider": "Basis"
+      },
+      {
+       "name": "Workflow engine",
+       "system": "Temporal",
+       "brand": "temporal",
+       "provider": "Temporal"
+      }
+     ]
     }
    ],
    "runtime": [
@@ -8457,19 +8871,67 @@
   "components-review": {
    "how": [
     {
-     "title": "Inspect evidence",
-     "detail": "The room inventory is read against the photos, with every object outlined by SAM 3 and the count source per class.",
-     "source": "backEnd/basis/api/routes/decisions.py"
+     "title": "Check what was found",
+     "detail": "Each room's list is shown against its photos, with every object outlined.",
+     "source": "backEnd/basis/api/routes/decisions.py",
+     "uses": [
+      {
+       "name": "Basis API",
+       "system": "FastAPI",
+       "brand": "fastapi",
+       "provider": "Basis"
+      },
+      {
+       "name": "Outlines each object",
+       "system": "SAM 3",
+       "brand": "meta",
+       "provider": "Meta; run self-hosted or on Replicate"
+      }
+     ]
     },
     {
-     "title": "Correct components",
-     "detail": "Counts, materials and missing or wrong components are corrected; a rejection re-analyzes the flagged photos in their rooms and rebuilds only the rooms that changed.",
-     "source": "backEnd/basis/activities/corrections.py"
+     "title": "Correct counts and materials",
+     "detail": "The engineer fixes counts and materials and adds or removes items. Only the rooms that changed are rebuilt.",
+     "source": "backEnd/basis/activities/corrections.py",
+     "uses": [
+      {
+       "name": "Basis API",
+       "system": "FastAPI",
+       "brand": "fastapi",
+       "provider": "Basis"
+      },
+      {
+       "name": "Database",
+       "system": "PostgreSQL",
+       "brand": "postgresql",
+       "provider": "Basis"
+      }
+     ]
     },
     {
-     "title": "Approve or correct",
-     "detail": "The API stores the decision (corrections are append-only; a draft is kept on the server until it is sent) and the outbox relay delivers it to the workflow at least once. A rejection starts the next revision: apply_corrections copies what the stage does not recompute and reruns only the affected work.",
-     "source": "backEnd/basis/activities/apply_corrections.py"
+     "title": "Approve or send back",
+     "detail": "The engineer's decision is saved (a draft is kept while they work). Sending it back starts a new version that redoes only the work the corrections affect.",
+     "source": "backEnd/basis/activities/apply_corrections.py",
+     "uses": [
+      {
+       "name": "Basis API",
+       "system": "FastAPI",
+       "brand": "fastapi",
+       "provider": "Basis"
+      },
+      {
+       "name": "Database",
+       "system": "PostgreSQL",
+       "brand": "postgresql",
+       "provider": "Basis"
+      },
+      {
+       "name": "Workflow engine",
+       "system": "Temporal",
+       "brand": "temporal",
+       "provider": "Temporal"
+      }
+     ]
     }
    ],
    "runtime": [
@@ -9326,19 +9788,61 @@
   "assets-review": {
    "how": [
     {
-     "title": "Check assets",
-     "detail": "Recovery classes, quantities, prices, cost trails and cited evidence are read, with the reconciliation to the basis.",
-     "source": "backEnd/basis/api/routes/decisions.py"
+     "title": "Check each asset",
+     "detail": "Tax classes, quantities, prices, their cost trail and the cited evidence are shown, with how the total balances to the purchase price.",
+     "source": "backEnd/basis/api/routes/decisions.py",
+     "uses": [
+      {
+       "name": "Basis API",
+       "system": "FastAPI",
+       "brand": "fastapi",
+       "provider": "Basis"
+      }
+     ]
     },
     {
-     "title": "Resolve issues",
-     "detail": "Unsupported values are corrected with a reason; a rejection reruns process_assets, and the approval promotes the rulings to the firm's conventions.",
-     "source": "backEnd/basis/activities/corrections.py"
+     "title": "Fix what is wrong",
+     "detail": "The engineer corrects anything unsupported, with a reason. Approving turns the rulings into the firm's rules for next time.",
+     "source": "backEnd/basis/activities/corrections.py",
+     "uses": [
+      {
+       "name": "Basis API",
+       "system": "FastAPI",
+       "brand": "fastapi",
+       "provider": "Basis"
+      },
+      {
+       "name": "Database",
+       "system": "PostgreSQL",
+       "brand": "postgresql",
+       "provider": "Basis"
+      }
+     ]
     },
     {
-     "title": "Approve or correct",
-     "detail": "The API stores the decision (corrections are append-only; a draft is kept on the server until it is sent) and the outbox relay delivers it to the workflow at least once. A rejection starts the next revision: apply_corrections copies what the stage does not recompute and reruns only the affected work.",
-     "source": "backEnd/basis/activities/apply_corrections.py"
+     "title": "Approve or send back",
+     "detail": "The engineer's decision is saved (a draft is kept while they work). Sending it back starts a new version that redoes only the work the corrections affect.",
+     "source": "backEnd/basis/activities/apply_corrections.py",
+     "uses": [
+      {
+       "name": "Basis API",
+       "system": "FastAPI",
+       "brand": "fastapi",
+       "provider": "Basis"
+      },
+      {
+       "name": "Database",
+       "system": "PostgreSQL",
+       "brand": "postgresql",
+       "provider": "Basis"
+      },
+      {
+       "name": "Workflow engine",
+       "system": "Temporal",
+       "brand": "temporal",
+       "provider": "Temporal"
+      }
+     ]
     }
    ],
    "runtime": [

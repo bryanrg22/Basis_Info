@@ -164,9 +164,9 @@ test('a problem body on a file read is parsed so the page can explain it',async(
  assert.equal(result.status,404);assert.equal(result.data.code,'BASIS-API-046');
  assert.ok(A.runsMessage(result).includes('No evaluation data on this host'));
 });
-test('nothing in the block says a study is signed or completed, and the health dialog text is unchanged',()=>{
+test('nothing in the block says a study is signed or completed, and the dialog has no runtime table',()=>{
  const html=fresh().render(node('photos'),services(),H,done(page([run()])));
- assert.ok(html.includes('never says whether a study is signed or completed'));
+ assert.ok(!html.includes('Current runtime'));
  assert.ok(!/this study is (signed|completed)/i.test(html));
  assert.ok(html.includes('historical measurements, not a live benchmark')&&html.includes('arch26_countables_v3_sol'));
 });

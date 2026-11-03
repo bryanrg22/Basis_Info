@@ -77,3 +77,15 @@ Verification:
 - Browser, not connected: every runtime cell "Not reported", the measured results unchanged.
 - Keyboard: Escape closes the dialog and returns focus to the step button. Console on a fresh load: empty. 390 CSS px: no page or dialog overflow; wide tables scroll inside the dialog.
 - No paid model call, no deployment, no change to the `basis-web` stack or any client file.
+
+Changes in this pass (2026-11-02, branch `claude/plain-how-it-works`; supersedes the runtime-table
+lines above):
+
+- The step dialogs no longer have a "Current runtime" table; live health stays on the Systems list.
+- "How it works" is written in plain words, and each part lists the systems it runs today: the
+  provider's logo, what the system does, the exact system (for a model: id, provider, effort and
+  temperature). A model there is the production default of `basis/config.py`;
+  `test_developer_workflow_content.py` fails if a typed model or effort differs from it.
+- Section titles ("How it works", "Tests & results") are larger.
+- Scrolling past the end of a dialog no longer scrolls the page behind it (`overscroll-behavior:
+  contain` on the dialog, and the page does not scroll while a dialog is open).
