@@ -83,7 +83,12 @@ Event vocabulary (``event_type``; the actor in brackets):
   ruling to the firm's conventions (``entity_id`` the asset; ``detail`` key, bucket,
   ``agrees_with_rules``, outcome, approvals); ``convention.replaced`` [engineer]: the
   approved answer replaced a different convention (``code``
-  ``E.ASSETS_CONVENTION_REPLACED``, ``before`` the replaced row).
+  ``E.ASSETS_CONVENTION_REPLACED``, ``before`` the replaced row);
+* ``operator.document_accessed`` [operator]: a Basis platform operator opened one of the
+  study's uploaded files for support (``GET /v1/ops/studies/{id}/documents/{id}/content``,
+  docs/api/OPS_DOCUMENTS.md): ``actor_id`` the operator's ``users`` row, ``entity_id`` the
+  document, ``detail`` the reason, ``client_error_id``, the file's name, kind, sha256 and
+  size; recorded before the bytes are read (migration ``0030``).
 
 Durations: an ``activity.*`` end row carries ``started_at`` (the attempt's start on the
 worker's clock) and ``duration_ms`` (monotonic on the worker), so a step's duration never
@@ -105,7 +110,7 @@ from basis.db.enums import Stage
 from basis.db.models import OrgMember, Study, StudyEvent
 from basis.obs.logging import get_context
 
-Actor = Literal["engineer", "model", "system"]
+Actor = Literal["engineer", "model", "system", "operator"]
 
 MAX_TIMELINE_PAGE: Final = 1000
 MAX_ERROR_CHARS: Final = 2000

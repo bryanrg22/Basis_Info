@@ -11,7 +11,7 @@ from pydantic import Field
 
 from basis.api.schemas.common import ResponseModel
 
-ActorType = Literal["engineer", "model", "system"]
+ActorType = Literal["engineer", "model", "system", "operator"]
 Origin = Literal["model", "engineer_added", "engineer_modified"]
 
 
@@ -45,7 +45,10 @@ class EventOut(ResponseModel):
     at: datetime = Field(description="When it was recorded (the database clock).")
     event_type: str = Field(description="A dotted name; the vocabulary is in the docs.")
     actor_type: ActorType
-    actor_id: uuid.UUID | None = Field(description="The engineer (`users.id`), when one acted.")
+    actor_id: uuid.UUID | None = Field(
+        description="The engineer (`users.id`), when one acted; for `operator`, the Basis "
+        "support operator who opened a file."
+    )
     stage: str | None
     revision: int | None
     workflow_id: str | None

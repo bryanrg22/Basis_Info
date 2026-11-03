@@ -208,8 +208,9 @@ the browser's `POST` does not accept the kind):
 twice. The records group into one issue per firm and blocker (not per message), so an operator
 sees "this firm keeps missing X" and marks it `in_progress` or `resolved` with a note as for any
 issue. Recording runs in a savepoint and never fails the study. The developer page's filter
-lists the kind. Opening the files themselves from the page (an operator reading a firm's
-uploads) is not built: the storage URI is recorded; access is Bryan's decision.
+lists the kind. The record's detail on the developer page lists the files with an Open button
+(`GET /v1/ops/studies/{id}/documents/{id}/content` with a reason; every open is recorded on the
+study's timeline, which the firm sees: docs/api/OPS_DOCUMENTS.md).
 
 ## 5. The operator reads
 

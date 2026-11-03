@@ -12,7 +12,11 @@ and asks for ``alice``'s resources:
   422 cannot stand in for the missing check);
 * a member's own study or firm in the path does not reach another firm's rows named by
   the second id (a document, a photo, an object, a member, an invitation): 404, and a
-  filter by another study's asset returns nothing.
+  filter by another study's asset returns nothing;
+* the platform operator routes (``/v1/ops/``) cross firms by design (Basis support,
+  docs/api/OPS_DOCUMENTS.md), so they are outside the 404 walk: every firm member, the study's
+  owner included, gets the same 403 for an existing and a missing id, so ids cannot be probed
+  there either.
 """
 
 from __future__ import annotations
@@ -159,11 +163,19 @@ class Firm:
     ids: dict[str, str]  # path parameter name -> id
 
 
-def scoped_operations(app: FastAPI) -> list[tuple[str, str]]:
+# Platform operator routes cross firms by design (support opens a firm's files,
+# docs/api/OPS_DOCUMENTS.md): a firm member, owner included, is refused by the operator check
+# before any id is read, with the same 403 for an existing and a missing id
+# (test_operator_routes_refuse_every_firm_member_the_same_way).
+OPERATOR_PREFIX: Final = "/v1/ops/"
+
+
+def scoped_operations(app: FastAPI, *, operator: bool = False) -> list[tuple[str, str]]:
     return [
         (method, template)
         for method, template in operations(app)
         if any(param in template for param in SCOPE_PARAMS)
+        and template.startswith(OPERATOR_PREFIX) is operator
     ]
 
 
@@ -258,6 +270,21 @@ async def test_another_firms_ids_are_404_exactly_like_missing_ones(
         assert hidden.status_code == 404, (method, template, hidden.text)
         assert missing.status_code == 404, (method, template, missing.text)
         assert comparable(hidden) == comparable(missing), (method, template)
+
+
+async def test_operator_routes_refuse_every_firm_member_the_same_way(
+    api_app: FastAPI, http: httpx.AsyncClient, alice: Firm, mallory: Firm
+) -> None:
+    operator_routes = scoped_operations(api_app, operator=True)
+    assert operator_routes  # the support routes exist and are checked here
+    for method, template in operator_routes:
+        for uid in (mallory.uid, alice.uid):  # another firm's owner, and the study's own owner
+            hidden = await send(
+                http, uid, method, fill_path(template, {**FIXED, **alice.ids}), None
+            )
+            missing = await send(http, uid, method, fill_path(template, FIXED), None)
+            assert hidden.status_code == missing.status_code == 403, (method, template, uid)
+            assert comparable(hidden) == comparable(missing), (method, template, uid)
 
 
 async def test_own_scope_does_not_reach_another_firms_rows(
