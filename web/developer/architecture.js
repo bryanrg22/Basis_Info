@@ -256,7 +256,18 @@
   const note=entry.note?`<p class="detail-note">${H.esc(entry.note)}</p>`:'';
   return how+note+tests;
  }
+ // The systems each step runs, for the workflow cards: every distinct system named under the
+ // step's parts, its label without the parenthetical detail, with its logo brand.
+ function systemsByStep(){
+  const out={};
+  for(const [id,step] of Object.entries(content?.steps||{})){
+   const seen=new Map();
+   for(const part of step.how||[])for(const u of part.uses||[]){const label=String(u.system||'').replace(/\s*\(.*\)\s*$/,'');if(label&&!seen.has(label))seen.set(label,{label,brand:u.brand||null})}
+   out[id]=[...seen.values()];
+  }
+  return out;
+ }
  function componentsOf(stepId){const list=content?.steps?.[stepId]?.components;return Array.isArray(list)?list.filter(c=>typeof c==='string'):[]}
- const api={CONTENT_PATH,REPOSITORY,load,setContent,validContent,render,runtimeRows,renderRunRecords,runsMessage,validRunsPage,componentsOf,fileName,duration,get content(){return content},get contentError(){return contentError}};
+ const api={CONTENT_PATH,REPOSITORY,load,setContent,validContent,render,systemsByStep,runtimeRows,renderRunRecords,runsMessage,validRunsPage,componentsOf,fileName,duration,get content(){return content},get contentError(){return contentError}};
  if(typeof module==='object'&&module.exports)module.exports=api;else scope.BasisArchitecture=api;
 })(globalThis);

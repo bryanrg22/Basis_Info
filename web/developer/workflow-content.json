@@ -28,10 +28,10 @@
      "source": "backEnd/basis/api/routes/documents.py",
      "uses": [
       {
-       "name": "Basis API",
-       "system": "Basis API (built on FastAPI)",
+       "name": "Receives the files and the engineer's decisions",
+       "system": "Basis server",
        "brand": "basis",
-       "provider": "Basis"
+       "provider": "Basis (built on FastAPI)"
       },
       {
        "name": "File storage",
@@ -53,10 +53,10 @@
      "source": "backEnd/basis/api/routes/studies.py",
      "uses": [
       {
-       "name": "Basis API",
-       "system": "Basis API (built on FastAPI)",
+       "name": "Receives the files and the engineer's decisions",
+       "system": "Basis server",
        "brand": "basis",
-       "provider": "Basis"
+       "provider": "Basis (built on FastAPI)"
       },
       {
        "name": "Database",
@@ -82,12 +82,6 @@
        "system": "Temporal",
        "brand": "temporal",
        "provider": "Temporal"
-      },
-      {
-       "name": "Indexes the text for search",
-       "system": "all-MiniLM-L6-v2 (Sentence Transformers)",
-       "brand": null,
-       "provider": "runs on the Basis worker"
       }
      ]
     }
@@ -2710,10 +2704,10 @@
      "source": "backEnd/basis/workflow/study_workflow.py",
      "uses": [
       {
-       "name": "Basis API",
-       "system": "Basis API (built on FastAPI)",
+       "name": "Receives the files and the engineer's decisions",
+       "system": "Basis server",
        "brand": "basis",
-       "provider": "Basis"
+       "provider": "Basis (built on FastAPI)"
       },
       {
        "name": "Database",
@@ -3390,12 +3384,6 @@
        "temperature": "default (not settable)",
        "setting": "room_materials_model",
        "effort_setting": "room_materials_reasoning_effort"
-      },
-      {
-       "name": "Cuts out wall and floor surfaces (off by default)",
-       "system": "Mask2Former",
-       "brand": "meta",
-       "provider": "Meta; runs on the Basis worker"
       }
      ]
     }
@@ -6804,10 +6792,10 @@
      "source": "backEnd/basis/report/render.py",
      "uses": [
       {
-       "name": "Basis API",
-       "system": "Basis API (built on FastAPI)",
+       "name": "Receives the files and the engineer's decisions",
+       "system": "Basis server",
        "brand": "basis",
-       "provider": "Basis"
+       "provider": "Basis (built on FastAPI)"
       },
       {
        "name": "Database",
@@ -7090,10 +7078,10 @@
      "source": "backEnd/basis/api/routes/decisions.py",
      "uses": [
       {
-       "name": "Basis API",
-       "system": "Basis API (built on FastAPI)",
+       "name": "Receives the files and the engineer's decisions",
+       "system": "Basis server",
        "brand": "basis",
-       "provider": "Basis"
+       "provider": "Basis (built on FastAPI)"
       }
      ]
     },
@@ -7103,10 +7091,10 @@
      "source": "backEnd/basis/activities/corrections.py",
      "uses": [
       {
-       "name": "Basis API",
-       "system": "Basis API (built on FastAPI)",
+       "name": "Receives the files and the engineer's decisions",
+       "system": "Basis server",
        "brand": "basis",
-       "provider": "Basis"
+       "provider": "Basis (built on FastAPI)"
       },
       {
        "name": "Database",
@@ -7122,10 +7110,10 @@
      "source": "backEnd/basis/activities/apply_corrections.py",
      "uses": [
       {
-       "name": "Basis API",
-       "system": "Basis API (built on FastAPI)",
+       "name": "Receives the files and the engineer's decisions",
+       "system": "Basis server",
        "brand": "basis",
-       "provider": "Basis"
+       "provider": "Basis (built on FastAPI)"
       },
       {
        "name": "Database",
@@ -8001,10 +7989,10 @@
      "source": "backEnd/basis/api/routes/decisions.py",
      "uses": [
       {
-       "name": "Basis API",
-       "system": "Basis API (built on FastAPI)",
+       "name": "Receives the files and the engineer's decisions",
+       "system": "Basis server",
        "brand": "basis",
-       "provider": "Basis"
+       "provider": "Basis (built on FastAPI)"
       }
      ]
     },
@@ -8014,10 +8002,10 @@
      "source": "backEnd/basis/activities/corrections.py",
      "uses": [
       {
-       "name": "Basis API",
-       "system": "Basis API (built on FastAPI)",
+       "name": "Receives the files and the engineer's decisions",
+       "system": "Basis server",
        "brand": "basis",
-       "provider": "Basis"
+       "provider": "Basis (built on FastAPI)"
       },
       {
        "name": "Database",
@@ -8033,10 +8021,10 @@
      "source": "backEnd/basis/activities/apply_corrections.py",
      "uses": [
       {
-       "name": "Basis API",
-       "system": "Basis API (built on FastAPI)",
+       "name": "Receives the files and the engineer's decisions",
+       "system": "Basis server",
        "brand": "basis",
-       "provider": "Basis"
+       "provider": "Basis (built on FastAPI)"
       },
       {
        "name": "Database",
@@ -8912,10 +8900,10 @@
      "source": "backEnd/basis/api/routes/decisions.py",
      "uses": [
       {
-       "name": "Basis API",
-       "system": "Basis API (built on FastAPI)",
+       "name": "Receives the files and the engineer's decisions",
+       "system": "Basis server",
        "brand": "basis",
-       "provider": "Basis"
+       "provider": "Basis (built on FastAPI)"
       },
       {
        "name": "Outlines each object",
@@ -8931,10 +8919,10 @@
      "source": "backEnd/basis/activities/corrections.py",
      "uses": [
       {
-       "name": "Basis API",
-       "system": "Basis API (built on FastAPI)",
+       "name": "Receives the files and the engineer's decisions",
+       "system": "Basis server",
        "brand": "basis",
-       "provider": "Basis"
+       "provider": "Basis (built on FastAPI)"
       },
       {
        "name": "Database",
@@ -8950,10 +8938,10 @@
      "source": "backEnd/basis/activities/apply_corrections.py",
      "uses": [
       {
-       "name": "Basis API",
-       "system": "Basis API (built on FastAPI)",
+       "name": "Receives the files and the engineer's decisions",
+       "system": "Basis server",
        "brand": "basis",
-       "provider": "Basis"
+       "provider": "Basis (built on FastAPI)"
       },
       {
        "name": "Database",
@@ -9829,10 +9817,10 @@
      "source": "backEnd/basis/api/routes/decisions.py",
      "uses": [
       {
-       "name": "Basis API",
-       "system": "Basis API (built on FastAPI)",
+       "name": "Receives the files and the engineer's decisions",
+       "system": "Basis server",
        "brand": "basis",
-       "provider": "Basis"
+       "provider": "Basis (built on FastAPI)"
       }
      ]
     },
@@ -9842,10 +9830,10 @@
      "source": "backEnd/basis/activities/corrections.py",
      "uses": [
       {
-       "name": "Basis API",
-       "system": "Basis API (built on FastAPI)",
+       "name": "Receives the files and the engineer's decisions",
+       "system": "Basis server",
        "brand": "basis",
-       "provider": "Basis"
+       "provider": "Basis (built on FastAPI)"
       },
       {
        "name": "Database",
@@ -9861,10 +9849,10 @@
      "source": "backEnd/basis/activities/apply_corrections.py",
      "uses": [
       {
-       "name": "Basis API",
-       "system": "Basis API (built on FastAPI)",
+       "name": "Receives the files and the engineer's decisions",
+       "system": "Basis server",
        "brand": "basis",
-       "provider": "Basis"
+       "provider": "Basis (built on FastAPI)"
       },
       {
        "name": "Database",

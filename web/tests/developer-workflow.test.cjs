@@ -48,7 +48,8 @@ test('build inventory names the models it runs today, with provider, effort and 
  assert.ok(html.includes('Count each object once'));
  assert.ok(html.includes('<code>gpt-6-luna</code>')&&html.includes('<code>claude-sonnet-5-5</code>'));
  assert.ok(html.includes('effort low')&&html.includes('temperature default (not settable)'));
- assert.ok(html.includes('logos/openai.svg')&&html.includes('logos/claude.svg')&&html.includes('logos/meta.svg'));
+ assert.ok(html.includes('logos/openai.svg')&&html.includes('logos/claude.svg'));
+ assert.ok(!html.includes('Mask2Former'),'off by default: not listed as in use');
 });
 test('photo analysis lists both counting models, the surfaces model and SAM 3 with its logo',()=>{
  const html=fresh().render(node('photos'),services(),H).split('Tests &amp; results')[0];
@@ -134,4 +135,14 @@ test('the parts Basis built carry the Basis mark; a provider keeps its own logo'
  assert.ok(html.includes('logos/claude.svg'));
  assert.ok(!html.includes('No AI in this part'));
  assert.ok(H.logo('basis').includes('../assets/basis-mark.png')&&H.logo('openai').includes('logos/openai.svg'));
+});
+test('the workflow cards say who does each step and show the systems it runs, with logos',()=>{
+ const A2=fresh();
+ const html=H.renderFlow(services(),A2.systemsByStep());
+ for(const title of ['Engineer uploads the files','Basis reads the appraisal','Basis analyzes the photos','Engineer reviews the appraisal','Engineer signs the report'])assert.ok(html.includes(title),title);
+ const photos=html.split('data-node="photos"')[1].split('</article>')[0];
+ assert.ok(photos.includes('class="system-chip"')&&photos.includes('gpt-6.1-sol')&&photos.includes('claude-opus-5-5')&&photos.includes('SAM 3')&&photos.includes('logos/meta.svg'));
+ assert.ok(!photos.includes('Basis API'));
+ // Without the content file the cards fall back to the health services.
+ assert.ok(H.renderFlow(services()).includes('data-service='));
 });
