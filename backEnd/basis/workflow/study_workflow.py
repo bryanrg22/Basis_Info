@@ -444,8 +444,12 @@ class StudyWorkflow:
         try:
             await workflow.wait_condition(lambda: body.done() or self._cancel_reason is not None)
         except asyncio.CancelledError:
-            # Cancelled through Temporal (handle.cancel()): stop the work, record it, and
-            # end the execution as cancelled.
+            # Cancelled through Temporal (handle.cancel(), what POST .../cancel sends): stop
+            # the work, record it, and end the execution as cancelled. The reason is set
+            # first, as the signal does, so the decide and retry validators refuse while the
+            # work stops (in-memory state only: no command changes, replay is unaffected).
+            if self._cancel_reason is None:
+                self._cancel_reason = "cancelled"
             await self._stop(body)
             await self._record_end("cancelled")
             raise
