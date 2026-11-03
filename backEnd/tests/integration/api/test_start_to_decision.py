@@ -24,7 +24,8 @@ from apitest_support import (
     build_api_app,
 )
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
-from temporalio.client import Client
+from temporalio.client import Client, WorkflowExecutionStatus, WorkflowFailureError
+from temporalio.exceptions import CancelledError
 from workflowtest_support import applied_decisions, confirmed_document, wait_for_stage
 
 from basis.db.enums import Stage
@@ -119,35 +120,51 @@ async def test_start_decide_relay_cancel(
 
     cancelled = await api.post("alice", f"/v1/studies/{sid}/cancel", {"reason": "withdrawn"})
     assert cancelled.status_code == 202, cancelled.text
-    assert await handle.result() == "cancelled: withdrawn"
+    # A Temporal cancellation request: the execution closes CANCELED, not COMPLETED.
+    with pytest.raises(WorkflowFailureError) as caught:
+        await handle.result()
+    assert isinstance(caught.value.cause, CancelledError)
     status = (await api.get("alice", f"/v1/studies/{sid}/workflow")).json()
-    assert status["execution_status"] == "COMPLETED"
+    assert status["execution_status"] == "CANCELED"
 
     closed = await api.post("alice", f"/v1/studies/{sid}/cancel")
     assert closed.status_code == 409 and closed.json()["type"].endswith("/workflow-closed")
-    # Past its first stage, start only describes the (closed) execution.
-    restarted = await api.post("alice", f"/v1/studies/{sid}/start")
-    assert restarted.status_code == 202 and restarted.json() == started.json()
+    # Start never runs a cancelled study again; restart does.
+    again = await api.post("alice", f"/v1/studies/{sid}/start")
+    assert again.status_code == 409 and again.json()["type"].endswith("/workflow-closed")
+    restarted = await api.post("alice", f"/v1/studies/{sid}/restart")
+    assert restarted.status_code == 202, restarted.text
+    body = restarted.json()
+    assert body["workflow_id"] == started.json()["workflow_id"]
+    assert body["run_id"] != started.json()["run_id"]
+    assert (body["from_revision"], body["revision"]) == (1, 2)
+    rerun = fake_workflows.get_workflow_handle(body["workflow_id"])
+    assert (await rerun.describe()).status is WorkflowExecutionStatus.RUNNING
 
 
 async def test_a_closed_workflow_is_never_started_again(
     api: Api, sm: async_sessionmaker[AsyncSession], fake_workflows: Client
 ) -> None:
-    """Cancelled while still extracting: start hits REJECT_DUPLICATE and answers with the
-    closed execution instead of running the study again."""
+    """Cancelled while still extracting: start never runs the study again (409
+    ``workflow-closed``, the cancelled run kept); ``POST .../restart`` is the way back."""
     sid = (await api.create_study("alice", intake=COMPLETE_INTAKE))["id"]
     await confirmed_document(sm, uuid.UUID(sid))
     started = await api.post("alice", f"/v1/studies/{sid}/start")
     assert started.status_code == 202, started.text
     handle = fake_workflows.get_workflow_handle(started.json()["workflow_id"])
     assert (await api.post("alice", f"/v1/studies/{sid}/cancel")).status_code == 202
-    assert await handle.result() == "cancelled: cancelled by owner"
+    with pytest.raises(WorkflowFailureError):
+        await handle.result()
 
     again = await api.post("alice", f"/v1/studies/{sid}/start")
 
-    assert again.status_code == 202, again.text
-    assert again.json() == started.json()
-    assert (await handle.describe()).run_id == started.json()["run_id"]
+    assert again.status_code == 409, again.text
+    assert again.json()["type"].endswith("/workflow-closed")
+    described = await handle.describe()
+    assert (described.run_id, described.status) == (
+        started.json()["run_id"],
+        WorkflowExecutionStatus.CANCELED,
+    )
 
 
 async def test_health_checks_temporal(api: Api) -> None:

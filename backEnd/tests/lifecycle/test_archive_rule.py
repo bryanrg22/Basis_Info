@@ -27,7 +27,12 @@ from apitest_support import BASE_URL, Api, FakeVerifier, api_settings, build_api
 from lifecycle_support import Harness
 from lifecycletest_support import SeededStudy
 from sqlalchemy import select
-from temporalio.client import WorkflowExecutionStatus, WorkflowUpdateFailedError
+from temporalio.client import (
+    WorkflowExecutionStatus,
+    WorkflowFailureError,
+    WorkflowUpdateFailedError,
+)
+from temporalio.exceptions import CancelledError
 from temporalio.service import RPCError
 
 from basis.db.enums import StudyStatus
@@ -113,8 +118,16 @@ async def test_archive_waits_for_the_execution_to_end_and_a_decision_after_it_is
         # The owner cancels; the execution closes; the archive proceeds, recorded once.
         cancelled = await api.post(uid, f"{path}/cancel", {"reason": "client withdrew"})
         assert cancelled.status_code == 202, cancelled.text
-        result = await harness.result(handle)
-        assert (result.outcome, result.cancel_reason) == ("cancelled", "client withdrew")
+        with pytest.raises(WorkflowFailureError) as caught:
+            await harness.result(handle)
+        assert isinstance(caught.value.cause, CancelledError)
+        history = await handle.fetch_history()
+        [request] = [
+            e.workflow_execution_cancel_requested_event_attributes
+            for e in history.events
+            if e.HasField("workflow_execution_cancel_requested_event_attributes")
+        ]
+        assert request.cause == "client withdrew"
         archived = await api.delete(uid, path)
         assert archived.status_code == 200 and archived.json()["status"] == "archived"
         assert (await api.delete(uid, path)).status_code == 200
@@ -129,12 +142,17 @@ async def test_archive_waits_for_the_execution_to_end_and_a_decision_after_it_is
             await harness.decide(handle, harness.decision("appraisal_review", 1))
     [run] = await harness.runs(study.study_id)
     assert run.outcome == "cancelled"
-    # Unarchived, the study reads as it was (waiting at the gate) with a closed execution
-    # (the cancel signal ends it ``COMPLETED`` with the outcome ``cancelled``; only a
-    # Temporal-level cancel reads ``CANCELED``): ``POST .../restart`` is the way to run it
-    # again (docs/api/WORKFLOW.md).
+    # Unarchived, the study reads as it was (waiting at the gate) with a closed execution:
+    # ``POST .../cancel`` is a Temporal cancellation request, so it closed ``CANCELED``
+    # (EVAL_REPORT 76; the signal it sent before closed it ``COMPLETED``, which restart
+    # refused), and ``POST .../restart`` runs the study again on revision 2.
     restored = await api.post(uid, f"{path}/unarchive")
     assert restored.status_code == 200 and restored.json()["status"] == "waiting_review"
     workflow = (await api.get(uid, f"{path}/workflow")).json()
-    assert workflow["execution_status"] == "COMPLETED"
+    assert workflow["execution_status"] == "CANCELED"
     assert [r["outcome"] for r in workflow["runs"]] == ["cancelled"]
+    restarted = await api.post(uid, f"{path}/restart")
+    assert restarted.status_code == 202, restarted.text
+    assert (restarted.json()["from_revision"], restarted.json()["revision"]) == (1, 2)
+    rerun = harness.client.get_workflow_handle(restarted.json()["workflow_id"])
+    assert (await rerun.describe()).status is WorkflowExecutionStatus.RUNNING

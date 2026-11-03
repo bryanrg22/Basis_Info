@@ -9617,3 +9617,65 @@ operators"): `tests/unit/ops/test_eval_runs.py` 19, `tests/api/test_eval_runs.py
 `test_registry.py` 12, `test_developer_workflow_content.py` 62; web 340 node tests pass (331
 before). Static gates green (`ruff`, `ruff format`, `mypy`, the catalogue, the OpenAPI
 document, the rule fingerprints, the client-data guard). Unit suite 5,003 passed, 10 skipped (1 min 49 s); integration and slow suite 1,668 passed, 7 skipped, 79 subtests, one failure (`tests/integration/db/test_retention_purge.py::test_an_object_already_gone_is_reported_not_fatal`, the retention purge from section 54, untouched here; it passed alone right after, so it is an ordering or timing flake of that suite, left for its owner), 19 min 34 s, provider keys unset.
+
+## 76. A study cancelled from the app can be restarted: `POST .../cancel` is a Temporal cancellation (2026-11-02)
+
+**Question.** Section 62.5 recorded, and left open, that a study cancelled through
+`POST .../cancel` could not be restarted. Is that still so on main, why, and what is the
+standard fix?
+
+**Setup.** The real API and outbox against the Temporal dev server with the test workflow
+(`tests/integration/api/test_start_to_decision.py`), and the real workflow on the
+time-skipping server (`tests/lifecycle/`). No paid call.
+
+**Method and findings.**
+
+1. Reproduced on main through the routes: start, cancel, restart. The execution closed with
+   status `COMPLETED`, and restart answered 409 `study-completed`.
+2. Cause: the route sent the workflow's `cancel_study` signal. The workflow stopped its work and
+   returned normally, so Temporal recorded the execution `COMPLETED` (outcome `cancelled` only
+   inside its result). Restart accepts an execution that closed without completing and starts
+   under `ALLOW_DUPLICATE_FAILED_ONLY`, which also refuses a completed one. The API test passed
+   because its in-memory service reported `CANCELED`, a status the real path never produced.
+3. The standard: Temporal's way to stop a workflow is a cancellation request
+   (`WorkflowHandle.cancel`). The workflow receives `CancelledError`, cleans up and re-raises,
+   and the execution closes `CANCELED`. `StudyWorkflow` already handled that path (section 3 of
+   S2_SPEC; `test_temporal_cancellation_records_the_outcome`).
+4. Measured on both servers: Temporal accepts a cancellation request for an execution that has
+   already closed, completed or cancelled, and ignores it. The status is unchanged and no error
+   is returned. The signal's "not found" answer for a closed execution therefore has no
+   equivalent, so the service describes the execution first. A second request while the first is
+   being handled is accepted.
+
+**Change.**
+
+* `TemporalWorkflowService.cancel` describes the execution (409 `workflow-closed` unless it is
+  running) and then sends `handle.cancel(reason=...)`. The reason is on the history's
+  cancel-request event and, as before, on the study's timeline (`study.cancel_requested`).
+* `StudyWorkflow`, on `CancelledError`, sets its cancel reason before it stops the work, as the
+  signal does, so the decide and retry validators refuse while it stops. This is in-memory state
+  only, with no command change, so the recorded histories replay (the lifecycle suite's
+  versioning tests). The signal handler stays, because recorded histories carry it.
+* `POST .../start` on a cancelled study now answers 409 `workflow-closed`, which is
+  `ensure_not_ended_unsuccessfully`'s stated intent; before, it answered 202 with the closed run.
+  `POST .../restart` is the way back.
+* Studies cancelled before this change stay `COMPLETED` and cannot be restarted; archive and
+  re-create them (docs/api/GATE_DRAFTS_AND_RESUME.md). Nothing is deployed, so only local
+  development data is affected.
+
+| check | main | after |
+|---|---|---|
+| execution status after `POST .../cancel` | `COMPLETED` | `CANCELED` |
+| `POST .../restart` after it | 409 `study-completed` | 202, revision 2, new run |
+| real workflow: cancel, restart, approve every gate | not possible | completed on revision 2; runs `cancelled`, `completed` |
+| cancel of a closed execution | 409 `workflow-closed` | 409 `workflow-closed` (by describe) |
+
+**Verdict.** Fixed with Temporal's standard cancellation. The regression tests fail on main's
+service and pass after the change.
+
+**Open.** Nothing from this section. Section 62.5's other item, archive racing a restart, is
+unchanged.
+
+**Measured.** Lifecycle suite: 122 passed, 5 skipped, including the four new cancel tests and the
+archive test's route-level restart. Unit suite: 5,004 passed. Integration API tests: 4 passed.
+Static gates are green.

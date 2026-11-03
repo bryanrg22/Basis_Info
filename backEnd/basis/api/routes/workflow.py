@@ -24,12 +24,13 @@
 * ``GET /v1/studies/{id}/workflow`` (viewer): Temporal's execution status, the workflow's
   ``status`` query (null when it cannot answer, e.g. no worker is polling) and the
   study's ``runs`` rows. 404 when the study has no workflow.
-* ``POST /v1/studies/{id}/cancel`` (owner): sends the ``cancel_study`` signal; the
-  workflow cancels its activities and records the outcome. 404 when there is no
-  workflow, 409 when it has already closed.
+* ``POST /v1/studies/{id}/cancel`` (owner): a Temporal cancellation request (EVAL_REPORT
+  76); the workflow cancels its activities, records the outcome and the execution closes
+  ``CANCELED``, which ``restart`` accepts. 404 when there is no workflow, 409 when it has
+  already closed.
 * ``POST /v1/studies/{id}/retry`` (engineer; EVAL_REPORT section 27): a study whose stage
   failed (``status = failed``: the extraction, assets or export) runs that stage again.
-  The ``retry`` update goes straight to the workflow (like the cancel signal), whose
+  The ``retry`` update goes straight to the workflow (like the cancellation), whose
   validator refuses it unless a stage has failed (409 ``study-not-failed``); a second
   retry before the stage restarts is accepted with ``already_requested``. 409
   ``workflow-closed`` for an execution that has ended (one that failed before v0.9 cannot
