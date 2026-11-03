@@ -579,3 +579,10 @@ upload slow tests 142 passed.
 | `tests/api/test_decisions.py` | Added: an incomplete or invalid measured quantity is 422 before anything is written; a valid one is accepted | pass |
 | `tests/api/test_input_records.py` | Each blocker is recorded (kind `study_input`) with the firm, the person, the study, the held assets and every file; a rerun records nothing twice and a later revision joins the same issue per firm and blocker; a revision with no blocker records nothing; a failure never fails the caller's transaction; operators list them by kind; the browser cannot post the kind | pass |
 | `tests/costtest_support.py`, `tests/fixtures/synthetic/suite_cost_table.json` | The suite's synthetic cost table (the removed rows' values, invented numbers) and `COST_TABLE_PATH` baseline in `tests/conftest.py` | — |
+
+## Readable comparison tables (2026-11-02; EVAL_REPORT 80)
+
+| File | What it checks | Result |
+|---|---|---|
+| `tests/unit/test_developer_workflow_content.py` | Added: every comparison row has a plain name and its setup, each model's exact id appears in the cited section; every comparison is filed under a part of "How it works", and a part with none says why; figures compared with bold and code marks removed, "None (no AI model)" a placeholder | 86 passed |
+| `web/tests/developer-workflow.test.cjs` | Added: a dialog shows the question, plain setup names, exact models with provider, effort and temperature, the tokens column, the column legend and the model key; results grouped by part with the gap text; a setup without a model says so; names escaped | 13 passed |

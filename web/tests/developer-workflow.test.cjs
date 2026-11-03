@@ -101,3 +101,30 @@ test('every source path and link in the content points into the repository',()=>
   for(const link of step.links)assert.ok(fs.existsSync(path.join(root,link.path.split('#')[0])),link.path);
  }
 });
+test('a comparison reads for a person: the question, each setup with its exact models, effort and temperature, tokens, and what each column means',()=>{
+ const html=fresh().render(node('photos'),services(),H);
+ assert.ok(html.includes('Which setup counts the objects in a photo most accurately?'));
+ assert.ok(html.includes('Two models count each photo'));
+ assert.ok(html.includes('<code>gpt-6.1-sol</code>')&&html.includes('<code>claude-opus-5-5</code>'));
+ assert.ok(html.includes('effort medium')&&html.includes('temperature default (not settable)'));
+ assert.ok(html.includes('Tokens (input / output)')&&html.includes('Not recorded'));
+ assert.ok(html.includes('What the columns mean')&&html.includes('lower is better'));
+ assert.ok(html.includes('Model names used on this page')&&html.includes('$2 / $10'));
+ assert.ok(!html.includes('sol low + Opus medium per class'),'the engineering label is replaced by the plain name');
+});
+test('results are filed under the part of the step they measured, and a part with none says why',()=>{
+ const html=fresh().render(node('extract'),services(),H);
+ const parts=html.split('class="part-results"').length-1;
+ assert.equal(parts,3);
+ assert.ok(html.includes('No comparison table: the presence rules'));
+ assert.ok(!html.includes('No comparison has been measured for this part yet.'));
+});
+test('a setup without a model says so, and row text is escaped',()=>{
+ const A2=fresh(),c=JSON.parse(JSON.stringify(CONTENT));
+ c.steps.photos.results.comparisons[0].rows[0].name='<img src=x onerror=alert(1)>';
+ c.steps.photos.results.comparisons[0].rows[0].setup=[];c.steps.photos.results.comparisons[0].rows[0].setup_note='No AI model';
+ A2.setContent(c);
+ const html=A2.render(node('photos'),services(),H);
+ assert.ok(!html.includes('<img src=x')&&html.includes('&lt;img src=x'));
+ assert.ok(html.includes('No AI model'));
+});
