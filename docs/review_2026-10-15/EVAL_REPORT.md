@@ -9918,9 +9918,78 @@ engineer supplies the input; that is the intended change.
 
 * A firm-specific unit cost (a row the shared table lacks) is added to the table by an operator.
   There is no per-study cost entry, matching the shared-table decision.
-* Opening a firm's files from the operator page is not built; the storage URI is recorded, and
-  access is Bryan's decision.
+* Opening a firm's files from the operator page: built in section 79 (support opens them with a
+  reason; the firm sees every open).
 * Vision fallbacks that keep a real model output (the count fusion falling back to the base
   call, the room step's heuristic merge, a failed material second look) are flagged on the
   photo or room, not blocking; propagating them to the assets is the next step.
 * The web app shows neither `blockers` nor the measured-quantity fields yet (FRONTEND_BACKLOG 10).
+
+## 79. Basis support can open a firm's files, and the firm sees every open (2026-11-02)
+
+**Question.** A missing-input record (section 78) lists the files a study has, but nobody at
+Basis could look at them: a firm's studies are visible only to its members. Bryan decided
+(2026-11-02) that support may open them, without the firm approving each time: the product is
+new, it is not yet known that every step works, and the first firms are not comfortable with
+technology, so support has to see what they uploaded to help. How should that access work so a
+firm can trust it?
+
+**The standard.** A cloud provider's access-transparency log (Google Cloud Access
+Transparency) records each access by its staff to a customer's content: the resource, the time,
+the justification (for example customer-initiated support, with the case) and the person, and
+the customer reads the log. A stricter step, Access Approval (Microsoft calls it Customer
+Lockbox), makes the customer approve each access first. Bryan chose the first without the
+second while the product is new.
+
+**What was built** (docs/api/OPS_DOCUMENTS.md):
+
+* `GET /v1/ops/studies/{id}/documents` lists a study's files with the uploader and the firm;
+  `.../documents/{id}/content?reason=` returns one file's bytes. Platform operators only
+  (`OPS_OPERATOR_UIDS`); a firm role, owner included, gets 403 and nothing is recorded.
+* A reason is required (3 to 300 characters). `client_error_id` names the record the open came
+  from.
+* **Every open is recorded before the bytes are read**: an append-only `study_events` row,
+  `operator.document_accessed`, with actor `operator` (migration 0030 adds the actor), the
+  operator's user, the document, the reason, the record, and the file's name, kind, sha256 and
+  size. The firm reads it on its study's timeline. The downgrade refuses while such a row
+  exists rather than delete an access record. An open whose bytes are gone (the retention purge)
+  stays recorded, because the access was granted. A refused open records nothing.
+* **Never cached**: `no-store`, no `ETag`, no 304. Each open is answered, so each is recorded,
+  and the operator's browser keeps no copy.
+* **The developer page**: a missing-input record lists its files with an Open button. The page
+  asks for the reason (prefilled with the record's kind, blocker and id) and shows the file in
+  the page with a Download link. Only images and PDFs are shown inline. An XML, a ZIP or text is
+  a download only, because markup in it would run with the page's origin from a `blob:` URL.
+
+**Verified.**
+
+* `tests/api/test_ops_documents.py` covers:
+  - listing and opening as an operator who is not a member of the firm;
+  - the headers;
+  - one row per open, with no cache answer;
+  - the firm's own timeline showing the open;
+  - every refusal (no reason, short or long reason, malformed record id, not an operator, the
+    owner, another firm, unknown study or document, an unconfirmed upload), with nothing
+    recorded;
+  - bytes gone: 404, with the access still recorded.
+* The migration test covers the operator actor, the refused unknown actor, the clean downgrade
+  with no rows, and the refused downgrade with one.
+* Live check on an isolated local stack (Postgres in its own container, the API on 8200 from
+  this branch, the web on 3400, the local Auth emulator, test accounts only):
+  - The operator signed in and opened the photo and the synthetic PDF from a `study_input`
+    record. The firm owner's `GET .../timeline` showed the three opens with each reason and the
+    record id.
+  - The check found one bug, fixed before the PR: the first version opened a new tab after the
+    request, and the browser blocked it (`window.open` returned no window). The page now shows
+    the file in place.
+  - It also found the file table's names running into their types, a style fix.
+
+**Not modelled, and open.**
+
+* The firm does not approve each access (Access Approval). Revisit once the product is stable.
+* The firm's app shows the timeline row with the actor word "Operator". It should read "Basis
+  support opened <file>: <reason>" (FRONTEND_BACKLOG 11).
+* The firm's contract should say Basis support may view its uploads for support. That is
+  Bryan's to write, not a code change.
+* Listing the files records nothing on the timeline (names and sizes, no content). The API log
+  has a line for it.

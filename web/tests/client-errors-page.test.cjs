@@ -50,3 +50,23 @@ test('the brief is one plain-text block with every fact, the stack, the context,
  const bare=M.brief({...record,study_id:null,org_id:null,event:{firm:{org_id:'x'},study:{study_id:'y'}}},null);
  assert.match(bare,/Issue: 0123456789abcdef/);assert.match(bare,/org_id unverified \(claimed x\)/);assert.match(bare,/y \(not visible to the reporter\)/);assert.match(bare,/request_id=\(none: not an API failure\)/);assert.match(bare,/Last actions \(0, oldest first\)/);
 });
+test('a study_input record lists the firm\'s files with an Open button; unconfirmed files and records without a study have none',()=>{
+ const docs=[{document_id:'d1',kind:'appraisal',filename:'<b>appraisal</b>.pdf',content_type:'application/pdf',bytes:2483021,sha256:'ab'.repeat(32),uploaded_by:'aaaaaaaa-0000-4000-8000-000000000000',uploaded_at:'2026-11-02T10:00:00+00:00',storage_uri:'gs://b/x'},{document_id:'d2',kind:'photo',filename:'kitchen.jpg',content_type:'image/jpeg',bytes:900,sha256:'cd'.repeat(32),uploaded_by:null,uploaded_at:null,storage_uri:'gs://b/y'}];
+ const r={...record,kind:'study_input',error_type:'input:gla',event:{documents:docs}};
+ const html=M.detail(r,null);
+ assert.match(html,/Files the firm uploaded \(2\)/);assert.match(html,/the firm sees it/);
+ assert.match(html,/data-open="d1"/);assert.doesNotMatch(html,/data-open="d2"/);assert.match(html,/not confirmed/);
+ assert.match(html,/2\.4 MB/);assert.match(html,/900 B/);assert.match(html,/by aaaaaaaa/);
+ assert.doesNotMatch(html,/<b>appraisal/);assert.match(html,/&lt;b&gt;appraisal/);
+ assert.equal(M.files({...r,study_id:null}),'');assert.equal(M.files(record),'');
+ assert.equal(M.filePath('s/1','d 1'),'/v1/ops/studies/s%2F1/documents/d%201/content');
+ assert.equal(M.accessReason(r),'support: study_input input:gla (record 11111111)');
+ assert.equal(M.size(1536),'1.5 KB');assert.equal(M.size(undefined),'—');
+});
+test('an opened file is shown inline only as an image or a PDF; anything else is a download, all escaped',()=>{
+ const img=M.viewer('kitchen.jpg','image/jpeg','blob:x/1');assert.match(img,/<img src="blob:x\/1" alt="kitchen.jpg">/);assert.match(img,/download="kitchen.jpg"/);assert.match(img,/data-close-file/);
+ assert.match(M.viewer('a.pdf','application/pdf; charset=binary','blob:x/2'),/<iframe src="blob:x\/2"/);
+ for(const t of ['application/xml','application/zip','text/html','text/plain','',null]){const h=M.viewer('m.xml',t,'blob:x/3');assert.doesNotMatch(h,/<iframe|<img/);assert.match(h,/not shown in the page/);assert.match(h,/download="m.xml"/)}
+ const evil=M.viewer('"><script>x</script>','image/png','blob:x/4');assert.doesNotMatch(evil,/<script>/);
+ assert.match(M.detail({...record,kind:'study_input',event:{documents:[{document_id:'d1',filename:'a.pdf',uploaded_at:'2026-11-02T10:00:00Z'}]}},null),/id="file-view"[^>]*hidden/);
+});

@@ -125,6 +125,8 @@ def test_only_known_routes_exist(app: FastAPI) -> None:
         "GET /v1/ops/client-errors/issues",
         "GET /v1/ops/client-errors/issues/{fingerprint}",
         "PUT /v1/ops/client-errors/issues/{fingerprint}/status",
+        "GET /v1/ops/studies/{study_id}/documents",
+        "GET /v1/ops/studies/{study_id}/documents/{document_id}/content",
         "GET /v1/studies",
         "POST /v1/studies",
         "GET /v1/studies/{study_id}",

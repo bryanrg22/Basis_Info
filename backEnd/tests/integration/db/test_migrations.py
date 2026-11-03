@@ -54,6 +54,9 @@
   one context across releases merges when the answer agrees, the latest approval keeps the
   key when it does not, unknown versions and malformed keys are left alone; it downgrades
   back to the version keys;
+* ``0030_operator_document_access`` lets ``study_events.actor_type`` be ``operator`` (Basis
+  support opened a firm's file) and downgrades back to ``0029`` only while no such row exists
+  (access records are append-only and never deleted);
 * ``0029_study_input_records`` lets ``client_errors.kind`` be ``study_input`` (a study held by a
   missing input, written by the server) and downgrades back to ``0028`` (those rows deleted);
 * ``0028_client_errors`` creates ``client_errors`` (the browser error records: the client's
@@ -117,8 +120,8 @@ pytestmark = pytest.mark.integration
 # 0025_invitation_email lands after 0022 (user activity), 0023 (rate-limit hits) and 0024
 # (review drafts); 0026 (retention and alerts) revises 0025, and 0027_signature_input_versions
 # revises 0026 (it was 0024, then 0026, until the branches before it landed).
-HEAD = "0029"
-HISTORY = [f"{n:04d}" for n in range(29, 0, -1)]  # "0029" .. "0001"
+HEAD = "0030"
+HISTORY = [f"{n:04d}" for n in range(30, 0, -1)]  # "0030" .. "0001"
 EXPECTED_TRIGGERS = (
     {(f"{table}_set_updated_at", table) for table in UPDATED_AT_TABLES}
     | {(f"{table}_append_only", table) for table in APPEND_ONLY_TABLES}
@@ -1646,3 +1649,33 @@ async def test_0024_review_drafts_and_downgrade(empty_database_url: str) -> None
         await connection.close()
     await downgrade(url, "0023")
     assert await snapshot(url) == at_0023
+
+
+async def test_0030_operator_actor_and_a_downgrade_that_keeps_access_records(
+    empty_database_url: str,
+) -> None:
+    url = empty_database_url
+    await upgrade(url, "0029")
+    connection = await asyncpg.connect(plain_dsn(url))
+    try:
+        study, _, user = await _photo(connection)
+    finally:
+        await connection.close()
+    at_0029 = await snapshot(url)
+    await upgrade(url)
+    await downgrade(url, "0029")  # no access recorded: back to 0029 exactly
+    assert await snapshot(url) == at_0029
+    await upgrade(url)
+    event = (
+        "INSERT INTO study_events (study_id, event_type, actor_type, actor_id) "
+        "VALUES ($1, $2, $3, $4)"
+    )
+    connection = await asyncpg.connect(plain_dsn(url))
+    try:
+        await connection.execute(event, study, "operator.document_accessed", "operator", user)
+        with pytest.raises(asyncpg.CheckViolationError, match="actor_valid"):
+            await connection.execute(event, study, "x", "support", user)
+    finally:
+        await connection.close()
+    with pytest.raises(Exception, match="operator access records"):
+        await downgrade(url, "0029")

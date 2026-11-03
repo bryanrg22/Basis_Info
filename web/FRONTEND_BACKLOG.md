@@ -158,6 +158,14 @@ Plain bugs an engineer would hit on the first day, in the order they bite:
   "where measured" fields; they go into the `asset` correction (`quantity`, `quantity_unit`,
   `quantity_source`) with the rejection.
 
+## 11. Support opened a file (EVAL_REPORT 79)
+
+* **The study history row.** `GET .../timeline` has `operator.document_accessed` rows with
+  `actor_type` `operator` (Basis support) and `detail` `filename` and `reason`. The results
+  page's history shows the actor word ("Operator") and the event name. It should read "Basis
+  support opened <filename>: <reason>" so the firm understands who looked at its file and why
+  (docs/api/OPS_DOCUMENTS.md 4).
+
 ## Testing
 
 No automated test loads any live screen (`web/tests/*.test.cjs` cover the helper

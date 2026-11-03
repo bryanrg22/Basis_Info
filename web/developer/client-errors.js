@@ -1,5 +1,7 @@
 /* The operator's client-errors page: GET /v1/ops/client-errors (the list, with filters and
- * paging) and GET /v1/ops/client-errors/{id} (one record with the whole event). Platform
+ * paging), GET /v1/ops/client-errors/{id} (one record with the whole event) and, for a
+ * study_input record, GET /v1/ops/studies/{id}/documents/{id}/content (open a firm's file,
+ * recorded on the study's history). Platform
  * operators only (OPS_OPERATOR_UIDS); the page signs in with the same Firebase session as
  * the app (live/auth.js) and reads through the same API client (live/api-client.js). The
  * rules and markup are in client-errors-model.js (node-tested). */
@@ -40,6 +42,24 @@
   catch(e){alert(problem(e))}
   finally{button.disabled=false}
  }
+ // Open one of the firm's files: the reason is recorded on the study's history (the firm sees
+ // it); the file is shown in the page with a Download link (M.viewer).
+ let fileUrl=null;
+ function closeFile(view){if(fileUrl){URL.revokeObjectURL(fileUrl);fileUrl=null}if(view){view.hidden=true;view.innerHTML=''}}
+ async function openFile(r,button){
+  const reason=prompt("Why are you opening this file? It is recorded on the study's history, which the firm sees.",M.accessReason(r));
+  if(reason===null)return;
+  const view=$('file-view'),doc=(r.event?.documents||[]).find(d=>d.document_id===button.dataset.open)||{};
+  button.disabled=true;
+  try{
+   const response=await api.request('GET',M.filePath(r.study_id,button.dataset.open),{query:{reason:reason.trim(),client_error_id:r.id},raw:true});
+   const blob=await response.blob();closeFile(view);fileUrl=URL.createObjectURL(blob);
+   view.innerHTML=M.viewer(doc.filename||'file',response.headers.get('content-type')||blob.type,fileUrl);view.hidden=false;
+   view.querySelector('[data-close-file]').onclick=()=>closeFile(view);
+   view.scrollIntoView({block:'start'});
+  }catch(e){alert(e?.status===422?'Give a reason of at least 3 characters.':problem(e))}
+  finally{button.disabled=false}
+ }
  async function show(id,{quiet=false}={}){
   if(!quiet){$('detail').innerHTML='<p class="muted">Loading the record…</p>';$('detail').hidden=false}
   try{
@@ -47,9 +67,10 @@
    const issue=await api.request('GET',`/v1/ops/client-errors/issues/${encodeURIComponent(r.fingerprint)}`).catch(()=>null);
    S.current=r;
    $('detail').innerHTML=`<button type="button" id="close" class="quiet">Close</button>`+M.detail(r,issue);
-   $('close').onclick=()=>{$('detail').hidden=true;S.current=null;history.replaceState(null,'',location.pathname+location.search)};
+   $('close').onclick=()=>{closeFile(null);$('detail').hidden=true;S.current=null;history.replaceState(null,'',location.pathname+location.search)};
    $('detail').querySelector('[data-copy="brief"]').onclick=()=>copyText(M.brief(r,issue),'Copied the brief: paste it into Claude Code or Codex.');
    $('detail').querySelector('[data-copy="json"]').onclick=()=>copyText(JSON.stringify({record:r,issue},null,2),'Copied the record as JSON.');
+   for(const b of $('detail').querySelectorAll('[data-open]'))b.onclick=()=>openFile(r,b);
    if(!quiet)$('detail').scrollIntoView({block:'start'});
   }catch(e){$('detail').innerHTML=`<p class="error">${M.esc(problem(e))}</p>`}
  }
