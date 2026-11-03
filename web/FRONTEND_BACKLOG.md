@@ -145,6 +145,19 @@ Plain bugs an engineer would hit on the first day, in the order they bite:
 - **Rail on narrow screens**: the sidebar rail stays at 320 px and takes a fifth of the width
   (Codex noted it in EVAL_REPORT 67); the report step itself fits with no horizontal scroll.
 
+## 10. Missing inputs (EVAL_REPORT 78)
+
+* **Blockers on the result and the report screens.** `GET .../result` `blockers` lists every
+  reason the report is withheld, each with `message`, `assets` and `fix`
+  (docs/api/STUDY_RESULT.md). Show them where the engineer would look for the report, with a
+  link to the screen each fix names.
+* **Unpriced rows on the assets review.** A row with an `input:<code>` review reason shows
+  "missing input" with the reason's text from its cost row (`source_row`), not a $0.
+* **Measured quantity.** On an unpriced asset that needs one (`input:exterior_area`,
+  `input:room`, `input:cabinet_run`, `cross:COST_NEEDS_QUANTITY`), offer quantity, unit and
+  "where measured" fields; they go into the `asset` correction (`quantity`, `quantity_unit`,
+  `quantity_source`) with the rejection.
+
 ## Testing
 
 No automated test loads any live screen (`web/tests/*.test.cjs` cover the helper
