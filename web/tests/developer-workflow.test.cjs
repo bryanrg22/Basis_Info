@@ -148,3 +148,15 @@ test('the workflow cards say who does each step and show the systems it runs, wi
  // Without the content file the cards fall back to the health services.
  assert.ok(H.renderFlow(services()).includes('data-service='));
 });
+test('the step-box styles match only the three parts, never the lists inside them (the stray arrow)',()=>{
+ const css=fs.readFileSync(path.join(__dirname,'..','developer','health.css'),'utf8');
+ assert.ok(!/\.step-sequence li\b/.test(css),'a descendant .step-sequence li rule styles the numbered steps and system rows too');
+ assert.ok(/\.step-sequence > li:not\(:last-child\):after\{content:'→'/.test(css));
+});
+test('the workflow header names Temporal once, with its logo, and no card lists it',()=>{
+ const html=fs.readFileSync(path.join(__dirname,'..','developer','index.html'),'utf8');
+ assert.ok(/class="system-chip workflow-engine"><img class="provider-logo" src="logos\/temporal.svg"/.test(html));
+ const cards=H.renderFlow(services(),fresh().systemsByStep());
+ assert.ok(!cards.includes('>Temporal<'));
+ assert.ok(cards.includes('logos/python.png'));
+});

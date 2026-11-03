@@ -40,7 +40,7 @@
        "provider": "Basis (built on FastAPI)"
       },
       {
-       "name": "Stores the uploaded files",
+       "name": "Stores the files",
        "system": "Google Cloud Storage",
        "brand": "googlecloud",
        "provider": "Google Cloud (a local folder in development)"
@@ -73,12 +73,6 @@
        "system": "PostgreSQL",
        "brand": "postgresql",
        "provider": "Basis database"
-      },
-      {
-       "name": "Runs the study's steps in order and retries failures",
-       "system": "Temporal",
-       "brand": "temporal",
-       "provider": "Temporal"
       }
      ]
     },
@@ -92,12 +86,6 @@
      ],
      "source": "backEnd/basis/workflow/study_workflow.py",
      "uses": [
-      {
-       "name": "Runs the study's steps in order and retries failures",
-       "system": "Temporal",
-       "brand": "temporal",
-       "provider": "Temporal"
-      },
       {
        "name": "Runs each step's work",
        "system": "Basis worker",
@@ -713,21 +701,22 @@
   "extract": {
    "how": [
     {
-     "title": "Take in the appraisal",
-     "detail": "Basis picks the source document and builds the study's search index from its text.",
+     "title": "Make a searchable copy of the appraisal",
+     "detail": "A Python library pulls the PDF's text into a search index that citations can point to; the fields are read in part 2, not from this.",
      "steps": [
       "The source is the UAD 3.6 file if one was uploaded, otherwise the appraisal PDF.",
-      "pdfplumber reads the PDF's text and tables, keeping the two-column reading order; PyMuPDF retries pages with no text.",
-      "The text is cut into chunks of 400 tokens (80 overlapping), and each chunk is turned into a search vector with all-MiniLM-L6-v2, stored in the database.",
-      "Known gap: search is keyword-only (BM25) by default, so these vectors are stored but not searched today."
+      "pdfplumber (a Python PDF library) is given the appraisal PDF file and pulls out its text and tables, keeping the two-column reading order; PyMuPDF re-reads any page where pdfplumber found no text. A scanned PDF yields no text here.",
+      "That text is cut into chunks of 400 tokens (80 overlapping); all-MiniLM-L6-v2 turns each chunk into a search vector; the chunks and vectors are saved in PostgreSQL.",
+      "Why a second reader: this copy exists so a citation can point to a page of the appraisal. Field reading (part 2) uses Azure instead, because it returns checkboxes and word positions, which pdfplumber does not.",
+      "Known gap: search is keyword-only (BM25) by default, so nothing searches these vectors today."
      ],
      "source": "backEnd/basis/activities/ingest_appraisal.py",
      "uses": [
       {
-       "name": "Reads the PDF's text and tables",
+       "name": "Pulls the text and tables out of the PDF",
        "system": "pdfplumber (PyMuPDF for pages with no text)",
-       "brand": null,
-       "provider": "runs on the Basis worker"
+       "brand": "python",
+       "provider": "Python libraries, run on the Basis worker"
       },
       {
        "name": "Turns each chunk into a search vector",
@@ -745,19 +734,19 @@
     },
     {
      "title": "Read the fields",
-     "detail": "One AI call reads every field from Azure's page text and must quote the page for each value.",
+     "detail": "Azure is sent the PDF; one AI call is sent Azure's text (not the PDF) and must quote the page for each value.",
      "steps": [
-      "Azure Document Intelligence (prebuilt-layout, with key-value pairs) reads every page: its text, word positions and checkboxes.",
-      "gpt-6.1-sol (effort low, prompt appraisal_fields_grounded/v2) is sent every page's text, each checkbox marked checked or unchecked with its label, and asked for 132 fields (100 on a UAD 3.6 form).",
+      "Azure Document Intelligence (prebuilt-layout, with key-value pairs) is sent the appraisal PDF file itself. It returns, for every page, the text lines, the position of every word, every checkbox and whether it is checked, and the form's label-value pairs.",
+      "gpt-6.1-sol (effort low, prompt appraisal_fields_grounded/v2) is sent text only, no PDF and no page images: Azure's text of every page, with each checkbox written as checked or unchecked followed by its label. It is asked for 132 fields (100 on a UAD 3.6 form).",
       "For each field it answers the value, the page and the exact quote. Basis keeps a value only if the quote is on that page and contains the value; a checkbox answer must be a checked box.",
-      "Only if that call cannot run at all (Azure or the model unavailable, an error, no answer, or the budget used up) does Basis start over without it: Azure's own form fields and pattern matching on the text, then one gpt-6-luna call (prompt appraisal_field_fallback/v1) for every field still missing, given Azure's page text. A value it gives must appear word for word in that text.",
+      "Only if that call cannot run at all (Azure or the model unavailable, an error, no answer, or the budget used up) does Basis start over without it: Azure's label-value pairs and pattern matching on pdfplumber's text, then one gpt-6-luna call (prompt appraisal_field_fallback/v1) for every field still missing. That call is sent Azure's page text without the checkbox marks, up to 60,000 characters, and none of the first call's answers. A value it gives must appear word for word in that text.",
       "Missing fields never trigger that second call; they go to the engineer at the review.",
-      "A UAD 3.6 file is read straight from its XML with no AI; Azure still reads its PDF, only to place the highlights."
+      "A UAD 3.6 file is read straight from its XML with no AI; Azure is still sent its PDF, only to place the highlights and check each value is printed."
      ],
      "source": "backEnd/basis/activities/extract_fields.py",
      "uses": [
       {
-       "name": "Reads every page: text, word positions, checkboxes",
+       "name": "Is sent the appraisal PDF; returns text, word positions, checkboxes",
        "system": "Azure Document Intelligence (prebuilt-layout)",
        "brand": "azure",
        "provider": "Microsoft Azure, $0.01 a page"
@@ -1854,6 +1843,7 @@
      "detail": "Each photo is cleaned, then three AI calls read it at the same time.",
      "steps": [
       "Pillow fixes the orientation, removes all metadata including GPS, shrinks the photo to at most 1,024 px on its long side and saves it as a JPEG. A file over 25 MB, unreadable or under 64 px is rejected.",
+      "Each call is sent the prepared photo (the JPEG image) and one fixed instruction; no file name, no other photo.",
       "gpt-6.1-sol (effort low, prompt photo_countables/v3) counts the objects: windows, doors, lights, outlets, cabinets, fixtures, appliances.",
       "gpt-6-luna (effort low, prompt photo_surfaces/v2) lists the surfaces (floors, wall and ceiling finish, trim, siding, roof) and gives the room type and floor.",
       "claude-opus-5-5 (effort medium, the same counting prompt) counts the same objects a second time.",
@@ -1865,8 +1855,8 @@
       {
        "name": "Prepares each photo",
        "system": "Pillow",
-       "brand": null,
-       "provider": "runs on the Basis worker"
+       "brand": "python",
+       "provider": "Python library, run on the Basis worker"
       },
       {
        "name": "Counts objects in each photo",
@@ -1924,7 +1914,7 @@
      "detail": "SAM 3 draws an outline around each object for the engineer; it never changes a count.",
      "steps": [
       "After a photo is analyzed, SAM 3 runs in the background, 3 photos at a time, without holding up the rooms review.",
-      "It is given the photo's object names plus 7 countable types (window, light fixture, exterior light, outlet, interior door, exterior door, kitchen cabinet) as text prompts, in one pass over the whole photo.",
+      "It is sent the prepared photo (JPEG) and, as text prompts, the photo's object names plus 7 countable types (window, light fixture, exterior light, outlet, interior door, exterior door, kitchen cabinet), in one pass over the whole photo.",
       "Every outline scoring 0.25 or more is kept; it is marked counted when it reaches its type's threshold (window 0.65, light fixture 0.7, outlet 0.55, kitchen cabinet 0.7, exterior door 0.85).",
       "It runs on Basis's own SAM 3 server when one is set up, otherwise on Replicate; with neither, it is skipped.",
       "Its outlines are used only in the components review and the report's photo pages; no count or price reads them."
@@ -3729,7 +3719,7 @@
        "provider": "Basis database"
       },
       {
-       "name": "Stores the uploaded files",
+       "name": "Stores the files",
        "system": "Google Cloud Storage",
        "brand": "googlecloud",
        "provider": "Google Cloud (a local folder in development)"
@@ -3741,7 +3731,7 @@
      "detail": "A room with several photos gets one AI call that counts every object once across them.",
      "steps": [
       "A room with one photo makes no AI call: it keeps that photo's list.",
-      "A room with several photos gets one gpt-6-luna call (effort low, prompt room_inventory/v3) per group of up to 10 photos, sent the photos and each photo's counts grouped by object type.",
+      "A room with several photos gets one gpt-6-luna call (effort low, prompt room_inventory/v3) per group of up to 10 photos. It is sent the room's prepared photos (JPEG images, no file names) and, as text, each photo's counts grouped by object type (for example: kitchen cabinet, image 1 ×8, image 2 ×10).",
       "It returns every object once, with the photos it appears in; an object that names no photo is dropped and the room is flagged.",
       "If the call fails twice, the room keeps the largest count any single photo saw and is flagged."
      ],
@@ -3764,7 +3754,7 @@
      "detail": "Wall finishes, wainscoting and tile get one more AI call to confirm the material.",
      "steps": [
       "Every wainscoting, wall finish and tile object gets one claude-sonnet-5-5 call (effort low, prompt surface_material/v3).",
-      "It is sent the photo that showed the object most clearly and told what the first analysis said the material was.",
+      "It is sent one photo (the JPEG that showed the object most clearly) and one sentence naming the surface and the material the first analysis gave.",
       "Its answer replaces the material when it is sure (confidence 0.5 or more)."
      ],
      "source": "backEnd/basis/vision/surface_material.py",
@@ -5057,7 +5047,7 @@
      "steps": [
       "The firm's own rulings: the most specific match first (same object, material, attachment and room; then object and room; then object). The engineer's decisions outrank approved AI answers; a tie flags the item.",
       "Then the IRS rules table (68 rows); each rule's IRS citation is checked against the IRS documents.",
-      "Only then claude-sonnet-5-5 (effort low, prompt classify/v1), with up to 4 calls and 3 keyword searches of the IRS documents. A citation counts only if a search returned that text and the quoted words appear in it."
+      "Only then claude-sonnet-5-5 (effort low, prompt classify/v1). It is sent the item as text only, no photo: its name, material, attachment, room type and name, property class, count and notes. It may make up to 3 keyword searches of the IRS documents within 4 calls and 60 seconds. A citation counts only if a search returned that text and the quoted words appear in it; if the loop fails, the item gets the building class and goes to review."
      ],
      "source": "backEnd/basis/classify/router.py",
      "uses": [
@@ -6691,7 +6681,7 @@
        "provider": "Basis (no AI)"
       },
       {
-       "name": "Stores the uploaded files",
+       "name": "Stores the files",
        "system": "Google Cloud Storage",
        "brand": "googlecloud",
        "provider": "Google Cloud (a local folder in development)"
@@ -7472,8 +7462,8 @@
       {
        "name": "Draws the PDF report",
        "system": "Typst 0.15",
-       "brand": null,
-       "provider": "runs on the Basis worker"
+       "brand": "python",
+       "provider": "Python package typst, run on the Basis worker"
       }
      ]
     },
@@ -7502,8 +7492,8 @@
       {
        "name": "Draws the PDF report",
        "system": "Typst 0.15",
-       "brand": null,
-       "provider": "runs on the Basis worker"
+       "brand": "python",
+       "provider": "Python package typst, run on the Basis worker"
       }
      ]
     },
@@ -7517,7 +7507,7 @@
      "source": "docs/api/REPORT.md",
      "uses": [
       {
-       "name": "Stores the uploaded files",
+       "name": "Stores the files",
        "system": "Google Cloud Storage",
        "brand": "googlecloud",
        "provider": "Google Cloud (a local folder in development)"
@@ -7834,12 +7824,6 @@
        "system": "PostgreSQL",
        "brand": "postgresql",
        "provider": "Basis database"
-      },
-      {
-       "name": "Runs the study's steps in order and retries failures",
-       "system": "Temporal",
-       "brand": "temporal",
-       "provider": "Temporal"
       }
      ]
     }
@@ -8759,12 +8743,6 @@
        "system": "PostgreSQL",
        "brand": "postgresql",
        "provider": "Basis database"
-      },
-      {
-       "name": "Runs the study's steps in order and retries failures",
-       "system": "Temporal",
-       "brand": "temporal",
-       "provider": "Temporal"
       }
      ]
     }
@@ -9690,12 +9668,6 @@
        "system": "PostgreSQL",
        "brand": "postgresql",
        "provider": "Basis database"
-      },
-      {
-       "name": "Runs the study's steps in order and retries failures",
-       "system": "Temporal",
-       "brand": "temporal",
-       "provider": "Temporal"
       }
      ]
     }
@@ -10615,12 +10587,6 @@
        "system": "PostgreSQL",
        "brand": "postgresql",
        "provider": "Basis database"
-      },
-      {
-       "name": "Runs the study's steps in order and retries failures",
-       "system": "Temporal",
-       "brand": "temporal",
-       "provider": "Temporal"
       }
      ]
     }
