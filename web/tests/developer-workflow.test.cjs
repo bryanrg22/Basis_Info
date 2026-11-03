@@ -127,3 +127,11 @@ test('a setup without a model says so, and row text is escaped',()=>{
  assert.ok(!html.includes('<img src=x')&&html.includes('&lt;img src=x'));
  assert.ok(html.includes('No AI model'));
 });
+test('the parts Basis built carry the Basis mark; a provider keeps its own logo',()=>{
+ const html=fresh().render(node('assets'),services(),H).split('Tests &amp; results')[0];
+ assert.ok(html.includes('src="../assets/basis-mark.png"'));
+ assert.ok(html.includes('Basis classification rules')&&html.includes('Basis quantity takeoff')&&html.includes('Basis structure model'));
+ assert.ok(html.includes('logos/claude.svg'));
+ assert.ok(!html.includes('No AI in this part'));
+ assert.ok(H.logo('basis').includes('../assets/basis-mark.png')&&H.logo('openai').includes('logos/openai.svg'));
+});

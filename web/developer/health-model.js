@@ -47,9 +47,11 @@
  // Brand identity is static; check status and selected runtime adapters remain independent.
  const PHASES=['Intake','Parallel analysis','Prepare review','Room review','Components','Classify & cost','Results','Report & sign'];
  const EDGES=[['upload','extract'],['upload','photos'],['extract','appraisal-review'],['photos','photo-results'],['appraisal-review','rooms-review'],['photo-results','rooms-review'],['rooms-review','inventory'],['inventory','components-review'],['components-review','assets'],['assets','assets-review'],['assets-review','output'],['output','report-sign']];
- const BRANDS={openai:'OpenAI',meta:'Meta',claude:'Anthropic / Claude',replicate:'Replicate',azure:'Microsoft Azure',postgresql:'PostgreSQL',temporal:'Temporal',firebase:'Firebase',fastapi:'FastAPI'};
+ const BRANDS={basis:'Basis',openai:'OpenAI',meta:'Meta',claude:'Anthropic / Claude',replicate:'Replicate',azure:'Microsoft Azure',postgresql:'PostgreSQL',temporal:'Temporal',firebase:'Firebase',fastapi:'FastAPI'};
+ // Basis's own mark is the app's (web/assets); the providers' logos are in logos/.
+ const LOGO_SRC={basis:'../assets/basis-mark.png'};
  const SERVICE_BRANDS={api:'fastapi',db:'postgresql',temporal:'temporal',firebase:'firebase',openai:'openai',azure_openai:'azure',anthropic:'claude',replicate:'replicate',azure_di:'azure',sam3:'meta',mask2former:'meta'};
- function logo(brand){return BRANDS[brand]?`<img class="provider-logo" src="logos/${brand}.svg" width="24" height="24" alt="" aria-hidden="true" title="${esc(BRANDS[brand])}">`:''}
+ function logo(brand){return BRANDS[brand]?`<img class="provider-logo" src="${LOGO_SRC[brand]||`logos/${brand}.svg`}" width="24" height="24" alt="" aria-hidden="true" title="${esc(BRANDS[brand])}">`:''}
  const LABELS={healthy:'Healthy',degraded:'Degraded',down:'Failed',unknown:'Not checked',stale:'Stale',disabled:'Not enabled'};
  const esc=value=>String(value??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
  function stamp(value){return typeof value==='string'&&Number.isFinite(Date.parse(value))?Date.parse(value):NaN}

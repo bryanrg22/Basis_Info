@@ -29,8 +29,8 @@
      "uses": [
       {
        "name": "Basis API",
-       "system": "FastAPI",
-       "brand": "fastapi",
+       "system": "Basis API (built on FastAPI)",
+       "brand": "basis",
        "provider": "Basis"
       },
       {
@@ -54,8 +54,8 @@
      "uses": [
       {
        "name": "Basis API",
-       "system": "FastAPI",
-       "brand": "fastapi",
+       "system": "Basis API (built on FastAPI)",
+       "brand": "basis",
        "provider": "Basis"
       },
       {
@@ -730,10 +730,10 @@
      "source": "backEnd/basis/extraction/validation.py",
      "uses": [
       {
-       "name": "No AI in this part",
-       "system": "Rules and stored data",
-       "brand": null,
-       "provider": "Basis"
+       "name": "Checks types, ranges and consistency",
+       "system": "Basis validation rules",
+       "brand": "basis",
+       "provider": "Basis (no AI)"
       }
      ]
     }
@@ -2684,10 +2684,10 @@
      "source": "backEnd/basis/vision/rooms.py",
      "uses": [
       {
-       "name": "No AI in this part",
-       "system": "Rules and stored data",
-       "brand": null,
-       "provider": "Basis"
+       "name": "Groups photos into rooms by file name and the engineer's merges",
+       "system": "Basis room grouping",
+       "brand": "basis",
+       "provider": "Basis (no AI)"
       }
      ]
     },
@@ -2697,10 +2697,10 @@
      "source": "backEnd/basis/activities/reconcile_rooms.py",
      "uses": [
       {
-       "name": "No AI in this part",
-       "system": "Rules and stored data",
-       "brand": null,
-       "provider": "Basis"
+       "name": "Names each room, with its type and floor",
+       "system": "Basis room naming",
+       "brand": "basis",
+       "provider": "Basis (no AI)"
       }
      ]
     },
@@ -2711,8 +2711,8 @@
      "uses": [
       {
        "name": "Basis API",
-       "system": "FastAPI",
-       "brand": "fastapi",
+       "system": "Basis API (built on FastAPI)",
+       "brand": "basis",
        "provider": "Basis"
       },
       {
@@ -4623,6 +4623,12 @@
      "source": "backEnd/basis/classify/router.py",
      "uses": [
       {
+       "name": "Applies the firm's rulings, then the IRS rules table",
+       "system": "Basis classification rules",
+       "brand": "basis",
+       "provider": "Basis (no AI)"
+      },
+      {
        "name": "Classifies what no rule decides, with citations",
        "system": "claude-sonnet-5-5",
        "brand": "claude",
@@ -4634,9 +4640,9 @@
       },
       {
        "name": "Searches the IRS documents for citations",
-       "system": "Keyword search (BM25)",
-       "brand": null,
-       "provider": "runs on the Basis worker"
+       "system": "Basis keyword search (BM25)",
+       "brand": "basis",
+       "provider": "Basis"
       }
      ]
     },
@@ -4645,6 +4651,12 @@
      "detail": "Quantities come from the appraisal's areas (living area, basement, garage, lot). Each item is priced from RSMeans, adjusted for the study's year and location, and every step of the price is kept.",
      "source": "backEnd/basis/domain/costs.py",
      "uses": [
+      {
+       "name": "Measures quantities from the appraisal's areas",
+       "system": "Basis quantity takeoff",
+       "brand": "basis",
+       "provider": "Basis (no AI)"
+      },
       {
        "name": "Unit prices",
        "system": "RSMeans cost data",
@@ -4658,6 +4670,12 @@
      "detail": "Hidden building systems (framing, plumbing, wiring) are priced from the RSMeans square-foot model. The total is checked against the purchase price minus land; a gap that is too large is flagged and holds the report.",
      "source": "backEnd/basis/domain/structure.py",
      "uses": [
+      {
+       "name": "Prices hidden building systems and balances to the price",
+       "system": "Basis structure model",
+       "brand": "basis",
+       "provider": "Basis (no AI)"
+      },
       {
        "name": "Unit prices",
        "system": "RSMeans cost data",
@@ -5999,6 +6017,12 @@
      "source": "backEnd/basis/activities/promote_conventions.py",
      "uses": [
       {
+       "name": "Saves the engineer's rulings for the firm",
+       "system": "Basis firm rulings",
+       "brand": "basis",
+       "provider": "Basis (no AI)"
+      },
+      {
        "name": "Database",
        "system": "PostgreSQL",
        "brand": "postgresql",
@@ -6012,6 +6036,12 @@
      "source": "backEnd/basis/activities/export_report.py",
      "uses": [
       {
+       "name": "Writes the study's files",
+       "system": "Basis export",
+       "brand": "basis",
+       "provider": "Basis (no AI)"
+      },
+      {
        "name": "File storage",
        "system": "Google Cloud Storage",
        "brand": null,
@@ -6024,6 +6054,12 @@
      "detail": "Every AI call is recorded with its tokens and dollars, by step and by model. Exporting files does not complete the study; signing the report does.",
      "source": "docs/api/SPEND.md",
      "uses": [
+      {
+       "name": "Records every AI call's tokens and dollars",
+       "system": "Basis cost ledger",
+       "brand": "basis",
+       "provider": "Basis (no AI)"
+      },
       {
        "name": "Database",
        "system": "PostgreSQL",
@@ -6769,8 +6805,8 @@
      "uses": [
       {
        "name": "Basis API",
-       "system": "FastAPI",
-       "brand": "fastapi",
+       "system": "Basis API (built on FastAPI)",
+       "brand": "basis",
        "provider": "Basis"
       },
       {
@@ -7055,8 +7091,8 @@
      "uses": [
       {
        "name": "Basis API",
-       "system": "FastAPI",
-       "brand": "fastapi",
+       "system": "Basis API (built on FastAPI)",
+       "brand": "basis",
        "provider": "Basis"
       }
      ]
@@ -7068,8 +7104,8 @@
      "uses": [
       {
        "name": "Basis API",
-       "system": "FastAPI",
-       "brand": "fastapi",
+       "system": "Basis API (built on FastAPI)",
+       "brand": "basis",
        "provider": "Basis"
       },
       {
@@ -7087,8 +7123,8 @@
      "uses": [
       {
        "name": "Basis API",
-       "system": "FastAPI",
-       "brand": "fastapi",
+       "system": "Basis API (built on FastAPI)",
+       "brand": "basis",
        "provider": "Basis"
       },
       {
@@ -7966,8 +8002,8 @@
      "uses": [
       {
        "name": "Basis API",
-       "system": "FastAPI",
-       "brand": "fastapi",
+       "system": "Basis API (built on FastAPI)",
+       "brand": "basis",
        "provider": "Basis"
       }
      ]
@@ -7979,8 +8015,8 @@
      "uses": [
       {
        "name": "Basis API",
-       "system": "FastAPI",
-       "brand": "fastapi",
+       "system": "Basis API (built on FastAPI)",
+       "brand": "basis",
        "provider": "Basis"
       },
       {
@@ -7998,8 +8034,8 @@
      "uses": [
       {
        "name": "Basis API",
-       "system": "FastAPI",
-       "brand": "fastapi",
+       "system": "Basis API (built on FastAPI)",
+       "brand": "basis",
        "provider": "Basis"
       },
       {
@@ -8877,8 +8913,8 @@
      "uses": [
       {
        "name": "Basis API",
-       "system": "FastAPI",
-       "brand": "fastapi",
+       "system": "Basis API (built on FastAPI)",
+       "brand": "basis",
        "provider": "Basis"
       },
       {
@@ -8896,8 +8932,8 @@
      "uses": [
       {
        "name": "Basis API",
-       "system": "FastAPI",
-       "brand": "fastapi",
+       "system": "Basis API (built on FastAPI)",
+       "brand": "basis",
        "provider": "Basis"
       },
       {
@@ -8915,8 +8951,8 @@
      "uses": [
       {
        "name": "Basis API",
-       "system": "FastAPI",
-       "brand": "fastapi",
+       "system": "Basis API (built on FastAPI)",
+       "brand": "basis",
        "provider": "Basis"
       },
       {
@@ -9794,8 +9830,8 @@
      "uses": [
       {
        "name": "Basis API",
-       "system": "FastAPI",
-       "brand": "fastapi",
+       "system": "Basis API (built on FastAPI)",
+       "brand": "basis",
        "provider": "Basis"
       }
      ]
@@ -9807,8 +9843,8 @@
      "uses": [
       {
        "name": "Basis API",
-       "system": "FastAPI",
-       "brand": "fastapi",
+       "system": "Basis API (built on FastAPI)",
+       "brand": "basis",
        "provider": "Basis"
       },
       {
@@ -9826,8 +9862,8 @@
      "uses": [
       {
        "name": "Basis API",
-       "system": "FastAPI",
-       "brand": "fastapi",
+       "system": "Basis API (built on FastAPI)",
+       "brand": "basis",
        "provider": "Basis"
       },
       {
