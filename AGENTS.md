@@ -102,6 +102,10 @@ client-data guard on every commit.
   `tests/integration/db/test_migrations.py` pins the head. Check open PRs for the next number.
 - **Workflow changes** are Temporal patches (`workflow.patched("<name>-v<n>")`) so recorded
   histories replay; `tests/lifecycle/histories/` holds them.
+- **No CPU work on the event loop.** Async activities share the worker's loop with Temporal's
+  workflow activations, which the SDK times at 2 s (`TMPRL1101`); decode, resize, crop, render
+  or parse on a thread (`asyncio.to_thread`, `prepare_image_in_thread`).
+  `tests/unit/test_event_loop_image_work.py` refuses the known image functions in `async def`.
 - **Prompts** are immutable once released: add `v<n+1>.md` and its manifest entry; pin the
   pipeline to a version in `config.py` with the EVAL_REPORT section that chose it.
 - **Settings** are documented in `config.py`'s header comment and `.env.example`, each with

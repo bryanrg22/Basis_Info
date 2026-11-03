@@ -1730,7 +1730,7 @@ async def localize_photo(
     if not dedupe:
         raise ValueError("dedupe=False is for the full-frame phrase experiment, not tiling")
     countable = [p for p in phrases if p.label in COUNTABLE]
-    pieces = tiles(image, grid, overlap)
+    pieces = await asyncio.to_thread(tiles, image, grid, overlap)
     full, *per_tile = await asyncio.gather(
         localizer.localize(image, phrases, threshold=threshold),
         *(localizer.localize(t.image, countable, threshold=threshold) for t in pieces),

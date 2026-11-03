@@ -2,7 +2,15 @@
 
 from __future__ import annotations
 
+import asyncio
+import contextlib
 import io
+import threading
+import warnings
+from concurrent.futures import ThreadPoolExecutor
+from contextlib import ExitStack
+from typing import Any
+from unittest import mock
 
 import pytest
 from fixtures import fixture_path
@@ -112,3 +120,103 @@ def test_base64_round_trip() -> None:
 
     image = prepare_image(fixture_path("photos", "03_bedroom.jpg").read_bytes())
     assert base64.b64decode(image.base64) == image.jpeg
+
+
+# --------------------------------------------------- off the event loop (EVAL_REPORT 75)
+
+
+async def test_prepare_image_in_thread_gives_the_same_image_from_another_thread(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    data = jpeg((1600, 1200))
+    threads: list[int] = []
+    real = prep.prepare_image
+
+    def recording(payload: bytes) -> prep.PreparedImage:
+        threads.append(threading.get_ident())
+        return real(payload)
+
+    monkeypatch.setattr(prep, "prepare_image", recording)
+    prepared = await prep.prepare_image_in_thread(data)
+    assert prepared == real(data)
+    assert threads and threads[0] != threading.get_ident()  # not the event loop's thread
+
+
+async def test_the_event_loop_keeps_running_while_a_photo_is_prepared() -> None:
+    """Other tasks (a workflow activation, a heartbeat) run while a 12 MP photo decodes."""
+    data = jpeg((4000, 3000))
+    ticks = 0
+    done = False
+
+    async def ticker() -> None:
+        nonlocal ticks
+        while not done:
+            ticks += 1
+            await asyncio.sleep(0)
+
+    task = asyncio.create_task(ticker())
+    await asyncio.sleep(0)
+    before = ticks
+    await prep.prepare_image_in_thread(data)
+    during = ticks - before
+    done = True
+    await task
+    assert during > 1
+
+
+async def test_prepare_image_in_thread_raises_the_same_rejection() -> None:
+    with pytest.raises(ImageRejected) as caught:
+        await prep.prepare_image_in_thread(b"not an image")
+    assert caught.value.reason == "not_an_image"
+
+
+def test_prepare_image_never_touches_the_process_wide_warning_filters() -> None:
+    """``warnings.catch_warnings`` swaps the process-wide filter list and is not thread-safe;
+    prepare_image runs on threads, so it must not use it (or any filter call). The calls are
+    counted inside the block and the functions restored before the assertion, since pytest
+    itself uses them."""
+    used: list[str] = []
+
+    def counting(name: str) -> Any:
+        real = getattr(warnings, name)
+
+        def wrapper(*args: Any, **kwargs: Any) -> Any:
+            used.append(name)
+            return real(*args, **kwargs)
+
+        return wrapper
+
+    names = ("catch_warnings", "simplefilter", "filterwarnings")
+    before = list(warnings.filters)
+    with ExitStack() as stack:
+        for name in names:
+            stack.enter_context(mock.patch.object(warnings, name, counting(name)))
+        prepare_image(jpeg((640, 480)))
+        with contextlib.suppress(ImageRejected):
+            prepare_image(b"not an image")
+    assert used == []
+    assert list(warnings.filters) == before
+
+
+def test_an_image_over_pillows_warning_threshold_is_refused_from_its_header(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """``MAX_PIXELS`` (80 M) sits below Pillow's warning threshold (89.5 M), so whatever
+    Pillow warns about is refused by the explicit check as ``too_many_pixels``. Scaled down
+    here: Pillow warns above 1,000,000 pixels, the limit is 900,000."""
+    assert prep.MAX_PIXELS < Image.MAX_IMAGE_PIXELS  # the real values keep that order
+    monkeypatch.setattr(Image, "MAX_IMAGE_PIXELS", 1000 * 1000)
+    monkeypatch.setattr(prep, "MAX_PIXELS", 900 * 1000)
+    with pytest.warns(Image.DecompressionBombWarning), pytest.raises(ImageRejected) as caught:
+        prepare_image(jpeg((1100, 1000)))
+    assert caught.value.reason == "too_many_pixels"
+
+
+def test_photos_prepared_on_many_threads_at_once_match_one_at_a_time() -> None:
+    photos = [jpeg((1200 + 40 * i, 900)) for i in range(8)]
+    sequential = [prepare_image(p) for p in photos]
+    before = list(warnings.filters)
+    with ThreadPoolExecutor(max_workers=8) as pool:
+        parallel = list(pool.map(prepare_image, photos))
+    assert parallel == sequential
+    assert list(warnings.filters) == before
