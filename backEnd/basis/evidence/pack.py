@@ -338,6 +338,8 @@ def summarize(
                     rcn=None if a.total is None else Decimal(a.total),
                     label=a.label,
                     concealed=concealed_label(a.takeoff_inputs)[1],
+                    # The missing inputs that hold a row are blockers by name (EVAL_REPORT 78).
+                    review_reason=a.review_reason,
                 )
                 for a in assets
             ),

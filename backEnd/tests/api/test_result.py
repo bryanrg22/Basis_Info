@@ -88,7 +88,7 @@ async def test_result_without_intake_is_the_schedule_alone(
     assert [n["system"] for n in body["not_produced"]][:2] == ["Foundations", "Structural Framing"]
 
 
-async def test_result_allocates_the_revision_to_the_intake_basis(
+async def test_result_computes_the_basis_and_withholds_an_allocation_it_cannot_stand_on(
     api: Api, seed: Seed, sessionmaker: async_sessionmaker[AsyncSession]
 ) -> None:
     study = await api.create_study("alice", intake=INTAKE)
@@ -110,7 +110,14 @@ async def test_result_allocates_the_revision_to_the_intake_basis(
     response = await api.get("alice", f"/v1/studies/{study['id']}/result")
     assert response.status_code == 200, response.text
     body = response.json()
-    assert body["revision"] == 2 and body["missing"] == []
+    # EVAL_REPORT 78: no appraisal fields reconcile the schedule (the uniform factor would
+    # scale 10,000 of RCN up 8x to the basis, the ATG's rejected step-up) and the toilet is
+    # unpriced, so the allocation is withheld and the result says why.
+    assert body["revision"] == 2 and body["missing"] == ["blockers", "allocation"]
+    assert [(b["code"], b["assets"]) for b in body["blockers"]] == [
+        ("unpriced", 1),
+        ("appraisal_fields", 0),
+    ]
     ws = body["worksheet"]
     # 100000 − 20000 = 80000 (B); + 150 = 80150 (T).
     assert (ws["land"], ws["building_basis"], ws["capitalized_costs"], ws["total_basis"]) == (
@@ -123,37 +130,12 @@ async def test_result_allocates_the_revision_to_the_intake_basis(
     assert ws["acquisition_costs"][0]["authority"].startswith("Reg. 1.263(a)-2(f)(2)(ii)(H)")
     checks = {c["code"]: c["severity"] for c in ws["checks"]}
     assert checks["land_share_of_price"] == "ok" and checks["land_value_date"] == "ok"
-    a = body["allocation"]
-    # f = 80150 / 10000 = 8.015: 8015.00, 16030.00, 56105.00.
-    assert a["factor"] == "8.015000000"
-    assert {r["category"]: r["allocated"] for r in a["assets"]} == {
-        "Carpet": "8015.00",
-        "Kitchen cabinets": "16030.00",
-        "Framing": "56105.00",
-    }
-    assert [r["asset_id"] for r in a["assets"]] == sorted(str(i) for i in ids[:3])
-    assert a["rows_sum"] == "80150.00"
-    y5, y39 = a["by_bucket"]
-    assert (y5["allocated"], y5["percent"], y5["building"], y5["closing_costs"]) == (
-        "24045.00",
-        "30.0",
-        "24000.00",
-        "45.00",
-    )
-    assert (y39["allocated"], y39["percent"], y39["building"], y39["closing_costs"]) == (
-        "56105.00",
-        "70.0",
-        "56000.00",
-        "105.00",
-    )
-    # Rows with no label are Miscellaneous Building Components: the page is always built.
-    assert [s["system"] for s in a["by_system"]] == ["Miscellaneous Building Components"]
-    assert {c["code"]: c["severity"] for c in a["checks"]} == {"uniform_factor": "error"}
+    assert body["allocation"] is None
     assert body["schedule"]["land"] == [str(ids[3])]
     assert body["schedule"]["unpriced"] == [str(ids[4])]
 
     history = await api.get("alice", f"/v1/studies/{study['id']}/result", params={"revision": 1})
-    assert history.json()["allocation"]["rows_sum"] == "80150.00"
+    assert history.json()["allocation"] is None
     assert history.json()["schedule"]["rcn_total"] == "10.00"
     assert (
         await api.get("alice", f"/v1/studies/{study['id']}/result", params={"revision": 3})

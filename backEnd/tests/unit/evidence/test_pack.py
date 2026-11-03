@@ -184,3 +184,18 @@ def test_summary_takeoff_reads_the_rows_and_is_null_before_section_37() -> None:
     # Rows that disagree on the index (two revisions mixed) report no single value.
     data["costs"][uuid.UUID(int=21)].cost_year = 2025
     assert takeoff_summary(assemble_pack(**data).assets)["cost_year"] is None
+
+
+def test_the_exports_blockers_name_a_rows_missing_input() -> None:
+    """EVAL_REPORT 78: the export's result is built from the pack's rows, which carry each
+    asset's review reasons, so a row held by a missing input is named, not reported as a
+    missing cost row (the first build of the change dropped the reasons here)."""
+    data = rows()
+    unpriced = [c.asset_id for c in data["costs"].values() if c.total is None]
+    assert unpriced
+    for asset in data["assets"]:
+        if asset.id in unpriced:
+            asset.review_reason = "input:gla"
+    basis = assemble_pack(**data).summary["basis"]
+    codes = [b["code"] for b in basis["blockers"]]
+    assert "input:gla" in codes and "unpriced" not in codes

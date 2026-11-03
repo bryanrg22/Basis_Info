@@ -104,7 +104,9 @@ async def analyzed(deps: Deps, seeded: SeededStudy, activity_env: Env) -> Seeded
                     material=None,
                     attachment=None,
                     confidence=0.5,
-                    raw={"source": "stub"},
+                    # A count, as the vision step always gives one: since EVAL_REPORT 78 a
+                    # component without one is not counted as 1 (test_missing_inputs.py).
+                    raw={"source": "stub", "count": 1},
                 )
     activity_env.heartbeats.clear()
     return seeded
@@ -192,9 +194,9 @@ async def test_rule_and_model_values_and_takeoffs(
     cabinets = sorted(
         (takeoffs[a.id] for label, a in rows if label == "cabinetry"), key=lambda t: t.quantity
     )
-    # v0.9 (EVAL_REPORT 27): cabinets are counted in units, per row (these stub rows carry
-    # no count, so one each). With the room step off (this suite's baseline) each photo's
-    # row counts its cabinets; the room step's one inventory per room is what dedupes.
+    # v0.9 (EVAL_REPORT 27): cabinets are counted in units, per row (these stub rows count
+    # one each). With the room step off (this suite's baseline) each photo's row counts its
+    # cabinets; the room step's one inventory per room is what dedupes.
     assert [t.quantity for t in cabinets] == [Decimal("1"), Decimal("1")]
     assert {(t.unit, t.formula) for t in cabinets} == {("EA", "max(count=1, min_per_room=1)")}
 
@@ -541,10 +543,12 @@ async def test_bucket_only_correction_derives_the_recovery_period(
         Decimal("5.0"),
         "1245",
     )
-    # The classification is the engineer's; the missing cost row still needs a number.
+    # The classification is the engineer's; the row still needs a quantity: the study has
+    # no GLA, so the flooring is unpriced with the input named (EVAL_REPORT 78), not reported
+    # as a missing cost row.
     assert manual.review_reason is not None
     assert "validation" not in manual.review_reason
-    assert "cross:COST_ROW_MISSING" in manual.review_reason
+    assert "input:gla" in manual.review_reason
 
 
 @pytest.mark.parametrize(
@@ -900,27 +904,32 @@ async def test_measured_areas_price_the_property_items_and_size_the_rooms(
     assert landscaping.review_reason and "takeoff:upper_bound" in landscaping.review_reason
 
 
-async def test_without_extraction_fields_the_takeoffs_are_the_legacy_ones(
+async def test_without_extraction_fields_an_area_item_is_unpriced_not_typical(
     deps: Deps, analyzed: SeededStudy, activity_env: Env
 ) -> None:
-    """Regression: no extraction (the seeded study has none) keeps today's typical areas,
-    the settings' year and location, and the source row text unchanged."""
+    """EVAL_REPORT 78 (before it: the typical area, 75 SF x 1.15 = 86.25 SF of tile): with no
+    extraction the room has no measured area, so the tile is written unpriced with the input
+    named; the settings' year and location are still recorded on the row."""
     await activity_env.run(ProcessAssets(deps).run, process(analyzed))
     rows = await labelled(deps, analyzed.study_id, 1)
     takeoffs, costs = await takeoffs_and_costs(deps, analyzed.study_id)
     tile = next(a for label, a in rows if label == "tile_flooring")
-    assert takeoffs[tile.id].quantity == Decimal("86.25")  # 75 x 1.15
-    assert takeoffs[tile.id].inputs["room_area_source"] == "typical_for_room_type"
-    assert "room_area_formula" not in takeoffs[tile.id].inputs
-    assert costs[tile.id].source_row is not None and costs[tile.id].source_row.endswith(
-        SETTING_2026
+    assert takeoffs[tile.id].quantity == Decimal("0.00")
+    assert takeoffs[tile.id].inputs["missing_input"] == "gla"
+    assert tile.review_reason is not None and "input:gla" in tile.review_reason
+    assert (costs[tile.id].unit_cost, costs[tile.id].total) == (None, None)
+    assert costs[tile.id].source_row == (
+        "missing input: the gross living area (GLA) is not on the appraisal, so no room has a "
+        "floor area"
     )
     assert (costs[tile.id].cost_year, costs[tile.id].location_factor) == (2026, Decimal("1.0"))
 
 
-async def test_takeoff_areas_typical_and_cost_index_setting_ignore_the_appraisal(
+async def test_takeoff_areas_typical_measures_nothing(
     deps: Deps, analyzed: SeededStudy, activity_env: Env
 ) -> None:
+    """EVAL_REPORT 78: TAKEOFF_AREAS=typical once priced the tile on the typical area and the
+    roof as a count; typical areas are not a measurement, so both name the setting."""
     settings = deps.settings.model_copy(
         update={"takeoff_areas": "typical", "cost_index": "setting"}
     )
@@ -931,28 +940,27 @@ async def test_takeoff_areas_typical_and_cost_index_setting_ignore_the_appraisal
     rows = await labelled(deps, analyzed.study_id, 1)
     takeoffs, costs = await takeoffs_and_costs(deps, analyzed.study_id)
     tile = next(a for label, a in rows if label == "tile_flooring")
-    assert takeoffs[tile.id].quantity == Decimal("86.25")
-    assert takeoffs[tile.id].inputs["room_area_source"] == "typical_for_room_type"
     roof = next(a for label, a in rows if label == "roof")
-    assert (takeoffs[roof.id].unit, takeoffs[roof.id].inputs["method"]) == ("EA", "count")
-    assert "needs_measurement" not in takeoffs[roof.id].inputs
-    assert costs[tile.id].source_row is not None and costs[tile.id].source_row.endswith(
-        SETTING_2026
+    for asset in (tile, roof):
+        assert takeoffs[asset.id].inputs["missing_input"] == "takeoff_areas_typical"
+        assert takeoffs[asset.id].quantity == Decimal("0.00")
+        assert costs[asset.id].total is None
+    assert costs[tile.id].source_row is not None and costs[tile.id].source_row.startswith(
+        "missing input: TAKEOFF_AREAS=typical"
     )
 
 
-async def test_cost_index_from_the_study_with_typical_areas(
+async def test_cost_index_from_the_study_prices_with_the_states_factor(
     deps: Deps, analyzed: SeededStudy, activity_env: Env
 ) -> None:
-    """COST_INDEX=study alone: the state's factor applies, the areas stay typical."""
-    settings = deps.settings.model_copy(update={"takeoff_areas": "typical"})
-    mixed = make_deps(deps.sessionmaker, deps.storage, settings)
-    await seed_extraction(deps, analyzed, {"subject.state": "NY"})
-    await activity_env.run(ProcessAssets(mixed).run, process(analyzed))
+    """COST_INDEX=study: the appraisal's state's factor applies (the GLA sizes the rooms;
+    before EVAL_REPORT 78 this ran on typical areas, which no longer price)."""
+    await seed_extraction(deps, analyzed, {**MEASURED_FIELDS, "subject.state": "NY"})
+    await activity_env.run(ProcessAssets(deps).run, process(analyzed))
     rows = await labelled(deps, analyzed.study_id, 1)
     takeoffs, costs = await takeoffs_and_costs(deps, analyzed.study_id)
     tile = next(a for label, a in rows if label == "tile_flooring")
-    assert takeoffs[tile.id].inputs["room_area_source"] == "typical_for_room_type"
+    assert takeoffs[tile.id].inputs["room_area_source"] == "gla_share"
     assert costs[tile.id].location_factor == Decimal("0.976")
     assert costs[tile.id].source_row is not None and costs[tile.id].source_row.endswith(
         f"(base 2020, x1.0000 for 2026 = {HCI_2020}; no 2026 index loaded, the latest applied "
@@ -1038,8 +1046,9 @@ async def test_an_intake_without_a_state_falls_back_to_the_appraisal_state(
     deps: Deps, analyzed: SeededStudy, activity_env: Env
 ) -> None:
     """A study started before the state was required (or one whose intake predates its
-    extraction): the appraisal's subject.state still applies, and the source says so."""
-    await seed_extraction(deps, analyzed, {"subject.state": "IL"})
+    extraction): the appraisal's subject.state still applies, and the source says so (the
+    appraisal's measurements size the rooms: EVAL_REPORT 78)."""
+    await seed_extraction(deps, analyzed, MEASURED_FIELDS)  # subject.state IL
     await set_intake(
         deps.sessionmaker,
         analyzed.study_id,
@@ -1062,11 +1071,12 @@ async def test_an_intake_without_a_state_falls_back_to_the_appraisal_state(
     assert not any("BUILDING_BUCKET_PROPERTY_CLASS" in (a.review_reason or "") for _, a in rows)
 
 
-async def test_the_intake_alone_prices_a_study_with_no_extraction_fields(
+async def test_the_intake_alone_fixes_the_year_and_state_but_measures_nothing(
     deps: Deps, analyzed: SeededStudy, activity_env: Env
 ) -> None:
-    """No extraction fields (the seeded study has none): the areas stay typical, as in the
-    regression test, while the intake still fixes the year and the state."""
+    """No extraction fields (the seeded study has none): the intake fixes the year and the
+    state on every row, but no room has a measured area, so the tile is unpriced with the
+    input named (EVAL_REPORT 78; before it, the typical 86.25 SF priced)."""
     await set_intake(
         deps.sessionmaker,
         analyzed.study_id,
@@ -1076,12 +1086,12 @@ async def test_the_intake_alone_prices_a_study_with_no_extraction_fields(
     rows = await labelled(deps, analyzed.study_id, 1)
     takeoffs, costs = await takeoffs_and_costs(deps, analyzed.study_id)
     tile = next(a for label, a in rows if label == "tile_flooring")
-    assert takeoffs[tile.id].quantity == Decimal("86.25")  # 75 x 1.15: the typical area
-    assert takeoffs[tile.id].inputs["room_area_source"] == "typical_for_room_type"
+    assert takeoffs[tile.id].quantity == Decimal("0.00")
+    assert takeoffs[tile.id].inputs["missing_input"] == "gla"
     assert (costs[tile.id].cost_year, costs[tile.id].location_factor) == (2024, Decimal("0.98"))
-    assert costs[tile.id].source_row is not None and costs[tile.id].source_row.endswith(
-        SCHENECTADY_2024
-    )
+    assert costs[tile.id].total is None
+    assert takeoffs[tile.id].inputs["cost_year_source"] == "placed in service 2024-03-01 (intake)"
+    assert str(takeoffs[tile.id].inputs["location_source"]).startswith("zip 12345 (intake)")
 
 
 async def test_cost_index_setting_ignores_the_intake_but_its_use_still_classifies(
@@ -1107,8 +1117,9 @@ async def test_cost_index_setting_ignores_the_intake_but_its_use_still_classifie
     rows = await labelled(deps, analyzed.study_id, 1)
     takeoffs, costs = await takeoffs_and_costs(deps, analyzed.study_id)
     tile = next(a for label, a in rows if label == "tile_flooring")
-    assert costs[tile.id].source_row is not None and costs[tile.id].source_row.endswith(
-        SETTING_2026
+    # No GLA (no extraction): the tile is unpriced with the input named (EVAL_REPORT 78).
+    assert costs[tile.id].source_row is not None and costs[tile.id].source_row.startswith(
+        "missing input: the gross living area"
     )
     assert (
         takeoffs[tile.id].inputs["cost_year_source"],
@@ -1231,8 +1242,10 @@ async def test_a_corrected_row_and_a_legacy_revision_carry_trails(
         trail = assert_trail_matches(cost, takeoffs[asset_id])
         assert trail["intake_version"] is None
         assert trail["location"]["from"] == "COST_LOCATION_FACTOR setting"
+        # Priced, unpriced for want of a cost row, or (no GLA here) a missing input.
         assert cost.source_row is not None and (
-            cost.source_row.endswith(SETTING_2026) or cost.source_row.startswith("missing:")
+            cost.source_row.endswith(SETTING_2026)
+            or cost.source_row.startswith(("missing:", "missing input:"))
         )
     target = next(a for label, a in await labelled(deps, sid, 1) if label == "plumbing_fixtures")
     await start_revision_two(deps, analyzed, activity_env)

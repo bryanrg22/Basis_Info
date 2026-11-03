@@ -1265,7 +1265,9 @@ class TakeoffPlan:
             assert measurements is not None
             missing_property = property_missing(measurements)
         else:
-            area_missing = "gla" if measurements is None else "takeoff_areas_typical"
+            # The setting first: with TAKEOFF_AREAS=typical (and COST_INDEX=setting) the
+            # appraisal's fields are not even read, so the GLA is not what is missing.
+            area_missing = "takeoff_areas_typical" if settings.takeoff_areas == "typical" else "gla"
             missing_property = dict.fromkeys(PROPERTY_LABELS, area_missing)
         setting_factor = Decimal(str(settings.cost_location_factor))
         if settings.cost_index == "study" and (measurements is not None or intake is not None):
