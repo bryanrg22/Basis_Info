@@ -22,7 +22,7 @@ Numbers are never reused. Source of truth: `backEnd/basis/errors/catalogue.py` (
 rendered from it: `uv run python -m basis.errors.catalogue --write`; a test fails while it is
 stale).
 
-292 codes in 23 areas.
+294 codes in 23 areas.
 
 ## API: API: request plumbing (authentication, idempotency, limits, dependencies)
 
@@ -98,6 +98,8 @@ stale).
 | `BASIS-UPLOAD-009` | refusal | dev upload route; `basis.api.local_uploads` | The upload is larger than the maximum. | 413 `payload-too-large`. (type `payload-too-large`) | Upload a smaller file. | no |
 | `BASIS-UPLOAD-010` | refusal | dev upload route; `basis.api.local_uploads` | The signed token is unknown, expired, or the headers differ from the ticket. | 403 `forbidden`. (type `forbidden`) | Request a new upload ticket. | yes |
 | `BASIS-UPLOAD-011` | refusal | `POST .../documents/{id}/upload-url`; `basis.api.routes.documents` | A new signed upload URL was asked for a document whose upload is already confirmed; its bytes are immutable (they hash to the registered sha256). | 409 `upload-complete`. (type `upload-complete`) | Nothing to resume for this document. To replace the file, register the new bytes as a new document. | no |
+| `BASIS-UPLOAD-012` | refusal | `GET .../documents/{id}/image`; `basis.api.routes.documents` | A browser copy was asked for a document that is not a photo (a PDF, a ZIP, a text file). | 409 `not-a-photo`. (type `not-a-photo`) | Use `.../content` for the document's bytes, or `.../pdf` for an appraisal. | no |
+| `BASIS-UPLOAD-013` | refusal | `GET .../documents/{id}/image`; `basis.api.routes.documents (`basis.vision.display`)` | A HEIC or HEIF photo's bytes cannot be decoded (damaged, cut short, or over the pixel limit); the analysis flags the same photo as not readable. | 409 `unreadable-photo` with the reason. (type `unreadable-photo`) | Export the photo again from the phone (or as a JPEG) and upload it as a new document. | no |
 
 ## STUDY: Study lifecycle (start, decisions, retry, outputs)
 

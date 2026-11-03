@@ -83,26 +83,31 @@
   },()=>{}).finally(()=>{entry.revalidating=false});// a failed check keeps the cached study
  }
  /* Document bytes (photos, the appraisal) need the bearer token, so they are fetched and
-  * shown from object URLs, at most six at a time. <img data-live-doc="id"> is filled in. */
+  * shown from object URLs, at most six at a time. <img data-live-doc="id"> is filled in.
+  * Photos on screen come from /image (an iPhone's HEIC as JPEG, which every browser shows);
+  * downloads and the appraisal come from /content, the original bytes. */
  const queue=[];let active=0;
- function blobUrl(docId,studyId=L.studyId){
-  if(L.blobs.has(docId))return L.blobs.get(docId);
-  const p=new Promise((resolve,reject)=>{queue.push({docId,studyId,resolve,reject});pump()});L.blobs.set(docId,p);p.catch(()=>L.blobs.delete(docId));return p;
+ const photoKey=docId=>'image:'+docId;
+ function blobUrl(docId,studyId=L.studyId,shown=false){
+  const key=shown?photoKey(docId):docId;
+  if(L.blobs.has(key))return L.blobs.get(key);
+  const p=new Promise((resolve,reject)=>{queue.push({docId,studyId,key,shown,resolve,reject});pump()});L.blobs.set(key,p);p.catch(()=>L.blobs.delete(key));return p;
  }
  function pump(){
   while(active<6&&queue.length){const job=queue.shift();active++;
-   api.documentContent(job.studyId,job.docId).then(r=>r.blob()).then(b=>{const url=URL.createObjectURL(b);L.blobReady.set(job.docId,url);job.resolve(url)},job.reject).finally(()=>{active--;pump()})}
+   (job.shown?api.documentImage:api.documentContent)(job.studyId,job.docId).then(r=>r.blob()).then(b=>{const url=URL.createObjectURL(b);L.blobReady.set(job.key,url);job.resolve(url)},job.reject).finally(()=>{active--;pump()})}
  }
  L.blobReady=new Map();
  Live.blobUrl=blobUrl;
+ Live.photoUrl=(docId,studyId=L.studyId)=>blobUrl(docId,studyId,true);
  function hydrateImages(scope=root){
   for(const img of scope.querySelectorAll('img[data-live-doc]:not([src])')){
-   blobUrl(img.dataset.liveDoc).then(url=>{if(img.isConnected&&!img.src)img.src=url},()=>{img.replaceWith(Object.assign(document.createElement('div'),{className:'live-photo-missing',textContent:'Photo unavailable'}))});
+   Live.photoUrl(img.dataset.liveDoc).then(url=>{if(img.isConnected&&!img.src)img.src=url},()=>{img.replaceWith(Object.assign(document.createElement('div'),{className:'live-photo-missing',textContent:'Photo unavailable'}))});
   }
  }
  Live.hydrateImages=hydrateImages;
  // A photo already fetched gets its src at once, so re-rendering does not blink it.
- Live.photo=(docId,alt='',cls='')=>{const ready=L.blobReady.get(docId);return `<img data-live-doc="${esc(docId)}" ${ready?`src="${ready}"`:''} alt="${esc(alt)}" class="${cls}" decoding="async">`};
+ Live.photo=(docId,alt='',cls='')=>{const ready=L.blobReady.get(photoKey(docId));return `<img data-live-doc="${esc(docId)}" ${ready?`src="${ready}"`:''} alt="${esc(alt)}" class="${cls}" decoding="async">`};
 
  /* ---------- routing and the sign-in gate ---------- */
  function parseHash(){
@@ -361,7 +366,7 @@
     const source=await Live.appraisalSource(d,study);if(L.study?.id!==study.id||state.screen!==screen)return;
     if(source.url)openPdfPreview({name:source.filename,url:source.url,initialPage:page,uploaded:true,description:source.kind==='zip'?'Report from UAD package':source.kind==='xml'?'Companion PDF · values sourced from MISMO XML':undefined});
     else modal('Appraisal source',`<p>${esc(source.message)}</p><a class="button" href="${esc(source.originalUrl)}" download="${esc(d.filename)}">Download original ${esc(source.kind.toUpperCase())}</a>`,closeBtn);
-   }else{const url=await blobUrl(docId);if(Live.isPdf(d))openPdfPreview({name:d.filename,url,initialPage:page,uploaded:true});else window.open(url,'_blank','noopener')}
+   }else{const url=await blobUrl(docId,L.studyId,/^image\//.test(d.content_type||''));if(Live.isPdf(d))openPdfPreview({name:d.filename,url,initialPage:page,uploaded:true});else window.open(url,'_blank','noopener')}
   }catch(e){toast('The file could not be opened: '+Live.errorText(e))}
  };
 

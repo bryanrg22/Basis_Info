@@ -100,6 +100,8 @@
    registerDocument:(id,body,key)=>request('POST',`${study(id)}/documents`,{body,key}),
    completeDocument:(id,doc,key)=>request('POST',`${study(id)}/documents/${encodeURIComponent(doc)}/complete`,{key}),
    documentContent:(id,doc,signal)=>request('GET',`${study(id)}/documents/${encodeURIComponent(doc)}/content`,{raw:true,signal}),
+   // A photo as the browser can show it: an iPhone's HEIC comes back as JPEG (docs/api/PHOTOS.md).
+   documentImage:(id,doc,signal)=>request('GET',`${study(id)}/documents/${encodeURIComponent(doc)}/image`,{raw:true,signal}),
    start:(id,key)=>request('POST',`${study(id)}/start`,{key}),
    retry:(id,key)=>request('POST',`${study(id)}/retry`,{key}),
    cancel:(id,reason,key)=>request('POST',`${study(id)}/cancel`,{body:reason?{reason}:undefined,key}),

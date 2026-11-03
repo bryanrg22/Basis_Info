@@ -68,6 +68,7 @@ BODIES: Final[dict[str, Any]] = {
     "POST /v1/studies/{study_id}/documents/{document_id}/upload-url": None,
     "GET /v1/studies/{study_id}/documents/{document_id}/content": None,
     "GET /v1/studies/{study_id}/documents/{document_id}/pdf": None,
+    "GET /v1/studies/{study_id}/documents/{document_id}/image": None,
     "GET /v1/studies/{study_id}/extraction": None,
     "POST /v1/studies/{study_id}/decisions": {
         "stage": "appraisal_review",
@@ -297,6 +298,7 @@ async def test_own_scope_does_not_reach_another_firms_rows(
         ("POST", "/v1/studies/{study_id}/documents/{document_id}/upload-url"),
         ("GET", "/v1/studies/{study_id}/documents/{document_id}/content"),
         ("GET", "/v1/studies/{study_id}/documents/{document_id}/pdf"),
+        ("GET", "/v1/studies/{study_id}/documents/{document_id}/image"),
         ("GET", "/v1/studies/{study_id}/photos/{document_id}/objects"),
         ("POST", "/v1/studies/{study_id}/photos/{document_id}/objects"),
         ("DELETE", "/v1/studies/{study_id}/photos/{document_id}/objects/{object_id}"),
