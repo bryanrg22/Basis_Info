@@ -224,8 +224,10 @@ def test_every_link_resolves(step_id: str) -> None:
 
 def test_no_client_data_or_provider_secret_in_the_content() -> None:
     text = CONTENT.read_text()
-    for forbidden in ("sk-", "r8_", "basis-eval-data", "AKIA", "@gmail", ".pdf", ".jpg"):
+    for forbidden in ("r8_", "basis-eval-data", "AKIA", "@gmail", ".pdf", ".jpg"):
         assert forbidden not in text, forbidden
+    # An OpenAI key starts "sk-"; a word such as "task-" in a heading anchor is not one.
+    assert not re.search(r"(?<![A-Za-z])sk-", text), "an API key shape"
 
 
 @pytest.mark.parametrize("step_id", STEP_IDS)

@@ -64,7 +64,7 @@ test('the measured results come from the content file with the section links and
  assert.ok(html.includes('class="selected-architecture"'));
  assert.ok(html.includes("Still true on today's build?")&&html.includes('Last checked end to end on Nov 1&#39;s build'));
  assert.ok(html.includes('What was tested, and what was not')&&html.includes('verdict-not-compared')&&html.includes('Photo preparation'));
- assert.ok(html.includes('class="part-steps"')&&html.includes('windows, doors, light fixtures and kitchen cabinets take claude-opus-5-5&#39;s count'));
+ assert.ok(html.includes('class="part-steps"')&&html.includes('for windows, doors, light fixtures and kitchen cabinets the photo keeps claude-opus-5-5&#39;s entries'));
  assert.ok(html.includes('backEnd/evals/record.py')&&html.includes('backEnd/evals/registry.py'));
  assert.ok(html.includes('historical measurements, not a live benchmark'));
 });
