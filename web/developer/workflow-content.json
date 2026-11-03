@@ -2043,13 +2043,13 @@
      "title": "Prepare the photo and ask three AI calls",
      "detail": "Each photo is cleaned, then three AI calls read it at the same time.",
      "steps": [
-      "Pillow fixes the orientation, removes all metadata including GPS, shrinks the photo to at most 1,024 px on its long side and saves it as a JPEG. A file over 25 MB, unreadable or under 64 px is rejected.",
+      "Pillow fixes the orientation, removes all metadata including GPS, shrinks the photo to at most 1,024 px on its long side and saves it as a JPEG. An iPhone's HEIC is decoded first by pi-heif, which applies the photo's rotation. A file over 25 MB, unreadable, cut short or under 64 px is rejected.",
       "Each call is sent the prepared photo (the JPEG image) and one fixed instruction; no file name, no other photo.",
       "gpt-6.1-sol (effort low, prompt photo_countables/v3) counts the objects: windows, doors, lights, outlets, cabinets, fixtures, appliances.",
       "gpt-6-luna (effort low, prompt photo_surfaces/v2) lists the surfaces (floors, wall and ceiling finish, trim, siding, roof) and gives the room type and floor.",
       "claude-opus-5-5 (effort medium, the same counting prompt) counts the same objects a second time.",
       "An unusable answer is retried once; if the counting or surfaces call fails twice, the photo is flagged for the engineer.",
-      "Known gap: iPhone HEIC photos are accepted at upload but cannot be read here yet."
+      "The review screens show each photo as uploaded, except a HEIC, which the API converts to a JPEG (upright, at most 4,096 px) because only Safari can display HEIC."
      ],
      "source": "backEnd/basis/vision/analyze.py",
      "uses": [
@@ -2058,6 +2058,12 @@
        "system": "Pillow",
        "brand": "python",
        "provider": "Python library, run on the Basis worker"
+      },
+      {
+       "name": "Reads iPhone HEIC photos",
+       "system": "pi-heif",
+       "brand": "python",
+       "provider": "Python library (libheif with the libde265 decoder), run on the Basis worker and API"
       },
       {
        "name": "Counts objects in each photo",
@@ -3264,9 +3270,20 @@
       "used": "Pillow, 1,024 px, JPEG",
       "verdict": "not compared",
       "sections": [],
-      "missing": "Every test photo is 800 × 600, so the 1,024 px limit was never exercised; iPhone HEIC photos cannot be read.",
-      "test": "A full-resolution package: 1,024 vs 1,568 vs 2,048 px on both counting models. Fix HEIC.",
+      "missing": "Every test photo is 800 × 600, so the 1,024 px limit was never exercised.",
+      "test": "A full-resolution package: 1,024 vs 1,568 vs 2,048 px on both counting models.",
       "cost": "about $15–20 and a new photo set"
+     },
+     {
+      "component": "HEIC decoding",
+      "used": "pi-heif 1.4.0 (libheif 1.23.0)",
+      "verdict": "compared",
+      "sections": [
+       "81"
+      ],
+      "missing": "",
+      "test": "",
+      "cost": ""
      },
      {
       "component": "Two calls per photo",
@@ -13129,6 +13146,10 @@
   "88": {
    "title": "88. Basis's depreciation schedule against the engineer's (2026-11-03)",
    "anchor": "88-basiss-depreciation-schedule-against-the-engineers-2026-11-03"
+  },
+  "81": {
+   "title": "81. iPhone photos (HEIC) are read, and shown in every browser (2026-11-03)",
+   "anchor": "81-iphone-photos-heic-are-read-and-shown-in-every-browser-2026-11-03"
   }
  },
  "models": {

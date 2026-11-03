@@ -29,6 +29,8 @@ PACKAGE = Path(basis.__file__).resolve().parent
 HEAVY = frozenset(
     {
         "prepare_image",
+        "decode_photo",
+        "display_jpeg",
         "crop_image",
         "jpeg_bytes",
         "render_pdf",

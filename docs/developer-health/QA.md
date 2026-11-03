@@ -82,6 +82,8 @@ Changes in this pass (2026-11-02, branch `claude/plain-how-it-works`; supersedes
 lines above):
 
 - The step dialogs no longer have a "Current runtime" table; live health stays on the Systems list.
+- The Systems list shows the 18 systems that have a check of their own (Basis services, infrastructure, AI providers, models and reference data), each with its logo (the Basis mark on Basis's own) and one line on what it does; "Hosting" shows only when the feed reports it. The seven step roll-ups (appraisal extraction, photo analysis, room inventory, asset classification, quantity takeoff, concealed systems, result exports) have no check of their own and are not listed: their status is the workflow card's. The health feed (`GET /v1/ops/health`) is unchanged.
+- On screens 981 px and wider the page is drawn at 67 % (`zoom`), the size Bryan preferred; dialogs keep the window's full height. Phones and tablets are unchanged.
 - "How it works" is written in plain words, and each part lists the systems it runs today: the
   provider's logo, what the system does, the exact system (for a model: id, provider, effort and
   temperature). A model there is the production default of `basis/config.py`;
