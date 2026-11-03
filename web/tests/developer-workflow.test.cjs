@@ -48,7 +48,8 @@ test('build inventory names the models it runs today, with provider, effort and 
  assert.ok(html.includes('Count each object once'));
  assert.ok(html.includes('<code>gpt-6-luna</code>')&&html.includes('<code>claude-sonnet-5-5</code>'));
  assert.ok(html.includes('effort low')&&html.includes('temperature default (not settable)'));
- assert.ok(html.includes('logos/openai.svg')&&html.includes('logos/claude.svg')&&html.includes('logos/meta.svg'));
+ assert.ok(html.includes('logos/openai.svg')&&html.includes('logos/claude.svg'));
+ assert.ok(!html.includes('Mask2Former'),'off by default: not listed as in use');
 });
 test('photo analysis lists both counting models, the surfaces model and SAM 3 with its logo',()=>{
  const html=fresh().render(node('photos'),services(),H).split('Tests &amp; results')[0];
@@ -61,7 +62,9 @@ test('the measured results come from the content file with the section links and
  assert.ok(html.includes('0.124')&&html.includes('$2.20'));
  assert.ok(html.includes('#151-every-variant-against-the-current-best'));
  assert.ok(html.includes('class="selected-architecture"'));
- assert.ok(html.includes('No regression on the final build'));
+ assert.ok(html.includes("Still true on today's build?")&&html.includes('Last checked end to end on Nov 1&#39;s build'));
+ assert.ok(html.includes('What was tested, and what was not')&&html.includes('verdict-not-compared')&&html.includes('Photo preparation'));
+ assert.ok(html.includes('class="part-steps"')&&html.includes('windows, doors, light fixtures and kitchen cabinets take claude-opus-5-5&#39;s count'));
  assert.ok(html.includes('backEnd/evals/record.py')&&html.includes('backEnd/evals/registry.py'));
  assert.ok(html.includes('historical measurements, not a live benchmark'));
 });
@@ -126,4 +129,34 @@ test('a setup without a model says so, and row text is escaped',()=>{
  const html=A2.render(node('photos'),services(),H);
  assert.ok(!html.includes('<img src=x')&&html.includes('&lt;img src=x'));
  assert.ok(html.includes('No AI model'));
+});
+test('the parts Basis built carry the Basis mark; a provider keeps its own logo',()=>{
+ const html=fresh().render(node('assets'),services(),H).split('Tests &amp; results')[0];
+ assert.ok(html.includes('src="../assets/basis-mark.png"'));
+ assert.ok(html.includes('Basis classification rules')&&html.includes('Basis quantity takeoff')&&html.includes('Basis structure model'));
+ assert.ok(html.includes('logos/claude.svg'));
+ assert.ok(!html.includes('No AI in this part'));
+ assert.ok(H.logo('basis').includes('../assets/basis-mark.png')&&H.logo('openai').includes('logos/openai.svg'));
+});
+test('the workflow cards say who does each step and show the systems it runs, with logos',()=>{
+ const A2=fresh();
+ const html=H.renderFlow(services(),A2.systemsByStep());
+ for(const title of ['Engineer uploads the files','Basis reads the appraisal','Basis analyzes the photos','Engineer reviews the appraisal','Engineer signs the report'])assert.ok(html.includes(title),title);
+ const photos=html.split('data-node="photos"')[1].split('</article>')[0];
+ assert.ok(photos.includes('class="system-chip"')&&photos.includes('gpt-6.1-sol')&&photos.includes('claude-opus-5-5')&&photos.includes('SAM 3')&&photos.includes('logos/meta.svg'));
+ assert.ok(!photos.includes('Basis API'));
+ // Without the content file the cards fall back to the health services.
+ assert.ok(H.renderFlow(services()).includes('data-service='));
+});
+test('the step-box styles match only the three parts, never the lists inside them (the stray arrow)',()=>{
+ const css=fs.readFileSync(path.join(__dirname,'..','developer','health.css'),'utf8');
+ assert.ok(!/\.step-sequence li\b/.test(css),'a descendant .step-sequence li rule styles the numbered steps and system rows too');
+ assert.ok(/\.step-sequence > li:not\(:last-child\):after\{content:'→'/.test(css));
+});
+test('the workflow header names Temporal once, with its logo, and no card lists it',()=>{
+ const html=fs.readFileSync(path.join(__dirname,'..','developer','index.html'),'utf8');
+ assert.ok(/class="system-chip workflow-engine"><img class="provider-logo" src="logos\/temporal.svg"/.test(html));
+ const cards=H.renderFlow(services(),fresh().systemsByStep());
+ assert.ok(!cards.includes('>Temporal<'));
+ assert.ok(cards.includes('logos/python.png'));
 });

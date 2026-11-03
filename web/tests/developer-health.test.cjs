@@ -86,7 +86,7 @@ test('every workflow box has a simple three-step explanation and source links',(
  assert.ok(rows[0].values.includes('0.124')&&rows[0].values.includes('$2.20'));
  assert.ok(rows.some(r=>r.values.includes('Not measured')));
  const photos=A.render(H.FLOW.flat().find(n=>n.id==='photos'),services,H);
- assert.ok(photos.includes('draws an outline around each counted object'));
+ assert.ok(photos.includes('it never changes a count'));
  assert.ok(photos.includes('historical measurements, not a live benchmark'));
 });
 test('workflow detail shows no live feed text, the flow escapes it, and dialogs open from the keyboard',()=>{
@@ -137,8 +137,8 @@ test('report signing follows export and stays distinct from the four review gate
  assert.equal(nodes.filter(n=>n.review).length,4);
  const services=H.SERVICES.map(s=>({...s,...H.normalize(ok,now)}));
  const html=H.renderFlow(services),detail=A.render(last,services,H);
- assert.ok(html.includes('Engineer signature'));
- assert.ok(html.includes('Report &amp; sign'));
+ assert.ok(!html.includes('review-marker')&&!html.includes('Engineer signature'),'no review pill: the card title says who does the step');
+ assert.ok(html.includes('Engineer signs the report'));
  assert.ok(!html.includes('Study completed'));
  assert.match(detail,/changed preview or revision/);
  assert.match(detail,/missing or unknown evidence stays incomplete/);

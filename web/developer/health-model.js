@@ -31,25 +31,27 @@
  ].map(([id,name,group,description])=>({id,name,group,description}));
  // Runtime model names and provider routes must come from the feed, never these labels.
  const FLOW=[
-  [{id:'upload',title:'Upload & start',description:'Appraisal and property photos enter the study.',services:['api','firebase','storage','db','temporal','worker']}],
-  [{id:'extract',title:'Read appraisal',description:'Extract fields, validate values and retain source locations.',services:['appraisal','azure_di']},
-   {id:'photos',title:'Analyze photos',description:'Identify rooms, objects and surfaces; prepare outlines.',services:['vision','sam3']}],
-  [{id:'appraisal-review',title:'Review appraisal',description:'An engineer approves or corrects extracted values.',review:true,services:['api','db','relay','temporal']},
-   {id:'photo-results',title:'Propose rooms',description:'Group photos by room. Outlines can continue in the background.',services:['vision']}],
-  [{id:'rooms-review',title:'Review rooms',description:'Assign every photo to the right room, then approve.',review:true,services:['api','db','relay','temporal']}],
-  [{id:'inventory',title:'Build inventory',description:'Reconcile views of each room and reduce duplicate counts.',services:['room_inventory','sam3']},
-   {id:'components-review',title:'Review components',description:'Confirm room-level counts, materials and photo evidence.',review:true,services:['api','db','relay','temporal']}],
-  [{id:'assets',title:'Classify & cost',description:'Classify assets, estimate quantities and reconcile costs.',services:['classification','retrieval','embeddings','takeoff','structure','rsmeans','cost_indices']},
-   {id:'assets-review',title:'Review assets',description:'Check classifications, prices, citations and flagged items.',review:true,services:['api','db','relay','temporal']}],
-  [{id:'output',title:'Produce results',description:'Prepare the results, draft report, schedule and supporting files.',services:['exports','storage','db']}],
-  [{id:'report-sign',title:'Report & sign',description:'Complete report details, preview, then sign the current revision.',signing:true,services:['api','firebase','db','storage','exports']}],
+  [{id:'upload',title:'Engineer uploads the files',description:'The engineer uploads the appraisal and the property photos, enters the property details and starts the study.',services:['api','firebase','storage','db','temporal','worker']}],
+  [{id:'extract',title:'Basis reads the appraisal',description:'Reads every page, then extracts each field (living area, year built, price...) with the exact words it came from.',services:['appraisal','azure_di']},
+   {id:'photos',title:'Basis analyzes the photos',description:'Counts the objects in each photo, reads its surfaces and room type, and outlines every object.',services:['vision','sam3']}],
+  [{id:'appraisal-review',title:'Engineer reviews the appraisal',description:'Checks each value against its source on the page, corrects what is wrong, then approves.',review:true,services:['api','db','relay','temporal']},
+   {id:'photo-results',title:'Basis groups photos into rooms',description:'Groups the photos into rooms by file name and names each room with its type and floor.',services:['vision']}],
+  [{id:'rooms-review',title:'Engineer reviews the rooms',description:'Puts every photo in the right room, fixes names, types and floors, then approves.',review:true,services:['api','db','relay','temporal']}],
+  [{id:'inventory',title:'Basis counts each room\'s objects',description:'Combines a room\'s photos so each object is counted once, and double-checks wall, wainscot and tile materials.',services:['room_inventory','sam3']},
+   {id:'components-review',title:'Engineer reviews the components',description:'Checks each room\'s counts and materials against the outlined photos, corrects, then approves.',review:true,services:['api','db','relay','temporal']}],
+  [{id:'assets',title:'Basis classifies and prices',description:'Gives each item its tax class, measures and prices it from RSMeans, and balances the total to the purchase price.',services:['classification','retrieval','embeddings','takeoff','structure','rsmeans','cost_indices']},
+   {id:'assets-review',title:'Engineer reviews the assets',description:'Checks tax classes, quantities, prices and citations, fixes what is wrong, then approves.',review:true,services:['api','db','relay','temporal']}],
+  [{id:'output',title:'Basis exports the study',description:'Saves the engineer\'s rulings for the firm and exports the approved study with its evidence and costs.',services:['exports','storage','db']}],
+  [{id:'report-sign',title:'Engineer signs the report',description:'Fills in the report details, previews the PDF and signs it.',signing:true,services:['api','firebase','db','storage','exports']}],
  ];
  // Brand identity is static; check status and selected runtime adapters remain independent.
  const PHASES=['Intake','Parallel analysis','Prepare review','Room review','Components','Classify & cost','Results','Report & sign'];
  const EDGES=[['upload','extract'],['upload','photos'],['extract','appraisal-review'],['photos','photo-results'],['appraisal-review','rooms-review'],['photo-results','rooms-review'],['rooms-review','inventory'],['inventory','components-review'],['components-review','assets'],['assets','assets-review'],['assets-review','output'],['output','report-sign']];
- const BRANDS={openai:'OpenAI',meta:'Meta',claude:'Anthropic / Claude',replicate:'Replicate',azure:'Microsoft Azure',postgresql:'PostgreSQL',temporal:'Temporal',firebase:'Firebase',fastapi:'FastAPI'};
+ const BRANDS={basis:'Basis',rsmeans:'RSMeans',python:'Python',huggingface:'Hugging Face',googlecloud:'Google Cloud',openai:'OpenAI',meta:'Meta',claude:'Anthropic / Claude',replicate:'Replicate',azure:'Microsoft Azure',postgresql:'PostgreSQL',temporal:'Temporal',firebase:'Firebase',fastapi:'FastAPI'};
+ // Basis's own mark is the app's (web/assets); the providers' logos are in logos/.
+ const LOGO_SRC={basis:'../assets/basis-mark.png',huggingface:'logos/huggingface.png',googlecloud:'logos/googlecloud.png',python:'logos/python.png',rsmeans:'logos/rsmeans.png'};
  const SERVICE_BRANDS={api:'fastapi',db:'postgresql',temporal:'temporal',firebase:'firebase',openai:'openai',azure_openai:'azure',anthropic:'claude',replicate:'replicate',azure_di:'azure',sam3:'meta',mask2former:'meta'};
- function logo(brand){return BRANDS[brand]?`<img class="provider-logo" src="logos/${brand}.svg" width="24" height="24" alt="" aria-hidden="true" title="${esc(BRANDS[brand])}">`:''}
+ function logo(brand){return BRANDS[brand]?`<img class="provider-logo" src="${LOGO_SRC[brand]||`logos/${brand}.svg`}" width="24" height="24" alt="" aria-hidden="true" title="${esc(BRANDS[brand])}">`:''}
  const LABELS={healthy:'Healthy',degraded:'Degraded',down:'Failed',unknown:'Not checked',stale:'Stale',disabled:'Not enabled'};
  const esc=value=>String(value??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
  function stamp(value){return typeof value==='string'&&Number.isFinite(Date.parse(value))?Date.parse(value):NaN}
@@ -105,7 +107,7 @@
  }
  function badge(status,label){return `<span class="status status-${esc(status)}">${statusIcon(status)}${esc(label||LABELS[status]||LABELS.unknown)}</span>`}
  function renderCounts(services){return ['down','degraded','stale','unknown','healthy','disabled'].map(status=>{const n=services.filter(s=>s.status===status).length;return `<span class="health-count health-count-${status}">${statusIcon(status)}<strong>${n}</strong><span>${LABELS[status]}</span></span>`}).join('')}
- function renderLegend(){return Object.keys(LABELS).map(status=>badge(status)).join('')+'<span class="review-marker">Engineer review</span>'}
+ function renderLegend(){return Object.keys(LABELS).map(status=>badge(status)).join('')}
  // Explicit edges retain the parallel split and merge. Port offsets keep join arrows distinct.
  function connectionPath(from,to,a,b){
   if(Math.abs(a.left-b.left)<2){const x=a.left+a.width/2;return `M ${x} ${a.bottom} V ${b.top-3}`}
@@ -141,9 +143,12 @@
   if(!groups.length)return '<p class="empty">No systems match this filter.</p>';
   return groups.map(g=>`<section class="service-group ${g.urgent?'attention-group':''}" aria-label="${esc(g.name)}"><h3>${esc(g.name)}</h3><div class="service-list">${g.rows.map(renderService).join('')}</div></section>`).join('');
  }
- function renderFlow(services){
+ function systemChips(list){return `<div class="node-systems">${list.map(x=>`<span class="system-chip">${(x.brand&&logo(x.brand))||'<span class="uses-dot" aria-hidden="true"></span>'}<span>${esc(x.label)}</span></span>`).join('')}</div>`}
+ // systems: {stepId: [{label, brand}]} from the content file (the systems each step runs); a
+ // step without it falls back to the health services that drive its status.
+ function renderFlow(services,systems){
   const byId=new Map(services.map(s=>[s.id,s]));
-  return '<svg class="flow-wires" aria-hidden="true"><defs><marker id="flow-arrow" viewBox="0 0 12 12" refX="11" refY="6" markerWidth="18" markerHeight="18" markerUnits="userSpaceOnUse" orient="auto"><path d="M 1 1 L 11 6 L 1 11 z" fill="#244e3d"/></marker></defs><g></g></svg>'+FLOW.map((column,index)=>`<div class="flow-column"><div class="flow-column-title"><span class="phase-number">${index+1}</span><div><strong>${PHASES[index]}</strong><span>Step ${index+1} of ${FLOW.length}</span></div></div>${index===1?'<div class="flow-branch-note">Runs in parallel</div>':''}${index===3?'<div class="flow-branch-note">Both paths join here</div>':''}${column.map(node=>{const deps=node.services.map(id=>byId.get(id)).filter(Boolean),state=aggregate(deps);return `<article data-node="${node.id}" class="flow-node ${node.review||node.signing?'review-node':''} node-${state}"><div class="node-heading"><div class="node-status">${badge(state)}${node.review||node.signing?`<span class="review-marker">${node.signing?'Engineer signature':'Engineer review'}</span>`:''}</div><h3><button type="button" class="node-open" data-step="${node.id}" aria-haspopup="dialog">${esc(node.title)}<span class="node-open-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="m9 5 7 7-7 7"/></svg></span></button></h3></div><p>${esc(node.description)}</p><div class="node-services">${deps.map(s=>`<button type="button" data-service="${s.id}" class="dependency dependency-${s.status}" aria-label="${esc(s.name+': '+LABELS[s.status]+'. Show health check')}">${serviceLogos(s)}<span>${esc(s.name)}${s.model?`<small>${esc(s.model)}</small>`:''}</span>${statusIcon(s.status)}</button>`).join('')}</div></article>`}).join('')}</div>`).join('');
+  return '<svg class="flow-wires" aria-hidden="true"><defs><marker id="flow-arrow" viewBox="0 0 12 12" refX="11" refY="6" markerWidth="18" markerHeight="18" markerUnits="userSpaceOnUse" orient="auto"><path d="M 1 1 L 11 6 L 1 11 z" fill="#244e3d"/></marker></defs><g></g></svg>'+FLOW.map((column,index)=>`<div class="flow-column"><div class="flow-column-title"><span class="phase-number">${index+1}</span><div><strong>${PHASES[index]}</strong><span>Step ${index+1} of ${FLOW.length}</span></div></div>${index===1?'<div class="flow-branch-note">Runs in parallel</div>':''}${index===3?'<div class="flow-branch-note">Both paths join here</div>':''}${column.map(node=>{const deps=node.services.map(id=>byId.get(id)).filter(Boolean),state=aggregate(deps);return `<article data-node="${node.id}" class="flow-node ${node.review||node.signing?'review-node':''} node-${state}"><div class="node-heading"><div class="node-status">${badge(state)}</div><h3><button type="button" class="node-open" data-step="${node.id}" aria-haspopup="dialog">${esc(node.title)}<span class="node-open-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="m9 5 7 7-7 7"/></svg></span></button></h3></div><p>${esc(node.description)}</p>${systems?.[node.id]?.length?systemChips(systems[node.id]):`<div class="node-services">${deps.map(s=>`<button type="button" data-service="${s.id}" class="dependency dependency-${s.status}" aria-label="${esc(s.name+': '+LABELS[s.status]+'. Show health check')}">${serviceLogos(s)}<span>${esc(s.name)}${s.model?`<small>${esc(s.model)}</small>`:''}</span>${statusIcon(s.status)}</button>`).join('')}</div>`}</article>`}).join('')}</div>`).join('');
  }
  const api={PHASES,EDGES,connectionPath,statusIcon,renderCounts,renderLegend,GROUPS,SERVICES,FLOW,LABELS,esc,normalize,basicChecks,snapshot,aggregate,badge,time,serviceGroups,hostLabel,renderServices,renderFlow,serviceLogos,logo};
  if(typeof module==='object'&&module.exports)module.exports=api;else scope.BasisHealth=api;

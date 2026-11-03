@@ -13,7 +13,7 @@
   if(receivedAt!==null)services=H.snapshot(basic,extended,receivedAt).map(s=>({...s,...H.normalize(s,Date.now())}));
   $('service-groups').innerHTML=H.renderServices(services,{query:$('search').value,attention:$('attention').checked});
   for(const id of opened)if($(id))$(id).open=true;
-  $('flow').innerHTML=H.renderFlow(services);
+  $('flow').innerHTML=H.renderFlow(services,BasisArchitecture.content?BasisArchitecture.systemsByStep():null);
   drawConnections();updateFlowControls();
   if(focusService)$(focusService)?.querySelector('summary')?.focus({preventScroll:true});
   if(dependency)document.querySelector(`[data-service="${dependency}"]`)?.focus({preventScroll:true});
@@ -78,7 +78,7 @@
  let activeStep=null;
  // The explanations and measured results (workflow-content.json) load once; a dialog opened
  // before they arrive says the content is not loaded.
- const contentLoaded=BasisArchitecture.load().then(ok=>{if(activeStep&&$('architecture-dialog').open){renderStep(activeStep);loadRuns(activeStep)}return ok});
+ const contentLoaded=BasisArchitecture.load().then(ok=>{if(ok)redraw();if(activeStep&&$('architecture-dialog').open){renderStep(activeStep);loadRuns(activeStep)}return ok});
  // Run records (GET /v1/ops/eval-runs) per step: read once per dialog opening while
  // diagnostics are connected; older pages are appended on request.
  const runs=new Map();
