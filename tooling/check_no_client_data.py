@@ -54,6 +54,7 @@ DATA_EXTENSIONS = frozenset(
         "png",
         "webp",
         "heic",
+        "heif",
         "tif",
         "tiff",
         "xlsx",

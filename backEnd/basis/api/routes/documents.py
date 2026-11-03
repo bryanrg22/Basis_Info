@@ -41,6 +41,12 @@ confirms; the repeated ``POST .../documents`` for the same bytes stays 409
    ``pdf_document_id`` instead). Same caching as ``/content`` (the PDF is derived from
    immutable bytes by a fixed rule, so the document's sha256 still identifies it).
 
+6. ``GET .../documents/{doc_id}/image`` returns a photo as a browser can show it: JPEG, PNG
+   and WebP as uploaded, HEIC and HEIF (an iPhone's format, which only Safari decodes) as a
+   JPEG converted by a fixed rule (:mod:`basis.vision.display`, EVAL_REPORT 81). The ETag is
+   the document's sha256, with the rule's name for a converted photo; ``/content`` keeps
+   serving the original bytes.
+
 The completion check does not hold a database connection while it reads the object: it
 looks the document up in one short transaction, verifies storage with no transaction
 open, and sets ``uploaded_at`` in a second one.
@@ -88,6 +94,8 @@ from basis.db.session import SessionDep, session_scope
 from basis.errors.codes import E
 from basis.extraction.package import InvalidPackage, check_declared, read_appraisal_upload
 from basis.storage import ObjectNotFound, Storage, object_uri
+from basis.vision.display import CONVERTED, DISPLAY_RULE, SHOWN_AS_UPLOADED, display_jpeg
+from basis.vision.prep import ImageRejected
 
 UPLOAD_URL_TTL: Final = timedelta(minutes=15)
 UPLOAD_ROLE: Final = OrgRole.ENGINEER
@@ -420,3 +428,68 @@ async def document_pdf(
     headers["Content-Disposition"] = _content_disposition(filename)
     headers["X-Content-Type-Options"] = "nosniff"
     return Response(content=data, media_type="application/pdf", headers=headers)
+
+
+@reads.get(
+    "/studies/{study_id}/documents/{document_id}/image",
+    summary="A photo as a browser can show it (HEIC and HEIF converted to JPEG)",
+    description="JPEG, PNG and WebP photos are returned as uploaded. HEIC and HEIF photos "
+    "(an iPhone's format, which only Safari shows) are returned as a JPEG: the rotation "
+    "applied, the long side at most 4096 px, the colour profile kept and the other metadata "
+    "dropped. `.../content` returns the original bytes.",
+    response_class=Response,
+    responses={
+        200: {
+            "description": "The photo: its own bytes, or a JPEG for HEIC and HEIF.",
+            "content": {"image/jpeg": {}, "image/png": {}, "image/webp": {}},
+        },
+        304: {"description": "`If-None-Match` matched the photo's ETag."},
+        **problems(404, 409),
+    },
+)
+async def document_image(
+    request: Request,
+    study_id: StudyIdPath,
+    document_id: DocumentIdPath,
+    user: CurrentUserDep,
+    sessionmaker: SessionmakerDep,
+    storage: StorageDep,
+) -> Response:
+    async with session_scope(sessionmaker) as session:
+        await require_study_access(session, user, study_id, OrgRole.VIEWER)
+        found = await DocumentRepository(session).get(study_id, document_id)
+        if found is None:
+            raise NotFound("Document not found.", code=E.UPLOAD_DOCUMENT_NOT_FOUND)
+        uri, content_type, filename = found.gcs_uri, found.content_type, found.filename
+        sha256, uploaded = found.sha256, found.uploaded_at is not None
+    if not uploaded:
+        raise Conflict("The document's upload is not confirmed yet.", type_suffix="upload-missing")
+    if content_type not in SHOWN_AS_UPLOADED | CONVERTED:
+        raise Conflict(
+            "The document is not a photo (JPEG, PNG, WebP, HEIC or HEIF).",
+            type_suffix="not-a-photo",
+        )
+    converted = content_type in CONVERTED
+    etag = f'"{sha256}.{DISPLAY_RULE}"' if converted else f'"{sha256}"'
+    headers = {"ETag": etag, "Cache-Control": CONTENT_CACHE_CONTROL}
+    if etag in [tag.strip() for tag in request.headers.get("if-none-match", "").split(",")]:
+        return Response(status_code=status.HTTP_304_NOT_MODIFIED, headers=headers)
+    try:
+        data = await storage.read(uri)
+    except ObjectNotFound:
+        raise NotFound(
+            "The document's bytes are missing from storage.", code=E.UPLOAD_BYTES_MISSING
+        ) from None
+    media_type = content_type
+    if converted:
+        try:
+            data = await anyio.to_thread.run_sync(display_jpeg, data)
+        except ImageRejected as exc:
+            raise Conflict(
+                f"The photo cannot be shown: {exc}.", type_suffix="unreadable-photo"
+            ) from None
+        media_type = "image/jpeg"
+        filename = filename.rsplit(".", 1)[0] + ".jpg"
+    headers["Content-Disposition"] = _content_disposition(filename)
+    headers["X-Content-Type-Options"] = "nosniff"
+    return Response(content=data, media_type=media_type, headers=headers)

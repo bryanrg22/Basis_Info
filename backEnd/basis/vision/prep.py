@@ -1,5 +1,7 @@
 """Image preparation before any model call (S3_SPEC section 4).
 
+* Reads JPEG, PNG, WebP and the other formats Pillow knows, and HEIC/HEIF, an iPhone's
+  format (:mod:`basis.vision.heif`, EVAL_REPORT 81).
 * Rejects, with an explicit :class:`ImageRejected` (the activity makes it non-retryable),
   input that cannot be analyzed: empty, over :data:`MAX_IMAGE_BYTES`, not a decodable
   image, more than :data:`MAX_PIXELS` pixels (a decompression bomb guard that is checked
@@ -27,6 +29,10 @@ from dataclasses import dataclass
 from typing import Final
 
 from PIL import Image, ImageOps, UnidentifiedImageError
+
+from basis.vision import heif
+
+heif.register()
 
 MAX_SIDE: Final = 1024
 MIN_SIDE: Final = 64
@@ -76,8 +82,9 @@ def _to_rgb(image: Image.Image) -> Image.Image:
     return image.convert("RGB")
 
 
-def prepare_image(data: bytes) -> PreparedImage:
-    """Validate, orient, strip, downsize and re-encode one photo."""
+def decode_photo(data: bytes) -> Image.Image:
+    """The photo decoded, after the byte and pixel limits; :class:`ImageRejected` when it
+    cannot be read. Shared with the browser copy (:mod:`basis.vision.display`)."""
     if not data:
         raise ImageRejected("empty", "the photo file is empty")
     if len(data) > MAX_IMAGE_BYTES:
@@ -98,13 +105,23 @@ def prepare_image(data: bytes) -> PreparedImage:
                 "too_many_pixels",
                 f"the photo is {width} x {height}; the limit is {MAX_PIXELS} pixels",
             )
+        if image.format == "HEIF" and heif.cut_short(data):
+            raise ImageRejected("not_an_image", "the photo cannot be decoded: it is cut short")
         image.load()
     except ImageRejected:
         raise
     except (UnidentifiedImageError, Image.DecompressionBombError):
         raise ImageRejected("not_an_image", "the photo is not a readable image") from None
-    except (OSError, ValueError, SyntaxError) as exc:
+    # libheif reports a damaged HEIC as EOFError ("Unexpected end of file"), not an OSError.
+    except (OSError, ValueError, SyntaxError, EOFError) as exc:
         raise ImageRejected("not_an_image", f"the photo cannot be decoded: {exc}") from None
+    return image
+
+
+def prepare_image(data: bytes) -> PreparedImage:
+    """Validate, orient, strip, downsize and re-encode one photo."""
+    image = decode_photo(data)
+    width, height = image.size
     original_format = image.format
     if min(width, height) < MIN_SIDE:
         raise ImageRejected(
