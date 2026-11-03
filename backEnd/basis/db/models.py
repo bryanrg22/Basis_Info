@@ -1004,10 +1004,11 @@ class StudyEvent(Base):
     ``engineer`` (``actor_id`` is the user), the ``model`` (a model call's output), the
     ``system`` (the workflow, a rule, bookkeeping) or an ``operator`` (Basis support opening an
     uploaded file, ``actor_id`` the operator; migration ``0030``). ``stage``/``revision`` are
-    the study's at the time; an activity event carries ``activity``, ``activity_id``, ``attempt`` and the
-    execution (``workflow_id``/``run_id``, Temporal's ids); an entity event names the row
-    (``entity_type``, ``entity_id``) with ``before``/``after``; ``code`` is the error code of
-    a failure (docs/ERROR_CODES.md); ``detail`` holds the rest (durations, counts, reasons).
+    the study's at the time; an activity event carries ``activity``, ``activity_id``,
+    ``attempt`` and the execution (``workflow_id``/``run_id``, Temporal's ids); an entity event
+    names the row (``entity_type``, ``entity_id``) with ``before``/``after``; ``code`` is the
+    error code of a failure (docs/ERROR_CODES.md); ``detail`` holds the rest (durations,
+    counts, reasons).
     """
 
     __tablename__ = "study_events"
