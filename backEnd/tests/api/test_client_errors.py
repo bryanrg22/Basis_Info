@@ -676,9 +676,11 @@ async def test_server_log_lines_carry_the_correlation_fields(
 def test_the_kinds_the_schema_accepts_are_the_kinds_the_table_allows() -> None:
     from typing import get_args
 
-    from basis.api.schemas.client_errors import ClientErrorKind
+    from basis.api.schemas.client_errors import BrowserErrorKind, ClientErrorKind
+    from basis.db.models import SERVER_RECORD_KINDS
 
-    assert tuple(get_args(ClientErrorKind)) == CLIENT_ERROR_KINDS
+    assert tuple(get_args(BrowserErrorKind)) == CLIENT_ERROR_KINDS
+    assert tuple(get_args(ClientErrorKind)) == (*CLIENT_ERROR_KINDS, *SERVER_RECORD_KINDS)
 
 
 # --------------------------------------------------------------------------- issues

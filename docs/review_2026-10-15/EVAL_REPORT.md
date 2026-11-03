@@ -9833,3 +9833,94 @@ is never fetched or bundled.
 
 **Measured.** `tests/integration/db/test_cost_year_on_demand.py`: 5 passed.
 `tests/unit/costs/test_refresh_cli.py`: 5 passed. The live fetch is shown above.
+
+## 78. Fail safe: no substitute value reaches a report's dollars (2026-11-02)
+
+**Question.** Bryan's rule (2026-11-02): when an input the money needs is missing or unreadable,
+or a model call fails, Basis must stop and say what is missing, never fill the gap with a
+placeholder, a typical value, a setting or mock data that then prices the study. Where did the
+pipeline substitute, and what changes?
+
+**Method.**
+
+1. Three read-only audits, one for each of these areas: appraisal and intake; quantities, costs
+   and the building model; vision, classification, the gates, the report and signing.
+2. Every high-impact claim was checked against the code, and three of them by running the code
+   (the basement area, the stories truncation, the classifier's default class).
+
+**Found on main.** Nothing stopped on a flag. Approving a gate, exporting and signing checked no
+review reason. Only a withheld allocation (unreconciled, or no building cost new) kept a report
+from being rendered. These values reached dollars:
+
+| what was substituted | where | flagged? |
+|---|---|---|
+| six legacy "typical RSMeans" placeholder rows (light fixtures, outlets, carpet, tile, cabinets, HVAC units), looked up **before** the real cost table | `domain/costs.py` | no |
+| typical room area (or 150 SF) when there was no GLA, garage area, or basement area, for exterior rooms, and for components in no room | `measurements.room_areas`, `_room_takeoff` | no |
+| a lone basement room with no basement area sized GLA × 150 SF (277,500 SF for a 1,850 SF house) | `measurements.room_areas` | no |
+| 1.5 stories truncated to 1 (the field was an `int`; the measurement dropped non-whole counts), then 1 story assumed for the footprint, smoke alarms and model type | extraction, `measurements`, `structure` | model only |
+| a basement finish taken as 100 % when not printed | `measurements`, `structure` | no |
+| a count of 1 when the component had none | `process_assets._count` | no |
+| the room's perimeter used as the cabinet run (and the countertop on it) | `takeoffs` | no |
+| the total depreciation used as physical depreciation | `structure.depreciation` | no |
+| `COST_LOCATION_FACTOR` (1.0) when no ZIP or state resolved | `measurements.resolve_cost_index` | no |
+| unpriced rows' share spread over the priced rows | `evidence/result` | listed |
+| a default building class (27.5 / 39 years) when the classifier failed | `classify/router._fallback` | flagged, not blocking |
+| the uniform factor scaling the schedule to the basis when there were no appraisal fields | `evidence/result` | flagged, not blocking |
+| any pricing error (a cost year before the index, a table on another base year) reported as "no cost row" | `process_assets._cost` | mislabelled |
+
+**Change.**
+
+* **Placeholder prices removed.** Light fixtures, outlets and HVAC units now price from rows
+  already transcribed from Bryan's RSMeans 2020 books. Carpet (09 68 16.10 0701 + pad
+  09 68 10.10 9401, p. 510) and floor tile (09 31 33.10 3270, p. 500) were read from the page
+  images and added to the private table, with backups kept. The table builder now keeps rows
+  it does not produce: a rebuild had dropped four.
+* **Rows held by a missing input are unpriced.** A row whose quantity would stand on a
+  substitute is written with quantity 0, no cost, the review reason `input:<code>` and its cost
+  row reading `missing input: <what>`. This covers no GLA, stories, garage area, basement area
+  or finish, an exterior room, no room, a room of unknown type, no count, and a guessed cabinet
+  run. A counted item does not use the room's area and still prices.
+* **The two bugs are fixed.** Half stories are kept (the field is a decimal, so the 1-1/2 and
+  2-1/2 story models are used). Basement rooms are sized only on a printed basement area.
+* **Depreciation and the building model.** Depreciation is physical, else the age-life ratio of
+  the printed ages, else none. The building model records its assumed inputs (class, type,
+  basement finish, cost-data date). Pricing errors are named.
+* **The report is withheld while a blocker remains.** The result lists every `blocker` with what
+  is missing, how many assets it holds and where it is fixed. While one remains the allocation
+  is withheld, so no report is rendered and none can be signed, and the skip reason names each
+  (docs/api/STUDY_RESULT.md). The blockers are the row inputs, `unpriced`, `unclassified`,
+  `appraisal_fields`, `building_rcn`, `depreciation`, `cost_index` and the study inputs
+  (`input:location`, `input:cost_year`, `input:model_class`, `input:cost_data_date`). The
+  uniform-factor allocation can no longer produce a report.
+* **The engineer can supply a measurement.** An `asset` correction at the assets review may
+  carry `quantity`, `quantity_unit` and `quantity_source`. These are checked by the decisions
+  route (422) and by the activity (`BASIS-CORRECT-043`). The measurement replaces the computed
+  quantity and clears the missing input.
+* **Every blocker is recorded for the operators (Bryan, 2026-11-02).** One `client_errors` record
+  (kind `study_input`, `BASIS-STUDY-037`, migration 0029) is written per blocker per revision.
+  It carries the firm, the person whose decision started the run, the study, the blocker, the
+  assets it holds and every file the study has. Records group into one issue per firm and
+  blocker on the operator page (docs/api/CLIENT_ERRORS.md 4.1).
+
+**What is not a substitute, and stays (priced, with the assumption on the row).** These are
+published methods applied to inputs the study has: RSMeans' square-foot model, the GLA shared
+over the rooms by typical weights, 240 SF per garage car, a wall area at an 8-foot ceiling, the
+NEC minimum outlets per room, and roof pitch and wall height constants. They also include
+inputs no appraisal carries and every study estimates, such as a buried utility lateral and
+the two exterior doors of the small systems (flagged `structure:assumed_quantity`).
+
+**Verdict.** No value substituted for a missing input reaches a report's dollars. A study
+missing one stops before the report, says what is missing and where to fix it, and is recorded
+for the operators. Studies that were priced on substitutes before are now withheld until the
+engineer supplies the input; that is the intended change.
+
+**Open.**
+
+* A firm-specific unit cost (a row the shared table lacks) is added to the table by an operator.
+  There is no per-study cost entry, matching the shared-table decision.
+* Opening a firm's files from the operator page is not built; the storage URI is recorded, and
+  access is Bryan's decision.
+* Vision fallbacks that keep a real model output (the count fusion falling back to the base
+  call, the room step's heuristic merge, a failed material second look) are flagged on the
+  photo or room, not blocking; propagating them to the assets is the next step.
+* The web app shows neither `blockers` nor the measured-quantity fields yet (FRONTEND_BACKLOG 10).

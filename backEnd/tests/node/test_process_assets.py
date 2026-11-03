@@ -38,7 +38,7 @@ from temporalio.exceptions import ApplicationError
 
 from basis.activities import Deps
 from basis.activities.apply_corrections import ApplyCorrections
-from basis.activities.process_assets import EXTRAPOLATED_REASON, ProcessAssets
+from basis.activities.process_assets import ProcessAssets
 from basis.activities.promote_conventions import PromoteConventions
 from basis.classify.cache import cache_key
 from basis.classify.store_protocol import InMemoryChunkStore
@@ -145,14 +145,15 @@ async def test_rule_model_and_fabricated_paths(
     assets = await by_label(sessionmaker, study.study_id)
 
     carpet = assets["carpet"]
-    # Classified by rule with nothing to review; priced at a cost year (the settings' 2026)
-    # after the last published index, which flags every priced row (EVAL_REPORT 45).
+    # Classified by rule with nothing to review in the classification; the study has no
+    # appraisal fields, so the bedroom has no measured area and the carpet is written
+    # unpriced with the input named (EVAL_REPORT 78; before it, 150 SF typical priced it).
     assert (carpet.method, carpet.bucket, carpet.needs_review) == (
         ClassificationMethod.RULE,
         Bucket.Y5,
         True,
     )
-    assert carpet.review_reason == "cost:YEAR_INDEX_MISSING"
+    assert carpet.review_reason == "input:gla"
     cited = await citations_of(sessionmaker, carpet.id)
     assert {c.chunk_id for c in cited} == {CARPET_CHUNK, ASSET_CLASS_CHUNK}
     assert all(c.verified_at is not None and c.verification_method for c in cited)
@@ -192,18 +193,12 @@ async def test_rule_model_and_fabricated_paths(
     assert output.cost_usd == pytest.approx(
         4 * cost_usd("scripted-model", Usage(input_tokens=100, output_tokens=50))
     )
-    # Bedroom: 150 SF typical -> 150 / 9 x 1.10 = 18.33 SY; the legacy standard carpet
-    # installed (4.50 x 1.10 + 2.00 x 1.72 + 0.30 x 1.10 = 8.72/SF, STRUCTURE_MODEL.md 9.3) =
-    # 78.48/SY x 1.0000 (2026: after the book's last index, the Jan 2020 one applies and the
-    # row is flagged) = 78.48.
-    assert (carpet_takeoff.quantity, carpet_takeoff.unit) == (Decimal("18.33"), "SY")
-    assert carpet_takeoff.inputs["room_area_source"] == "typical_for_room_type"
-    assert (carpet_cost.unit_cost, carpet_cost.total, carpet_cost.cost_year) == (
-        Decimal("78.48"),
-        Decimal("1438.54"),
-        2026,
-    )
-    assert output.needs_review == 4  # the three of before plus the carpet's index flag
+    # No guessed quantity is recorded and nothing is priced on one.
+    assert (carpet_takeoff.quantity, carpet_takeoff.unit) == (Decimal("0.00"), "SY")
+    assert carpet_takeoff.inputs["missing_input"] == "gla"
+    assert (carpet_cost.unit_cost, carpet_cost.total, carpet_cost.cost_year) == (None, None, 2026)
+    assert (carpet_cost.source_row or "").startswith("missing input: the gross living area")
+    assert output.needs_review == 4  # the three of before plus the carpet's missing input
 
 
 # --------------------------------------------------------------------------- conventions
@@ -729,8 +724,8 @@ async def test_a_coarser_tier_serves_the_next_study_and_counts_on_the_served_row
         "label_room",
     )
     # The convention leaves nothing to review in the classification; the only flag is the
-    # cost row's year index (the settings' cost year is past the 2020 books: EVAL_REPORT 45).
-    assert (carpet.review_reason or "").split("; ") == [EXTRAPOLATED_REASON]
+    # bedroom's missing measured area (no appraisal fields here: EVAL_REPORT 78).
+    assert (carpet.review_reason or "").split("; ") == ["input:gla"]
     # A room the firm never ruled on, no rule row: the label alone serves.
     door = found["garage_door"]
     assert (door.method, door.bucket) == (ClassificationMethod.CACHE, Bucket.Y27_5)

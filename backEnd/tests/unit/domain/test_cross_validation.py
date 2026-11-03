@@ -5,8 +5,9 @@ from __future__ import annotations
 from dataclasses import replace
 from decimal import Decimal
 
+from costtest_support import priced as estimate_cost
+
 from basis.db.enums import Bucket
-from basis.domain.costs import estimate_cost
 from basis.domain.cross_validation import (
     check_classification_takeoff,
     check_takeoff_cost,

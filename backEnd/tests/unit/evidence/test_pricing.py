@@ -12,9 +12,11 @@ from decimal import Decimal
 from types import SimpleNamespace
 from typing import Any
 
+from costtest_support import priced as estimate_cost
+
 from basis.costs.indices.select import MANUAL_SOURCE, values_from_rows
 from basis.domain.cost_trail import TrailContext, priced_trail, quantity_block
-from basis.domain.costs import estimate_cost, year_factor_index
+from basis.domain.costs import year_factor_index
 from basis.domain.measurements import (
     BuildingMeasurements,
     CostIndex,
@@ -67,11 +69,11 @@ def index_for(year: int, *rows: SimpleNamespace) -> CostIndex:
 
 def trail_for(index: CostIndex, intake_version: int | None = 2) -> dict[str, Any]:
     takeoff = Takeoff(
-        component="carpet",
+        component="tile",
         quantity=D("120.00"),
         unit="SF",
         formula="room area",
-        inputs={"component": "carpet"},
+        inputs={"component": "tile"},
         method="area",
         assumptions=(),
     )

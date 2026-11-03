@@ -293,8 +293,41 @@ route follows a later intake change.
   `cost_index` (no loaded index for the cost year; see `cost_index`),
   `building_rcn` (no cost approach and no living area), `depreciation` (no rate), or
   `allocation` (nothing priced, or the reconciliation is `unreconciled` or `not_checked`: the
-  allocation is withheld rather than scaled, and the diagnosis says what to fix). Nothing is
-  fabricated.
+  allocation is withheld rather than scaled, and the diagnosis says what to fix), or
+  `blockers` (below). Nothing is fabricated.
+* `blockers` (EVAL_REPORT 78): every reason a dollar the report would show would stand on
+  something missing. While one remains the allocation is withheld, so no report is rendered
+  and none can be signed (`409 REPORT_NOT_SIGNABLE`); the export's report-skipped reason names
+  each. Each is `{code, message, assets, fix}`: what is missing in the reviewer's words, how
+  many assets it holds (0 for a study-level input) and where the engineer supplies it.
+
+  | `code` | when | where it is fixed |
+  |---|---|---|
+  | `input:gla` | no living area: no room has a floor area | appraisal review: `improvements.gla_sqft` |
+  | `input:stories` | no story count: the footprint (roof, siding, gutters, landscaping), the smoke alarms and the building model's type | appraisal review: `improvements.stories`, or `structure_model` at the assets review |
+  | `input:garage_area` | a garage room with no garage SF and no car count | appraisal review: `cost_approach.garage_sqft` or `improvements.garage_cars` |
+  | `input:basement_area` | a basement room with no printed basement area | appraisal review: `improvements.basement_area_sqft` |
+  | `input:basement_finish` | the basement's finished share is not printed | appraisal review: `improvements.basement_finish_percent` |
+  | `input:site_area` | no site area for landscaping | appraisal review: `site.area_sqft` or `site.area_acres` |
+  | `input:exterior_area`, `input:room` | a measured item in an exterior room, or in no room | assets review: the measured quantity (an `asset` correction's `quantity`, `quantity_unit`, `quantity_source`) |
+  | `input:room_type` | a measured item in a room of unknown type | rooms review: the room's type |
+  | `input:count` | a counted item with no count | components review: the count |
+  | `input:cabinet_run` | a cabinet or countertop run (the room's perimeter is not one) | assets review: the measured quantity |
+  | `input:model_class` | no quality rating: the RSMeans class would be assumed | appraisal review: `improvements.quality`, or `structure_model` |
+  | `input:cost_data_date` | the cost approach prints no cost-data date | appraisal review: `cost_approach.effective_date_of_cost_data` |
+  | `input:location` | no ZIP or state with an RSMeans location factor | appraisal review: `subject.zip` or `subject.state` |
+  | `input:cost_year` | no placed-in-service date or effective date within the index | appraisal review: the effective date |
+  | `input:takeoff_areas_typical` | `TAKEOFF_AREAS=typical` | the setting |
+  | `unpriced` | the cost table has no row, or prices per a unit the takeoff does not measure | the cost table, or the measured quantity at the assets review |
+  | `unclassified` | the classifier was unavailable or gave no usable answer | assets review: the asset's class |
+  | `appraisal_fields` | no extracted appraisal fields | the appraisal review |
+  | `building_rcn`, `depreciation`, `cost_index` | as in `missing` | as in `missing` |
+
+  A row held by a missing input is written with quantity 0, no cost, the review reason
+  `input:<code>` and its cost row reading `missing input: <what>`: no typical area, default
+  count, assumed story or placeholder price is ever recorded as if measured. Depreciation is
+  the appraisal's physical depreciation, else the age-life ratio of its printed ages; the total
+  depreciation never stands in for physical.
 
 All money is a string with two decimals; the factor has nine places and is applied at full
 precision; rows round half up and the residual cents go to the largest remainders (the rule is

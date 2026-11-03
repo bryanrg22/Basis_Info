@@ -138,6 +138,7 @@ class E:
     STUDY_REVISION_NOT_RESTORABLE = "BASIS-STUDY-034"
     STUDY_ARCHIVE_WHILE_RUNNING = "BASIS-STUDY-035"
     STUDY_INTAKE_LOCKED = "BASIS-STUDY-036"
+    STUDY_INPUT_MISSING = "BASIS-STUDY-037"
 
     # ---------------------------------------------------------------- photo objects (API)
     OBJECT_LOCALIZATION_PENDING = "BASIS-OBJECT-001"
@@ -263,6 +264,7 @@ class E:
     CORRECT_REPRICE_SHAPE = "BASIS-CORRECT-040"
     CORRECT_STRUCTURE_MODEL = "BASIS-CORRECT-041"
     CORRECT_STUDY_TARGET = "BASIS-CORRECT-042"
+    CORRECT_QUANTITY = "BASIS-CORRECT-043"
 
     # ---------------------------------------------------------------- process_assets
     ASSETS_CORRECTION_TYPE = "BASIS-ASSETS-001"

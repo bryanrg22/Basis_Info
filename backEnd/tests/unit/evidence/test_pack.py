@@ -124,8 +124,11 @@ def test_summary_carries_the_basis_result() -> None:
     )
     with_intake = assemble_pack(**rows(), intake=intake).summary["basis"]
     assert with_intake["worksheet"]["total_basis"] == "80000.00"
-    assert with_intake["allocation"]["rows_sum"] == "80000.00"
-    assert with_intake["allocation"]["by_bucket"][0]["allocated"] == "80000.00"
+    # No appraisal fields in the pack: nothing reconciles the schedule, so the allocation is
+    # withheld and the export says why (EVAL_REPORT 78).
+    assert with_intake["allocation"] is None
+    assert "blockers" in with_intake["missing"]
+    assert "appraisal_fields" in [b["code"] for b in with_intake["blockers"]]
     assert with_intake["revision"] == 1
 
 
@@ -181,3 +184,18 @@ def test_summary_takeoff_reads_the_rows_and_is_null_before_section_37() -> None:
     # Rows that disagree on the index (two revisions mixed) report no single value.
     data["costs"][uuid.UUID(int=21)].cost_year = 2025
     assert takeoff_summary(assemble_pack(**data).assets)["cost_year"] is None
+
+
+def test_the_exports_blockers_name_a_rows_missing_input() -> None:
+    """EVAL_REPORT 78: the export's result is built from the pack's rows, which carry each
+    asset's review reasons, so a row held by a missing input is named, not reported as a
+    missing cost row (the first build of the change dropped the reasons here)."""
+    data = rows()
+    unpriced = [c.asset_id for c in data["costs"].values() if c.total is None]
+    assert unpriced
+    for asset in data["assets"]:
+        if asset.id in unpriced:
+            asset.review_reason = "input:gla"
+    basis = assemble_pack(**data).summary["basis"]
+    codes = [b["code"] for b in basis["blockers"]]
+    assert "input:gla" in codes and "unpriced" not in codes

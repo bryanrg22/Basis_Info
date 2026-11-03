@@ -761,8 +761,8 @@
       "section": "improvements",
       "label": "Stories",
       "text": "2",
-      "value": 2,
-      "type": "int",
+      "value": 2.0,
+      "type": "float",
       "page": 3,
       "critical": false,
       "source": "kv"

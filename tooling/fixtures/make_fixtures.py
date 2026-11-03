@@ -84,6 +84,202 @@ def dump_json(data: Any) -> bytes:
     return (json.dumps(data, indent=2, ensure_ascii=False) + "\n").encode("utf-8")
 
 
+# The suite's default cost table (tests/conftest.py sets COST_TABLE_PATH to it): since
+# EVAL_REPORT 78 the product has no built-in prices, so the six labels the removed legacy
+# placeholder rows priced are here, at the values those rows carried (invented numbers, not
+# a cost source), and the suite's arithmetic is unchanged.
+SUITE_COST_TABLE: Final[dict[str, Any]] = {
+    "schema_version": 1,
+    "name": "synthetic_suite",
+    "base_year": 2020,
+    "basis": "SYNTHETIC TEST FIXTURE: invented numbers, not a cost source",
+    "rows": {
+        "light_fixture": {
+            "unit": "EA",
+            "factor": 1,
+            "material": 85,
+            "labor": 35,
+            "equipment": 5,
+            "total_incl_op": None,
+            "source_unit": "Ea.",
+            "source": "SYNTHETIC suite row",
+            "description": "invented numbers (the values the removed legacy placeholder rows carried), not a cost source",
+            "assumption": None,
+        },
+        "electrical_outlet": {
+            "unit": "EA",
+            "factor": 1,
+            "material": 15,
+            "labor": 35,
+            "equipment": 3,
+            "total_incl_op": None,
+            "source_unit": "Ea.",
+            "source": "SYNTHETIC suite row",
+            "description": "invented numbers (the values the removed legacy placeholder rows carried), not a cost source",
+            "assumption": None,
+        },
+        "carpet": {
+            "unit": "SY",
+            "factor": 9,
+            "material": 4.5,
+            "labor": 2,
+            "equipment": 0.3,
+            "total_incl_op": None,
+            "source_unit": "SF",
+            "source": "SYNTHETIC suite row",
+            "description": "invented numbers (the values the removed legacy placeholder rows carried), not a cost source",
+            "assumption": None,
+        },
+        "tile": {
+            "unit": "SF",
+            "factor": 1,
+            "material": 8,
+            "labor": 8,
+            "equipment": 0.75,
+            "total_incl_op": None,
+            "source_unit": "S.F.",
+            "source": "SYNTHETIC suite row",
+            "description": "invented numbers (the values the removed legacy placeholder rows carried), not a cost source",
+            "assumption": None,
+        },
+        "cabinet": {
+            "unit": "LF",
+            "factor": 1,
+            "material": 200,
+            "labor": 50,
+            "equipment": 8,
+            "total_incl_op": None,
+            "source_unit": "L.F.",
+            "source": "SYNTHETIC suite row",
+            "description": "invented numbers (the values the removed legacy placeholder rows carried), not a cost source",
+            "assumption": None,
+        },
+        "hvac_unit": {
+            "unit": "EA",
+            "factor": 1,
+            "material": 4000,
+            "labor": 1500,
+            "equipment": 400,
+            "total_incl_op": None,
+            "source_unit": "Ea.",
+            "source": "SYNTHETIC suite row",
+            "description": "invented numbers (the values the removed legacy placeholder rows carried), not a cost source",
+            "assumption": None,
+        },
+    },
+}
+
+
+# The lifecycle studies' cost table (tests/lifecycle/test_intake_takeoff.py): the suite's rows
+# plus a row for every other label the fixture study prices, so a complete study reaches its
+# report (EVAL_REPORT 78: an unpriced row withholds it). Invented numbers, not a cost source.
+LIFECYCLE_COST_TABLE: Final[dict[str, Any]] = {
+    "schema_version": 1,
+    "name": "synthetic_lifecycle",
+    "base_year": 2020,
+    "basis": "SYNTHETIC TEST FIXTURE: invented numbers, not a cost source",
+    "rows": {
+        **SUITE_COST_TABLE["rows"],
+        "bathtub": {
+            "unit": "EA",
+            "factor": 1,
+            "material": 900,
+            "labor": 300,
+            "equipment": 0,
+            "total_incl_op": None,
+            "source_unit": "Ea.",
+            "source": "SYNTHETIC lifecycle row",
+            "description": "invented numbers, not a cost source",
+            "assumption": None,
+        },
+        "toilet": {
+            "unit": "EA",
+            "factor": 1,
+            "material": 300,
+            "labor": 150,
+            "equipment": 0,
+            "total_incl_op": None,
+            "source_unit": "Ea.",
+            "source": "SYNTHETIC lifecycle row",
+            "description": "invented numbers, not a cost source",
+            "assumption": None,
+        },
+        "kitchen_cabinet": {
+            "unit": "EA",
+            "factor": 1,
+            "material": 400,
+            "labor": 25,
+            "equipment": 0,
+            "total_incl_op": None,
+            "source_unit": "Ea.",
+            "source": "SYNTHETIC lifecycle row",
+            "description": "invented numbers, not a cost source",
+            "assumption": None,
+        },
+        "countertop": {
+            "unit": "SF",
+            "factor": 1,
+            "material": 40,
+            "labor": 10,
+            "equipment": 0,
+            "total_incl_op": None,
+            "source_unit": "S.F.",
+            "source": "SYNTHETIC lifecycle row",
+            "description": "invented numbers, not a cost source",
+            "assumption": None,
+        },
+        "access_control": {
+            "unit": "EA",
+            "factor": 1,
+            "material": 60,
+            "labor": 30,
+            "equipment": 0,
+            "total_incl_op": None,
+            "source_unit": "Ea.",
+            "source": "SYNTHETIC lifecycle row",
+            "description": "invented numbers, not a cost source",
+            "assumption": None,
+        },
+        "data_cabling": {
+            "unit": "EA",
+            "factor": 1,
+            "material": 40,
+            "labor": 60,
+            "equipment": 0,
+            "total_incl_op": None,
+            "source_unit": "Ea.",
+            "source": "SYNTHETIC lifecycle row",
+            "description": "invented numbers, not a cost source",
+            "assumption": None,
+        },
+        "fire_alarm_system": {
+            "unit": "EA",
+            "factor": 1,
+            "material": 50,
+            "labor": 40,
+            "equipment": 0,
+            "total_incl_op": None,
+            "source_unit": "Ea.",
+            "source": "SYNTHETIC lifecycle row",
+            "description": "invented numbers, not a cost source",
+            "assumption": None,
+        },
+        "site_utilities": {
+            "unit": "LF",
+            "factor": 1,
+            "material": 20,
+            "labor": 30,
+            "equipment": 2,
+            "total_incl_op": None,
+            "source_unit": "L.F.",
+            "source": "SYNTHETIC lifecycle row",
+            "description": "invented numbers, not a cost source",
+            "assumption": None,
+        },
+    },
+}
+
+
 # A unit-cost table in basis.domain.cost_table's schema (EVAL_REPORT section 27). Invented
 # numbers: the engineer's RSMeans table is licensed and never in the repository.
 COST_TABLE: Final[dict[str, Any]] = {
@@ -173,7 +369,7 @@ COST_TABLE: Final[dict[str, Any]] = {
             "total_incl_op": 3,
             "source_unit": "Ea.",
             "source": "synthetic 26-0001, p. 5",
-            "description": "never used: the legacy row wins",
+            "description": "a light fixture",
             "assumption": None,
         },
         "patio": {
@@ -503,7 +699,7 @@ SITE = [
 
 IMPROVEMENTS = [
     F("improvements.units", "Units", "One"),
-    F("improvements.stories", "Stories", "2", 2, "int"),
+    F("improvements.stories", "Stories", "2", 2.0, "float"),  # a decimal: EVAL_REPORT 78
     F("improvements.type", "Type", "Detached"),
     F("improvements.design_style", "Design (Style)", "Colonial"),
     F("improvements.year_built", "Year Built", "1987", 1987, "int", critical=True),
@@ -2112,6 +2308,8 @@ def generate() -> dict[str, bytes]:
     )
     files["adversarial/README.md"] = adversarial_readme(overlay).encode("utf-8")
     files["cost_table.json"] = dump_json(COST_TABLE)
+    files["suite_cost_table.json"] = dump_json(SUITE_COST_TABLE)
+    files["lifecycle_cost_table.json"] = dump_json(LIFECYCLE_COST_TABLE)
 
     files["malformed/empty.pdf"] = empty_pdf()
     files["malformed/not_a_pdf.pdf"] = NOT_A_PDF

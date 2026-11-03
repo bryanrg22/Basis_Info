@@ -4,6 +4,11 @@ The year and location factors are RSMeans' published indices since EVAL_REPORT s
 (``tests/unit/domain/test_cost_indices.py`` checks the tables themselves): 2018 is
 222.9 / 239.1 = 0.9322, 2020 is 1.0000, a year after the book's last index is 1.0000 with
 the assumption on the estimate, and a state is the mean of its listed cities.
+
+Since EVAL_REPORT 78 there is no built-in price: the six legacy placeholder rows
+(``TYPICAL_UNIT_COSTS``) are gone and every row comes from a cost table. These tests price
+from :data:`TABLE`, a synthetic table with invented numbers (the same arithmetic the legacy
+rows gave, so the expected values stay checkable by hand).
 """
 
 from __future__ import annotations
@@ -13,14 +18,14 @@ from functools import partial
 
 import pytest
 
+import basis.domain.costs as costs_module
 from basis.domain.cost_indices import indices
+from basis.domain.cost_table import parse_cost_table
 from basis.domain.costs import (
-    TYPICAL_UNIT_COSTS,
     CostError,
     MissingCostRow,
     UnitMismatch,
     UnknownCostYear,
-    has_cost_row,
     location_factor_for_state,
     year_factor,
     year_factor_index,
@@ -28,10 +33,44 @@ from basis.domain.costs import (
 from basis.domain.costs import estimate_cost as _estimate_cost
 from basis.domain.takeoffs import Takeoff, estimate_quantity
 
+
+def _row(
+    material: str, labor: str, equipment: str, unit: str, **extra: object
+) -> dict[str, object]:
+    return {
+        "unit": unit,
+        "factor": extra.pop("factor", 1),
+        "material": material,
+        "labor": labor,
+        "equipment": equipment,
+        "total_incl_op": None,
+        "source_unit": extra.pop("source_unit", unit),
+        "source": "SYNTHETIC TEST ROW",
+        "description": "invented numbers, not a cost source",
+        "assumption": None,
+    }
+
+
+TABLE = parse_cost_table(
+    {
+        "schema_version": 1,
+        "name": "synthetic_test",
+        "base_year": 2020,
+        "basis": "SYNTHETIC TEST FIXTURE: invented numbers, not a cost source",
+        "rows": {
+            # 6.80 per SF, priced per SY (x9) as the real table's carpet row is
+            "carpet": _row("4.50", "2.00", "0.30", "SY", factor=9, source_unit="SF"),
+            "light_fixture": _row("85", "35", "5", "EA"),
+            "tile": _row("8.00", "8.00", "0.75", "SF"),
+            "cabinet": _row("200", "50", "8", "LF"),
+        },
+    }
+)
+
 # These tests pin the arithmetic on the bare-cost basis (material + labor + equipment); the
 # installed basis (Total Incl O&P, the default since 2026-10-31) is tested in
 # test_cost_table.py.
-estimate_cost = partial(_estimate_cost, basis="bare")
+estimate_cost = partial(_estimate_cost, basis="bare", table=TABLE)
 
 HCI_2018 = (
     "HCI 222.9 (July 2018) / 239.1 (Jan 2020, est.), RSMeans Building Construction Costs 2020 p.778"
@@ -39,25 +78,26 @@ HCI_2018 = (
 
 
 def test_carpet_in_square_yards_uses_the_per_sf_row_times_nine() -> None:
-    # standard carpet 4.50 + 2.00 + 0.30 = 6.80/SF = 61.20/SY; x0.9322 (2018) = 57.05064
+    # carpet 6.80/SF = 61.20/SY (the row is per SY, x9 from per SF); x0.9322 (2018) = 57.05064
     takeoff = estimate_quantity("carpet", 150)  # 18.33 SY
     cost = estimate_cost(takeoff, 2018, 1)
     assert cost.base_unit_cost == Decimal("61.20")
     assert cost.unit_cost == Decimal("57.05")
     assert cost.total == Decimal("1045.73")  # 57.05 x 18.33 = 1045.7265
     assert cost.unit == "SY"
-    assert "carpet" in cost.source_row and "per SF" in cost.source_row
+    assert "synthetic_test[carpet]" in cost.source_row and "x9 from per SF" in cost.source_row
 
 
 def test_cabinets_per_linear_foot() -> None:
-    """The legacy per-LF cabinet row still prices a ``cabinet`` run."""
+    """A per-LF table row prices a ``cabinet`` run (the run itself is a perimeter estimate,
+    which ``process_assets`` refuses to price: EVAL_REPORT 78)."""
     takeoff = estimate_quantity("cabinet", 144)  # 48 LF
     cost = estimate_cost(takeoff, 2018, "1.0")
     assert cost.unit_cost == Decimal("240.51")  # 258 x 0.9322 = 240.5076
     assert cost.total == Decimal("11544.48")
 
 
-def test_kitchen_cabinets_are_units_with_no_legacy_row() -> None:
+def test_kitchen_cabinets_are_units_with_no_row_in_this_table() -> None:
     """v0.9 (EVAL_REPORT 27): kitchen cabinets are counted in units, which only a cost
     table row prices (tests/unit/domain/test_cost_table.py)."""
     takeoff = estimate_quantity("kitchen_cabinet", 144, 18)
@@ -80,11 +120,9 @@ def test_location_and_year_factors_multiply() -> None:
     assert cost.year_assumption is None
 
 
-def test_tile_and_tiers() -> None:
+def test_tile() -> None:
     tile = estimate_quantity("tile", 75)  # 86.25 SF
     assert estimate_cost(tile, 2020, 1).total == Decimal("1444.69")  # 16.75 x 86.25
-    premium = estimate_cost(tile, 2020, 1, tier="premium")
-    assert premium.unit_cost == Decimal("26.00")
     older = estimate_cost(tile, 2010, 1)  # 183.5 / 239.1 = 0.7675
     assert older.unit_cost == Decimal("12.86")  # 16.75 x 0.7675 = 12.8556
 
@@ -92,7 +130,22 @@ def test_tile_and_tiers() -> None:
 def test_missing_row_is_an_explicit_error() -> None:
     with pytest.raises(MissingCostRow):
         estimate_cost(estimate_quantity("garage_door", 100), 2020, 1)
-    assert not has_cost_row("garage_door") and has_cost_row("carpet")
+
+
+@pytest.mark.parametrize(
+    "label", ["light_fixture", "electrical_outlet", "carpet", "tile", "cabinet", "hvac_unit"]
+)
+def test_there_is_no_built_in_price_without_a_table(label: str) -> None:
+    """EVAL_REPORT 78: the six labels the legacy placeholder rows priced ahead of the real
+    table now price only from a table; with none, the row is missing, never a typical value."""
+    takeoff = estimate_quantity(label, 150, 2)
+    with pytest.raises(MissingCostRow):
+        _estimate_cost(takeoff, 2020, 1)
+
+
+def test_the_placeholder_rows_are_gone() -> None:
+    for name in ("TYPICAL_UNIT_COSTS", "MATERIAL_LABOR_SPLIT", "LEGACY_TABLE", "has_cost_row"):
+        assert not hasattr(costs_module, name), name
 
 
 @pytest.mark.parametrize("year", [1969, 1900, 1])
@@ -140,11 +193,6 @@ def test_tables_are_complete() -> None:
     assert len(indices().by_state) == 51  # 50 states and DC
     for state in indices().by_state:
         assert location_factor_for_state(state) > 0
-    for tiers in TYPICAL_UNIT_COSTS.values():
-        assert set(tiers) == {"economy", "standard", "premium", "luxury"}
-        totals = [tiers[t].total for t in ("economy", "standard", "premium", "luxury")]
-        assert totals == sorted(totals)
-        assert len({row.unit for row in tiers.values()}) == 1
     assert year_factor(2020) == 1
     # The index rises over the decade before the book (2010-2019, each year above the last).
     factors = [year_factor(y) for y in range(2010, 2020)]

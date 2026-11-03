@@ -864,6 +864,10 @@ class ModelChoice:
     type_source: str
     assumptions: tuple[str, ...]
     needs_review: bool
+    # The class or type was assumed (no quality rating read; no stories printed) and no
+    # engineer's correction set it: a missing input (EVAL_REPORT 78).
+    class_defaulted: bool = False
+    type_defaulted: bool = False
 
 
 def _fmt(value: Decimal) -> str:
@@ -984,7 +988,13 @@ def select_model(
         assumptions.append(type_source)
     model = MODELS[(cls, type_)]
     return ModelChoice(
-        model, class_source, type_source, tuple(assumptions), class_defaulted or type_defaulted
+        model,
+        class_source,
+        type_source,
+        tuple(assumptions),
+        class_defaulted or type_defaulted,
+        class_defaulted,
+        type_defaulted,
     )
 
 
@@ -1185,6 +1195,10 @@ class BuildingRcn:
     appraisal_depreciated_cost: Decimal | None = None
     appraisal_site_improvements: Decimal | None = None
     appraisal_site_value: Decimal | None = None
+    # The inputs the building's RCN stands on that were missing and assumed (a
+    # ``money_inputs.INPUTS`` code each): the study's report is withheld until they are
+    # supplied (EVAL_REPORT 78).
+    missing_inputs: tuple[str, ...] = ()
     # The square-foot model's modifications and alternatives (section 9.1), inside ``amount``.
     additions: tuple[Addition, ...] = ()
 
@@ -1548,6 +1562,22 @@ def building_rcn(
     if amount <= 0:
         return None
     ca = cost_approach
+    missing: list[str] = []
+    if choice.class_defaulted:
+        missing.append("model_class")
+    if choice.type_defaulted:
+        missing.append("stories")
+    if (
+        source == "square_foot_model"
+        and measurements is not None
+        and measurements.basement_sf is not None
+        and measurements.basement_finish_pct is None
+    ):
+        missing.append("basement_finish")
+    if source == "appraisal_cost_approach" and ca is not None:
+        printed = None if ca.cost_data_date is None else ca.cost_data_date.value
+        if _year_of(printed) is None:
+            missing.append("cost_data_date")
     return BuildingRcn(
         amount=amount,
         source=source,
@@ -1568,6 +1598,7 @@ def building_rcn(
         ),
         appraisal_site_value=None if ca is None or ca.site_value is None else ca.site_value.value,
         additions=additions,
+        missing_inputs=tuple(missing),
     )
 
 
@@ -2303,6 +2334,8 @@ def small_system_rows(inputs: SmallSystemInputs) -> list[ConcealedRow]:
     # Fire alarm: IRC R314.3, one per sleeping room, one outside each sleeping area (one per
     # story with bedrooms, counted as one per story), one per additional story and basement.
     if inputs.bedrooms is not None:
+        # Without printed stories the row is written unpriced (``input:stories``): 1 story
+        # was assumed before EVAL_REPORT 78.
         stories = (
             int(inputs.stories.to_integral_value(rounding=ROUND_HALF_UP)) if inputs.stories else 1
         )
@@ -2334,13 +2367,13 @@ def small_system_rows(inputs: SmallSystemInputs) -> list[ConcealedRow]:
                 },
                 assumptions=(
                     "the alarm outside each sleeping area is counted once per story",
-                    "stories counted from the appraisal" if inputs.stories else "1 story assumed",
+                    "stories counted from the appraisal",
                 ),
                 source="IRC R314.3 (2021): smoke alarms in each sleeping room, outside each "
                 "separate sleeping area, and on each additional story including basements",
                 rcn=None,
-                needs_review=False,
-                review_reasons=(),
+                needs_review=inputs.stories is None,
+                review_reasons=() if inputs.stories else ("input:stories",),
             )
         )
     # Data cabling: TIA-570, one telecommunications outlet per room (the URAR room count).
@@ -2500,8 +2533,22 @@ def depreciation(
             )
         age_text = f"{_fmt(age.value)} / {_fmt(age.value + remaining.value)} years"
         age_source = f"{age.describe()} / ({age.describe()} + {remaining.describe()})"
-    physical = cost_approach.depreciation_physical or cost_approach.depreciation_total
+    # Physical depreciation only: the total (physical, functional and external) once stood in
+    # for it when physical was not printed (EVAL_REPORT 78). Without it the age-life ratio of
+    # the printed ages applies, else there is no depreciation and the report is withheld.
+    physical = cost_approach.depreciation_physical
     total = cost_approach.total_cost_new
+    if physical is None and age_life is not None and age_life < ONE:
+        checks.append(
+            Check(
+                "depreciation_age_life",
+                "ok",
+                f"age-life: effective age over total economic life, {age_text} (physical "
+                "depreciation not printed)",
+            )
+        )
+        checks.append(_uniform_check())
+        return Depreciation(age_life, "age_life", age_source, tuple(checks))
     if method == "age_life" and age_life is not None and age_life < ONE:
         checks.append(
             Check(

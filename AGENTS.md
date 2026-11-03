@@ -102,6 +102,11 @@ client-data guard on every commit.
   `tests/integration/db/test_migrations.py` pins the head. Check open PRs for the next number.
 - **Workflow changes** are Temporal patches (`workflow.patched("<name>-v<n>")`) so recorded
   histories replay; `tests/lifecycle/histories/` holds them.
+- **No substitute value reaches dollars.** A missing input, an unreadable field or a failed model
+  call never becomes a placeholder, typical value, setting default or mock row in a priced
+  result: write the row unpriced with `input:<code>` (`basis/domain/money_inputs.py`), and let
+  `GET .../result` `blockers` withhold the report and name the fix (EVAL_REPORT 78). A published
+  method on inputs the study has is not a substitute.
 - **No CPU work on the event loop.** Async activities share the worker's loop with Temporal's
   workflow activations, which the SDK times at 2 s (`TMPRL1101`); decode, resize, crop, render
   or parse on a thread (`asyncio.to_thread`, `prepare_image_in_thread`).

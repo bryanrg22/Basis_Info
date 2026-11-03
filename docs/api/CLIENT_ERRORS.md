@@ -187,6 +187,30 @@ exception's type and message; the worker's `activity failed` line carries the st
 execution, the attempt, the code and the traceback. So `event.http.request_id` finds one
 server line with everything about the request that failed.
 
+### 4.1 Missing inputs: kind `study_input` (EVAL_REPORT 78)
+
+Not a fault in the software, but where a firm new to the product gets stuck: a study whose
+dollars are held by a missing input (`GET .../result` `blockers`: the appraisal lacks a field,
+a room has no measured area, an item has no count, the cost table has no row, a row is
+unclassified, the location or the cost year's index is missing). The assets step writes one
+record per blocker per revision into this store, server-side (`basis.evidence.input_records`;
+the browser's `POST` does not accept the kind):
+
+| column | value |
+|---|---|
+| `kind`, `code`, `error_type` | `study_input`, `BASIS-STUDY-037`, the blocker's code (`input:gla`, `unpriced`, ...) |
+| `org_id`, `study_id`, `revision`, `stage` | the firm, the study, the revision, the study's stage when recorded |
+| `user_id` | the person whose decision started the run (the study's latest review), else the study's creator |
+| `message` | `<study name>: <what is missing>` |
+| `event` | `blocker` (code, message, assets, fix), `fix_stage`, `asset_ids` (up to 200) and `assets_held`, every blocker of the revision and the result's `missing`, the `study` (name, status, stage, creator), the `firm` (id, name), the `person` (id, email, name, what they decided), the `intake`'s location and dates (no money), and every `documents` entry (id, kind, filename, content type, bytes, sha256, uploader, upload time, storage URI) |
+
+`event_id` is a UUID5 of the study, revision and blocker, so a retried activity records nothing
+twice. The records group into one issue per firm and blocker (not per message), so an operator
+sees "this firm keeps missing X" and marks it `in_progress` or `resolved` with a note as for any
+issue. Recording runs in a savepoint and never fails the study. The developer page's filter
+lists the kind. Opening the files themselves from the page (an operator reading a firm's
+uploads) is not built: the storage URI is recorded; access is Bryan's decision.
+
 ## 5. The operator reads
 
 ```

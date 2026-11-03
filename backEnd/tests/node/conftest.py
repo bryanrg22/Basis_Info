@@ -74,6 +74,9 @@ async def add_room_with(
                 material=material,
                 attachment=None,
                 confidence=0.9,
+                # A count, as the vision step always gives one (EVAL_REPORT 78: a component
+                # without one is not counted as 1).
+                raw={"count": 1},
             )
         return room
 

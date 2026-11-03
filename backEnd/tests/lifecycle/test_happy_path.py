@@ -163,8 +163,11 @@ async def test_three_approvals_complete_the_study(harness: Harness) -> None:
         assert all(
             "rule_contested" not in reason for label, reason in flagged if label not in contested
         )
-        # Cross-validation still runs on a contested hit and adds its own reasons.
-        assert all("cross:" in reason for label, reason in flagged if label == "countertop")
+        # A contested hit still gets the takeoff's own reason: the countertop's run is the
+        # room's perimeter, a guess, so it is unpriced with the input named (EVAL_REPORT 78).
+        assert all(
+            "input:cabinet_run" in reason for label, reason in flagged if label == "countertop"
+        )
 
     exported = json.loads(await harness.deps.storage.read(result.export_uri or ""))
     assert exported["revision"] == 1 and len(exported["assets"]) == 20

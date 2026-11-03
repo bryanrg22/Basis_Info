@@ -10,13 +10,21 @@ STRUCTURE_MODEL.md, EVAL_REPORT 44), the schedule's building rows are 39-year, a
 ``summary.takeoff`` names the intake as the source of the cost year, the location factor and
 the property class. The purchase price is set so the synthetic appraisal's cost new less
 its depreciation lands within the reconciliation's tolerance of the price less land.
+
+EVAL_REPORT 78: the study prices from a synthetic table with a row for every label it has
+(``lifecycle_cost_table.json``); the countertops' run is not measured (the room's perimeter
+is not a run), so revision 1 stops at the assets review with that blocker, the engineer
+rejects with the measured runs (an ``asset`` correction's ``quantity``), and revision 2,
+with nothing missing, reaches the export and its report.
 """
 
 from __future__ import annotations
 
 import csv
+import dataclasses
 import io
 import json
+import uuid
 from collections import Counter
 from datetime import date
 from decimal import Decimal
@@ -24,13 +32,17 @@ from pathlib import Path
 
 import pymupdf
 import pytest
+from fixtures import fixture_path
 from lifecycle_support import Harness
-from lifecycletest_support import intake_document, set_intake
+from lifecycletest_support import intake_document, make_deps, set_intake
+from sqlalchemy import select
 
 from basis.costs.refresh import manual_entry, record_manual
 from basis.db.enums import Stage, StudyStatus
+from basis.db.models import Asset, Takeoff
 from basis.db.repositories.study_event import StudyEventRepository
 from basis.db.session import session_scope
+from basis.workflow.contracts import CorrectionInput
 
 pytestmark = [pytest.mark.integration, pytest.mark.asyncio(loop_scope="session")]
 
@@ -82,23 +94,80 @@ async def test_a_study_with_a_complete_intake_runs_to_its_export(
                 zip="10001",
             ),
         )
-        async with harness.worker():
-            started = await harness.start(study)
+        settings = harness.settings.model_copy(
+            update={"cost_table_path": str(fixture_path("lifecycle_cost_table.json"))}
+        )
+        priced = dataclasses.replace(
+            harness,
+            deps=make_deps(
+                harness.sessionmaker,
+                harness.deps.storage,
+                settings,
+                chunk_store=harness.deps.chunk_store,
+            ),
+            settings=settings,
+            task_queue=f"lifecycle-intake-{uuid.uuid4().hex[:12]}",
+            handles=[],
+        )
+        async with priced.worker():
+            started = await priced.start(study)
             handle = started.handle
-            await harness.wait_awaiting(handle, "appraisal_review", 1)
-            await harness.approve_all(handle)
-            result = await harness.result(handle)
+            await priced.wait_awaiting(handle, "appraisal_review", 1)
+            await priced.approve(handle, "appraisal_review")
+            await priced.approve(handle, "rooms_review")
+            await priced.approve(handle, "components_review")
+            await priced.wait_awaiting(handle, "assets_review", 1)
+            # Revision 1: only the countertops' unmeasured run holds the report.
+            async with session_scope(harness.sessionmaker) as session:
+                held = (
+                    await session.scalars(
+                        select(Asset).where(
+                            Asset.study_id == study.study_id,
+                            Asset.revision == 1,
+                            Asset.review_reason.contains("input:cabinet_run"),
+                        )
+                    )
+                ).all()
+            assert len(held) == 2
+            measured = [
+                CorrectionInput(
+                    entity_type="asset",
+                    entity_id=str(asset.id),
+                    after={
+                        "quantity": "30",
+                        "quantity_unit": "SF",
+                        "quantity_source": "kitchen plan, measured by the engineer (test)",
+                    },
+                )
+                for asset in held
+            ]
+            await priced.decide(
+                handle, priced.decision("assets_review", 1, "reject", corrections=measured)
+            )
+            await priced.approve(handle, "assets_review", revision=2)
+            result = await priced.result(handle)
 
         assert result.outcome == "completed"
-        assert (result.stage, result.revision) == ("completed", 1)
-        sequence = await harness.activity_sequence(handle)
-        assert Counter(sequence)["process_assets"] == 1 and sequence[-3] == "export_report"
+        assert (result.stage, result.revision) == ("completed", 2)
+        sequence = await priced.activity_sequence(handle)
+        assert Counter(sequence)["process_assets"] == 2 and sequence[-3] == "export_report"
+        async with session_scope(harness.sessionmaker) as session:
+            measured_takeoffs = (
+                await session.scalars(
+                    select(Takeoff)
+                    .join(Asset, Asset.id == Takeoff.asset_id)
+                    .where(Asset.study_id == study.study_id, Asset.revision == 2)
+                )
+            ).all()
+        runs = [t for t in measured_takeoffs if t.inputs.get("quantity_source") == "engineer"]
+        assert len(runs) == 2
+        assert all((t.quantity, t.unit) == (Decimal("30.00"), "SF") for t in runs)
         row = await harness.study_row(started.study_id)
         assert (row.current_stage, row.status) == (Stage.COMPLETED, StudyStatus.COMPLETED)
         assert row.intake is not None and row.intake.state == "NY"
 
         exported = json.loads(await harness.deps.storage.read(result.export_uri or ""))
-        assert exported["revision"] == 1
+        assert exported["revision"] == 2
         itemized = [a for a in exported["assets"] if a["component_id"] is not None]
         concealed = {a["label"]: a for a in exported["assets"] if a["component_id"] is None}
         assert len(itemized) == 6 and len(concealed) == 14
@@ -108,7 +177,8 @@ async def test_a_study_with_a_complete_intake_runs_to_its_export(
         # the appraiser's physical depreciation on every row, and a schedule that reconciles
         # to the price less land within tolerance, so the basis is allocated pro rata on RCNLD.
         basis = exported["summary"]["basis"]
-        assert basis["intake"] is True and basis["missing"] == [], basis["reconciliation"]
+        assert basis["intake"] is True and basis["missing"] == [], basis["blockers"]
+        assert basis["blockers"] == []
         structure = basis["structure"]
         assert structure["building_rcn"]["source"] == "square_foot_model"  # the sweep's pick
         assert structure["building_rcn"]["model"]["name"] == "Average 2 Story"
@@ -134,17 +204,12 @@ async def test_a_study_with_a_complete_intake_runs_to_its_export(
         assert allocation["depreciated"] is True and allocation["total"] == "360180.00"
         assert {c["code"]: c["severity"] for c in allocation["checks"]} == {"rcnld_factor": "ok"}
         assert allocation["by_system"] is not None
-        # The harness configures no cost table, so the four small systems (priced from the
-        # table's row for their label) stay unpriced and are listed as not produced; the nine
-        # building rows are priced from the appraisal's cost new.
-        assert [n["system"] for n in basis["not_produced"]] == [
-            "Fire Protection & Alarm",
-            "Communication / Data",
-            "Access Control",
-            "Site Utilities",
-        ]
+        # The lifecycle table prices the four small systems (from the row for their label),
+        # so every system is produced and nothing is left out of the report.
+        assert basis["not_produced"] == []
         assert all(
-            concealed[label]["total"] is None for label in ("fire_alarm_system", "data_cabling")
+            concealed[label]["total"] is not None
+            for label in ("fire_alarm_system", "data_cabling", "access_control", "site_utilities")
         )
         worksheet = basis["worksheet"]
         assert (worksheet["property_use"], worksheet["recovery_period"]) == ("nonresidential", "39")
@@ -218,9 +283,6 @@ async def test_a_study_with_a_complete_intake_runs_to_its_export(
         with pymupdf.open(stream=pdf, filetype="pdf") as doc:
             text = " ".join(" ".join(page.get_text() for page in doc).split())
         assert "$360,180.00" in text and "DRAFT" in text
-        assert (
-            "Fire Protection & Alarm, Communication / Data, Access Control, Site Utilities" in text
-        )
         async with session_scope(harness.sessionmaker) as session:
             events = (await StudyEventRepository(session).list_for_study(study.study_id)).items
         [written] = [e for e in events if e.event_type == "export.written"]

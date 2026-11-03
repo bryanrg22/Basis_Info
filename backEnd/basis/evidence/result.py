@@ -23,8 +23,8 @@ caller that has none) the allocation is the uniform factor on RCN as before, wit
 from __future__ import annotations
 
 import uuid
-from collections.abc import Iterable
-from dataclasses import dataclass
+from collections.abc import Iterable, Sequence
+from dataclasses import asdict, dataclass
 from datetime import date
 from decimal import Decimal
 from typing import Any, Final, Literal
@@ -59,6 +59,8 @@ from basis.domain.measurements import (
     measurements_from_fields,
     resolve_cost_index,
 )
+from basis.domain.money_inputs import Blocker, codes_in, row_blockers
+from basis.domain.money_inputs import missing as missing_input
 from basis.domain.structure import (
     CATEGORIES,
     COMPONENT_NAMES,
@@ -114,6 +116,9 @@ class ScheduleRow:
     label: str | None = None
     # A row the structure model wrote (``takeoffs.inputs.concealed``); never carved.
     concealed: bool = False
+    # The asset's review reasons (``"; "``-joined): its ``input:<code>`` reasons name the
+    # missing input that left it unpriced (EVAL_REPORT 78).
+    review_reason: str | None = None
 
 
 # --------------------------------------------------------------------------- response models
@@ -366,6 +371,21 @@ class CostIndexStatusOut(BaseModel):
     assumption: str | None = Field(description="The assumption written on every priced row.")
 
 
+class BlockerOut(BaseModel):
+    """One reason the allocation (and so the report) is withheld (EVAL_REPORT 78)."""
+
+    code: str = Field(
+        description="Stable: `input:<input>` (a missing input; `docs/api/STUDY_RESULT.md` lists "
+        "them), `unpriced`, `unclassified`, `appraisal_fields`, `building_rcn`, "
+        "`depreciation`, `cost_index`."
+    )
+    message: str = Field(description="What is missing, in the reviewer's words.")
+    assets: int = Field(
+        description="The assets it leaves unpriced or unclassified; 0 for the study."
+    )
+    fix: str = Field(description="Where the engineer supplies it.")
+
+
 class StudyResultOut(BaseModel):
     """``GET /v1/studies/{id}/result`` and the export's ``summary.basis``."""
 
@@ -376,7 +396,14 @@ class StudyResultOut(BaseModel):
         "(no appraisal cost approach and no living area), `depreciation` (no rate), "
         "`allocation` (nothing priced, or the reconciliation is not within tolerance), "
         "`cost_index` (no loaded index for the cost year: `cost_index` says which value to "
-        "enter), `repricing` (the recorded pricing is stale: `pricing` says why), or nothing."
+        "enter), `repricing` (the recorded pricing is stale: `pricing` says why), `blockers` "
+        "(an input the dollars need is missing: `blockers` lists each), or nothing."
+    )
+    blockers: list[BlockerOut] = Field(
+        default_factory=list,
+        description="Every reason the allocation is withheld because an input is missing, an "
+        "asset is unpriced or unclassified, or the building model stands on an assumed input "
+        "(EVAL_REPORT 78): no report is rendered or signed while one remains.",
     )
     cost_index: CostIndexStatusOut | None = Field(
         default=None,
@@ -644,6 +671,103 @@ def cost_index_status(structure: StructureInputs) -> CostIndexStatusOut:
     )
 
 
+UNCLASSIFIED_PREFIX: Final = "Unclassified:"
+
+
+def report_blockers(
+    rows: Sequence[ScheduleRow],
+    structure: StructureInputs | None,
+    building: BuildingRcn | None,
+    depr: Depreciation | None,
+    index_out: CostIndexStatusOut | None,
+) -> list[Blocker]:
+    """Every reason the revision's dollars would stand on something missing (EVAL_REPORT 78;
+    :mod:`basis.domain.money_inputs`): the rows' missing inputs, the rows left unpriced or
+    unclassified for another reason, and the study-level inputs (the appraisal's fields,
+    the building's cost new and what it was sized on, the depreciation, the cost year's
+    index, the location factor). Land rows are not schedule rows and are not checked."""
+    out: list[Blocker] = []
+    input_codes = [code for r in rows for code in codes_in(r.review_reason)]
+    out += row_blockers(input_codes)
+    unpriced = [r for r in rows if r.rcn is None and not codes_in(r.review_reason)]
+    if unpriced:
+        out.append(
+            Blocker(
+                "unpriced",
+                "the cost table has no row for these assets, or prices them per a unit the "
+                "takeoff does not measure",
+                len(unpriced),
+                "add the row to the cost table, or enter the measured quantity at the assets "
+                "review",
+            )
+        )
+    unclassified = [r for r in rows if r.category.startswith(UNCLASSIFIED_PREFIX)]
+    if unclassified:
+        out.append(
+            Blocker(
+                "unclassified",
+                "no classification could be made for these assets (the classifier was "
+                "unavailable or gave no usable answer); a default building class is not used",
+                len(unclassified),
+                "set the class at the assets review",
+            )
+        )
+    if structure is None:
+        out.append(
+            Blocker(
+                "appraisal_fields",
+                "the appraisal has no extracted fields, so the building's cost and its "
+                "reconciliation against the purchase price cannot be made",
+                0,
+                "fix the appraisal's extraction at the appraisal review",
+            )
+        )
+        return out
+    study_codes: list[str] = []
+    if structure.location_source is None or structure.location_source.startswith(
+        "COST_LOCATION_FACTOR setting"
+    ):
+        study_codes.append("location")
+    if structure.year_source is None or structure.year_source.startswith("COST_YEAR setting"):
+        study_codes.append("cost_year")
+    if building is not None:
+        study_codes += [c for c in building.missing_inputs if c not in study_codes]
+    for code in study_codes:
+        found = missing_input(code)
+        out.append(Blocker(f"input:{code}", found.what, 0, found.fix))
+    if building is None:
+        out.append(
+            Blocker(
+                "building_rcn",
+                "the building's cost new could not be computed (no cost approach and no living "
+                "area)",
+                0,
+                "add the cost approach or the living area at the appraisal review",
+            )
+        )
+    if depr is None:
+        out.append(
+            Blocker(
+                "depreciation",
+                "the appraisal prints neither the physical depreciation nor the effective age "
+                "and remaining economic life",
+                0,
+                "add cost_approach.depreciation_physical, or the effective age and remaining "
+                "economic life, at the appraisal review",
+            )
+        )
+    if index_out is not None and index_out.status == "missing":
+        out.append(
+            Blocker(
+                "cost_index",
+                f"no RSMeans Historical Cost Index is loaded for {index_out.cost_year}",
+                0,
+                index_out.how or "enter the year's index",
+            )
+        )
+    return out
+
+
 def compute_result(
     rows: Iterable[ScheduleRow],
     intake: StudyIntake | None,
@@ -750,6 +874,7 @@ def compute_result(
     alloc_out: AllocationOut | None = None
     reconciliation_out: ReconciliationOut | None = None
     index_out = None if structure is None else cost_index_status(structure)
+    blockers = report_blockers(schedule_rows, structure, building, depr, index_out)
     if index_out is not None and index_out.status == "missing":
         missing.append("cost_index")
     if structure is not None and building is None:
@@ -759,6 +884,8 @@ def compute_result(
     if intake is None:
         missing.append("intake")
     else:
+        if blockers:
+            missing.append("blockers")
         ws = worksheet(intake.to_basis_inputs())
         ws_out = worksheet_out(ws, intake)
         rcn_rows = [
@@ -802,6 +929,10 @@ def compute_result(
         else:
             allocate_rows = True
             depreciated = False
+        if blockers:
+            # A dollar the report would show stands on a missing input (EVAL_REPORT 78): no
+            # allocation, so no report and no signature, until every blocker is resolved.
+            allocate_rows = False
         if allocate_rows:
             try:
                 allocation = allocate(
@@ -823,6 +954,7 @@ def compute_result(
         revision=revision,
         intake=intake is not None,
         missing=missing,
+        blockers=[BlockerOut(**asdict(b)) for b in blockers],
         cost_index=index_out,
         worksheet=ws_out,
         schedule=schedule,
@@ -878,6 +1010,7 @@ async def load_schedule(
                 rcn=None if cost is None or cost.total is None else cost.total,
                 label=component.label if component is not None else label,
                 concealed=concealed,
+                review_reason=asset.review_reason,
             )
         )
     return rows

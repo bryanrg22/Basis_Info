@@ -50,6 +50,7 @@ QUANTUM: Final = Decimal("0.01")
 
 # TAKEOFF_RESEARCH section 4: the named assumptions.
 DEFAULT_STORIES: Final = Decimal(1)
+MAX_STORIES: Final = Decimal(10)  # above it a reading is not a story count
 FOOTPRINT_ASPECT_RATIO: Final = Decimal("1.5")  # long side = 1.5 x short side
 ROOF_PITCH_FACTOR: Final = Decimal("1.118")  # 6/12 pitch: sqrt(1 + (6/12)^2)
 EAVE_OVERHANG_FT: Final = Decimal(1)
@@ -208,6 +209,10 @@ class RoomArea:
     formula: str
     inputs: dict[str, str] = field(default_factory=dict)
     assumptions: tuple[str, ...] = ()
+    # The input whose absence left the room with only a typical area (a
+    # :data:`basis.domain.money_inputs.INPUTS` code): a measured item in the room is not
+    # priced on it (EVAL_REPORT 78). None for a measured area.
+    missing: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -273,7 +278,14 @@ def measurements_from_fields(rows: Iterable[FieldRow]) -> BuildingMeasurements:
                 if value.is_finite() and 0 <= value <= 100:
                     return Reading(value, key, row.source)
                 continue
-            if name in ("stories", "garage_cars", "total_rooms", "bedrooms"):
+            if name == "stories":
+                # A half story is a real value (1.5, 2.5: RSMeans prices 1-1/2 and 2-1/2
+                # story models); before EVAL_REPORT 78 a non-whole count was dropped here and
+                # the house was priced as 1 story.
+                if value.is_finite() and 1 <= value <= MAX_STORIES:
+                    return Reading(value, key, row.source)
+                continue
+            if name in ("garage_cars", "total_rooms", "bedrooms"):
                 if value.is_finite() and value >= 1 and value == value.to_integral_value():
                     return Reading(value, key, row.source)
                 continue
@@ -344,14 +356,11 @@ def long_side_ft(area_sf: Decimal) -> Decimal:
 
 
 def _stories(m: BuildingMeasurements) -> tuple[Decimal, dict[str, str], tuple[str, ...]]:
-    if m.stories is not None:
-        inputs = {"stories": _fmt(m.stories.value), "stories_field": m.stories.describe()}
-        return m.stories.value, inputs, ()
-    return (
-        DEFAULT_STORIES,
-        {"stories": _fmt(DEFAULT_STORIES), "stories_field": "assumed"},
-        (f"{_fmt(DEFAULT_STORIES)} story assumed: stories not printed",),
-    )
+    """The printed stories; only called once :func:`footprint` has found them (a missing
+    count is no longer taken as 1 story: EVAL_REPORT 78)."""
+    assert m.stories is not None
+    inputs = {"stories": _fmt(m.stories.value), "stories_field": m.stories.describe()}
+    return m.stories.value, inputs, ()
 
 
 def garage_area(m: BuildingMeasurements) -> Derived | None:
@@ -383,8 +392,8 @@ def garage_area(m: BuildingMeasurements) -> Derived | None:
 
 
 def footprint(m: BuildingMeasurements) -> Derived | None:
-    """The dwelling's footprint, GLA / stories (section 3.2)."""
-    if m.gla_sf is None:
+    """The dwelling's footprint, GLA / stories (section 3.2); None without either."""
+    if m.gla_sf is None or m.stories is None:
         return None
     stories, inputs, assumptions = _stories(m)
     area = m.gla_sf.value / stories
@@ -547,6 +556,22 @@ def landscaping_area(m: BuildingMeasurements) -> Derived | None:
     )
 
 
+def property_missing(m: BuildingMeasurements) -> dict[str, str]:
+    """For each property-level takeoff the appraisal cannot size, the missing input (a
+    :data:`basis.domain.money_inputs.INPUTS` code): the GLA, then the stories, then (for
+    landscaping) the site area. Empty when every one is sized."""
+    if m.gla_sf is None:
+        base = "gla"
+    elif m.stories is None:
+        base = "stories"
+    else:
+        base = None
+    out = {label: base for label in PROPERTY_LABELS if base}
+    if base is None and m.site_sf is None:
+        out["landscaping"] = "site_area"
+    return out
+
+
 def property_quantities(m: BuildingMeasurements) -> dict[str, Derived]:
     """The property-level takeoffs the appraisal can size, by takeoff label."""
     derived = {
@@ -609,6 +634,10 @@ def program_weight(m: BuildingMeasurements) -> Derived | None:
     return Derived(total, "SF", formula, inputs)
 
 
+# Room types that say nothing about the room: no share of the living area is sized for them.
+UNKNOWN_ROOM_TYPES: Final = frozenset({"", "ambiguous"})
+
+
 def room_areas(
     m: BuildingMeasurements, rooms: Sequence[RoomView], property_class: str
 ) -> dict[object, RoomArea]:
@@ -617,26 +646,30 @@ def room_areas(
     Above-grade rooms: ``GLA x weight / W`` with ``W = max(program weight, sum of the
     study's above-grade weights)``. Basement rooms: ``weight x GLA / W`` capped so that
     together they do not exceed the finished basement area. A garage room: the garage
-    area (shared equally by several). Exterior rooms, and every room when the GLA is
-    unknown: today's typical area, recorded as such.
+    area (shared equally by several). Exterior rooms, a garage with no garage area, a
+    basement with no printed area or finish, and every room when the GLA is unknown: the
+    typical area for the type, with ``missing`` naming the input that is absent, so a
+    measured item in the room stays unpriced (EVAL_REPORT 78; the typical area only
+    describes the room).
     """
     levels = {room.id: room_level(room.room_type, room.floor) for room in rooms}
     weights = {room.id: room_weight_sf(room.room_type) for room in rooms}
     areas: dict[object, RoomArea] = {}
 
-    def typical(room: RoomView) -> RoomArea:
+    def typical(room: RoomView, missing: str) -> RoomArea:
         area, known = typical_area_sf(room.room_type, property_class)
         return RoomArea(
             area,
             "typical_for_room_type" if known else "default_150_sf",
             f"{_fmt(area)} SF typical for {normalize_room_type(room.room_type) or 'unknown'}",
+            missing=missing,
         )
 
     garage = garage_area(m)
     garage_rooms = [r for r in rooms if levels[r.id] == "garage"]
     for room in garage_rooms:
         if garage is None:
-            areas[room.id] = typical(room)
+            areas[room.id] = typical(room, "garage_area")
             continue
         share = garage.quantity / len(garage_rooms)
         formula = garage.formula
@@ -648,7 +681,7 @@ def room_areas(
 
     if m.gla_sf is None:
         for room in rooms:
-            areas.setdefault(room.id, typical(room))
+            areas.setdefault(room.id, typical(room, "gla"))
         return areas
 
     above = [r for r in rooms if levels[r.id] == "above_grade"]
@@ -677,6 +710,10 @@ def room_areas(
         f"({denominator})",
     )
     for room in above:
+        if normalize_room_type(room.room_type) in UNKNOWN_ROOM_TYPES:
+            # An ambiguous room has no type to weigh its share by (EVAL_REPORT 78).
+            areas[room.id] = typical(room, "room_type")
+            continue
         weight = weights[room.id]
         area = m.gla_sf.value * weight / total_weight
         areas[room.id] = RoomArea(
@@ -689,36 +726,40 @@ def room_areas(
         )
 
     basement_rooms = [r for r in rooms if levels[r.id] == "basement"]
-    if basement_rooms:
-        finished: Decimal | None = None
-        basement_inputs: dict[str, str] = {}
-        basement_assumptions: tuple[str, ...] = ()
-        if m.basement_sf is not None:
-            if m.basement_finish_pct is not None:
-                finish = m.basement_finish_pct.value
-                basement_inputs["basement_finish_pct"] = _fmt(finish)
-                basement_inputs["basement_finish_field"] = m.basement_finish_pct.describe()
-            else:
-                finish = BASEMENT_FINISH_DEFAULT_PCT
-                basement_inputs["basement_finish_pct"] = _fmt(finish)
-                basement_inputs["basement_finish_field"] = "assumed"
-                basement_assumptions = ("basement finish not printed: 100% assumed",)
-            finished = m.basement_sf.value * finish / 100
-            basement_inputs["basement_sf"] = _fmt(m.basement_sf.value)
-            basement_inputs["basement_field"] = m.basement_sf.describe()
-            basement_inputs["finished_basement_sf"] = _fmt(_q(finished))
+    if basement_rooms and m.basement_sf is None:
+        # No printed basement area: nothing caps the house scale, which once sized a lone
+        # basement room at GLA x 150 SF (EVAL_REPORT 78). The area is missing, not guessed.
+        for room in basement_rooms:
+            areas[room.id] = typical(room, "basement_area")
+    elif basement_rooms and m.basement_finish_pct is None:
+        # Before EVAL_REPORT 78 an unprinted finish was taken as 100 % finished.
+        for room in basement_rooms:
+            areas[room.id] = typical(room, "basement_finish")
+    elif basement_rooms:
+        assert m.basement_sf is not None and m.basement_finish_pct is not None
+        finish = m.basement_finish_pct.value
+        finished = m.basement_sf.value * finish / 100
+        # An unfinished basement's rooms are sized on its physical floor area.
+        limit = finished if finished > 0 else m.basement_sf.value
+        limit_name = "finished basement" if finished > 0 else "unfinished basement floor"
+        basement_inputs = {
+            "basement_finish_pct": _fmt(finish),
+            "basement_finish_field": m.basement_finish_pct.describe(),
+            "basement_sf": _fmt(m.basement_sf.value),
+            "basement_field": m.basement_sf.describe(),
+            "finished_basement_sf": _fmt(_q(finished)),
+        }
         basement_weight = sum((weights[r.id] for r in basement_rooms), Decimal(0))
         scaled_total = basement_weight * scale
-        cap = finished is not None and finished > 0 and scaled_total > finished
+        cap = scaled_total > limit
         for room in basement_rooms:
             weight = weights[room.id]
             if cap:
-                assert finished is not None
-                area = finished * weight / basement_weight
+                area = limit * weight / basement_weight
                 formula = (
-                    f"{_fmt(_q(finished))} SF finished basement x {_fmt(weight)} / "
+                    f"{_fmt(_q(limit))} SF {limit_name} x {_fmt(weight)} / "
                     f"{_fmt(basement_weight)} (basement rooms' weight; the house scale "
-                    f"{scale:.2f} would exceed the finished area)"
+                    f"{scale:.2f} would exceed the {limit_name} area)"
                 )
             else:
                 area = weight * scale
@@ -733,14 +774,13 @@ def room_areas(
                 {**base_inputs, **basement_inputs, "room_weight_sf": _fmt(weight)},
                 (
                     *assumptions,
-                    "basement rooms are sized at the house scale, capped by the finished "
-                    "basement area",
-                    *basement_assumptions,
+                    f"basement rooms are sized at the house scale, capped by the {limit_name} area",
                 ),
             )
 
     for room in rooms:
-        areas.setdefault(room.id, typical(room))
+        # What is left is exterior (above-grade and basement rooms are sized above).
+        areas.setdefault(room.id, typical(room, "exterior_area"))
     return areas
 
 

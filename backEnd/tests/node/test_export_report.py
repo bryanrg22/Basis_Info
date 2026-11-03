@@ -65,12 +65,13 @@ async def test_same_revision_exports_byte_identical_files_with_resolved_evidence
     assets = {a["label"]: a for a in document["assets"]}
     assert set(assets) == {"carpet", "flooring", "garage_door", "refrigerator"}
     carpet = assets["carpet"]
-    # 18.33 SY x 78.48/SY: the legacy carpet row installed (STRUCTURE_MODEL.md 9.3)
+    # No appraisal fields: the bedroom has no measured area, so the carpet is exported with no
+    # quantity and no total, never a typical one (EVAL_REPORT 78).
     assert (carpet["bucket"], carpet["quantity"], carpet["unit"], carpet["total"]) == (
         "y5",
-        "18.3300",
+        "0.0000",
         "SY",
-        "1438.54",  # 61.20/SY x 1.0000: 2026 is after the last published index (EVAL_REPORT 45)
+        None,
     )
     references = sorted(c["reference"] for c in carpet["citations"])
     assert references == [

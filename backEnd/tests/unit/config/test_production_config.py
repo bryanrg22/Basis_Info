@@ -17,6 +17,7 @@ from pydantic import ValidationError
 from basis.config import ConfigError, load_settings, reset_settings
 
 STEP_VARS = (
+    "COST_TABLE_PATH",
     "TEXT_MODEL",
     "OPENAI_MODEL",
     "VISION_MODEL",

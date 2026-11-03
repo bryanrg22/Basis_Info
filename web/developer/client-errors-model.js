@@ -4,7 +4,8 @@
 (function(scope){
  'use strict';
  const FILTERS=['org_id','user_id','study_id','code','kind','status','request_id','since','until'];
- const KINDS=['error','unhandledrejection','api','console','resource','report'];
+ // study_input: a study held by a missing input, written by the server (EVAL_REPORT 78).
+ const KINDS=['error','unhandledrejection','api','console','resource','report','study_input'];
  // The issue statuses a person sets, and the one the ingest sets (regressed).
  const STATUSES=['open','in_progress','resolved','ignored','regressed'];
  const STATUS_LABEL={open:'Open',in_progress:'In progress',resolved:'Resolved',ignored:'Ignored',regressed:'Regressed'};
