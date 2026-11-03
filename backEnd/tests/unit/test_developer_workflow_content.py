@@ -200,8 +200,7 @@ def test_every_figure_is_verbatim_in_its_report_section(step_id: str) -> None:
         width = len(comparison["columns"]) - 1
         for row in comparison["rows"]:
             assert len(row["values"]) == width, (comparison["title"], row["name"])
-        selected = [row for row in comparison["rows"] if row.get("selected")]
-        assert len(selected) <= 1 and (not selected or comparison["rows"][0] is selected[0])
+        assert not any("selected" in row for row in comparison["rows"]), "use in_use"
     missing = [
         (section, text)
         for section, text in figures(results)
@@ -291,3 +290,78 @@ def test_coverage_rows_cite_real_sections_and_name_the_gap(step_id: str) -> None
             assert section in content()["sections"], (step_id, section)
         if row["verdict"] != "compared":
             assert row["missing"] and row["test"] and row["cost"], row
+
+
+# The table roles that name one production setting (model, effort). "count" is either of the
+# two per-photo counters, so it matches the counting model or the second counter.
+ROLE_SETTINGS: dict[str, tuple[tuple[str, str], ...]] = {
+    "counts objects in each photo": (("vision_model", "vision_reasoning_effort"),),
+    "counts objects in each photo (with sol)": (
+        ("vision_fusion_model", "vision_fusion_reasoning_effort"),
+    ),
+    "count": (
+        ("vision_model", "vision_reasoning_effort"),
+        ("vision_fusion_model", "vision_fusion_reasoning_effort"),
+    ),
+    "surfaces and room type per photo": (("vision_surfaces_model", "vision_reasoning_effort"),),
+    "surfaces and room type": (("vision_surfaces_model", "vision_reasoning_effort"),),
+    "surfaces": (("vision_surfaces_model", "vision_reasoning_effort"),),
+    "counts exterior lights, outlets": (("vision_model", "vision_reasoning_effort"),),
+    "counts windows, doors, light fixtures, cabinets": (
+        ("vision_fusion_model", "vision_fusion_reasoning_effort"),
+    ),
+    "combines each room's photos": (("room_model", "room_reasoning_effort"),),
+    "combines multi-photo rooms": (("room_model", "room_reasoning_effort"),),
+    "material re-check": (("room_materials_model", "room_materials_reasoning_effort"),),
+    "classifies assets into tax classes": (("classify_model", "classify_reasoning_effort"),),
+    "classifies each asset (tool loop with IRS search)": (
+        ("classify_model", "classify_reasoning_effort"),
+    ),
+    "reads the appraisal's fields": (
+        ("extraction_grounded_model", "extraction_grounded_reasoning_effort"),
+    ),
+    "material of each cut-out": (("surface_crop_model", "surface_crop_reasoning_effort"),),
+}
+NUMBER = re.compile(r"\$?\d[\d,]*(?:\.\d+)?")
+
+
+def is_production(call: dict[str, Any]) -> bool | None:
+    """Whether a table call is today's default for its role; None for a role with no setting."""
+    options = ROLE_SETTINGS.get(call["role"])
+    if options is None:
+        return None
+    fields = Settings.model_fields
+    return any(
+        call["model"] == fields[model].default
+        and call.get("effort") in (None, fields[effort].default)
+        for model, effort in options
+    )
+
+
+@pytest.mark.parametrize("step_id", STEP_IDS)
+def test_every_table_says_what_basis_uses_and_green_rows_are_todays_setup(step_id: str) -> None:
+    """Each table opens with what Basis uses today; its green rows (in_use) run today's
+    default model and effort for every role that has a setting, except the roles a row names
+    in in_use_except, which must really differ (so the note goes when the setting changes)."""
+    for comparison in content()["steps"][step_id]["results"].get("comparisons", []):
+        assert comparison.get("used"), comparison["title"]
+        assert "winner" not in comparison and "why" not in comparison, comparison["title"]
+        cited = [comparison["section"], *comparison.get("used_sections", [])]
+        text = plain(" ".join(sections()[s] for s in cited))
+        for number in NUMBER.findall(comparison["used"]):
+            assert number in text, (comparison["section"], number)
+        for row in comparison["rows"]:
+            if not row.get("in_use"):
+                assert "in_use_except" not in row, row["name"]
+                continue
+            excepted = set(row.get("in_use_except", []))
+            for call in row["setup"]:
+                verdict = is_production(call)
+                if verdict is None:
+                    continue
+                if call["role"] in excepted:
+                    assert verdict is False, (comparison["section"], row["name"], call)
+                else:
+                    assert verdict, (comparison["section"], row["name"], call)
+            roles = {call["role"] for call in row["setup"]}
+            assert excepted <= roles, (comparison["section"], row["name"], excepted - roles)

@@ -122,7 +122,7 @@
      {
       "title": "Capacity per worker process",
       "section": "32",
-      "dataset": "Locust engineers uploading and running whole synthetic 52-photo studies against fake providers with the live study's latencies",
+      "dataset": "Pretend engineers (a load-testing tool) uploading and running whole made-up 52-photo studies, with stand-ins for the AI providers that answer as slowly as the real ones did",
       "date": "2026-10-17",
       "columns": [
        "Load test run (settings, studies at once)",
@@ -151,8 +151,7 @@
          "858",
          "$6.15",
          "None real (fake providers, no AI call). The fakes report the live study's average: about 2,259,205 in / 141,897 out per study (550 calls)"
-        ],
-        "selected": true
+        ]
        },
        {
         "id": "h-s25",
@@ -266,7 +265,8 @@
          "13,593",
          "$6.07",
          "None real (fake providers, no AI call). The fakes report the live study's average: about 2,259,205 in / 141,897 out per study (550 calls)"
-        ]
+        ],
+        "in_use": true
        },
        {
         "id": "c-s10",
@@ -285,7 +285,8 @@
          "5,435",
          "$6.07",
          "None real (fake providers, no AI call). The fakes report the live study's average: about 2,259,205 in / 141,897 out per study (550 calls)"
-        ]
+        ],
+        "in_use": true
        },
        {
         "id": "c-s5",
@@ -304,7 +305,8 @@
          "2,737",
          "$6.07",
          "None real (fake providers, no AI call). The fakes report the live study's average: about 2,259,205 in / 141,897 out per study (550 calls)"
-        ]
+        ],
+        "in_use": true
        },
        {
         "id": "c-s1",
@@ -323,12 +325,11 @@
          "584",
          "$6.07",
          "None real (fake providers, no AI call). The fakes report the live study's average: about 2,259,205 in / 141,897 out per study (550 calls)"
-        ]
+        ],
+        "in_use": true
        }
       ],
-      "winner": "l12-s25 · Tuned plus 12 SAM 3 jobs at once, rate limits simulated, 25 studies (proposed for launch)",
-      "why": "The settings recommended for launch (32.12): every study completed with no failed attempt, bound only by the 64-call pool per process.",
-      "question": "How many studies an hour can one worker process at the production settings?",
+      "question": "How many studies can one worker finish in an hour?",
       "column_notes": [
        {},
        {
@@ -351,12 +352,13 @@
         "help": "Tokens the run used: input (what the model read) / output (what it wrote; \"thinking\" is the part spent reasoning, billed as output). \"Not recorded\" means the run kept no token counts; nothing is estimated."
        }
       ],
-      "step": 3
+      "step": 3,
+      "used": "The code's own settings are the rows named \"Production settings\" (4 AI calls at a time). For launch, section 32.12 recommends 64 AI calls, 16 classifier calls and 12 SAM 3 jobs at a time on the worker (the first row). Those are server settings nobody has set yet, because nothing is deployed."
      },
      {
       "title": "Upload of one study under the per-engineer mutation limit",
       "section": "32.10",
-      "dataset": "Five engineers uploading at once, 53 documents each, upload-only steps at scale 1.0",
+      "dataset": "Five engineers uploading at the same time, 53 files each, upload steps only",
       "date": "2026-10-17",
       "columns": [
        "Write-request limit per engineer",
@@ -374,24 +376,22 @@
          "0",
          "None (no AI model)"
         ],
-        "setup_note": "No AI model",
-        "selected": true
+        "setup_note": "No AI model"
        },
        {
         "id": "60/min",
-        "name": "Allow 60 write requests a minute per engineer (current default)",
+        "name": "Allow 60 write requests a minute per engineer",
         "setup": [],
         "values": [
          "61.5 s / 61.5 s",
          "5",
          "None (no AI model)"
         ],
-        "setup_note": "No AI model"
+        "setup_note": "No AI model",
+        "in_use": true
        }
       ],
-      "winner": "300/min · Allow 300 write requests a minute per engineer (proposed)",
-      "why": "Recommended for launch together with the frontend: it keeps the abuse guard and lets a whole study upload without throttling; the default was not changed because it is the API contract.",
-      "question": "Does the per-engineer request limit slow down uploading a study?",
+      "question": "Does the request limit per engineer slow down uploading a study?",
       "column_notes": [
        {
         "help": "Seconds to upload one study's 53 files, median and worst of five engineers uploading at once.",
@@ -405,11 +405,15 @@
         "help": "Tokens the run used: input (what the model read) / output (what it wrote; \"thinking\" is the part spent reasoning, billed as output). \"Not recorded\" means the run kept no token counts; nothing is estimated."
        }
       ],
-      "step": 1
+      "step": 1,
+      "used": "Basis keeps 60 write requests a minute per engineer, the limit the API promises today. Section 32.12 recommends 300 a minute for launch, together with the frontend, because at 60 a study's upload is held back.",
+      "used_sections": [
+       "32.12"
+      ]
      },
      {
       "title": "How long does the search model take to load, depending on what is already downloaded?",
-      "question": "How long does the search model take to load, depending on what is already downloaded?",
+      "question": "How long does the search model take to load the first time?",
       "section": "39",
       "dataset": "",
       "date": "",
@@ -495,14 +499,16 @@
          "6.7 s",
          "0.01 s",
          "None (local model, no paid call; tokens not counted)"
-        ]
+        ],
+        "in_use": true
        }
       ],
-      "step": 3
+      "step": 3,
+      "used": "The worker reads the search model from its own copy and never contacts the download site, the \"cached, offline\" row: 6.7 s on first use instead of minutes."
      },
      {
       "title": "Does shipping the search model inside the worker, loaded before work starts, fix the first-job failure?",
-      "question": "Does shipping the search model inside the worker, loaded before work starts, fix the first-job failure?",
+      "question": "Does building the search model into the worker stop the first job from failing?",
       "section": "39.4",
       "dataset": "",
       "date": "",
@@ -568,7 +574,7 @@
        },
        {
         "id": "after",
-        "name": "New worker: model shipped inside and loaded before work starts (chosen)",
+        "name": "New worker: model shipped inside and loaded before work starts",
         "setup": [
          {
           "role": "search model",
@@ -584,10 +590,12 @@
          "298.5 s with the warning, source=download",
          "603 MB (+88 MB cache)",
          "None (local model, no paid call; tokens not counted)"
-        ]
+        ],
+        "in_use": true
        }
       ],
-      "step": 3
+      "step": 3,
+      "used": "The worker ships the search model inside its image and loads it before taking work, so the first job no longer waits for a download or fails."
      }
     ],
     "metrics": [
@@ -648,7 +656,7 @@
      "plain": "Last checked end to end on Nov 1's build (live run 6, commit 15cd291). Main has changed since (including the fail-safe change and support file access); one new live study, about $3 to $4, would re-check it."
     },
     "gaps": {
-     "2": "Not a comparison: starting a study is a pass/fail rule (it is refused without the property details and the appraisal), checked by tests rather than measured against alternatives."
+     "2": "Nothing to compare: starting a study is a pass-or-fail rule (it is refused without the property details and the appraisal). Tests check the rule; there is no alternative to measure."
     },
     "coverage": [
      {
@@ -827,19 +835,19 @@
      {
       "title": "Production default replayed against the sweep's grounded call",
       "section": "33.12",
-      "dataset": "Replay with no network on the 16-document subset (documents with a matching recording), gpt-6.1-sol at low effort",
+      "dataset": "16 appraisals re-read from recorded answers, no network and no new spend; gpt-6.1-sol at low effort",
       "date": "2026-10-28",
       "columns": [
        "Replay of recorded sol calls",
        "Appraisals replayed (of 16)",
        "Printed fields read right",
-       "Spurious values",
+       "Made-up values (not on the page)",
        "Tokens (input / output)"
       ],
       "rows": [
        {
         "id": "production, now",
-        "name": "Production path on current code (9 appraisals match)",
+        "name": "The code that runs today (9 appraisals match)",
         "setup": [
          {
           "role": "page text and checkboxes (recorded, replayed)",
@@ -860,11 +868,11 @@
          "5",
          "Same 9 recorded calls: 109,312 in / 42,936 out (101 thinking); no new spend"
         ],
-        "selected": true
+        "in_use": true
        },
        {
         "id": "one read, now",
-        "name": "The sweep's single AI read on current code (9 appraisals match)",
+        "name": "The model test's best method on current code (9 appraisals match)",
         "setup": [
          {
           "role": "page text and checkboxes (recorded, replayed)",
@@ -888,7 +896,7 @@
        },
        {
         "id": "production, as recorded",
-        "name": "Production path (AI read, highlight rules, derived site area), same replay",
+        "name": "The code that ran then (AI read, highlight rules, derived site area), same replay",
         "setup": [
          {
           "role": "page text and checkboxes (recorded, replayed)",
@@ -912,7 +920,7 @@
        },
        {
         "id": "one read, as recorded",
-        "name": "The sweep's single AI read, units caption as first recorded",
+        "name": "The model test's best method, units caption as first recorded",
         "setup": [
          {
           "role": "page text and checkboxes (recorded, replayed)",
@@ -935,9 +943,7 @@
         ]
        }
       ],
-      "winner": "production, now · Production path on current code (9 appraisals match)",
-      "why": "The production path sends the sweep's requests byte for byte and returns the same values; it only adds the derived site-area fields, which were all correct.",
-      "question": "Does the production code read appraisals as well as the sweep's winning method?",
+      "question": "Does the code that runs today read an appraisal as well as the best method from the model test?",
       "column_notes": [
        {
         "help": "How many of the 16 appraisals had a matching recorded call to replay with no network.",
@@ -952,12 +958,13 @@
         "help": "Tokens the run used: input (what the model read) / output (what it wrote; \"thinking\" is the part spent reasoning, billed as output). \"Not recorded\" means the run kept no token counts; nothing is estimated."
        }
       ],
-      "step": 2
+      "step": 2,
+      "used": "This is the code that runs today: it sends the same requests the best method of the model test (section 33) sent, and gets the same values back on all 9 appraisals."
      },
      {
       "title": "Fallback model for the pipeline's field call",
       "section": "17.1",
-      "dataset": "75 labelled fields of the client appraisal (12 critical), whole document text, 3 repeats per model",
+      "dataset": "75 hand-checked fields of one client appraisal (12 of them critical), each model given the whole document's text, 3 runs per model",
       "date": "2026-10-16",
       "columns": [
        "Model",
@@ -971,7 +978,7 @@
       "rows": [
        {
         "id": "luna",
-        "name": "OpenAI gpt-6-luna, the cheapest (chosen)",
+        "name": "OpenAI gpt-6-luna, the cheapest",
         "setup": [
          {
           "role": "reads all 75 fields in one call",
@@ -989,7 +996,7 @@
          "17.0",
          "29,868 in / 8,157 out, 3 calls (one per run; thinking not recorded)"
         ],
-        "selected": true
+        "in_use": true
        },
        {
         "id": "Sonnet",
@@ -1118,8 +1125,6 @@
         ]
        }
       ],
-      "winner": "luna · OpenAI gpt-6-luna, the cheapest (chosen)",
-      "why": "Highest mean with every critical field right on every repeat, at the lowest price measured; the top four models are tied within noise (17.3).",
       "question": "Which model reads an appraisal's fields best for the money?",
       "column_notes": [
        {
@@ -1143,11 +1148,12 @@
         "help": "Tokens the run used: input (what the model read) / output (what it wrote; \"thinking\" is the part spent reasoning, billed as output). \"Not recorded\" means the run kept no token counts; nothing is estimated."
        }
       ],
-      "step": 2
+      "step": 2,
+      "used": "Basis uses gpt-6-luna as the backup field reader (it runs only when the main call cannot): every critical field right on every repeat at the lowest price measured; the top four models are tied within noise."
      },
      {
       "title": "Which method and model read an appraisal's fields most accurately?",
-      "question": "Which method and model read an appraisal's fields most accurately?",
+      "question": "Which way of reading an appraisal gets the most fields right?",
       "section": "33",
       "dataset": "",
       "date": "",
@@ -1193,7 +1199,7 @@
       "rows": [
        {
         "id": "one read",
-        "name": "One AI call reads the whole appraisal, quoting every value from the page (production)",
+        "name": "One AI call reads the whole appraisal, quoting every value from the page",
         "setup": [
          {
           "role": "reads page text and checkboxes",
@@ -1216,7 +1222,8 @@
          "1.000",
          "0.072",
          "218,360 in (16,380 cached) / 72,072 out (246 thinking), 16 calls"
-        ]
+        ],
+        "in_use": true
        },
        {
         "id": "vote sol",
@@ -1564,11 +1571,12 @@
         ]
        }
       ],
-      "step": 2
+      "step": 2,
+      "used": "Basis reads an appraisal with one gpt-6.1-sol call that quotes every value from the page: the most accurate single method of every one tested (0.940 of all fields, every critical field right) at $0.072 a document."
      },
      {
       "title": "How should Basis tell which option a ticked checkbox stands for?",
-      "question": "How should Basis tell which option a ticked checkbox stands for?",
+      "question": "When a checkbox is ticked, how does Basis know which option it stands for?",
       "section": "33.4",
       "dataset": "",
       "date": "",
@@ -1606,7 +1614,8 @@
          "0.958",
          "0.985",
          "None (no AI model); Azure's page reading has no tokens"
-        ]
+        ],
+        "in_use": true
        },
        {
         "id": "Azure pairs",
@@ -1625,7 +1634,8 @@
         ]
        }
       ],
-      "step": 2
+      "step": 2,
+      "used": "Basis finds each checkbox's label from the page itself (the words right after the box): right 0.958 of the time on the client appraisal and 0.985 on the generated ones, against 0.875 and 0.849 for Azure's own pairing."
      }
     ],
     "metrics": [
@@ -1694,8 +1704,8 @@
      "plain": "Last checked end to end on Nov 1's build (live run 6, commit 15cd291). Main has changed since (including the fail-safe change and support file access); one new live study, about $3 to $4, would re-check it."
     },
     "gaps": {
-     "1": "No comparison of PDF readers has been run: Azure Document Intelligence's layout model is the only one measured here. Its polling interval was tuned (section 33.10).",
-     "3": "No comparison table: the presence rules (which fields must exist) were checked field by field against the labels (section 33.9), not compared across methods."
+     "1": "Not compared yet. The PDF readers (pdfplumber and PyMuPDF) and the search model were never tried against alternatives; Azure's page reader is the only piece measured here, and only how long it waits between checks (section 33.10). The table at the bottom, \"What was tested, and what was not\", lists the test to run and what it would cost.",
+     "3": "Not a comparison. The rules for which fields must be present were checked field by field against the hand-labelled appraisals (section 33.9); no alternative set of rules was measured."
     },
     "coverage": [
      {
@@ -1995,7 +2005,7 @@
      {
       "title": "Per-photo counting variants against the verified boxes",
       "section": "15.1",
-      "dataset": "52 photos of one client study, 191 verified objects in six count classes, three repeats",
+      "dataset": "52 photos of one client study, 191 hand-verified objects of six kinds, three runs",
       "date": "2026-10-16",
       "columns": [
        "Setup",
@@ -2043,7 +2053,10 @@
          "11.1",
          "Not recorded offline. The same setup run live on the same 52 photos (section 23, run 3): Opus 222,927 in / 26,292 out; sol counting 115,572 in / 23,742 out; sol surfaces 95,084 in / 12,438 out"
         ],
-        "selected": true
+        "in_use": true,
+        "in_use_except": [
+         "surfaces"
+        ]
        },
        {
         "id": "Start",
@@ -2406,8 +2419,6 @@
         ]
        }
       ],
-      "winner": "4c · Two models count each photo; each object type is taken from the model that counts it better (tuned on the other photos)",
-      "why": "Taking each class from the counting call that is more accurate on it was the significant gain that held out of sample; self-consistency on top was more accurate but cost far more, and SAM 3 as a count source only helped in sample (15.3, 15.4).",
       "question": "Which setup counts the objects in a photo most accurately?",
       "column_notes": [
        {
@@ -2438,12 +2449,18 @@
         "help": "Tokens the run used: input (what the model read) / output (what it wrote; \"thinking\" is the part spent reasoning, billed as output). \"Not recorded\" means the run kept no token counts; nothing is estimated."
        }
       ],
-      "step": 2
+      "step": 2,
+      "used": "Basis counts each photo with two models (gpt-6.1-sol and claude-opus-5-5) and takes each object type from the one that counts it better: the only gain that held on photos it was not tuned on; the more accurate repeated-call setups cost far more (15.3, 15.4). This row read surfaces on gpt-6.1-sol; today gpt-6-luna does (28.1).",
+      "used_sections": [
+       "15.3",
+       "15.4",
+       "28.1"
+      ]
      },
      {
       "title": "Surfaces and room-type call: cheapest model that matches",
       "section": "28.1",
-      "dataset": "52 photos of one client study, three repeats, countables call fixed on gpt-6.1-sol",
+      "dataset": "52 photos of one client study, three runs; the counting call kept on gpt-6.1-sol",
       "date": "2026-10-16",
       "columns": [
        "Setup (the surfaces and room-type call)",
@@ -2477,7 +2494,7 @@
          "4.1",
          "Not recorded (per-photo runs kept no token counts)"
         ],
-        "selected": true
+        "in_use": true
        },
        {
         "id": "v2 start",
@@ -2590,9 +2607,7 @@
         ]
        }
       ],
-      "winner": "v2 · Luna (cheapest), newer prompt",
-      "why": "gpt-6-luna matched gpt-6.1-sol on room type, surface F1 and the report-row measures at a small fraction of the price, trading some surface recall for precision; gpt-5.6-luna lost recall without the precision gain.",
-      "question": "Which model reads surfaces and room type well enough for the least money?",
+      "question": "Which model reads a photo's surfaces and room type well enough, for the least money?",
       "column_notes": [
        {
         "help": "Share of the 52 photos whose room type is right, averaged over 3 runs.",
@@ -2622,16 +2637,17 @@
         "help": "Tokens the run used: input (what the model read) / output (what it wrote; \"thinking\" is the part spent reasoning, billed as output). \"Not recorded\" means the run kept no token counts; nothing is estimated."
        }
       ],
-      "step": 1
+      "step": 1,
+      "used": "Basis uses gpt-6-luna with the newer instructions for surfaces and room type: it matched gpt-6.1-sol on room type and surfaces at a small fraction of the price ($0.019 against $0.336 for 52 photos)."
      },
      {
       "title": "Trained segmenters and open-vocabulary detectors against the model counts",
       "section": "26.2",
-      "dataset": "52 photos of one client study, 191 verified boxes; detector phrases and thresholds chosen leave one photo out",
+      "dataset": "52 photos of one client study, 191 hand-verified objects; each detector's phrases and thresholds were tuned leaving one photo out",
       "date": "2026-10-16",
       "columns": [
        "System",
-       "Box accuracy (mAP@0.5)",
+       "Outline accuracy (mAP at 0.5 overlap)",
        "Count error per photo (MAE)",
        "Change vs. the current counts [95% range]",
        "Precision / recall",
@@ -2642,7 +2658,7 @@
       "rows": [
        {
         "id": "4c",
-        "name": "Current: two language models count each photo (section 15's winner)",
+        "name": "Two language models count each photo (section 15's winner)",
         "setup": [
          {
           "role": "count",
@@ -2668,7 +2684,7 @@
          "$1.87 / 52",
          "Not recorded (per-photo runs kept no token counts)"
         ],
-        "selected": true
+        "in_use": true
        },
        {
         "id": "SAM 3",
@@ -2791,9 +2807,7 @@
         ]
        }
       ],
-      "winner": "4c · Current: two language models count each photo (section 15's winner)",
-      "why": "No detector or segmenter won a single class against the model counts; SAM 3 stays the best detector on these photos, so it is kept for highlight masks only (26.9, 26.10).",
-      "question": "Can a dedicated object detector or segmenter count better than the language models?",
+      "question": "Can a purpose-built object detector count better than the language models?",
       "column_notes": [
        {
         "help": "How well the boxes a detector draws match the hand-checked boxes (a box counts if it overlaps by half); n/a for systems that draw no boxes.",
@@ -2823,7 +2837,8 @@
         "help": "Tokens the run used: input (what the model read) / output (what it wrote; \"thinking\" is the part spent reasoning, billed as output). \"Not recorded\" means the run kept no token counts; nothing is estimated."
        }
       ],
-      "step": 3
+      "step": 3,
+      "used": "Basis keeps the two language models for counting: no detector or outlining model won a single object type against them; SAM 3 is kept only to outline the counted objects."
      }
     ],
     "metrics": [
@@ -3143,7 +3158,7 @@
      {
       "title": "How photos are grouped into rooms, scored through the room step",
       "section": "23.3",
-      "dataset": "Live per-photo outputs of one client study, room step of 16.5 re-run offline, one repeat, scored on the 33 labelled rooms",
+      "dataset": "One client study's photo answers, the room step re-run once without new AI calls, scored against the 33 hand-labelled rooms",
       "date": "2026-10-16",
       "columns": [
        "How photos are grouped into rooms",
@@ -3186,7 +3201,10 @@
          "$0.33",
          "Combining: 53,239 in / 8,214 out, 9 calls. Material re-check: not recorded"
         ],
-        "selected": true
+        "in_use": true,
+        "in_use_except": [
+         "combines multi-photo rooms"
+        ]
        },
        {
         "id": "live",
@@ -3309,9 +3327,7 @@
         ]
        }
       ],
-      "winner": "names + aliases · Rooms from file names plus the engineer's 16 room merges (Opus photo answers)",
-      "why": "The model's room identity collected several real rooms under one room and de-duplicated objects across them, and without the aliases the views of one room became separate rooms whose objects were counted twice; file names plus aliases avoided both.",
-      "question": "How should photos be grouped into rooms before they are combined?",
+      "question": "How should photos be sorted into rooms before a room's photos are combined?",
       "column_notes": [
        {
         "help": "Average number of objects off, per room and object type, against the hand-labelled inventory of 33 rooms.",
@@ -3345,11 +3361,15 @@
         "help": "Tokens the run used: input (what the model read) / output (what it wrote; \"thinking\" is the part spent reasoning, billed as output). \"Not recorded\" means the run kept no token counts; nothing is estimated."
        }
       ],
-      "step": 1
+      "step": 1,
+      "used": "Basis groups photos into rooms by their file names plus the engineer's room merges: the model's own guess put several real rooms into one, and without the merges one room's views were counted twice. This row combined rooms on Sonnet; today that step runs on gpt-6-luna (28.2).",
+      "used_sections": [
+       "28.2"
+      ]
      },
      {
       "title": "Does reading the room's name first give rooms the right name, type and floor?",
-      "question": "Does reading the room's name first give rooms the right name, type and floor?",
+      "question": "Does reading the room's name from the file first give rooms the right name, type and floor?",
       "section": "48.4",
       "dataset": "",
       "date": "",
@@ -3456,7 +3476,8 @@
          "0",
          "0",
          "None (no AI call: replays the room rule on stored answers)"
-        ]
+        ],
+        "in_use": true
        },
        {
         "id": "live, merged, before",
@@ -3506,7 +3527,8 @@
          "0",
          "0",
          "None (no AI call: replays the room rule on stored answers)"
-        ]
+        ],
+        "in_use": true
        },
        {
         "id": "live, camera names",
@@ -3531,7 +3553,8 @@
          "0",
          "1–2",
          "None (no AI call: replays the room rule on stored answers)"
-        ]
+        ],
+        "in_use": true
        },
        {
         "id": "stored, file names, before",
@@ -3659,7 +3682,8 @@
         ]
        }
       ],
-      "step": 2
+      "step": 2,
+      "used": "Basis reads the room's name first (from the file name or the engineer's merge) and asks the AI only when the name says nothing, the \"after\" rows; camera-style names that say nothing about the room keep the AI's guess."
      }
     ],
     "metrics": [
@@ -3719,7 +3743,7 @@
      "plain": "Last checked end to end on Nov 1's build (live run 6, commit 15cd291). Main has changed since (including the fail-safe change and support file access); one new live study, about $3 to $4, would re-check it."
     },
     "gaps": {
-     "3": "Not a comparison: opening the rooms review is a workflow step with no alternative to measure."
+     "3": "Nothing to compare: opening the rooms review is a step in the workflow, not a choice between methods."
     },
     "coverage": [
      {
@@ -3864,7 +3888,7 @@
      {
       "title": "Room step variants against the reconciliation baseline",
       "section": "16.2",
-      "dataset": "33 rooms of one client study (8 with several photos), three repeats; gpt-6.1-sol per-photo input unless the row says Opus input",
+      "dataset": "33 rooms of one client study (8 with several photos), three runs; photo answers from gpt-6.1-sol unless the row says Opus",
       "date": "2026-10-16",
       "columns": [
        "Setup",
@@ -3879,7 +3903,7 @@
       ],
       "rows": [
        {
-        "id": "Chosen",
+        "id": "v3 Sonnet",
         "name": "Sonnet combines rooms with several photos and re-checks every material that decides the tax class",
         "setup": [
          {
@@ -3907,7 +3931,10 @@
          "$0.99",
          "Combining: 160,992 in / 24,510 out, 27 calls. Material re-check: not recorded (83 calls)"
         ],
-        "selected": true
+        "in_use": true,
+        "in_use_except": [
+         "combines multi-photo rooms"
+        ]
        },
        {
         "id": "Start",
@@ -4127,7 +4154,7 @@
        },
        {
         "id": "Opus in",
-        "name": "Chosen setup, fed Opus's photo answers",
+        "name": "The first row's setup, fed Opus's photo answers",
         "setup": [
          {
           "role": "combines multi-photo rooms",
@@ -4156,9 +4183,7 @@
         ]
        }
       ],
-      "winner": "Chosen · Sonnet combines rooms with several photos and re-checks every material that decides the tax class",
-      "why": "De-duplication needs a strong model and only pays where a room has several photos, so one-photo rooms skip the call; the sensitive material second look on Sonnet fixed the wainscot material and evidenced every material row (16.4, 16.5).",
-      "question": "How should one room's photos be combined so every object is counted once?",
+      "question": "How should a room's photos be combined so every object is counted once?",
       "column_notes": [
        {
         "help": "Average number of objects off, per room and object type, against the hand-labelled inventory of 33 rooms.",
@@ -4192,12 +4217,16 @@
         "help": "Tokens the run used: input (what the model read) / output (what it wrote; \"thinking\" is the part spent reasoning, billed as output). \"Not recorded\" means the run kept no token counts; nothing is estimated."
        }
       ],
-      "step": 2
+      "step": 2,
+      "used": "Basis combines only rooms with several photos (one-photo rooms keep their photo's list) and re-checks every material that decides the tax class on Sonnet. This row combined rooms on Sonnet; today that step runs on gpt-6-luna, which section 28.2 found as accurate as Sonnet (the difference within run-to-run variation) at about half the room step's cost.",
+      "used_sections": [
+       "28.2"
+      ]
      },
      {
       "title": "Room reconciler and material model: cheapest that matches",
       "section": "28.2",
-      "dataset": "33 rooms of one client study, Opus 5.5 per-photo input, room_inventory/v3, three repeats; 20 labelled surfaces for materials",
+      "dataset": "33 rooms of one client study, photo answers from claude-opus-5-5, the room instructions v3, three runs; 20 hand-labelled surfaces for materials",
       "date": "2026-10-16",
       "columns": [
        "Setup (combining model = material model unless stated)",
@@ -4240,11 +4269,11 @@
          "$0.157",
          "Combining: 106,029 in (88,960 cached) / 32,024 out (13,938 thinking), 27 calls. Material re-check: not recorded"
         ],
-        "selected": true
+        "in_use": true
        },
        {
         "id": "Start",
-        "name": "Sonnet combines rooms and re-checks materials (current)",
+        "name": "Sonnet combines rooms and re-checks materials (Basis's setup before this test)",
         "setup": [
          {
           "role": "combines multi-photo rooms",
@@ -4393,9 +4422,7 @@
         ]
        }
       ],
-      "winner": "luna + Sonnet · Luna combines rooms; Sonnet re-checks materials",
-      "why": "gpt-6-luna reconciles within the noise of Sonnet, while materials decide the tax bucket and Sonnet reads them best, so the split keeps the second look on Sonnet at about half the cost; the two gpt-6-luna rows differ only by run-to-run noise of the same reconciler.",
-      "question": "Which model combines a room's photos and checks materials well enough for the least money?",
+      "question": "Which model combines a room's photos and checks its materials well enough, for the least money?",
       "column_notes": [
        {
         "help": "Average number of objects off, per room and object type, against the hand-labelled inventory of 33 rooms.",
@@ -4429,27 +4456,28 @@
         "help": "Tokens the run used: input (what the model read) / output (what it wrote; \"thinking\" is the part spent reasoning, billed as output). \"Not recorded\" means the run kept no token counts; nothing is estimated."
        }
       ],
-      "step": 3
+      "step": 3,
+      "used": "Basis combines rooms on gpt-6-luna and re-checks materials on claude-sonnet-5-5: luna's count error was as good as Sonnet's within run-to-run variation (0.437 against 0.388) at about half the cost ($0.157 against $0.314), and materials, which decide the tax class, stay on the model that reads them best. The evidence is thin: the call only touches 8 rooms with several photos in one study."
      },
      {
       "title": "Room-step architectures: per-photo then reconcile against one call per room",
       "section": "26.8",
-      "dataset": "One client study, 52 photos and 33 rooms, three repeats; quantities on the 17 count rows against the labelled inventory",
+      "dataset": "One client study, 52 photos and 33 rooms, three runs; quantities on the 17 counted rows against the hand-labelled inventory",
       "date": "2026-10-16",
       "columns": [
        "Architecture",
        "Right object types per room (F1)",
        "Count error per room [change vs. current, 95% range]",
        "Report lines with evidence (of 38) (share in all 3 runs)",
-       "Qty WAPE",
-       "Qty cost-weighted",
+       "Quantity error (WAPE)",
+       "Quantity error, weighted by dollars",
        "Cost per study",
        "Seconds per study",
        "Tokens (input / output)"
       ],
       "rows": [
        {
-        "id": "Current",
+        "id": "per photo",
         "name": "Analyse each photo, then combine per room; counts from the two-model setup (4c)",
         "setup": [
          {
@@ -4498,7 +4526,11 @@
          "not re-measured",
          "Photo calls: not recorded. Combining: 160,890 in / 25,726 out, 27 calls (3 runs)"
         ],
-        "selected": true
+        "in_use": true,
+        "in_use_except": [
+         "photo analysis",
+         "combines multi-photo rooms"
+        ]
        },
        {
         "id": "d1",
@@ -4686,7 +4718,7 @@
        },
        {
         "id": "f",
-        "name": "Indoor rooms: one Opus call per room; outdoor areas: the current pipeline",
+        "name": "Indoor rooms: one Opus call per room; outdoor areas: the per-photo pipeline",
         "setup": [
          {
           "role": "one call per indoor room",
@@ -4722,9 +4754,7 @@
         ]
        }
       ],
-      "winner": "Current · Analyse each photo, then combine per room; counts from the two-model setup (4c)",
-      "why": "The room call at high effort counted rooms best, but the interior/exterior rule was chosen on this one study and the per-row totals the engineer prices were no closer, so it was wired behind a setting and left off by default until a second property confirms it (26.10, 29.5).",
-      "question": "Is one model call per room (or per house) better than analysing each photo and then combining?",
+      "question": "Is one AI call per room (or per house) better than analysing each photo and then combining?",
       "column_notes": [
        {
         "help": "How well each room's object types match the labels.",
@@ -4752,11 +4782,16 @@
         "help": "Tokens the run used: input (what the model read) / output (what it wrote; \"thinking\" is the part spent reasoning, billed as output). \"Not recorded\" means the run kept no token counts; nothing is estimated."
        }
       ],
-      "step": 1
+      "step": 1,
+      "used": "Basis analyses each photo and then combines each room. One call per room, thinking longer (high effort), counted rooms better, but on one study only, so it waits behind a setting (ROOM_STEP_MODE) until a second property confirms it. This row's photo analysis ran on Opus and its room step on Sonnet; today gpt-6-luna does both (28.1, 28.2).",
+      "used_sections": [
+       "28.1",
+       "28.2"
+      ]
      },
      {
       "title": "Does looking at a cut-out of each surface read its material better than the whole photo?",
-      "question": "Does looking at a cut-out of each surface read its material better than the whole photo?",
+      "question": "Does cutting each surface out of the photo help the AI name its material?",
       "section": "26.3",
       "dataset": "",
       "date": "",
@@ -4811,8 +4846,8 @@
       ],
       "rows": [
        {
-        "id": "current",
-        "name": "Opus reads surfaces from each whole photo (current)",
+        "id": "whole photo",
+        "name": "Opus reads surfaces from each whole photo (Basis's setup when this was tested)",
         "setup": [
          {
           "role": "surfaces in each whole photo",
@@ -4965,7 +5000,8 @@
         ]
        }
       ],
-      "step": 3
+      "step": 3,
+      "used": "Basis reads materials from the whole photos today. Cutting each surface out read materials better (0.79 against 0.64 of 58 surfaces right), but it stays off (MATERIALS_SECOND_LOOK=per_photo) until a second client package confirms it, so no row here is today's setup."
      }
     ],
     "metrics": [
@@ -5237,12 +5273,12 @@
      {
       "title": "Residual classifier: the cheapest model that matches",
       "section": "28.3",
-      "dataset": "46 rows of the engineer's asset schedule, 3 repeats, production tool loop with the rules table and cache bypassed",
+      "dataset": "46 rows of the engineer's asset schedule, 3 runs, the classifier as it runs today but with the rules table and the firm's rulings switched off, so every row goes to the model",
       "date": "2026-10-16",
       "columns": [
        "Model",
        "Reasoning effort",
-       "Bucket right, mean of 3",
+       "Right tax class, average of 3 runs",
        "Right in all 3 runs",
        "Citations verified, all 3 repeats",
        "Sent to the engineer for review (average of 3)",
@@ -5254,7 +5290,7 @@
       "rows": [
        {
         "id": "Sonnet",
-        "name": "Claude Sonnet 5.5, re-run on current code (current choice)",
+        "name": "Claude Sonnet 5.5, re-run on current code",
         "setup": [
          {
           "role": "classifies each asset (tool loop with IRS search)",
@@ -5275,7 +5311,7 @@
          "5.1",
          "1,613,931 in / 61,829 out, 328 calls (3 runs of 46 lines; thinking not recorded)"
         ],
-        "selected": true
+        "in_use": true
        },
        {
         "id": "Sonnet (sec. 17)",
@@ -5398,9 +5434,7 @@
         ]
        }
       ],
-      "winner": "Sonnet · Claude Sonnet 5.5, re-run on current code (current choice)",
-      "why": "No cheaper model matched on the measures the product depends on: gpt-6-luna sends significantly more rows to review, gpt-5.6-luna's citations verify significantly less often, and gpt-5.6-terra is worse on both product measures' point estimates at a saving smaller than its review cost; Opus is tied with Sonnet at a higher price.",
-      "question": "Which is the cheapest model that classifies assets as well as the current one?",
+      "question": "Which is the cheapest model that classifies assets as well as Sonnet?",
       "column_notes": [
        {
         "help": "How much the model was asked to think ('none' for OpenAI here: its tool calls refuse reasoning).",
@@ -5432,27 +5466,28 @@
         "help": "Tokens the run used: input (what the model read) / output (what it wrote; \"thinking\" is the part spent reasoning, billed as output). \"Not recorded\" means the run kept no token counts; nothing is estimated."
        }
       ],
-      "step": 1
+      "step": 1,
+      "used": "Basis classifies assets with claude-sonnet-5-5: no cheaper model matched it on what the product depends on (luna sent more rows to review, gpt-5.6-luna's citations checked out less often), and Opus tied it at a higher price."
      },
      {
       "title": "Structure model for the concealed systems",
       "section": "44.3",
-      "dataset": "Both live exports of one client property (runs 3A and 3B) replayed offline through 54 variants; engineer's bucket shares 14.4 / 0.4 / 5.1 / 80.2 %",
+      "dataset": "Both exports of one client property (runs 3A and 3B) re-priced offline 54 ways; the engineer's shares by tax class were 14.4 / 0.4 / 5.1 / 80.2 %",
       "date": "2026-10-30",
       "columns": [
        "How the building's hidden systems are priced",
        "Study A: balances to the price? (gap, %)",
-       "Run 3A: 39-year share",
-       "Run 3A: bucket error, mean / max (points)",
+       "Study A: 39-year share",
+       "Study A: tax-class share error, average / worst (points)",
        "Study B: balances to the price? (gap, %)",
-       "Run 3B: 39-year share",
-       "Run 3B: bucket error, mean / max",
+       "Study B: 39-year share",
+       "Study B: tax-class share error, average / worst (points)",
        "Tokens (input / output)"
       ],
       "rows": [
        {
         "id": "pick",
-        "name": "RSMeans square-foot cost, RSMeans split, photographed items subtracted, appraiser's depreciation (chosen)",
+        "name": "RSMeans square-foot cost, RSMeans split, photographed items subtracted, appraiser's depreciation",
         "setup": [],
         "values": [
          "reconciled, +8.0",
@@ -5464,7 +5499,7 @@
          "None (no AI model)"
         ],
         "setup_note": "No AI model",
-        "selected": true
+        "in_use": true
        },
        {
         "id": "NAHB split",
@@ -5587,9 +5622,7 @@
         "setup_note": "No AI model"
        }
       ],
-      "winner": "pick · RSMeans square-foot cost, RSMeans split, photographed items subtracted, appraiser's depreciation (chosen)",
-      "why": "It has the smallest bucket-share error on both exports and rests on the published source the IRS guide names, with volume, page and matrix cell on the asset; the appraisal's printed total is the runner-up, one setting away, and variants that skip the carve-out or depreciation never reconcile.",
-      "question": "How should Basis price the building systems no photo shows, so the schedule balances to the price?",
+      "question": "How should Basis price the parts of a building no photo shows, so the total balances to the purchase price?",
       "column_notes": [
        {
         "help": "Whether the depreciated cost lands within 10 % of the purchase price less land ('reconciled'), and how far below it, in percent (negative = above). Study A is the engineer-corrected live study.",
@@ -5607,12 +5640,13 @@
         "help": "Tokens the run used: input (what the model read) / output (what it wrote; \"thinking\" is the part spent reasoning, billed as output). \"Not recorded\" means the run kept no token counts; nothing is estimated."
        }
       ],
-      "step": 3
+      "step": 3,
+      "used": "Basis prices the systems no photo shows from RSMeans's square-foot cost, minus what the photos already priced, depreciated as the appraiser did: the smallest tax-class share error on both studies, from the source the IRS guide names."
      },
      {
       "title": "Classifier search: BM25 against the hybrid",
       "section": "25.2",
-      "dataset": "46 rows of the engineer's asset schedule, claude-sonnet-5-5 at low effort, 3 repeats, the four IRS PDFs as the reference corpus",
+      "dataset": "46 rows of the engineer's asset schedule, claude-sonnet-5-5 at low effort, 3 runs, the four IRS PDFs as the documents searched",
       "date": "2026-10-16",
       "columns": [
        "How the classifier searches the IRS documents",
@@ -5622,7 +5656,7 @@
        "Rows with a verified citation, 3 repeats",
        "Sent to the engineer for review",
        "Searches per line",
-       "Rules-table citations resolved (MiniLM, 400 / 80)",
+       "Rules-table citations that resolve",
        "Cost for the 46 lines",
        "Seconds per line",
        "Tokens (input / output)"
@@ -5630,7 +5664,7 @@
       "rows": [
        {
         "id": "keyword",
-        "name": "Keyword search over the IRS documents (production)",
+        "name": "Keyword search over the IRS documents",
         "setup": [
          {
           "role": "classifies each asset (tool loop with IRS search)",
@@ -5652,7 +5686,7 @@
          "5.4",
          "1,501,760 in / 62,200 out, 323 calls (3 runs of 46 lines; thinking not recorded)"
         ],
-        "selected": true
+        "in_use": true
        },
        {
         "id": "hybrid",
@@ -5710,8 +5744,6 @@
         ]
        }
       ],
-      "winner": "keyword · Keyword search over the IRS documents (production)",
-      "why": "The hybrid ties on bucket accuracy and its citation gains are inside the noise, while RRF loses rules-table citations that BM25 resolves (each would flag its rule's assets for review), so RETRIEVAL_SEARCH stays bm25; section 22's retrieval-only test had found the hybrid best but not significantly above BM25.",
       "question": "Does adding meaning-based search help the classifier find and cite the IRS rules?",
       "column_notes": [
        {
@@ -5745,7 +5777,8 @@
         "help": "Tokens the run used: input (what the model read) / output (what it wrote; \"thinking\" is the part spent reasoning, billed as output). \"Not recorded\" means the run kept no token counts; nothing is estimated."
        }
       ],
-      "step": 1
+      "step": 1,
+      "used": "Basis searches the IRS documents by keyword (the method called BM25): adding meaning-based search tied on accuracy, and its citation gains were within run-to-run variation while it lost rules-table citations."
      },
      {
       "title": "Does measuring areas from the appraisal let Basis price more of the assets?",
@@ -5821,14 +5854,16 @@
          "37 / 26 (unchanged)",
          "None (no AI model)"
         ],
-        "setup_note": "No AI model"
+        "setup_note": "No AI model",
+        "in_use": true
        }
       ],
-      "step": 2
+      "step": 2,
+      "used": "Basis measures areas from the appraisal (TAKEOFF_AREAS=appraisal): room areas come from the living area, and the roof, siding and gutters are priced instead of left out."
      },
      {
       "title": "After measuring, how do the priced dollars split across the tax classes, against the engineer?",
-      "question": "After measuring, how do the priced dollars split across the tax classes, against the engineer?",
+      "question": "After measuring, how do the dollars split across the tax classes, compared with the engineer's?",
       "section": "35.2",
       "dataset": "",
       "date": "",
@@ -5899,7 +5934,8 @@
          "47.8%",
          "None (no AI model)"
         ],
-        "setup_note": "No AI model"
+        "setup_note": "No AI model",
+        "in_use": true
        },
        {
         "id": "after, matched",
@@ -5915,11 +5951,12 @@
         "setup_note": "No AI model"
        }
       ],
-      "step": 2
+      "step": 2,
+      "used": "Basis prices every asset with measured areas, the \"after, all\" row; the engineer's row is the answer key."
      },
      {
       "title": "What changes when the hand-typed price factors are replaced by a cited RSMeans index?",
-      "question": "What changes when the hand-typed price factors are replaced by a cited RSMeans index?",
+      "question": "What changes when hand-typed price factors are replaced by a cited RSMeans index?",
       "section": "45.3",
       "dataset": "",
       "date": "",
@@ -6069,7 +6106,11 @@
         "setup_note": "No AI model"
        }
       ],
-      "step": 2
+      "step": 2,
+      "used": "Superseded: Basis now prices with the published July 2024 RSMeans index (section 47), so neither index in this table is in use.",
+      "used_sections": [
+       "47"
+      ]
      },
      {
       "title": "What changes when the published July 2024 RSMeans index replaces the 2020 one?",
@@ -6170,7 +6211,7 @@
        },
        {
         "id": "A, 2024 index",
-        "name": "Study A, published July 2024 RSMeans index (production)",
+        "name": "Study A, published July 2024 RSMeans index",
         "setup": [],
         "values": [
          "1.2330 (July 2024 = 294.8, cited; no assumption, no flag)",
@@ -6187,7 +6228,8 @@
          "withheld (missing: allocation)",
          "None (no AI call: replays stored results)"
         ],
-        "setup_note": "No AI model"
+        "setup_note": "No AI model",
+        "in_use": true
        },
        {
         "id": "B, 2020 index",
@@ -6212,7 +6254,7 @@
        },
        {
         "id": "B, 2024 index",
-        "name": "Study B, published July 2024 RSMeans index (production)",
+        "name": "Study B, published July 2024 RSMeans index",
         "setup": [],
         "values": [
          "1.2330",
@@ -6229,14 +6271,16 @@
          "withheld",
          "None (no AI call: replays stored results)"
         ],
-        "setup_note": "No AI model"
+        "setup_note": "No AI model",
+        "in_use": true
        }
       ],
-      "step": 2
+      "step": 2,
+      "used": "Basis prices with the published July 2024 RSMeans index (year factor 1.2330), the two \"2024 index\" rows, one per study."
      },
      {
       "title": "Which documented corrections close the gap between our cost and the purchase price?",
-      "question": "Which documented corrections close the gap between our cost and the purchase price?",
+      "question": "Which corrections close the gap between Basis's cost and the purchase price?",
       "section": "49.3",
       "dataset": "",
       "date": "",
@@ -6377,7 +6421,7 @@
        },
        {
         "id": "production",
-        "name": "Add: spread the general contractor's overhead and profit over every line (chosen)",
+        "name": "Add: spread the general contractor's overhead and profit over every line",
         "setup": [],
         "values": [
          "+2.0 reconciled",
@@ -6390,7 +6434,8 @@
          "22.5",
          "None (no AI model)"
         ],
-        "setup_note": "No AI model"
+        "setup_note": "No AI model",
+        "in_use": true
        },
        {
         "id": "appraisal cost",
@@ -6427,7 +6472,8 @@
         "setup_note": "No AI model"
        }
       ],
-      "step": 3
+      "step": 3,
+      "used": "Basis uses every documented correction, with the general contractor's overhead and profit spread over every line, the green row: the allocation is no longer withheld."
      }
     ],
     "metrics": [
@@ -6910,7 +6956,7 @@
          "3.55",
          "1,000,029 in (13,069 cached) / 111,811 out (18,804 thinking, OpenAI only), 285 AI calls; plus 1 Azure DI read and 52 SAM 3 runs (no tokens)"
         ],
-        "selected": true
+        "in_use": true
        },
        {
         "id": "run 6 plain",
@@ -6984,7 +7030,8 @@
          "82.2 %",
          "2.12",
          "431,960 in (4,352 cached) / 66,739 out (11,756 thinking, OpenAI only), 140 AI calls; plus 1 Azure DI read and 45 SAM 3 runs. Room-step and classifier calls failed in a network outage and are not in the record"
-        ]
+        ],
+        "in_use": true
        },
        {
         "id": "run 5",
@@ -7135,9 +7182,7 @@
         ]
        }
       ],
-      "winner": "run 6 corrected · Live run 6 (final build), engineer corrected every review",
-      "why": "No regression on the final build, and the corrected study is the best result so far, its 39-year share within a tenth of a point of the engineer's.",
-      "question": "Does the final build still produce a correct study live, with and without the engineer's corrections?",
+      "question": "Does the latest build still produce a correct study on a real run, with and without the engineer's corrections?",
       "column_notes": [
        {
         "help": "Minutes from start to the finished report, not counting the engineer's time at the reviews.",
@@ -7167,12 +7212,13 @@
         "help": "Tokens the run used: input (what the model read) / output (what it wrote; \"thinking\" is the part spent reasoning, billed as output). \"Not recorded\" means the run kept no token counts; nothing is estimated."
        }
       ],
-      "step": 2
+      "step": 2,
+      "used": "Run 6 is today's build: the green rows. With the engineer's corrections its 39-year share is within a tenth of a point of the engineer's; the other rows are earlier builds."
      },
      {
       "title": "Run 4 against run 5: the firm's rulings survive the release",
       "section": "53",
-      "dataset": "One plain study of the client property, every gate approved as the model left it",
+      "dataset": "One study of the client property with every review approved as the AI left it",
       "date": "2026-11-01",
       "columns": [
        "Live study",
@@ -7260,7 +7306,7 @@
          "2.86",
          "720,421 in / 86,560 out (15,947 thinking, OpenAI only), 223 AI calls; plus 1 Azure DI read and 52 SAM 3 runs (no tokens)"
         ],
-        "selected": true
+        "in_use": true
        },
        {
         "id": "run 4",
@@ -7338,9 +7384,7 @@
         ]
        }
       ],
-      "winner": "run 5 · Live run 5: the firm's past rulings reused after the fix",
-      "why": "Keying the firm's rulings by the rules-table row's fingerprint instead of the release let them serve again, so most assets came from rulings instead of classifier calls.",
-      "question": "After the release fix, does the firm's past rulings get reused, and does the study improve?",
+      "question": "After the fix, are the firm's past rulings reused, and does the study get better?",
       "column_notes": [
        {
         "help": "Whether the study finished, how many workflow steps failed, and its processing time.",
@@ -7374,12 +7418,13 @@
         "help": "Tokens the run used: input (what the model read) / output (what it wrote; \"thinking\" is the part spent reasoning, billed as output). \"Not recorded\" means the run kept no token counts; nothing is estimated."
        }
       ],
-      "step": 1
+      "step": 1,
+      "used": "Run 5 is the build in use: the firm's past rulings are matched by the rule they were made under instead of the software version, so they are found again."
      },
      {
       "title": "Vendor import profiles for the preparer's schedule",
       "section": "55.2",
-      "dataset": "The synthetic export (no client data)",
+      "dataset": "The made-up export used by the tests (no client data)",
       "date": "2026-11-01",
       "columns": [
        "Tax software package",
@@ -7444,8 +7489,7 @@
         "setup_note": "No AI model"
        }
       ],
-      "why": "All five profiles are built to the vendors' published specifications; none has been imported into the real software yet.",
-      "question": "What does each fixed-asset package publish about importing a depreciation schedule?",
+      "question": "What does each tax-software package need in an imported depreciation schedule?",
       "column_notes": [
        {},
        {},
@@ -7453,7 +7497,8 @@
         "help": "Tokens the run used: input (what the model read) / output (what it wrote; \"thinking\" is the part spent reasoning, billed as output). \"Not recorded\" means the run kept no token counts; nothing is estimated."
        }
       ],
-      "step": 2
+      "step": 2,
+      "used": "Basis writes all five import layouts; none has been imported into the real software yet, so this table describes formats rather than a choice."
      }
     ],
     "metrics": [
@@ -7503,7 +7548,7 @@
      "plain": "Last checked end to end on Nov 1's build (live run 6, commit 15cd291). Main has changed since (including the fail-safe change and support file access); one new live study, about $3 to $4, would re-check it."
     },
     "gaps": {
-     "3": "Not a comparison: every AI call is recorded with its tokens and dollars (section 40); there is no alternative to measure."
+     "3": "Nothing to compare: every AI call is recorded with its tokens and dollars (section 40); there is no other way to do it."
     },
     "coverage": [],
     "coverage_note": "Nothing in this step is a choice between alternatives: it saves and exports what the earlier steps decided."
@@ -7634,7 +7679,7 @@
      {
       "title": "Report renderer on run 4's real content",
       "section": "51.2",
-      "dataset": "Run 4: 384 items, 47 photographs with 328 outlined objects",
+      "dataset": "Run 4's real content: 384 items, 47 photographs with 328 outlined objects",
       "date": "2026-10-31",
       "columns": [
        "Report renderer",
@@ -7652,10 +7697,10 @@
          "ten times faster",
          "None (no AI model)"
         ],
-        "selected": true,
         "id": "Typst",
         "setup": [],
-        "setup_note": "No AI model"
+        "setup_note": "No AI model",
+        "in_use": true
        },
        {
         "name": "WeasyPrint, HTML-to-PDF",
@@ -7670,9 +7715,7 @@
         "setup_note": "No AI model"
        }
       ],
-      "winner": "Typst",
-      "why": "Both were deterministic on one machine, but only Typst produced identical bytes across the Mac and the Linux worker image, and it was much faster.",
-      "question": "Which program should draw the PDF report so it comes out the same everywhere?",
+      "question": "Which program should draw the PDF report so it comes out the same on every computer?",
       "column_notes": [
        {
         "help": "The renderer's release used."
@@ -7689,19 +7732,20 @@
         "help": "No AI model is involved in drawing the report."
        }
       ],
-      "step": 2
+      "step": 2,
+      "used": "Basis draws the report with Typst: only Typst produced identical bytes on the Mac and on the Linux worker, and it was much faster."
      },
      {
       "title": "Signed revisions after a reopen (isolated stack)",
       "section": "72.2",
-      "dataset": "The lifecycle suite's synthetic study, offline providers",
+      "dataset": "A made-up study from the test suite, with stand-ins for the AI providers",
       "date": "2026-11-01",
       "columns": [
        "Report revision",
-       "report_signatures row",
-       "report.signed event",
+       "Signature record",
+       "Signing events on the timeline",
        "Signed files stored",
-       "GET .../revisions",
+       "What the revisions list says",
        "Tokens (input / output)"
       ],
       "rows": [
@@ -7716,8 +7760,7 @@
          "origin reopen, exported, signed, current",
          "None (offline test fixtures stand in for every AI call)"
         ],
-        "setup_note": "No AI model",
-        "selected": true
+        "setup_note": "No AI model"
        },
        {
         "id": "rev 1",
@@ -7733,9 +7776,7 @@
         "setup_note": "No AI model"
        }
       ],
-      "winner": "rev 2 · Reopened at the assets review after a change, approved and signed again",
-      "why": "The new revision is signed on its own preview while revision 1's signed PDF is kept and still served, bytes identical to the download taken before the reopen.",
-      "question": "After a signed report is reopened and signed again, is each signed version kept intact?",
+      "question": "After a signed report is reopened and signed again, is each signed version kept?",
       "column_notes": [
        {},
        {},
@@ -7748,7 +7789,8 @@
         "help": "Tokens the run used: input (what the model read) / output (what it wrote; \"thinking\" is the part spent reasoning, billed as output). \"Not recorded\" means the run kept no token counts; nothing is estimated."
        }
       ],
-      "step": 3
+      "step": 3,
+      "used": "Both rows are today's behaviour: a new revision is signed on its own, and the earlier signed PDF is kept and still downloadable, bytes identical."
      }
     ],
     "metrics": [
@@ -7810,7 +7852,7 @@
      "plain": "Last checked end to end on Nov 1's build (live run 6, commit 15cd291). Main has changed since (including the fail-safe change and support file access); one new live study, about $3 to $4, would re-check it."
     },
     "gaps": {
-     "1": "Not a comparison: the report details are the engineer's answers, checked by tests."
+     "1": "Nothing to compare: the report details are the engineer's own answers, checked by tests."
     },
     "coverage": [
      {
@@ -7966,7 +8008,7 @@
        "Found lines in the wrong tax class",
        "39-year share error (points)",
        "Classifier spend",
-       "study spend (ledger)",
+       "Study spend (recorded)",
        "Elapsed time",
        "Tokens (input / output)"
       ],
@@ -8044,7 +8086,7 @@
          "9.5 min",
          "3,809,546 in (13,069 cached) / 211,296 out (18,702 thinking, OpenAI only), 884 AI calls (two classification passes); plus 1 Azure DI read and 52 SAM 3 runs"
         ],
-        "selected": true
+        "in_use": true
        },
        {
         "id": "study B",
@@ -8118,7 +8160,8 @@
          "$4.01",
          "7.7 min",
          "1,284,643 in (97,805 cached) / 106,598 out (15,862 thinking, OpenAI only), 343 AI calls; plus 1 Azure DI read and 52 SAM 3 runs (no tokens)"
-        ]
+        ],
+        "in_use": true
        },
        {
         "id": "run 2",
@@ -8269,9 +8312,7 @@
         ]
        }
       ],
-      "winner": "study A · Study A: engineer corrected every review and ruled on disputed lines",
-      "why": "The engineer's rulings at the assets gate fixed every convention row, and approving the gate promoted them so the next study was served from them.",
-      "question": "Do the engineer's corrections and the firm's reused rulings make the study match the engineer?",
+      "question": "Do the engineer's corrections and the firm's reused rulings make the study match the engineer's?",
       "column_notes": [
        {
         "help": "Of the lines found, how many our assets put in the engineer's tax class.",
@@ -8298,12 +8339,13 @@
         "help": "Tokens the run used: input (what the model read) / output (what it wrote; \"thinking\" is the part spent reasoning, billed as output). \"Not recorded\" means the run kept no token counts; nothing is estimated."
        }
       ],
-      "step": 3
+      "step": 3,
+      "used": "Studies A and B ran on today's build: the green rows. The engineer's rulings on study A were stored when the gate was approved, and study B was served from them."
      },
      {
       "title": "Which firm ruling serves: replays of run 5's export",
       "section": "54",
-      "dataset": "Run 5's export, production router, no paid run",
+      "dataset": "Run 5's export, re-run through the rulings code with no AI call",
       "date": "2026-11-01",
       "columns": [
        "Which stored rulings are reused, and in what order",
@@ -8315,7 +8357,7 @@
       "rows": [
        {
         "id": "decisions first",
-        "name": "All rulings reused, engineer decisions outrank approved AI answers (chosen)",
+        "name": "All rulings reused, engineer decisions outrank approved AI answers",
         "setup": [],
         "values": [
          "201",
@@ -8324,7 +8366,7 @@
          "None (no AI call: replays stored results)"
         ],
         "setup_note": "No AI model",
-        "selected": true
+        "in_use": true
        },
        {
         "id": "decisions only",
@@ -8351,9 +8393,7 @@
         "setup_note": "No AI model"
        }
       ],
-      "winner": "decisions first · All rulings reused, engineer decisions outrank approved AI answers (chosen)",
-      "why": "It keeps the full accuracy and the rows served from rulings, where decisions only would hand about 140 items per study back to the model.",
-      "question": "Which rule for reusing the firm's rulings keeps the engineer's decisions on top?",
+      "question": "When a firm's past rulings are reused, which rule keeps the engineer's decisions on top?",
       "column_notes": [
        {
         "help": "Assets of run 5's 384 classified from the firm's stored rulings instead of the AI.",
@@ -8371,7 +8411,8 @@
         "help": "Tokens the run used: input (what the model read) / output (what it wrote; \"thinking\" is the part spent reasoning, billed as output). \"Not recorded\" means the run kept no token counts; nothing is estimated."
        }
       ],
-      "step": 2
+      "step": 2,
+      "used": "Basis reuses every stored ruling, with the engineer's decisions above approved AI answers: it keeps the accuracy, where using decisions only would send about 140 items per study back to the model."
      },
      {
       "title": "The engineer at every gate: corrected studies",
@@ -8458,7 +8499,7 @@
          "8.5 min incl. four reopened gates",
          "1,000,029 in (13,069 cached) / 111,811 out (18,804 thinking, OpenAI only), 285 AI calls; plus 1 Azure DI read and 52 SAM 3 runs (no tokens)"
         ],
-        "selected": true
+        "in_use": true
        },
        {
         "id": "run 3 corrected",
@@ -8602,7 +8643,8 @@
          "176/366",
          "7.4 min",
          "431,960 in (4,352 cached) / 66,739 out (11,756 thinking, OpenAI only), 140 AI calls; plus 1 Azure DI read and 45 SAM 3 runs. Room-step and classifier calls failed in a network outage and are not in the record"
-        ]
+        ],
+        "in_use": true
        },
        {
         "id": "run 5",
@@ -8677,9 +8719,7 @@
         ]
        }
       ],
-      "winner": "run 6 corrected · Live run 6 (final build), engineer corrected every review",
-      "why": "The database already held the firm's conventions and decisions are served first, so one ruling was needed where run 3's needed nine.",
-      "question": "Does the final build still produce a correct study live, with and without the engineer's corrections?",
+      "question": "With the engineer correcting every review, does the latest build produce a correct study?",
       "column_notes": [
        {
         "help": "Corrections the engineer had to make at the assets review ('-' = not a corrected study).",
@@ -8701,7 +8741,8 @@
         "help": "Tokens the run used: input (what the model read) / output (what it wrote; \"thinking\" is the part spent reasoning, billed as output). \"Not recorded\" means the run kept no token counts; nothing is estimated."
        }
       ],
-      "step": 3
+      "step": 3,
+      "used": "Run 6 is today's build: the green rows. The firm's rulings were already stored and decisions are served first, so one ruling was needed where run 3 needed nine."
      }
     ],
     "metrics": [
@@ -8763,7 +8804,7 @@
      "plain": "Last checked end to end on Nov 1's build (live run 6, commit 15cd291). Main has changed since (including the fail-safe change and support file access); one new live study, about $3 to $4, would re-check it."
     },
     "gaps": {
-     "1": "Not measured: how quickly an engineer finds a wrong value has not been timed yet."
+     "1": "Not measured yet: how quickly an engineer finds a wrong value has not been timed."
     },
     "coverage": [],
     "coverage_note": "Not measured yet: how long an engineer takes at this review."
@@ -8885,7 +8926,7 @@
        "Found lines in the wrong tax class",
        "39-year share error (points)",
        "Classifier spend",
-       "study spend (ledger)",
+       "Study spend (recorded)",
        "Elapsed time",
        "Tokens (input / output)"
       ],
@@ -8963,7 +9004,7 @@
          "9.5 min",
          "3,809,546 in (13,069 cached) / 211,296 out (18,702 thinking, OpenAI only), 884 AI calls (two classification passes); plus 1 Azure DI read and 52 SAM 3 runs"
         ],
-        "selected": true
+        "in_use": true
        },
        {
         "id": "study B",
@@ -9037,7 +9078,8 @@
          "$4.01",
          "7.7 min",
          "1,284,643 in (97,805 cached) / 106,598 out (15,862 thinking, OpenAI only), 343 AI calls; plus 1 Azure DI read and 52 SAM 3 runs (no tokens)"
-        ]
+        ],
+        "in_use": true
        },
        {
         "id": "run 2",
@@ -9188,9 +9230,7 @@
         ]
        }
       ],
-      "winner": "study A · Study A: engineer corrected every review and ruled on disputed lines",
-      "why": "The engineer's rulings at the assets gate fixed every convention row, and approving the gate promoted them so the next study was served from them.",
-      "question": "Do the engineer's corrections and the firm's reused rulings make the study match the engineer?",
+      "question": "Do the engineer's corrections and the firm's reused rulings make the study match the engineer's?",
       "column_notes": [
        {
         "help": "Of the lines found, how many our assets put in the engineer's tax class.",
@@ -9217,12 +9257,13 @@
         "help": "Tokens the run used: input (what the model read) / output (what it wrote; \"thinking\" is the part spent reasoning, billed as output). \"Not recorded\" means the run kept no token counts; nothing is estimated."
        }
       ],
-      "step": 3
+      "step": 3,
+      "used": "Studies A and B ran on today's build: the green rows. The engineer's rulings on study A were stored when the gate was approved, and study B was served from them."
      },
      {
       "title": "Which firm ruling serves: replays of run 5's export",
       "section": "54",
-      "dataset": "Run 5's export, production router, no paid run",
+      "dataset": "Run 5's export, re-run through the rulings code with no AI call",
       "date": "2026-11-01",
       "columns": [
        "Which stored rulings are reused, and in what order",
@@ -9234,7 +9275,7 @@
       "rows": [
        {
         "id": "decisions first",
-        "name": "All rulings reused, engineer decisions outrank approved AI answers (chosen)",
+        "name": "All rulings reused, engineer decisions outrank approved AI answers",
         "setup": [],
         "values": [
          "201",
@@ -9243,7 +9284,7 @@
          "None (no AI call: replays stored results)"
         ],
         "setup_note": "No AI model",
-        "selected": true
+        "in_use": true
        },
        {
         "id": "decisions only",
@@ -9270,9 +9311,7 @@
         "setup_note": "No AI model"
        }
       ],
-      "winner": "decisions first · All rulings reused, engineer decisions outrank approved AI answers (chosen)",
-      "why": "It keeps the full accuracy and the rows served from rulings, where decisions only would hand about 140 items per study back to the model.",
-      "question": "Which rule for reusing the firm's rulings keeps the engineer's decisions on top?",
+      "question": "When a firm's past rulings are reused, which rule keeps the engineer's decisions on top?",
       "column_notes": [
        {
         "help": "Assets of run 5's 384 classified from the firm's stored rulings instead of the AI.",
@@ -9290,7 +9329,8 @@
         "help": "Tokens the run used: input (what the model read) / output (what it wrote; \"thinking\" is the part spent reasoning, billed as output). \"Not recorded\" means the run kept no token counts; nothing is estimated."
        }
       ],
-      "step": 2
+      "step": 2,
+      "used": "Basis reuses every stored ruling, with the engineer's decisions above approved AI answers: it keeps the accuracy, where using decisions only would send about 140 items per study back to the model."
      },
      {
       "title": "The engineer at every gate: corrected studies",
@@ -9377,7 +9417,7 @@
          "8.5 min incl. four reopened gates",
          "1,000,029 in (13,069 cached) / 111,811 out (18,804 thinking, OpenAI only), 285 AI calls; plus 1 Azure DI read and 52 SAM 3 runs (no tokens)"
         ],
-        "selected": true
+        "in_use": true
        },
        {
         "id": "run 3 corrected",
@@ -9521,7 +9561,8 @@
          "176/366",
          "7.4 min",
          "431,960 in (4,352 cached) / 66,739 out (11,756 thinking, OpenAI only), 140 AI calls; plus 1 Azure DI read and 45 SAM 3 runs. Room-step and classifier calls failed in a network outage and are not in the record"
-        ]
+        ],
+        "in_use": true
        },
        {
         "id": "run 5",
@@ -9596,9 +9637,7 @@
         ]
        }
       ],
-      "winner": "run 6 corrected · Live run 6 (final build), engineer corrected every review",
-      "why": "The database already held the firm's conventions and decisions are served first, so one ruling was needed where run 3's needed nine.",
-      "question": "Does the final build still produce a correct study live, with and without the engineer's corrections?",
+      "question": "With the engineer correcting every review, does the latest build produce a correct study?",
       "column_notes": [
        {
         "help": "Corrections the engineer had to make at the assets review ('-' = not a corrected study).",
@@ -9620,7 +9659,8 @@
         "help": "Tokens the run used: input (what the model read) / output (what it wrote; \"thinking\" is the part spent reasoning, billed as output). \"Not recorded\" means the run kept no token counts; nothing is estimated."
        }
       ],
-      "step": 3
+      "step": 3,
+      "used": "Run 6 is today's build: the green rows. The firm's rulings were already stored and decisions are served first, so one ruling was needed where run 3 needed nine."
      }
     ],
     "metrics": [
@@ -9682,7 +9722,7 @@
      "plain": "Last checked end to end on Nov 1's build (live run 6, commit 15cd291). Main has changed since (including the fail-safe change and support file access); one new live study, about $3 to $4, would re-check it."
     },
     "gaps": {
-     "1": "Not measured: how quickly an engineer organizes the photos has not been timed yet."
+     "1": "Not measured yet: how quickly an engineer sorts the photos into rooms has not been timed."
     },
     "coverage": [],
     "coverage_note": "Not measured yet: how long an engineer takes at this review."
@@ -9810,7 +9850,7 @@
        "Found lines in the wrong tax class",
        "39-year share error (points)",
        "Classifier spend",
-       "study spend (ledger)",
+       "Study spend (recorded)",
        "Elapsed time",
        "Tokens (input / output)"
       ],
@@ -9888,7 +9928,7 @@
          "9.5 min",
          "3,809,546 in (13,069 cached) / 211,296 out (18,702 thinking, OpenAI only), 884 AI calls (two classification passes); plus 1 Azure DI read and 52 SAM 3 runs"
         ],
-        "selected": true
+        "in_use": true
        },
        {
         "id": "study B",
@@ -9962,7 +10002,8 @@
          "$4.01",
          "7.7 min",
          "1,284,643 in (97,805 cached) / 106,598 out (15,862 thinking, OpenAI only), 343 AI calls; plus 1 Azure DI read and 52 SAM 3 runs (no tokens)"
-        ]
+        ],
+        "in_use": true
        },
        {
         "id": "run 2",
@@ -10113,9 +10154,7 @@
         ]
        }
       ],
-      "winner": "study A · Study A: engineer corrected every review and ruled on disputed lines",
-      "why": "The engineer's rulings at the assets gate fixed every convention row, and approving the gate promoted them so the next study was served from them.",
-      "question": "Do the engineer's corrections and the firm's reused rulings make the study match the engineer?",
+      "question": "Do the engineer's corrections and the firm's reused rulings make the study match the engineer's?",
       "column_notes": [
        {
         "help": "Of the lines found, how many our assets put in the engineer's tax class.",
@@ -10142,12 +10181,13 @@
         "help": "Tokens the run used: input (what the model read) / output (what it wrote; \"thinking\" is the part spent reasoning, billed as output). \"Not recorded\" means the run kept no token counts; nothing is estimated."
        }
       ],
-      "step": 3
+      "step": 3,
+      "used": "Studies A and B ran on today's build: the green rows. The engineer's rulings on study A were stored when the gate was approved, and study B was served from them."
      },
      {
       "title": "Which firm ruling serves: replays of run 5's export",
       "section": "54",
-      "dataset": "Run 5's export, production router, no paid run",
+      "dataset": "Run 5's export, re-run through the rulings code with no AI call",
       "date": "2026-11-01",
       "columns": [
        "Which stored rulings are reused, and in what order",
@@ -10159,7 +10199,7 @@
       "rows": [
        {
         "id": "decisions first",
-        "name": "All rulings reused, engineer decisions outrank approved AI answers (chosen)",
+        "name": "All rulings reused, engineer decisions outrank approved AI answers",
         "setup": [],
         "values": [
          "201",
@@ -10168,7 +10208,7 @@
          "None (no AI call: replays stored results)"
         ],
         "setup_note": "No AI model",
-        "selected": true
+        "in_use": true
        },
        {
         "id": "decisions only",
@@ -10195,9 +10235,7 @@
         "setup_note": "No AI model"
        }
       ],
-      "winner": "decisions first · All rulings reused, engineer decisions outrank approved AI answers (chosen)",
-      "why": "It keeps the full accuracy and the rows served from rulings, where decisions only would hand about 140 items per study back to the model.",
-      "question": "Which rule for reusing the firm's rulings keeps the engineer's decisions on top?",
+      "question": "When a firm's past rulings are reused, which rule keeps the engineer's decisions on top?",
       "column_notes": [
        {
         "help": "Assets of run 5's 384 classified from the firm's stored rulings instead of the AI.",
@@ -10215,7 +10253,8 @@
         "help": "Tokens the run used: input (what the model read) / output (what it wrote; \"thinking\" is the part spent reasoning, billed as output). \"Not recorded\" means the run kept no token counts; nothing is estimated."
        }
       ],
-      "step": 2
+      "step": 2,
+      "used": "Basis reuses every stored ruling, with the engineer's decisions above approved AI answers: it keeps the accuracy, where using decisions only would send about 140 items per study back to the model."
      },
      {
       "title": "The engineer at every gate: corrected studies",
@@ -10302,7 +10341,7 @@
          "8.5 min incl. four reopened gates",
          "1,000,029 in (13,069 cached) / 111,811 out (18,804 thinking, OpenAI only), 285 AI calls; plus 1 Azure DI read and 52 SAM 3 runs (no tokens)"
         ],
-        "selected": true
+        "in_use": true
        },
        {
         "id": "run 3 corrected",
@@ -10446,7 +10485,8 @@
          "176/366",
          "7.4 min",
          "431,960 in (4,352 cached) / 66,739 out (11,756 thinking, OpenAI only), 140 AI calls; plus 1 Azure DI read and 45 SAM 3 runs. Room-step and classifier calls failed in a network outage and are not in the record"
-        ]
+        ],
+        "in_use": true
        },
        {
         "id": "run 5",
@@ -10521,9 +10561,7 @@
         ]
        }
       ],
-      "winner": "run 6 corrected · Live run 6 (final build), engineer corrected every review",
-      "why": "The database already held the firm's conventions and decisions are served first, so one ruling was needed where run 3's needed nine.",
-      "question": "Does the final build still produce a correct study live, with and without the engineer's corrections?",
+      "question": "With the engineer correcting every review, does the latest build produce a correct study?",
       "column_notes": [
        {
         "help": "Corrections the engineer had to make at the assets review ('-' = not a corrected study).",
@@ -10545,7 +10583,8 @@
         "help": "Tokens the run used: input (what the model read) / output (what it wrote; \"thinking\" is the part spent reasoning, billed as output). \"Not recorded\" means the run kept no token counts; nothing is estimated."
        }
       ],
-      "step": 3
+      "step": 3,
+      "used": "Run 6 is today's build: the green rows. The firm's rulings were already stored and decisions are served first, so one ruling was needed where run 3 needed nine."
      }
     ],
     "metrics": [
@@ -10607,7 +10646,7 @@
      "plain": "Last checked end to end on Nov 1's build (live run 6, commit 15cd291). Main has changed since (including the fail-safe change and support file access); one new live study, about $3 to $4, would re-check it."
     },
     "gaps": {
-     "1": "Not measured: how quickly an engineer checks the evidence has not been timed yet."
+     "1": "Not measured yet: how quickly an engineer checks the counts against the photos has not been timed."
     },
     "coverage": [],
     "coverage_note": "Not measured yet: how long an engineer takes at this review."
@@ -10729,7 +10768,7 @@
        "Found lines in the wrong tax class",
        "39-year share error (points)",
        "Classifier spend",
-       "study spend (ledger)",
+       "Study spend (recorded)",
        "Elapsed time",
        "Tokens (input / output)"
       ],
@@ -10807,7 +10846,7 @@
          "9.5 min",
          "3,809,546 in (13,069 cached) / 211,296 out (18,702 thinking, OpenAI only), 884 AI calls (two classification passes); plus 1 Azure DI read and 52 SAM 3 runs"
         ],
-        "selected": true
+        "in_use": true
        },
        {
         "id": "study B",
@@ -10881,7 +10920,8 @@
          "$4.01",
          "7.7 min",
          "1,284,643 in (97,805 cached) / 106,598 out (15,862 thinking, OpenAI only), 343 AI calls; plus 1 Azure DI read and 52 SAM 3 runs (no tokens)"
-        ]
+        ],
+        "in_use": true
        },
        {
         "id": "run 2",
@@ -11032,9 +11072,7 @@
         ]
        }
       ],
-      "winner": "study A · Study A: engineer corrected every review and ruled on disputed lines",
-      "why": "The engineer's rulings at the assets gate fixed every convention row, and approving the gate promoted them so the next study was served from them.",
-      "question": "Do the engineer's corrections and the firm's reused rulings make the study match the engineer?",
+      "question": "Do the engineer's corrections and the firm's reused rulings make the study match the engineer's?",
       "column_notes": [
        {
         "help": "Of the lines found, how many our assets put in the engineer's tax class.",
@@ -11061,12 +11099,13 @@
         "help": "Tokens the run used: input (what the model read) / output (what it wrote; \"thinking\" is the part spent reasoning, billed as output). \"Not recorded\" means the run kept no token counts; nothing is estimated."
        }
       ],
-      "step": 3
+      "step": 3,
+      "used": "Studies A and B ran on today's build: the green rows. The engineer's rulings on study A were stored when the gate was approved, and study B was served from them."
      },
      {
       "title": "Which firm ruling serves: replays of run 5's export",
       "section": "54",
-      "dataset": "Run 5's export, production router, no paid run",
+      "dataset": "Run 5's export, re-run through the rulings code with no AI call",
       "date": "2026-11-01",
       "columns": [
        "Which stored rulings are reused, and in what order",
@@ -11078,7 +11117,7 @@
       "rows": [
        {
         "id": "decisions first",
-        "name": "All rulings reused, engineer decisions outrank approved AI answers (chosen)",
+        "name": "All rulings reused, engineer decisions outrank approved AI answers",
         "setup": [],
         "values": [
          "201",
@@ -11087,7 +11126,7 @@
          "None (no AI call: replays stored results)"
         ],
         "setup_note": "No AI model",
-        "selected": true
+        "in_use": true
        },
        {
         "id": "decisions only",
@@ -11114,9 +11153,7 @@
         "setup_note": "No AI model"
        }
       ],
-      "winner": "decisions first · All rulings reused, engineer decisions outrank approved AI answers (chosen)",
-      "why": "It keeps the full accuracy and the rows served from rulings, where decisions only would hand about 140 items per study back to the model.",
-      "question": "Which rule for reusing the firm's rulings keeps the engineer's decisions on top?",
+      "question": "When a firm's past rulings are reused, which rule keeps the engineer's decisions on top?",
       "column_notes": [
        {
         "help": "Assets of run 5's 384 classified from the firm's stored rulings instead of the AI.",
@@ -11134,7 +11171,8 @@
         "help": "Tokens the run used: input (what the model read) / output (what it wrote; \"thinking\" is the part spent reasoning, billed as output). \"Not recorded\" means the run kept no token counts; nothing is estimated."
        }
       ],
-      "step": 2
+      "step": 2,
+      "used": "Basis reuses every stored ruling, with the engineer's decisions above approved AI answers: it keeps the accuracy, where using decisions only would send about 140 items per study back to the model."
      },
      {
       "title": "The engineer at every gate: corrected studies",
@@ -11221,7 +11259,7 @@
          "8.5 min incl. four reopened gates",
          "1,000,029 in (13,069 cached) / 111,811 out (18,804 thinking, OpenAI only), 285 AI calls; plus 1 Azure DI read and 52 SAM 3 runs (no tokens)"
         ],
-        "selected": true
+        "in_use": true
        },
        {
         "id": "run 3 corrected",
@@ -11365,7 +11403,8 @@
          "176/366",
          "7.4 min",
          "431,960 in (4,352 cached) / 66,739 out (11,756 thinking, OpenAI only), 140 AI calls; plus 1 Azure DI read and 45 SAM 3 runs. Room-step and classifier calls failed in a network outage and are not in the record"
-        ]
+        ],
+        "in_use": true
        },
        {
         "id": "run 5",
@@ -11440,9 +11479,7 @@
         ]
        }
       ],
-      "winner": "run 6 corrected · Live run 6 (final build), engineer corrected every review",
-      "why": "The database already held the firm's conventions and decisions are served first, so one ruling was needed where run 3's needed nine.",
-      "question": "Does the final build still produce a correct study live, with and without the engineer's corrections?",
+      "question": "With the engineer correcting every review, does the latest build produce a correct study?",
       "column_notes": [
        {
         "help": "Corrections the engineer had to make at the assets review ('-' = not a corrected study).",
@@ -11464,7 +11501,8 @@
         "help": "Tokens the run used: input (what the model read) / output (what it wrote; \"thinking\" is the part spent reasoning, billed as output). \"Not recorded\" means the run kept no token counts; nothing is estimated."
        }
       ],
-      "step": 3
+      "step": 3,
+      "used": "Run 6 is today's build: the green rows. The firm's rulings were already stored and decisions are served first, so one ruling was needed where run 3 needed nine."
      }
     ],
     "metrics": [
@@ -11526,7 +11564,7 @@
      "plain": "Last checked end to end on Nov 1's build (live run 6, commit 15cd291). Main has changed since (including the fail-safe change and support file access); one new live study, about $3 to $4, would re-check it."
     },
     "gaps": {
-     "1": "Not measured: how quickly an engineer checks the assets has not been timed yet."
+     "1": "Not measured yet: how quickly an engineer checks the assets has not been timed."
     },
     "coverage": [],
     "coverage_note": "Not measured yet: how long an engineer takes at this review."

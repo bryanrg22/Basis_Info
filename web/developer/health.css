@@ -129,7 +129,8 @@ td{overflow-wrap:anywhere;min-width:100px;max-width:240px}
 tr:last-child>th,tr:last-child>td{border-bottom:0}
 th .provider-logo{width:18px;height:18px;flex-basis:18px}
 .selected-architecture{background:var(--green-soft)}
-.selection-label{display:block;color:var(--green);font-size:11px;margin-bottom:4px}
+.selection-label{display:block;color:var(--green);font-size:11px;margin-bottom:4px}.used-except{display:block;color:var(--muted,#5b6b62);font-weight:400}
+.comparison-used{margin:10px 0 0;padding:10px 12px;border-left:3px solid var(--green);background:var(--green-soft);border-radius:4px;font-size:13px;line-height:1.5}
 .source-links{display:flex;flex-wrap:wrap;gap:10px 18px;margin-top:12px}
 .source-links a{display:inline-flex;align-items:center;min-height:44px;font-size:13px}
 #architecture-content .detail-note{margin-top:14px;font-size:12px}

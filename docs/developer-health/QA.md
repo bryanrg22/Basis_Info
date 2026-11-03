@@ -67,7 +67,7 @@ Changes in this pass (EVAL_REPORT 73, branch `claude/developer-workflow`):
 
 - Every step dialog's "How it works" is written from the step's activity (`web/developer/workflow-content.json`, each step naming its source file); "Build inventory" speaks of components, the room step's one call per multi-photo room and the material second look.
 - "Current runtime" lists every system the step uses and, under a capability, one row per model role from the health feed's new `models` field: provider logo, exact model id (and the Azure deployment when it differs), the provider's hosting and adapter, the model's backups. Without a feed every row says "Not reported"; a model id is never typed in the page.
-- "Tests & results" shows the architectures compared and the measured results per step (comparisons with the selected row first, metrics, cost, tokens and latency where the report states them, the regression status) with links to the report sections; `backEnd/tests/unit/test_developer_workflow_content.py` fails when a figure, heading or path no longer matches the repository.
+- "Tests & results" shows the architectures compared and the measured results per step (each comparison opens with what Basis uses today and why; green rows are today's setup, checked against `basis/config.py`; metrics, cost, tokens and latency where the report states them, the regression status) with links to the report sections; `backEnd/tests/unit/test_developer_workflow_content.py` fails when a figure, heading or path no longer matches the repository.
 - Service health still never says whether a study is signed or completed; every dialog says so under its runtime table.
 
 Verification:
