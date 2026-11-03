@@ -8,3 +8,5 @@ a028ddc10c152258a008336b2b98c6827538525c27de881b696eff0bc403fa64  web/output/pdf
 73e37e3e7a467c0a9531b216491fe1b5b1fa5b7cec60aee4105d18000e87b6b9  web/site/assets/bryan.png  # existing Basis marketing headshot restored from approved web/site; visually reviewed, no client study data
 0062a5545eddec10167875d43b87811dde08fe6a17daddf371ea74c88a54b041  web/site/assets/noah.png  # existing Basis marketing headshot restored from approved web/site; visually reviewed, no client study data
 7700adbd25c8c9775c660116b7447384e6f676209739b8a303a9c4852ff6436e  web/site/assets/brands/google.png  # Google brand logo used in the restored public marketing page; visually reviewed, no client study data
+7d40d7179aad62878b856e4364f9b65a072aa467f327655ec8a19aedc8b09e8a  web/developer/logos/huggingface.png  # brand logo for the developer page's step dialogs (supplied by Bryan 2026-11-03, resized to 96 px); visually reviewed, no client study data
+3f6ae48b81bc4dfa548e943aea306ca51099cb83186ef4267fc6b0634b901f37  web/developer/logos/googlecloud.png  # brand logo for the developer page's step dialogs (supplied by Bryan 2026-11-03, resized to 96 px); visually reviewed, no client study data

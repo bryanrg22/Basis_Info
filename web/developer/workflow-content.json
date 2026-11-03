@@ -36,7 +36,7 @@
       {
        "name": "File storage",
        "system": "Google Cloud Storage",
-       "brand": null,
+       "brand": "googlecloud",
        "provider": "Google Cloud (a local folder in development)"
       },
       {
@@ -680,7 +680,7 @@
       {
        "name": "Indexes the text for search",
        "system": "all-MiniLM-L6-v2 (Sentence Transformers)",
-       "brand": null,
+       "brand": "huggingface",
        "provider": "runs on the Basis worker"
       }
      ]
@@ -3348,7 +3348,7 @@
       {
        "name": "File storage",
        "system": "Google Cloud Storage",
-       "brand": null,
+       "brand": "googlecloud",
        "provider": "Google Cloud (a local folder in development)"
       }
      ]
@@ -6032,7 +6032,7 @@
       {
        "name": "File storage",
        "system": "Google Cloud Storage",
-       "brand": null,
+       "brand": "googlecloud",
        "provider": "Google Cloud (a local folder in development)"
       }
      ]
@@ -6832,7 +6832,7 @@
       {
        "name": "File storage",
        "system": "Google Cloud Storage",
-       "brand": null,
+       "brand": "googlecloud",
        "provider": "Google Cloud (a local folder in development)"
       },
       {
