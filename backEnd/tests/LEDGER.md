@@ -609,3 +609,23 @@ upload slow tests 142 passed.
 |---|---|---|
 | `web/tests/developer-health.test.cjs` | Added: the Systems list shows the 18 systems with their own check, not the seven step roll-ups, each with a logo (no placeholder; the Basis mark on Basis services) and a description; no "Hosting: Not reported" line; a roll-up that is down still turns its workflow card to Failed. Changed: the first group is "Basis services", and a degraded roll-up is no longer listed under "Needs attention" | pass |
 
+## Green marks what runs today (2026-11-03; EVAL_REPORT 80.2)
+
+| File | What it checks | Result |
+|---|---|---|
+| `tests/unit/test_developer_workflow_content.py` | Added: every comparison has a "What Basis uses today" sentence (no old winner text), and every number in it appears verbatim in its section or the sections it cites; every green row (`in_use`) runs today's default model and effort (`basis/config.py`) for each role with a setting, except the roles it names in `in_use_except`, which must really differ; no row keeps `selected`. Checked to fail when a Sonnet row in 28.2 is marked green and when 16.2's note is removed | 12 tests, pass |
+| `web/tests/developer-workflow.test.cjs`, `developer-health.test.cjs` | Changed: a dialog shows the "What Basis uses today" sentence at the top and "Used today" on green rows, and no "Chosen:" line | pass |
+| `web/tests/developer-workflow.test.cjs` | Changed: a part with no comparison opens with "Not compared yet" or "Not a comparison" and says what was and was not measured; every table title is a plain question (no "sweep", "production path" or "replay") | pass |
+
+## iPhone photos (HEIC) read and shown (2026-11-03; EVAL_REPORT 81)
+
+| File | What it checks | Result |
+|---|---|---|
+| `tests/unit/vision/test_heic.py` | A HEIC is prepared like a JPEG (format HEIF, upright: the container's rotation applied once, EXIF orientation reported as 1); transparency on white; no metadata in the prepared JPEG; every length short of the whole file of each of the three fixtures is refused as `not_an_image` (4,834 cases); damaged picture data refused (libheif's `EOFError`); the pixel limit read from the HEIC header; registering twice is harmless; the browser copy is an upright JPEG, at most `DISPLAY_MAX_SIDE`, keeps the colour profile and drops EXIF with GPS; four threads at a barrier convert one at a time; a failed conversion frees the slot; `heif.cut_short` box-size cases (64-bit size, size 0, cut header, size below its header); the surface crops and the report exhibit open a HEIC upright; regression: `prepare_image(01_kitchen.jpg)` keeps main's sha256 | 21 tests, pass. The damaged-data test failed before `EOFError` was caught |
+| `tests/unit/test_event_loop_image_work.py` | Changed: `decode_photo` and `display_jpeg` join the functions refused inside `async def` | pass |
+| `tests/api/test_document_image.py` | `GET .../documents/{id}/image`: a HEIC comes back as an upright JPEG named `.jpg` with `ETag "<sha256>.display-v1"`, private cache, `nosniff`; 304 on that ETag, 200 on the original's; `.../content` still the HEIC; JPEG, PNG and WebP as uploaded with the sha256 ETag; 409 `not-a-photo` (BASIS-UPLOAD-012) for a PDF; 409 `unreadable-photo` (BASIS-UPLOAD-013) for a cut-short HEIC; 409 `upload-missing`; a viewer reads, a stranger 404, no token 401; bytes gone 404 | 11 tests, `integration`, pass |
+| `tests/api/test_health.py`, `tests/api/test_tenancy.py` | Changed: the `/image` route is in the known-routes list and in the another-firm walks | pass |
+| `tests/unit/evals/test_heic_decoding.py` | `evals.heic_decoding` without Apple's decoder: the three fixtures pass their decode, prepare and cut-short cases (9), the run writes a manifest; a damaged file fails its decode and prepare cases and the run exits 1 instead of stopping | 2 tests, pass |
+| `web/tests/live-photos.test.cjs` | A photo on screen is fetched from `/image` and the original from `/content`, separately cached; each copy once for concurrent asks; a fetched photo renders with its `src` at once and the original never replaces it | 2 tests, pass |
+| `web/tests/api-client.test.cjs` | Added: `documentImage` requests `.../documents/{id}/image` with the ids URL-encoded | 1 test, pass |
+

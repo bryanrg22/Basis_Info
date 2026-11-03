@@ -212,6 +212,7 @@ def test_allowed_dir_prefix_is_not_a_substring_match(repo: Repo) -> None:
         "frontend/src/components/photo.JPG",
         "data/site.jpeg",
         "data/site.heic",
+        "data/site.heif",
         "data/plan.tiff",
         "data/costs.xlsx",
         "data/costs.xls",

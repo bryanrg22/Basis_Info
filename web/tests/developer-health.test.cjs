@@ -82,7 +82,7 @@ test('every workflow box has a simple three-step explanation and source links',(
   assert.ok(html.includes('How it works'));assert.ok(html.includes('Tests &amp; results'));assert.ok(!html.includes('Current runtime'));assert.ok(html.includes('https://github.com/bryanrg22/Basis_Info/blob/main/'));
  }
  const rows=CONTENT.steps.photos.results.comparisons[0].rows;
- assert.equal(rows[0].selected,true);
+ assert.equal(rows[0].in_use,true);
  assert.ok(rows[0].values.includes('0.124')&&rows[0].values.includes('$2.20'));
  assert.ok(rows.some(r=>r.values.includes('Not measured')));
  const photos=A.render(H.FLOW.flat().find(n=>n.id==='photos'),services,H);

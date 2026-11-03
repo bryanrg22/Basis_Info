@@ -166,6 +166,15 @@ Plain bugs an engineer would hit on the first day, in the order they bite:
   support opened <filename>: <reason>" so the firm understands who looked at its file and why
   (docs/api/OPS_DOCUMENTS.md 4).
 
+## 12. iPhone photos (HEIC) before upload (EVAL_REPORT 81)
+
+* **The upload list's preview.** `web/upload-review.js` previews a chosen photo from the local
+  file (`URL.createObjectURL(file)`). Chrome, Edge and Firefox cannot show a HEIC, so an iPhone
+  photo shows a broken image there until it is uploaded (Safari shows it). After the upload the
+  app shows every photo from `GET .../documents/{id}/image`, a JPEG for HEIC
+  (docs/api/PHOTOS.md), so only this pre-upload preview is affected. Show the photo icon instead
+  when the browser cannot decode the file (the `<img>`'s `error` event), or name the format.
+
 ## Testing
 
 No automated test loads any live screen (`web/tests/*.test.cjs` cover the helper

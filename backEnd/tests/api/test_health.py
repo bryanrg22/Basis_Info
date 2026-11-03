@@ -140,6 +140,8 @@ def test_only_known_routes_exist(app: FastAPI) -> None:
         "GET /v1/studies/{study_id}/documents/{document_id}/content",
         # UAD 3.6 intake (tests/api/test_uad36_api.py)
         "GET /v1/studies/{study_id}/documents/{document_id}/pdf",
+        # photos a browser shows, HEIC as JPEG (tests/api/test_document_image.py)
+        "GET /v1/studies/{study_id}/documents/{document_id}/image",
         "GET /v1/studies/{study_id}/extraction",
         "POST /v1/studies/{study_id}/decisions",
         # gate drafts (tests/api/test_drafts.py, docs/api/GATE_DRAFTS_AND_RESUME.md)
