@@ -365,3 +365,5 @@
 .vision-room-count.is-live>.vision-room-hint{margin:0;padding:6px 8px;border-radius:6px;background:#eef4fb;font-size:12.5px;line-height:1.4;color:#1f4f7a}
 .vision-exclusion .vision-saved{margin-left:6px;padding:0 6px;border-radius:999px;background:#e5f1e9;color:#1f5a3c;font-size:11.5px;font-weight:600}
 body:has(.review-decision) #toast{bottom:118px}
+.vision-room-count.is-live>.vision-room-suggest{display:flex;align-items:center;justify-content:space-between;gap:8px;margin:0;padding:6px 8px;border-radius:6px;background:#fff6e6;font-size:13px;color:#5b4a2f}
+.vision-room-count.is-live>.vision-room-suggest .vision-use{min-height:30px;padding:2px 10px;font-weight:600}

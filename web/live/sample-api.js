@@ -310,7 +310,19 @@
  }
  const liveObjects=(S,doc)=>(S.objects[doc]||[]).filter(o=>!o.deleted_at);
  const OBJECT_OUT=[];// hooks: (output, stored object) => void (the PROPOSED section adds `exclusion`)
- function objectOut(S,doc,o){const out={id:o.id,document_id:doc,revision:S.revision,label:o.label,phrase:o.phrase,score:o.score,box:{...o.box},mask:null,area:o.area,source:o.source,counted:o.counted,derived_from:o.derived_from,created_by:o.created_by,created_at:o.created_at,deleted_at:o.deleted_at,deleted_by:o.deleted_by,mask_source:o.mask_source,mask_reason:o.mask_reason};OBJECT_OUT.forEach(fn=>fn(out,o));return out}
+ // A plausible SAM 3 outline for a drawn box (the real API prompts SAM 3 with the box): a rounded,
+ // slightly irregular shape filling most of the box, as MaskOut run lengths, zeros first.
+ function outlineMask(box,W=320,H=240){
+  const cx=(box.x1+box.x2)/2*W,cy=(box.y1+box.y2)/2*H,rx=Math.max(1,(box.x2-box.x1)/2*W*0.92),ry=Math.max(1,(box.y2-box.y1)/2*H*0.92);
+  const counts=[];let run=0,on=false;
+  for(let y=0;y<H;y++)for(let x=0;x<W;x++){
+   const dx=(x+0.5-cx)/rx,dy=(y+0.5-cy)/ry,a=Math.atan2(dy,dx),r=1+0.06*Math.sin(3*a)+0.04*Math.cos(5*a);
+   const inside=Math.pow(Math.abs(dx),2.6)+Math.pow(Math.abs(dy),2.6)<=r;
+   if(inside===on)run++;else{counts.push(run);run=1;on=inside}
+  }
+  counts.push(run);return {height:H,width:W,counts};
+ }
+ function objectOut(S,doc,o){const out={id:o.id,document_id:doc,revision:S.revision,label:o.label,phrase:o.phrase,score:o.score,box:{...o.box},mask:o.mask?{...o.mask,counts:[...o.mask.counts]}:null,area:o.area,source:o.source,counted:o.counted,derived_from:o.derived_from,created_by:o.created_by,created_at:o.created_at,deleted_at:o.deleted_at,deleted_by:o.deleted_by,mask_source:o.mask_source,mask_reason:o.mask_reason};OBJECT_OUT.forEach(fn=>fn(out,o));return out}
  function objectsOut(S,doc){
   if(!S.has.objects)return {document_id:doc,revision:S.revision,localization:null,counts:{},items:[]};
   const items=liveObjects(S,doc).map(o=>objectOut(S,doc,o)),counts={};
@@ -708,7 +720,7 @@
    if(best)return {status:200,body:{object:objectOut(S,doc,best[0]),created:false,duplicate_of:best[0].id,overlap:round4(best[1])}};
   }
   if(body.kind==='box'&&!candidate){const m=live.filter(o=>!o.counted&&o.label===label).map(o=>[o,iou(o.box,area).iou]).filter(x=>x[1]>=0.5).sort((a,b)=>b[1]-a[1])[0];if(m)candidate=m[0]}
-  const at=iso(S.clock()),o={id:S.next(5),label,phrase:PHRASES[label]||label.replace(/_/g,' '),score:null,box:{...area},area:round4((area.x2-area.x1)*(area.y2-area.y1)),source:'manual',counted:true,derived_from:candidate?candidate.id:null,created_by:ME.id,created_at:at,deleted_at:null,deleted_by:null,mask_source:candidate?'candidate':'none',mask_reason:candidate?null:'The sample API stores the box without an outline.'};
+  const at=iso(S.clock()),o={id:S.next(5),label,phrase:PHRASES[label]||label.replace(/_/g,' '),score:null,box:{...area},area:round4((area.x2-area.x1)*(area.y2-area.y1)),source:'manual',counted:true,derived_from:candidate?candidate.id:null,created_by:ME.id,created_at:at,deleted_at:null,deleted_by:null,mask:candidate?null:outlineMask(area),mask_source:candidate?'candidate':'sam_box_prompt',mask_reason:null};
   list.push(o);event(S,'object.added',{actor:'engineer',entity_type:'photo_object',entity_id:o.id,after:{label,box:o.box}});audit(S,'object_added','added',{entity_type:'photo_object',entity_id:o.id,after:{label,document_id:doc}});
   return {status:201,body:{object:objectOut(S,doc,o),created:true,duplicate_of:null,overlap:null}};
  }

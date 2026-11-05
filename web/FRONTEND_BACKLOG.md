@@ -246,6 +246,13 @@ in-browser sample API (`index.html?mode=live&api=sample`, `web/live/sample-api.j
   shows only with this capability. Proposed: `{"entity_type": "room_create", "entity_id":
   "<client uuid>", "before": null, "after": {"name", "room_type", "floor"}}` at `rooms_review`;
   `photo_room` corrections in the same decision may name that id; empty rooms are dropped.
+* **Report narrative text** (not built; requested November 2026). The engineer should be able to
+  edit the report's prose (the property description, the methodology and the findings Basis
+  writes), with the AI's text kept and shown struck through beside the engineer's, who changed
+  it and why, and Reset to AI, like every other override. Needs the narrative sections as data
+  (a `GET .../report/narrative` with section id, the generated text and its version), a write
+  that records the engineer's text with a reason against the next revision, and the export to
+  render the engineer's text where it exists. The report must say the section was edited.
 * **Reset to AI after sending.** The app's Reset to AI drops a row's unsent corrections. After a
   correction is applied the rows do not say what the AI found, so the app cannot show the AI's
   original value struck through on later revisions. Wanted: each corrected row carries its

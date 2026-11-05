@@ -45,3 +45,9 @@ test('without the room_create capability there is no New room button and no crea
  const h=harness({roomCreate:false,second:true});assert.doesNotMatch(h.render(),/data-live="placement-create"/);
  h.Live.actions['placement-move'](null,'p');assert.doesNotMatch(h.dialogs.at(-1).body,/Create a new room/);
 });
+test('a renamed room shows the AI name struck through and Reset to AI restores it with no correction left',()=>{
+ const h=harness();h.render();h.Live.actions['placement-edit'](null,'k');const d=h.dialogs.at(-1);d.querySelector('#placement-name').value='Galley kitchen';d.querySelector('#placement-type').value='kitchen';d.querySelector('#placement-floor').value='1';d.querySelector('#placement-confirm').onclick();
+ const html=h.render();assert.match(html,/<s class="live-ai">Kitchen<\/s> Galley kitchen/);assert.match(html,/Edited by you · to send/);assert.match(html,/data-live="placement-reset"/);
+ assert.equal(h.state.corrections.rooms_review.size,1);
+ h.Live.actions['placement-reset'](null,'k');assert.equal(h.state.placement.draft.rooms[0].name,'Kitchen');assert.equal(h.state.corrections.rooms_review.size,0);assert.doesNotMatch(h.render(),/live-ai/);
+});

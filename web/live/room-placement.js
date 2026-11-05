@@ -29,7 +29,7 @@
  function card(r,i,expanded){
   const open=r.photos.length>0&&expanded.has(r.id),edit=editable(),photoCount=`${r.photos.length} ${r.photos.length===1?'photo':'photos'}`;
   return `<section class="room-section placement-room ${open?'is-expanded':''}" data-placement-room="${esc(r.id)}" aria-label="${esc(r.name)} room">
-   <div class="placement-heading"><div class="placement-title"><h2>${esc(r.name)}</h2><p>${esc(Live.labelName(r.room_type))}${r.floor!==null?' · Floor '+esc(r.floor):''}</p></div>
+   <div class="placement-heading"><div class="placement-title">${(()=>{const o=session()?.data?.items?.find(x=>x.id===r.id),edited=o&&(o.name!==r.name||o.room_type!==r.room_type||(o.floor??null)!==(r.floor??null));return `<h2>${edited&&o.name!==r.name?`<s class="live-ai">${esc(o.name)}</s> `:''}${esc(r.name)}</h2><p>${esc(Live.labelName(r.room_type))}${r.floor!==null?' · Floor '+esc(r.floor):''}${edited?'<small class="live-edited-chip">Edited by you · to send</small>':''}</p>${edited&&edit?`<button class="link-button" type="button" data-live="placement-reset" data-value="${esc(r.id)}">Reset to AI</button>`:''}`})()}</div>
    <div class="placement-tools">${edit?`<button class="button placement-edit" data-live="placement-edit" data-value="${esc(r.id)}" aria-label="Edit room: ${esc(r.name)}">Edit room</button>${session().draft.rooms.length>1?`<button class="button placement-remove" data-live="placement-remove" data-value="${esc(r.id)}" aria-label="Merge ${esc(r.name)} into another room">Merge…</button>`:''}`:''}${r.photos.length?`<button class="button placement-toggle" data-live="placement-toggle" data-value="${esc(r.id)}" aria-expanded="${open}" aria-controls="placement-body-${i}" aria-label="${open?'Hide':'Show'} ${photoCount} in ${esc(r.name)}">${open?'Hide':'Show'} ${photoCount}${icon('down',16)}</button>`:''}</div></div>
    <div class="placement-preview"><div class="placement-thumbs" ${open?'hidden':''}>${r.photos.slice(0,4).map(p=>photo(p,true)).join('')}${r.photos.length>4?`<button class="placement-more" data-live="placement-toggle" data-value="${esc(r.id)}" aria-expanded="${open}" aria-controls="placement-body-${i}" aria-label="Show all ${photoCount} in ${esc(r.name)}">+${r.photos.length-4}</button>`:''}${!r.photos.length?'<span class="muted">Drop photos here, or use Move to room on a photo.</span>':''}</div>
 </div>
@@ -79,6 +79,8 @@
   };
   m.querySelector('#placement-name').focus();
  }
+ // Reset to AI: the room's name, type and floor as the review opened them.
+ Live.actions['placement-reset']=(el,id)=>{if(!editable())return;const s=session(),o=s.data.items.find(x=>x.id===id),next=P.clone(s.draft),r=next.rooms.find(x=>x.id===id);if(!o||!r)return;Object.assign(r,{name:o.name,room_type:o.room_type,floor:o.floor??null});update(next,`${o.name}: back to the AI’s details.`)};
  Live.actions['placement-create']=()=>editRoom();Live.actions['placement-edit']=(el,id)=>editRoom(id);
  // The API merges rooms ({merge_into}); it has no room delete. Merging moves the room's photos and
  // per-photo rows into the room you choose.

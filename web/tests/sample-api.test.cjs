@@ -291,7 +291,7 @@ test('objects: a duplicate box answers 200 created false; a new box 201; delete 
  assert.equal(dup.status,200);assert.deepEqual(validate(responseSchema('POST',T,201),dup.body),[]);
  assert.equal(dup.body.created,false);assert.equal(dup.body.duplicate_of,pendant.id);assert.ok(dup.body.overlap>=0.5);
  const added=check('POST',T,await x.post(P,{kind:'box',label:'light_fixture',box:{x1:.6,y1:.05,x2:.66,y2:.1}}),201);
- assert.equal(added.created,true);assert.equal(added.object.source,'manual');assert.equal(added.object.mask_source,'none');
+ assert.equal(added.created,true);assert.equal(added.object.source,'manual');assert.equal(added.object.mask_source,'sam_box_prompt','a drawn box comes back outlined, as SAM 3 outlines it');assert.ok(added.object.mask&&added.object.mask.counts.reduce((a,b)=>a+b,0)===added.object.mask.width*added.object.mask.height,'the outline is a whole-photo MaskOut');
  const anyway=await x.post(P,{kind:'box',label:'light_fixture',box:{x1:pendant.box.x1,y1:pendant.box.y1,x2:pendant.box.x2,y2:pendant.box.y2},allow_duplicate:true});assert.equal(anyway.status,201);
  const cand=before.items.find(o=>!o.counted),fromCandidate=check('POST',T,await x.post(P,{kind:'candidate',candidate_id:cand.id}),201);
  assert.equal(fromCandidate.object.mask_source,'candidate');assert.equal(fromCandidate.object.derived_from,cand.id);
