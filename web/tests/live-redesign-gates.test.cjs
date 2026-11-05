@@ -26,7 +26,7 @@ test('six-step Rooms offers grouping corrections without inventories or object e
  const html=ctx.rooms();
  assert.doesNotMatch(html,/data-component-preview/);assert.match(html,/data-live="move-photo"/);assert.match(html,/data-live="edit-room"/);
  assert.doesNotMatch(html,/live-inventory|data-live="edit-component"|data-live="flag-photo"/);
- const photo=ctx.viewer();assert.match(photo,/Back to rooms/);assert.match(photo,/vision-photo-only/);assert.doesNotMatch(photo,/vision-readonly|vision-inspector|vision-pin-layer|vision-drawing|All types|Hide outlines|aria-label="Add a component"/);
+ const photo=ctx.viewer();assert.match(photo,/Back to rooms/);assert.match(photo,/vision-photo-only/);assert.doesNotMatch(photo,/vision-readonly|vision-inspector|vision-pin-layer|vision-drawing|All types|Hide outlines|data-vision="add"/);
 });
 test('explicit Rooms entry stays photo-only at every study stage without requesting objects',()=>{
  for(const [stage,status] of [['rooms_review','waiting_review'],['components_review','waiting_review'],['completed','completed']]){
@@ -41,7 +41,7 @@ test('explicit Components entry retains component review even during room groupi
  const {ctx,live,loads}=boot(true,'rooms_review');live.state.viewerOrigin='components';
  const html=ctx.viewer();assert.match(html,/Components inspector/);assert.match(html,/Hide outlines/);
  assert.match(html,/Back to components/);assert.match(html,/vision-readonly/);
- assert.doesNotMatch(html,/vision-photo-only|aria-label="Add a component"/);
+ assert.doesNotMatch(html,/vision-photo-only|data-vision="add"/);
  assert.equal(loads.filter(k=>k.startsWith('objects:')).length,1);
 });
 test('room photo viewer follows unsaved moves and names without changing the draft',()=>{
@@ -78,12 +78,12 @@ test('Components owns counts and photo edits, and returns the fitted viewer to C
  assert.equal((html.match(/data-component-preview="photo"/g)||[]).length,2);
  assert.match(html,/live-inventory/);assert.match(html,/data-live="use-suggested"/);assert.match(html,/data-live="flag-photo"/);
  assert.doesNotMatch(html,/data-live="edit-room"|data-live="move-photo"/);
- const photo=ctx.viewer();assert.match(photo,/href="#components\/study"/);assert.match(photo,/Back to components/);assert.match(photo,/aria-label="Add a component"/);assert.doesNotMatch(photo,/vision-readonly/);
+ const photo=ctx.viewer();assert.match(photo,/href="#components\/study"/);assert.match(photo,/Back to components/);assert.match(photo,/data-vision="add"[^>]*>[^<]*(<[^>]*>[^<]*)*Add object</);assert.doesNotMatch(photo,/vision-readonly/);
 });
 test('legacy Rooms keeps grouping, inventories and editable photo review together',()=>{
  const {ctx}=boot(false,'rooms_review');const html=ctx.rooms();
  assert.match(html,/data-live="edit-room"/);assert.match(html,/live-inventory/);assert.match(html,/data-live="use-suggested"/);
- const photo=ctx.viewer();assert.match(photo,/Back to rooms/);assert.match(photo,/href="#rooms\/study"/);assert.match(photo,/aria-label="Add a component"/);
+ const photo=ctx.viewer();assert.match(photo,/Back to rooms/);assert.match(photo,/href="#rooms\/study"/);assert.match(photo,/data-vision="add"[^>]*>[^<]*(<[^>]*>[^<]*)*Add object</);
 });
 test('Use N stages the row delta at the correct gate and preserves other edits',()=>{
  for(const gate of [true,false]){
@@ -100,7 +100,7 @@ test('Use N stages the row delta at the correct gate and preserves other edits',
 test('processing and finished components remain inspection-only',()=>{
  for(const [stage,status] of [['components_processing','processing'],['assets_review','waiting_review'],['completed','completed']]){
   const {ctx}=boot(true,stage,status);const html=ctx.viewer();
-  assert.match(html,/vision-readonly/);assert.doesNotMatch(html,/aria-label="Add a component"/);assert.match(html,/Back to components/);
+  assert.match(html,/vision-readonly/);assert.doesNotMatch(html,/data-vision="add"[^>]*>[^<]*(<[^>]*>[^<]*)*Add object</);assert.match(html,/Back to components/);
  }
 });
 test('the loader installs gates before live controllers and keeps the redesigned viewer last',()=>{
