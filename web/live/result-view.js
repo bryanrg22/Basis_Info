@@ -43,9 +43,60 @@
   const unpriced=q.unpriced?.length?disclosure(`${q.unpriced.length} unpriced ${q.unpriced.length===1?'asset':'assets'}`,`<ul class="result-causes">${q.unpriced.map(id=>{const asset=assets.find(a=>a.id===id);return `<li>${link('asset-detail',s.id,asset?`${words(asset.label||asset.category)}${asset.room?.name?' · '+asset.room.name:''}`:`Review asset ${id}`,id)}</li>`}).join('')}</ul>`):'';
   return `<div class="results-workspace">${lead?hero+stats:''}<nav class="result-section-nav" aria-label="Result sections"><button data-live="result-jump" data-value="basis-worksheet">Basis worksheet</button><button data-live="result-jump" data-value="basis-reconciliation">Reconciliation</button><button data-live="result-jump" data-value="basis-allocation">Allocation</button>${link('structure',s.id,'Concealed systems')}${link('history',s.id,'Study history')}</nav><div class="result-columns"><div id="basis-worksheet">${section('Basis worksheet',worksheet,link('intake',s.id,'Review inputs'))}</div><div id="basis-reconciliation">${section('Reconciliation',reconciliation)}</div></div><div id="basis-allocation">${section('Recovery classes',allocation+unpriced+assetRows)}</div>${section('Building systems',systems)}${r.not_produced?.length?section('Systems not priced',`<ul class="result-causes">${r.not_produced.map(c=>`<li><strong>${esc(c.system)}</strong><p>${esc(c.reason)}</p></li>`).join('')}</ul>`):''}</div>`;
  }
+ /* Split a recorded formula at operators outside brackets and quotes; null when it does not parse cleanly. */
+ function splitTop(f,sep){
+  const out=[];let depth=0,quote=false,start=0;
+  for(let i=0;i<f.length;i++){
+   const c=f[i];
+   if(c==='"'){quote=!quote;continue}
+   if(quote)continue;
+   if(c==='('||c==='[')depth++;
+   else if(c===')'||c===']'){depth--;if(depth<0)return null}
+   else if(!depth&&f.startsWith(sep,i)){out.push(f.slice(start,i).trim());start=i+sep.length;i+=sep.length-1}
+  }
+  if(depth||quote)return null;
+  out.push(f.slice(start).trim());
+  return out;
+ }
+ /* The inside of one bracket group that spans the whole text, else null. */
+ function unwrap(f){
+  if(!f.startsWith('(')||!f.endsWith(')'))return null;
+  let d=0,quote=false;
+  for(let i=0;i<f.length;i++){
+   const c=f[i];
+   if(c==='"'){quote=!quote;continue}
+   if(quote)continue;
+   if(c==='('||c==='[')d++;
+   else if(c===')'||c===']'){d--;if(!d&&i<f.length-1)return null}
+  }
+  return d?null:f.slice(1,-1);
+ }
+ /* Move long bracketed citations (or a long tail after a colon) out of a step into its source line. */
+ function sourceOf(part){
+  const keep=[],src=[];let d=0,quote=false,start=0,buf='';
+  for(let i=0;i<part.length;i++){
+   const c=part[i];
+   if(c==='"')quote=!quote;
+   if(quote)continue;
+   if(c==='('||c==='['){if(!d){buf+=part.slice(start,i);start=i}d++}
+   else if(c===')'||c===']'){d--;if(!d){const g=part.slice(start,i+1);if(g.length>40)src.push(g.slice(1,-1));else buf+=g;start=i+1}}
+  }
+  buf+=part.slice(start);
+  let what=buf.replace(/\s+/g,' ').trim();
+  if(!src.length){const k=what.indexOf(': ');if(k>0&&what.length-k>40){src.push(what.slice(k+2));what=what.slice(0,k)}}
+  return [what,src.join('; ')];
+ }
+ function formulaSteps(f,amount){
+  const factors=f?splitTop(f,' x '):null;
+  if(!factors||factors.length<2)return '';
+  const base=unwrap(factors[0]),addends=base?splitTop(base,' + '):null;
+  if(!addends)return '';
+  const line=(op,part)=>{const [what,src]=sourceOf(part);return `<tr><td class="calc-op" aria-label="${op==='+'?'plus':op==='×'?'times':''}">${op}</td><td>${esc(what)}${src?`<small>${esc(src)}</small>`:''}</td></tr>`};
+  return `<div class="result-table-scroll" tabindex="0" role="region" aria-label="Building cost calculation"><table class="result-table calc-steps"><caption>Building cost calculation</caption><colgroup><col class="calc-op-col"><col></colgroup><thead><tr><th scope="col"><span class="sr-only">Operator</span></th><th scope="col">Step and source</th></tr></thead><tbody>${addends.map((a,i)=>line(i?'+':'',a)).join('')}${factors.slice(1).map(x=>line('×',x)).join('')}<tr class="calc-total"><td class="calc-op">=</td><td><strong>${money(amount)}</strong> building replacement cost</td></tr></tbody></table></div>`;
+ }
  function structure(r,s){
   const b=r.structure?.building_rcn,m=b?.model,rows=r.structure?.concealed||[];
-  return `<div class="results-workspace">${!r.structure?empty('This server or revision has no recorded structure model. Photographs alone do not establish concealed systems.'):''}${b?section('Building cost model',`<dl class="result-summary">${pair('Building replacement cost',money(b.amount))}${pair('Quality class',words(m?.cls)||'Not recorded')}${pair('Building type',m?.type||'Not recorded')}</dl><dl class="result-facts">${pair('Cost basis',words(b.source)||'Not recorded')}${pair('Model',m?.name||'Not recorded')}</dl><p class="result-formula">${esc(b.formula)}</p><dl class="result-facts">${Object.entries(b.inputs||{}).map(([k,v])=>pair(words(k),text(v))).join('')}</dl><p class="small">${esc(m?.source)}</p>${disclosure('Model choice and assumptions',`<p>${esc(m?.class_source)}</p><p>${esc(m?.type_source)}</p><ul>${(b.assumptions||[]).map(x=>`<li>${esc(x)}</li>`).join('')}</ul>`,b.needs_review)}${checkList(b.checks)}`,link('appraisal',s.id,'Review appraisal inputs')):section('Building model',empty('The model cannot be calculated from the available appraisal inputs.'))}${section('Concealed systems',rows.length?table('Concealed systems',['System / asset','Recovery class','Replacement cost'],rows.map(c=>row([`<a href="${route('asset-detail',s.id,c.asset_id)}">${esc(c.system)} · ${esc(words(c.label))}</a>`,esc(bucket(c.bucket)),money(c.rcn)]))):empty('No concealed-system rows were returned.'))}${r.structure?.components?.length?disclosure('How the building model is split',table('Model cost reconciliation',['System','Model cost','Itemized','Concealed','Residual','Excess'],r.structure.components.map(c=>row([esc(c.name),money(c.top_down),money(c.itemized),money(c.concealed),money(c.residual),money(c.clamped)])))):''}${r.depreciation?section('Physical depreciation',`<dl class="result-facts">${pair('Rate',percent(r.depreciation.rate))}${pair('Method',words(r.depreciation.method))}</dl><p>${esc(r.depreciation.source)}</p>${checkList(r.depreciation.checks)}`):''}</div>`;
+  return `<div class="results-workspace">${!r.structure?empty('This server or revision has no recorded structure model. Photographs alone do not establish concealed systems.'):''}${b?section('Building cost model',`<dl class="result-summary">${pair('Building replacement cost',money(b.amount))}${pair('Quality class',words(m?.cls)||'Not recorded')}${pair('Building type',m?.type||'Not recorded')}</dl><dl class="result-facts">${pair('Cost basis',words(b.source)||'Not recorded')}${pair('Model',m?.name||'Not recorded')}</dl>${formulaSteps(b.formula,b.amount)||`<p class="result-formula">${esc(b.formula)}</p>`}<p class="small">${esc(m?.source)}</p>${disclosure('Recorded inputs and formula',`<dl class="result-facts">${Object.entries(b.inputs||{}).map(([k,v])=>pair(words(k),text(v))).join('')}</dl>${formulaSteps(b.formula,b.amount)?`<p class="result-formula">${esc(b.formula)}</p>`:''}`)}${disclosure('Model choice and assumptions',`<p>${esc(m?.class_source)}</p><p>${esc(m?.type_source)}</p><ul>${(b.assumptions||[]).map(x=>`<li>${esc(x)}</li>`).join('')}</ul>`,b.needs_review)}${checkList(b.checks)}`,link('appraisal',s.id,'Review appraisal inputs')):section('Building model',empty('The model cannot be calculated from the available appraisal inputs.'))}${section('Concealed systems',rows.length?table('Concealed systems',['System / asset','Recovery class','Replacement cost'],rows.map(c=>row([`<a href="${route('asset-detail',s.id,c.asset_id)}">${esc(c.system)} · ${esc(words(c.label))}</a>`,esc(bucket(c.bucket)),money(c.rcn)]))):empty('No concealed-system rows were returned.'))}${r.structure?.components?.length?disclosure('How the building model is split',table('Model cost reconciliation',['System','Model cost','Itemized','Concealed','Residual','Excess'],r.structure.components.map(c=>row([esc(c.name),money(c.top_down),money(c.itemized),money(c.concealed),money(c.residual),money(c.clamped)])))):''}${r.depreciation?section('Physical depreciation',`<dl class="result-facts">${pair('Rate',percent(r.depreciation.rate))}${pair('Method',words(r.depreciation.method))}</dl><p>${esc(r.depreciation.source)}</p>${checkList(r.depreciation.checks)}`):''}</div>`;
  }
  function costTrail(a){
   const c=a.cost,t=a.takeoff;
@@ -79,6 +130,6 @@
   if(body.series==='city'&&body.region.includes(':')){if(!d.city?.trim())errors.push('Enter the city name for a ZIP-prefix region.');else body.detail={city:d.city.trim()}}
   return {body,errors};
  }
- const api={esc,present,number,money,percent,words,bucket,when,duration,text,route,link,pair,empty,table,row,section,disclosure,checkList,resultState,result,structure,costTrail,changes,provenance,csv,indexBody};
+ const api={esc,present,number,money,percent,words,bucket,when,duration,text,route,link,pair,empty,table,row,section,disclosure,checkList,resultState,result,structure,formulaSteps,costTrail,changes,provenance,csv,indexBody};
  if(typeof module==='object'&&module.exports)module.exports=api;else scope.BasisResultView=api;
 })(globalThis);

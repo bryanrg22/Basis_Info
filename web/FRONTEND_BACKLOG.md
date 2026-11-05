@@ -202,6 +202,11 @@ not use. Nothing here is built in the app; each needs the backend first or is a 
   a price; the catalogue text should name the cost-table route only, until an override exists.
 - **Unit cost.** An asset correction cannot change the unit cost; the cost follows the cost
   table. An engineer's override would need a priced-row correction with its source.
+- **What the signed report said.** `GET .../report/state` gives the firm profile and report
+  answers versions the signature used, not their values, and `profile.set` firm activity names
+  the changed fields only (owner only). After a change, Report & sign shows "signed with version
+  1 · now version 2" and links to the signed PDF's first page. Showing the signed and current
+  value of each changed field needs the signed inputs kept with the signature.
 
 ## Testing
 

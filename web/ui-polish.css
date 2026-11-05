@@ -129,7 +129,7 @@
 #app .modal .field:has(#live-asset-bucket),#app .modal .field:has(#live-asset-period),#app .modal .field:has(#live-asset-irs){display:inline-grid;width:calc(33.3% - 8px);margin-right:8px;vertical-align:top}
 .vision-room-count.is-live{display:grid;gap:8px}
 .vision-room-count.is-live>span{display:grid;gap:2px;font-size:12.5px;color:#475a50}
-.vision-room-count.is-live strong{font-size:20px;color:#213b30}.vision-room-count.is-live s{color:#6b7c72;font-weight:500}
+.vision-room-count.is-live strong{font-size:20px;color:#213b30}.vision-room-count.is-live s{color:#556a5e;font-weight:500}
 
 /* Find a room (live/room-filter.js). */
 #app .room-filter{display:flex;align-items:center;gap:12px;margin:0 0 14px}
@@ -207,7 +207,7 @@
 #app .asset-nav .asset-nav-name{display:grid;min-width:0}#app .asset-nav .asset-nav-name small{font-size:12px;color:#475a50;font-weight:400}
 #app details.asset-review-warning>summary{cursor:pointer;list-style:revert}#app details.asset-review-warning>summary h3{display:inline;margin:0}
 /* Photo viewer: the detections list says it is this photo's, apart from the room inventory. */
-.vision-list-label{margin:12px 0 4px;font-size:12px;font-weight:600;letter-spacing:.02em;text-transform:uppercase;color:#475a50}
+.vision-list-label{margin:12px 0 4px;padding:0 16px;font-size:13px;font-weight:600;color:#475a50}
 /* Supporting labels and table headings at 14px. */
 #app .workspace:not([data-screen="viewer"]) :is(.tablewrap,.live-inventory) th,#app .result-table thead th,.nd-schedule thead th{font-size:14px;font-weight:600}
 #app .result-facts dt,#app .result-summary dt,#app .profile-settings-pane label+span,#app .settings-section-heading p{font-size:14px}
@@ -224,7 +224,36 @@
 /* The asset dialog's limits, after the form. */
 .live-asset-limits{margin:12px 0 0;font-size:12.5px;color:#475a50}
 /* Review pages leave room above the decision footer for their last rows. */
-#app .workspace .content:has(.review-decision){padding-bottom:120px}
+#app .workspace:not([data-screen="appraisal"]) .content:has(.review-decision){padding-bottom:120px}
 /* Inventory beside the photos: the count column holds its "Use N" suggestion. */
 #app .workspace:not([data-screen="viewer"]) .component-room-card .live-inventory th:nth-child(2){width:26%}
 #app .component-room-card .live-suggest-count{display:flex;flex-wrap:wrap;align-items:center;gap:4px 8px}
+/* Building cost calculation: one step per row, its citation under it. */
+#app .calc-steps{table-layout:fixed;width:100%}
+#app .calc-steps col.calc-op-col{width:40px}
+#app .calc-steps td.calc-op{text-align:center}
+#app .calc-steps td.calc-op{font-size:17px;font-weight:600;color:#2f6b4a;vertical-align:top}
+#app .calc-steps td{font-size:14px;line-height:1.5;color:var(--ui-ink,#1f3328);overflow-wrap:anywhere}
+#app .calc-steps td small{display:block;margin-top:4px;font-size:13px;line-height:1.45;color:#475a50}
+#app .calc-steps tr.calc-total td{border-top:2px solid #bcd0c2;font-size:15px}
+/* Room inventory box: the room, then the type and its total on one line, actions side by side. */
+.vision-room-count.is-live>.vision-room-title{font-size:13px;font-weight:600;color:#475a50}
+.vision-room-count.is-live>.vision-room-value{display:flex;align-items:baseline;gap:8px;flex-wrap:wrap;font-size:15px;color:#213b30}
+.vision-room-count.is-live>.vision-room-value b{font-weight:600}
+.vision-room-count.is-live>.vision-room-value strong{margin-left:auto;font-size:20px}
+.vision-room-count.is-live>.vision-room-note{margin:0;font-size:13px;line-height:1.45;color:#34473d}
+.vision-room-count.is-live>.vision-action-row{display:grid;grid-template-columns:1fr;gap:8px;margin-top:4px}
+.vision-room-count.is-live>.vision-action-row button{width:100%;justify-content:center}
+/* Collapsed room photos open that photo. */
+#app .room-summary-link{display:block;border-radius:7px;line-height:0}
+#app .room-summary-link:hover .room-summary-thumb{outline:2px solid #2f6b4a;outline-offset:1px}
+#app .room-summary-link:focus-visible{outline:2px solid #1f6b45;outline-offset:2px}
+/* Asset photo evidence: the file on one line, what it shows on the next. */
+#app .live-evidence-caption{display:grid;gap:2px;margin-top:6px;font-size:13px;line-height:1.4;color:#34473d}
+#app .live-evidence-caption .live-evidence-file{font-weight:600;color:var(--ui-ink,#1f3328);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+/* Settings: supporting text at the shared secondary size and ink. */
+#app .main .profile-field-row p,#app .main .profile-photo-controls #profile-photo-help,#app .main .profile-account-details span,#app .main .profile-local-note{font-size:13px;line-height:1.5;color:var(--ui-muted,#475a50)}
+#app .main .profile-field-row p{max-width:240px}
+#app .main .profile-account-details strong{font-size:14px;color:var(--ui-ink,#1f3328)}
+#app .calc-steps thead{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%);white-space:nowrap}
+#app .live-evidence-caption>a{justify-self:start}

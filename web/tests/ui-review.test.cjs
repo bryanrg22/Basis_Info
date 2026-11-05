@@ -71,3 +71,14 @@ test('the New design switch is off by default, survives storage failures as off,
  const broken={getItem(){throw Error('blocked')},setItem(){throw Error('blocked')},removeItem(){throw Error('blocked')}};
  g=load(broken);assert.equal(g.BasisDesign.enabled(),false);assert.equal(g.BasisDesign.set(true),true,'the choice holds for this page even when it cannot be saved');
 });
+
+test('the building formula renders one step per row, keeps every recorded word, and falls back when it does not parse',()=>{
+ const V=require('../live/result-view.js');
+ const f='(124.15/SF at 3200 SF x 3200 SF living area + basement (28.60 finished / 11.55 unfinished per SF of living area, 80.0 % finished) 80608 + baths 6 full: +5 x 9780 = 43062 (RSMeans Residential Costs 2020, facing page, printed p.64, Modifications)) x 1.2330 for 2024 (HCI 294.8 (July 2024) [index page: "The actual July 2024 Historical Index = 294.8"] / 239.1 (Jan 2020, est.)) from placed in service 2024-12-03 (intake) x 1.001 location from state CA (intake): mean of 37 CA cities (0.94-1.07), RSMeans Residential 2020 Location Factors';
+ const html=V.formulaSteps(f,'686535.94');
+ assert.equal((html.match(/<tr>/g)||[]).length,1+5,'a header row and five steps');
+ assert.match(html,/calc-total[^]*\$686,535\.94/);
+ const plainText=html.replace(/<[^>]+>/g,' ').replace(/&quot;/g,'"').replace(/&#39;/g,"'");
+ for(const word of f.replace(/[()[\]]/g,' ').split(/\s+/).filter(Boolean))assert.ok(plainText.includes(word),`kept: ${word}`);
+ for(const bad of ['',null,undefined,'a + b','(a + b','(a) x (b','a x 2','(a + "b) x 2'])assert.equal(V.formulaSteps(bad,1),'',`falls back: ${bad}`);
+});

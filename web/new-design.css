@@ -127,6 +127,11 @@
 .nd-open-count{flex:none;border:1px solid #e9c98f;background:#fdeed6;color:#7a4100;font:inherit;font-size:14px;font-weight:650;border-radius:999px;padding:8px 14px;cursor:pointer}
 .nd-open-count:hover{border-color:#c79c55}.nd-open-count:focus-visible{outline:2px solid #3c6b54;outline-offset:2px}
 .nd-more summary{color:#8a4a00}
-.nd-changes .nd-versions{font-size:12.5px;font-weight:600;color:#7a4100}
-.nd-changes .nd-current{font-size:12.5px;color:#34473d}
+.nd-compare{display:grid;grid-template-columns:1fr 1fr;gap:0;margin:8px 0 0;border:1px solid #efd9b0;border-radius:8px;overflow:hidden}
+.nd-compare>div{padding:8px 10px;min-width:0}.nd-compare>div+div{border-left:1px solid #efd9b0;background:#fffaf1}
+.nd-compare dt{font-size:12.5px;font-weight:600;color:#7a4100;margin:0 0 2px}
+.nd-compare dd{margin:0;font-size:13px;color:var(--nd-ink);display:grid;gap:2px;overflow-wrap:anywhere}
+.nd-compare dd span{color:#34473d}
+.nd-link{justify-self:start;padding:0;border:0;background:none;font:600 13px/1.4 inherit;color:#1f6b45;text-decoration:underline;text-underline-offset:2px;cursor:pointer}
+.nd-link:focus-visible{outline:2px solid #1f6b45;outline-offset:2px;border-radius:3px}
 .nd-why{margin-top:10px;font-size:13px;color:#34473d}.nd-why summary{cursor:pointer;font-weight:600;color:#7a4100}.nd-why p{margin:6px 0 0}
