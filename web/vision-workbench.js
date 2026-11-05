@@ -61,7 +61,7 @@
  // web/README.md ("API work still required") stay in mock mode until the API has them.
  function liveObjectActions(s){
   if(s.source==='manual')return `<div class="vision-action-row vision-edit">${view.newId===s.id?act('confirm','Keep addition','','class="vision-primary"'):''}${act('delete','Delete','','class="vision-danger"')}</div>`;
-  return `<p class="vision-scope">Detected by Basis and counted in <strong>${esc(context.room?.name||'this room')}</strong>’s ${esc(name(s.label).toLowerCase())}. To change its type or the count, correct the room inventory above.</p>`;
+  return `<p class="vision-scope">Detected in this photo. Corrections go through the room inventory above.</p>`;
  }
  function inspector(){
   const c=context,s=current(),types=[...new Set(counted().map(i=>i.label))].sort(),label=view.focusLabel,objects=sorted(label);
@@ -79,7 +79,7 @@
    if(Live){
     // Live: the room inventory is what a correction changes; it says so, with before and after.
     const before=V.roomCount(c.room,label)||0,queued=Live.state.corrections[reviewStage()]?.size||0;
-    html+=`<section class="vision-room-count is-live" aria-label="Room inventory correction"><span>${esc(c.room.name)} · ${esc(name(label))} in the room inventory<strong>${pending&&roomCount!==before?`<s>${before}</s> → ${roomCount??0}`:roomCount??'Not listed'}</strong></span>${c.open?`<div class="vision-action-row vision-edit">${act('type','Change inventory type')}${act('count','Edit room total',label)}</div>`:''}${suggest&&suggest.suggested>(roomCount||0)?`<p>Photos suggest ${suggest.suggested} in this room.</p>`:''}${queued?`<p class="vision-queued">${queued} ${queued===1?'correction':'corrections'} waiting · <a href="${Live.route(c.back||'components',c.id)}">Review</a> · <button type="button" class="link-button" data-live="reject" data-value="${reviewStage()}">Send</button></p>`:''}</section>`;
+    html+=`<section class="vision-room-count is-live" aria-label="Room inventory correction"><span>Room inventory · ${esc(c.room.name)} · ${esc(name(label))}<strong>${pending&&roomCount!==before?`<s>${before}</s> → ${roomCount??0}`:roomCount??'Not listed'}</strong></span>${c.open?`<div class="vision-action-row vision-edit">${act('type','Change inventory type')}${act('count','Edit room total',label)}</div>`:''}${suggest&&suggest.suggested>(roomCount||0)?`<p>Photos suggest ${suggest.suggested} in this room.</p>`:''}${queued?`<p class="vision-queued">${queued} ${queued===1?'correction':'corrections'} waiting · <a href="${Live.route(c.back||'components',c.id)}">Review</a> · <button type="button" class="link-button" data-live="reject" data-value="${reviewStage()}">Send</button></p>`:''}</section>`;
    }else html+=`<div class="vision-room-count"><span>Room inventory<strong>${roomCount??'Not listed'}</strong></span>${c.open?act('count','Edit count',label,'class="vision-edit"'):''}${suggest&&suggest.suggested>(roomCount||0)?`<p>Photos suggest ${suggest.suggested} in this room.</p>`:''}${pending?'<p>Correction pending · send from Room inventory.</p>':''}</div>`;
   }
   if(s){const index=objects.findIndex(i=>i.id===s.id)+1;
