@@ -15,7 +15,7 @@
 .nd-classbar{display:flex;height:12px;border-radius:999px;overflow:hidden;background:var(--nd-soft);gap:2px}
 .nd-classbar span{background:var(--c);min-width:3px}
 .nd-tag{display:inline-flex;align-items:center;font-size:11.5px;font-weight:600;border-radius:999px;padding:1px 8px;margin-left:6px;vertical-align:1px}
-.nd-tag-edited{background:#e3eef8;color:#245d8f}.nd-tag-warn{background:#fdeed6;color:#8a4a00;margin:0}
+.nd-tag-edited{background:#e3eef8;color:#245d8f}.nd-tag-unpriced{background:#eef2ef;color:#34473d;box-shadow:inset 0 0 0 1px #c9d6cd;margin:0}
 .nd-status{display:inline-flex;align-items:center;gap:5px;font-size:12px;font-weight:600;white-space:nowrap}
 .nd-status::before{content:"";width:7px;height:7px;border-radius:50%;background:currentColor}
 .nd-status-review{color:#8a4a00}.nd-status-ok{color:#2f6b4a}

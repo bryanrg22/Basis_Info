@@ -299,3 +299,6 @@
 .live-asset-route{margin:12px 0 0;font-size:13.5px;color:#213b30}
 /* Results tables of figures: numbers right-aligned under right-aligned headings. */
 #app .result-table.is-numeric td,#app .result-table.is-numeric thead th:not(:first-child){text-align:right}
+/* With corrections waiting, the decision bar's send action leads. */
+#app .review-decision .button.is-pending{background:#94621e;border-color:#94621e;color:#fff}
+#app .review-decision .button.is-pending:hover{background:#7d5218}
