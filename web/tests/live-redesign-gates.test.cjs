@@ -78,12 +78,12 @@ test('Components owns counts and photo edits, and returns the fitted viewer to C
  assert.equal((html.match(/data-component-preview="photo"/g)||[]).length,2);
  assert.match(html,/live-inventory/);assert.match(html,/data-live="use-suggested"/);assert.match(html,/data-live="flag-photo"/);
  assert.doesNotMatch(html,/data-live="edit-room"|data-live="move-photo"/);
- const photo=ctx.viewer();assert.match(photo,/href="#components\/study"/);assert.match(photo,/Back to components/);assert.match(photo,/data-vision="add"[^>]*>[^<]*(<[^>]*>[^<]*)*Add object</);assert.doesNotMatch(photo,/vision-readonly/);
+ const photo=ctx.viewer();assert.match(photo,/href="#components\/study"/);assert.match(photo,/Back to components/);assert.match(photo,/data-vision="add"[^>]*>[^<]*(<[^>]*>[^<]*)*Draw missing object</);assert.doesNotMatch(photo,/vision-readonly/);
 });
 test('legacy Rooms keeps grouping, inventories and editable photo review together',()=>{
  const {ctx}=boot(false,'rooms_review');const html=ctx.rooms();
  assert.match(html,/data-live="edit-room"/);assert.match(html,/live-inventory/);assert.match(html,/data-live="use-suggested"/);
- const photo=ctx.viewer();assert.match(photo,/Back to rooms/);assert.match(photo,/href="#rooms\/study"/);assert.match(photo,/data-vision="add"[^>]*>[^<]*(<[^>]*>[^<]*)*Add object</);
+ const photo=ctx.viewer();assert.match(photo,/Back to rooms/);assert.match(photo,/href="#rooms\/study"/);assert.match(photo,/data-vision="add"[^>]*>[^<]*(<[^>]*>[^<]*)*Draw missing object</);
 });
 test('Use N stages the row delta at the correct gate and preserves other edits',()=>{
  for(const gate of [true,false]){
@@ -100,7 +100,7 @@ test('Use N stages the row delta at the correct gate and preserves other edits',
 test('processing and finished components remain inspection-only',()=>{
  for(const [stage,status] of [['components_processing','processing'],['assets_review','waiting_review'],['completed','completed']]){
   const {ctx}=boot(true,stage,status);const html=ctx.viewer();
-  assert.match(html,/vision-readonly/);assert.doesNotMatch(html,/data-vision="add"[^>]*>[^<]*(<[^>]*>[^<]*)*Add object</);assert.match(html,/Back to components/);
+  assert.match(html,/vision-readonly/);assert.doesNotMatch(html,/data-vision="add"[^>]*>[^<]*(<[^>]*>[^<]*)*Draw missing object</);assert.match(html,/Back to components/);
  }
 });
 test('the loader installs gates before live controllers and keeps the redesigned viewer last',()=>{
@@ -203,4 +203,25 @@ test('component room metadata preserves floor zero and labels the disclosure',()
  const html=live.componentsScreen();assert.match(html,/Type <strong>kitchen<\/strong>/);assert.match(html,/Floor <strong>0<\/strong>/);
  assert.match(html,/Show components/);assert.match(html,/Hide components/);assert.match(html,/Rooms in this study/);assert.match(html,/Total photos/);
  room.floor=null;assert.doesNotMatch(live.componentsScreen(),/Floor <strong>/);
+});
+
+test('inventory overrides: the AI value struck beside the engineer value, Edited and Removed rows, and the unit price only when offered',()=>{
+ const {live,ctx}=boot(true,'components_review'),stage=G.editStage(live.state.study);
+ live.state.corrections[stage]=new Map([
+  ['component:c1',{key:'component:c1',entity_type:'component',entity_id:'c1',before:{label:'light_fixture',count:1,material:'metal'},after:{count:3,material:'brass'},reason:null}],
+  ['component_remove:c2',{key:'component_remove:c2',entity_type:'component_remove',entity_id:'c2',before:{label:'light_fixture',count:6},after:{},reason:'Double counted from the mirror'}]]);
+ let html=live.componentsScreen();
+ assert.match(html,/<s class="live-ai"[^>]*>1<\/s> <span class="live-engineer">3<\/span>/);assert.match(html,/<s class="live-ai"[^>]*>metal<\/s> <span class="live-engineer">brass<\/span>/);
+ assert.match(html,/Edited by you/);assert.match(html,/Removed by you/);assert.match(html,/Double counted from the mirror/);assert.match(html,/data-value="component_remove:c2">Undo/);
+ assert.doesNotMatch(html,/Unit price/,'no price column without unit_cost_override');
+ live.caps={unitCostOverride:true};html=live.componentsScreen();assert.match(html,/<th class="num">Unit price<\/th>/);
+});
+test('the inventory row dialog offers type, count stepper, material, attachment, reason, Remove row and Reset to AI; price fields only when offered',()=>{
+ const {live,ctx}=boot(true,'components_review'),stage=G.editStage(live.state.study);let seen=null;
+ ctx.modal=(title,body,actions)=>{seen={title,body,actions};return {querySelector:()=>({value:'',focus(){},addEventListener(){}}),querySelectorAll:()=>[],remove(){}}};
+ live.state.corrections[stage]=new Map();live.actions['edit-component']({dataset:{room:'kitchen'}},'c1');
+ assert.match(seen.title,/Correct room inventory · Kitchen/);for(const id of ['live-comp-label','live-comp-count','live-comp-material','live-comp-attachment','live-comp-reason'])assert.match(seen.body,new RegExp(`id="${id}"`));
+ assert.match(seen.body,/data-step="-1"/);assert.match(seen.body,/AI: 1/);assert.match(seen.actions,/Remove row/);assert.doesNotMatch(seen.actions,/Reset to AI/);assert.doesNotMatch(seen.body,/live-comp-price/);
+ live.state.corrections[stage].set('component:c1',{key:'component:c1',after:{count:2}});live.caps={unitCostOverride:true};live.actions['edit-component']({dataset:{room:'kitchen'}},'c1');
+ assert.match(seen.actions,/Reset to AI/);assert.match(seen.body,/id="live-comp-price"/);assert.match(seen.body,/id="live-comp-price-source"/);
 });

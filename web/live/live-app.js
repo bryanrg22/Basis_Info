@@ -22,11 +22,27 @@
  document.documentElement.dataset.basisMode='live';
  const L={authReady:false,user:null,authError:'',studies:null,studiesError:null,studyId:null,docId:null,study:null,cache:new Map(),blobs:new Map(),poller:null,workflow:null,upload:null,returnTo:null,busy:new Set(),corrections:{},viewer:{mode:'spotlight',focusLabel:null,selectedId:null,tool:null,addLabel:null},assetsFilter:'all',studiesFilter:'All studies',studiesQuery:'',studiesSort:'updated'};
  // Every call is a breadcrumb and every failure an event in the error capture (live/errors.js).
- const api=BasisApi.createClient({baseUrl:C.apiBase,getToken:()=>BasisAuth.getToken(),onUnauthorized:()=>{if(BasisAuth.user)toast('Your session has expired. Sign in again.')},observe:info=>globalThis.BasisErrors?.apiCall(info)});
+ // The sample API (live/sample-api.js, ?api=sample) answers in the page; the real API path is unchanged.
+ const SAMPLE=C.apiBase==='sample'&&globalThis.BasisSampleApi?.active?globalThis.BasisSampleApi:null;
+ const api=BasisApi.createClient({baseUrl:SAMPLE?SAMPLE.base:C.apiBase,fetchImpl:SAMPLE?SAMPLE.fetch:undefined,getToken:()=>BasisAuth.getToken(),onUnauthorized:()=>{if(BasisAuth.user)toast('Your session has expired. Sign in again.')},observe:info=>globalThis.BasisErrors?.apiCall(info)});
  const reportError=(err,context)=>{try{globalThis.BasisErrors?.report(err,context)}catch{}};
  // An API refusal the client already recorded (test and fixture harnesses stub BasisApi without ApiError).
  const apiRefusal=e=>typeof BasisApi.ApiError==='function'&&e instanceof BasisApi.ApiError;
  const Live=globalThis.BasisLive={config:C,api,state:L,screens:{}};
+ // Proposed capabilities (web/FRONTEND_BACKLOG.md 13, "Engineer overrides"): GET /v1/capabilities
+ // says which proposed corrections the API accepts. Anything but a 200 means none, so the current
+ // API (404) shows exactly what it showed before. Asked once per session, outside the error capture.
+ Live.caps={objectExclusion:false,unitCostOverride:false,roomCreate:false};
+ Live.loadCaps=async()=>{
+  if(Live.loadCaps.done)return;Live.loadCaps.done=true;
+  try{
+   const token=await BasisAuth.getToken(),headers={Accept:'application/json'};if(token)headers.Authorization=`Bearer ${token}`;
+   const r=await (SAMPLE?SAMPLE.fetch:fetch)((SAMPLE?SAMPLE.base:C.apiBase)+'/v1/capabilities',{headers});
+   if(!r.ok)return;const d=await r.json();
+   Live.caps={objectExclusion:d?.object_exclusion===true,unitCostOverride:d?.unit_cost_override===true,roomCreate:d?.room_create===true};
+   if(Object.values(Live.caps).some(Boolean))Live.render?.();
+  }catch{}
+ };
  const STAGE={uploading:'Waiting for documents',extracting:'Extracting the appraisal and analyzing photos',appraisal_review:'Appraisal review',rooms_review:'Rooms review',components_processing:'Preparing components',components_review:'Components review',assets_processing:'Preparing asset costs',assets_review:'Assets review',exporting:'Preparing results',completed:'Reviews approved'};
  const STATUS={draft:'Draft',processing:'Processing',waiting_review:'Ready for review',stalled:'Needs attention',completed:'Reviews approved',archived:'Archived',failed:'Failed'};
  // The gates (live/gates.js): the rooms review, then the components review, unless the
@@ -164,7 +180,7 @@
   const mock=new URL(location.href);mock.searchParams.delete('mode');
   const developer=new URL('developer/',location.href);developer.search=location.search;developer.hash='';
   const developerLink=['localhost','127.0.0.1','[::1]'].includes(location.hostname)?`<a href="${esc(developer.toString())}">System health</a>`:'';
-  return `<div class="reviewbar live-bar"><div class="row"><strong>Basis</strong><span class="live-badge">Live</span><span class="small">API ${esc(host)}${C.firebase.emulatorHost?' · Auth emulator':''}</span></div><div class="row">${L.user&&Live.barExtra?Live.barExtra():''}${L.user?`<span class="small">${esc(L.user.email||L.user.displayName||'Signed in')}</span><button class="button quiet small" data-live="sign-out">Sign out</button>`:''}${developerLink}<a href="${esc(mock.toString())}">Design review (mock)</a></div></div>`;
+  return `<div class="reviewbar live-bar"><div class="row"><strong>Basis</strong><span class="live-badge">Live</span><span class="small">${SAMPLE?'Sample data · nothing is saved':`API ${esc(host)}${C.firebase.emulatorHost?' · Auth emulator':''}`}</span></div><div class="row">${L.user&&Live.barExtra?Live.barExtra():''}${L.user?`<span class="small">${esc(L.user.email||L.user.displayName||'Signed in')}</span><button class="button quiet small" data-live="sign-out">Sign out</button>`:''}${developerLink}<a href="${esc(mock.toString())}">Design review (mock)</a></div></div>`;
  }
  reviewbar=liveBar;
  // Study drafts are mock-only: their leave-page guard must not hold up live navigation.
@@ -433,7 +449,7 @@
 
  /* ---------- start ---------- */
  // Another account signed in: nothing cached for the previous one may show.
- BasisAuth.onChange(user=>{if(L.user&&user?.uid!==L.user.uid)L.cache.clear();L.user=user;if(L.authReady)render()});
- BasisAuth.init(C.firebase).then(()=>{L.authReady=true;L.user=BasisAuth.user;L.authError=BasisAuth.redirectError||'';const back=sessionStorage.getItem('basis-live-return');sessionStorage.removeItem('basis-live-return');if(L.user&&back&&/^#(login)?$/.test(location.hash||'#')){location.hash=back}render()},e=>{L.authError=`The Firebase SDK could not load (${e.message}). Check the network connection.`;render()});
+ BasisAuth.onChange(user=>{if(L.user&&user?.uid!==L.user.uid)L.cache.clear();L.user=user;if(user)Live.loadCaps();if(L.authReady)render()});
+ BasisAuth.init(C.firebase).then(()=>{L.authReady=true;L.user=BasisAuth.user;if(L.user)Live.loadCaps();L.authError=BasisAuth.redirectError||'';const back=sessionStorage.getItem('basis-live-return');sessionStorage.removeItem('basis-live-return');if(L.user&&back&&/^#(login)?$/.test(location.hash||'#')){location.hash=back}render()},e=>{L.authError=`The Firebase SDK could not load (${e.message}). Check the network connection.`;render()});
  render();
 })();

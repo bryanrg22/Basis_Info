@@ -78,6 +78,14 @@
    const b=inst.box,[x1,y1]=toCanvas(b.x1,b.y1),[x2,y2]=toCanvas(b.x2,b.y2);
    ctx.save();if(kind==='edge'){ctx.strokeStyle=`rgb(${color||WHITE})`;ctx.lineWidth=2*dpr;ctx.setLineDash(inst.mask?[]:[6*dpr,4*dpr]);ctx.strokeRect(x1,y1,x2-x1,y2-y1)}else{ctx.fillStyle=`rgb(${color||WHITE})`;ctx.fillRect(x1,y1,x2-x1,y2-y1)}ctx.restore();
   }
+  // An instance the engineer marked Not counted stays on the photo as evidence: its box, dashed
+  // in amber, crossed out corner to corner.
+  function struck(ctx,inst,selected){
+   const b=inst.box,[x1,y1]=toCanvas(b.x1,b.y1),[x2,y2]=toCanvas(b.x2,b.y2);
+   ctx.save();ctx.strokeStyle=selected?'#ffffff':'#f2c46b';ctx.lineWidth=(selected?2.5:2)*dpr;ctx.setLineDash([7*dpr,5*dpr]);ctx.strokeRect(x1,y1,x2-x1,y2-y1);
+   ctx.setLineDash([]);ctx.beginPath();ctx.moveTo(x1,y1);ctx.lineTo(x2,y2);ctx.stroke();ctx.restore();
+  }
+  const excluded=()=>view.instances.filter(i=>i.exclusion);
   function pinAt(inst){
    const p=prepare(inst),b=inst.box;
    if(p){const u=p.stats.cx/p.mask.width,v=p.stats.cy/p.mask.height;return p.stats.fraction>0.015?[u,v]:[u,Math.max(0.03,p.b.y1/p.mask.height-0.035)]}
@@ -106,20 +114,23 @@
     counted.forEach(i=>drawInstance(ctx,i,'edge',labelColor(i.label,view.labels)));
     const selected=instances.find(i=>i.id===view.selectedId);if(selected)drawInstance(ctx,selected,'edge',WHITE);
     const hovered=instances.find(i=>i.id===view.hoverId);if(hovered)drawInstance(ctx,hovered,'edge',WHITE);
+    excluded().forEach(i=>struck(ctx,i,i.id===view.selectedId));
     return;
    }
    if(mode==='single'){
-    const one=instances.find(i=>i.id===view.selectedId);if(!one)return;const hovered=instances.find(i=>i.id===view.hoverId);highlight(ctx,hovered&&hovered.id!==one.id?[one,hovered]:[one]);const [u,v]=pinAt(one),n=orderedFocus().findIndex(i=>i.id===one.id);pin(ctx,u,v,n>=0?String(n+1):'•',true);return;
+    const one=instances.find(i=>i.id===view.selectedId);if(!one)return;
+    if(one.exclusion){excluded().filter(i=>i.label===one.label).forEach(i=>struck(ctx,i,i.id===one.id));return}const hovered=instances.find(i=>i.id===view.hoverId);highlight(ctx,hovered&&hovered.id!==one.id?[one,hovered]:[one]);const [u,v]=pinAt(one),n=orderedFocus().findIndex(i=>i.id===one.id);pin(ctx,u,v,n>=0?String(n+1):'•',true);return;
    }
-   const group=orderedFocus();if(!group.length)return;highlight(ctx,group);
+   const group=orderedFocus();if(!group.length){excluded().filter(i=>i.label===view.focusLabel).forEach(i=>struck(ctx,i,i.id===view.selectedId));return}highlight(ctx,group);
    const hovered=instances.find(i=>i.id===view.hoverId);if(hovered)drawInstance(ctx,hovered,'edge',WHITE);
    group.forEach((i,n)=>{const [u,v]=pinAt(i);pin(ctx,u,v,String(n+1),i.id===view.selectedId||i.id===view.hoverId)});
+   excluded().filter(i=>i.label===view.focusLabel).forEach(i=>struck(ctx,i,i.id===view.selectedId));
   }
   // The focused component's counted instances, numbered left to right (as the pins read).
   function orderedFocus(){return view.instances.filter(i=>i.label===view.focusLabel&&i.counted).sort((a,b)=>a.box.x1-b.box.x1||a.box.y1-b.box.y1)}
   function pick(u,v){
    const hits=view.instances.filter(i=>{const p=prepare(i);if(p)return scope.BasisRle.contains(p.mask,p.bits,u,v);const b=i.box;return u>=b.x1&&u<=b.x2&&v>=b.y1&&v<=b.y2});
-   const visible=view.mode==='overview'?hits.filter(i=>i.counted):hits.filter(i=>i.counted||i.id===view.selectedId);
+   const visible=view.mode==='overview'?hits.filter(i=>i.counted||i.exclusion):hits.filter(i=>i.counted||i.exclusion||i.id===view.selectedId);
    const preferred=visible.filter(i=>i.label===view.focusLabel),pool=preferred.length&&view.mode!=='overview'?preferred:visible;
    return pool.sort((a,b)=>(a.area||1)-(b.area||1))[0]||null;
   }

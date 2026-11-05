@@ -188,20 +188,14 @@ not use. Nothing here is built in the app; each needs the backend first or is a 
   completed studies only (409 `study-not-completed`). Mid-study, the only way back is to
   request corrections at the step that is open. The completed-study path ("Change
   Components" and friends) is built on the read-only review pages and on Report & sign.
-- **Change type, confirm, mark wrong or delete a found object on a photo.** The proposed
-  object operations in `web/README.md` ("API work still required") are still proposals. In
-  live mode the photo viewer offers what works: the room inventory correction (label and
-  count) for a type, and Delete for objects an engineer added. A per-object correction of
-  Basis's own detections needs the object PATCH the README proposes.
-- **Remove a component from a room.** A `component` correction's count is 1 to the maximum
-  (`basis/domain/counts.py`, `count_problem`), so a type the photos do not show cannot be taken
-  out of a room's inventory; the engineer can relabel it or lower it to 1. Needs a removal (count
-  0 or an exclusion) that the assets then drop.
+- **Change type or exclude a found object on a photo; remove a component.** Superseded by section
+  14: removing an inventory row is the supported `component_remove` correction (reason required),
+  now offered as Remove row; excluding and retyping a model detection is the proposed
+  `object_exclusion`.
 - **Unpriced-asset guidance.** `BASIS-CHECK-012`'s fix text (the generated error catalogue)
   says "Price it by hand, or add the row to the cost table", but an asset correction cannot set
   a price; the catalogue text should name the cost-table route only, until an override exists.
-- **Unit cost.** An asset correction cannot change the unit cost; the cost follows the cost
-  table. An engineer's override would need a priced-row correction with its source.
+- **Unit cost.** Proposed in section 14 (`unit_cost_override`).
 - **Which result checks the engineer has dealt with.** `GET .../result` reports each worksheet
   and structure check as `ok`, `warning`, `error` or `not_checked`, with no acknowledged or
   resolved state. Results therefore shows every warning as "to review", even on an approved
@@ -212,6 +206,51 @@ not use. Nothing here is built in the app; each needs the backend first or is a 
   the changed fields only (owner only). After a change, Report & sign shows "signed with version
   1 · now version 2" and links to the signed PDF's first page. Showing the signed and current
   value of each changed field needs the signed inputs kept with the signature.
+
+## 14. Engineer overrides: what the app needs from the API (November 2026)
+
+Engineers must be able to override everything Basis decides. The app builds every override in
+live mode where the API supports it (component type/count/material/attachment, remove a row,
+add a row, rename and merge rooms, move a photo, asset classification and measured quantity,
+add or delete an engineer's object). Four things the API lacks are built fully against the
+in-browser sample API (`index.html?mode=live&api=sample`, `web/live/sample-api.js`, its
+`PROPOSED` section) and appear in live mode only when the API says it offers them. Delete the
+`PROPOSED` section once the backend has these.
+
+* **Capabilities.** `GET /v1/capabilities` (any member) answers
+  `{"object_exclusion": bool, "unit_cost_override": bool, "room_create": bool}`. The app asks once
+  per session, outside the error capture; anything but a 200 means none, so today's API (404)
+  shows exactly what it showed before.
+* **Not counted on a photo object** (`object_exclusion`).
+  `PATCH /v1/studies/{study_id}/photos/{document_id}/objects/{object_id}` with
+  `{"counted": false, "reason": "<1-500 chars>"}`; `{"counted": true}` counts it again. Engineer
+  role, at the edit stage only (409 otherwise), model and engineer-added instances alike; nothing
+  is deleted. The object (and every instance in `GET .../objects`) carries
+  `exclusion: {"by", "by_name", "at", "reason"}` or `null`; excluded instances are
+  `counted: false` and leave the per-label counts. The app draws them struck through with who
+  and why.
+  **Changing a detection's type uses the same concept**: the app marks the AI's box Not counted
+  (reason "Type changed to <label>: <why>") and adds an engineer object with the new label at the
+  same box (`POST .../objects`, box + label, SAM 3 outlines it, the duplicate guard applies). So the
+  backend needs this one new concept, not a relabel endpoint.
+* **Unit price override** (`unit_cost_override`). Two correction fields on `asset` and
+  `component` corrections (decision route, a `reject`): `unit_cost` (number > 0, at most
+  10,000,000, USD per takeoff unit; `null` clears it) and `unit_cost_source` (1-300 chars,
+  required with a number); the correction's `reason` is required. A `component` override prices
+  every asset taken off that component. The next revision's asset reports `cost.unit_cost` = the
+  override and `cost.override: {"unit_cost", "source", "reason", "by", "by_name", "at"}`.
+* **Create a room** (`room_create`). `rooms_review` accepts only `room` and `photo_room`
+  corrections (`backEnd/basis/workflow/contracts.py`), so the API cannot create a room. Main's live
+  Rooms editor sent `room_create` for New room and `room_delete` for Remove, both refused with 422.
+  Fixed in the app: Remove is now Merge (`room` `{"merge_into": <id>}`, supported) and New room
+  shows only with this capability. Proposed: `{"entity_type": "room_create", "entity_id":
+  "<client uuid>", "before": null, "after": {"name", "room_type", "floor"}}` at `rooms_review`;
+  `photo_room` corrections in the same decision may name that id; empty rooms are dropped.
+* **Reset to AI after sending.** The app's Reset to AI drops a row's unsent corrections. After a
+  correction is applied the rows do not say what the AI found, so the app cannot show the AI's
+  original value struck through on later revisions. Wanted: each corrected row carries its
+  model values (`ai: {label, count, material, attachment, unit_cost}`), and a correction that
+  restores them.
 
 ## Testing
 

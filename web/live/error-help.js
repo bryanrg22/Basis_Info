@@ -25,15 +25,17 @@
  // whose signal matches the reason), and the code. Codes no reason matches get their own row.
  const fixFor=e=>e&&e.fix&&!/^Read the reason\.?$/.test(e.fix)?e.fix:'';
  function matches(signal,raw){return !!signal&&(raw===signal||(signal.endsWith(':')?raw.startsWith(signal):raw.endsWith(':'+signal)))}
+ // With the proposed unit_cost_override offered (GET /v1/capabilities), an unpriced asset can be priced by hand.
+ const fixText=code=>code==='BASIS-CHECK-012'&&scope.BasisLive?.caps?.unitCostOverride?'Set a unit price with its source (Edit), correct the category to one the firm’s cost table prices, or add a row for it to the cost table.':code in FIX?FIX[code]:catalogue[code].fix;
  function flags(reasons=[],codes=[]){
   const R=scope.BasisReasons;if(!R)return reviews(reasons,codes);
   const known=[...new Set(codes)].filter(c=>catalogue[c]),used=new Set();
   const rows=R.explainAll(reasons).map(r=>{
    const code=known.find(c=>matches(catalogue[c].signal,r.code));if(code)used.add(code);
    const text=r.kind==='model'?(r.text?`The classification model asked for review: “${r.text}”`:'The classification model asked for review.'):r.text;
-   return {text,fix:code?fixFor({fix:code in FIX?FIX[code]:catalogue[code].fix}):'',code};
+   return {text,fix:code?fixFor({fix:fixText(code)}):'',code};
   });
-  for(const c of known)if(!used.has(c))rows.push({text:catalogue[c].what,fix:fixFor({fix:c in FIX?FIX[c]:catalogue[c].fix}),code:c});
+  for(const c of known)if(!used.has(c))rows.push({text:catalogue[c].what,fix:fixFor({fix:fixText(c)}),code:c});
   return rows.map(r=>`<li class="flag-row"><p>${esc(r.text)}</p>${r.fix?`<p class="flag-fix">${esc(r.fix)}</p>`:''}${r.code?`<code>${esc(r.code)}</code>`:''}</li>`).join('');
  }
  function failureState(study,progress={},memberships=[]){
