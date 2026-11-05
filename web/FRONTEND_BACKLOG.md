@@ -202,6 +202,11 @@ not use. Nothing here is built in the app; each needs the backend first or is a 
   a price; the catalogue text should name the cost-table route only, until an override exists.
 - **Unit cost.** An asset correction cannot change the unit cost; the cost follows the cost
   table. An engineer's override would need a priced-row correction with its source.
+- **Which result checks the engineer has dealt with.** `GET .../result` reports each worksheet
+  and structure check as `ok`, `warning`, `error` or `not_checked`, with no acknowledged or
+  resolved state. Results therefore shows every warning as "to review", even on an approved
+  study where the engineer has already looked at it. Telling decided checks from open ones
+  needs an acknowledgement (who, when, note) recorded against the revision.
 - **What the signed report said.** `GET .../report/state` gives the firm profile and report
   answers versions the signature used, not their values, and `profile.set` firm activity names
   the changed fields only (owner only). After a change, Report & sign shows "signed with version
