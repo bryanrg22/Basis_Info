@@ -360,3 +360,8 @@
 #app .appraisal-organized .field-row>strong .field-reason{display:block;margin-top:4px;font-size:13px;font-weight:500;color:#34473d}
 /* Low confidence reads amber whether or not the step is approved. */
 #app .appraisal-organized .look-mark.is-retained,#app .appraisal-organized .look-legend.is-retained .look-dot{background:#94621e;box-shadow:0 0 0 2px #f6e7cc}
+/* Viewer: what the photo shows next to what the room prices, and what a photo edit changes. */
+.vision-room-count.is-live>.vision-room-photo{font-size:13px;color:#34473d}
+.vision-room-count.is-live>.vision-room-hint{margin:0;padding:6px 8px;border-radius:6px;background:#eef4fb;font-size:12.5px;line-height:1.4;color:#1f4f7a}
+.vision-exclusion .vision-saved{margin-left:6px;padding:0 6px;border-radius:999px;background:#e5f1e9;color:#1f5a3c;font-size:11.5px;font-weight:600}
+body:has(.review-decision) #toast{bottom:118px}
