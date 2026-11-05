@@ -367,3 +367,26 @@
 body:has(.review-decision) #toast{bottom:118px}
 .vision-room-count.is-live>.vision-room-suggest{display:flex;align-items:center;justify-content:space-between;gap:8px;margin:0;padding:6px 8px;border-radius:6px;background:#fff6e6;font-size:13px;color:#5b4a2f}
 .vision-room-count.is-live>.vision-room-suggest .vision-use{min-height:30px;padding:2px 10px;font-weight:600}
+/* r20: the viewer panel fits a selected object without scrolling its top away */
+.vision-inspector:has(.vision-type-title) .vision-inspector-footer{display:none}
+.vision-inspector>header:has(.vision-add-object){padding:14px 16px 12px;row-gap:8px}
+.vision-inspector-body:has(.vision-type-title){padding-top:4px}
+.vision-room-count.is-live>.vision-type-title{padding:0}
+.vision-room-count.is-live>.vision-type-title h3{margin-top:2px}
+.vision-room-count.is-live{gap:6px}
+/* r20: a collapsed room card is a compact row: its first photo, then its types and Show components beside it. */
+#app .component-room-card:not(:has(.component-room-toggle[aria-expanded="true"])) .component-room-summary{grid-template-columns:auto minmax(0,1fr);column-gap:18px;row-gap:12px}
+#app .component-room-card:not(:has(.component-room-toggle[aria-expanded="true"])) .component-room-summary>:is(.component-room-heading,.component-room-counts){grid-column:1/-1}
+#app .component-room-card:not(:has(.component-room-toggle[aria-expanded="true"])) .component-room-preview{display:contents}
+#app .component-room-card:not(:has(.component-room-toggle[aria-expanded="true"])) .room-summary-previews{grid-column:1;grid-row:3/span 2;flex-direction:column;align-items:flex-start;gap:6px;align-self:start}
+#app .component-room-card:not(:has(.component-room-toggle[aria-expanded="true"])) .component-room-summary>.room-summary-categories{grid-column:2;grid-row:3;flex-direction:column;align-items:flex-start;align-self:start;gap:6px}
+#app .component-room-card:not(:has(.component-room-toggle[aria-expanded="true"])) .room-category-more{margin-left:0;padding:0 2px}
+#app .workspace:not([data-screen="viewer"]) .component-room-card:not(:has(.component-room-toggle[aria-expanded="true"])) .component-room-toggle{grid-column:2;grid-row:4;margin-left:0;justify-self:start;align-self:end}
+#app .component-room-card:not(:has(.component-room-toggle[aria-expanded="true"])) .room-preview-more{padding-left:0}
+#app .live-inventory .live-row-actions{display:inline-flex;flex-direction:column;align-items:stretch;gap:6px}
+#app .live-inventory .live-row-actions .button{justify-content:center;white-space:nowrap}
+#app .workspace:not([data-screen="viewer"]) .component-room-card .live-inventory td.text-right:has(.button.quiet){width:108px;min-width:108px}
+.modal .live-ai-hint{white-space:nowrap}
+.vision-room-count.is-live>.vision-type-title{display:flex;flex-direction:row-reverse;justify-content:space-between;align-items:center;gap:12px}
+.vision-room-count.is-live>.vision-type-title h3{margin:0;min-width:0}
+.modal .field:has(#vision-retype-reason),.modal .field:has(#vision-exclude-reason){margin-top:14px}
