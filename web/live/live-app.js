@@ -335,11 +335,15 @@
  function startPolling(){
   if(L.poller||!L.studyId)return;const id=L.studyId;
   L.poller=BasisApi.pollWorkflow(signal=>api.workflow(id,signal),{initialMs:C.pollInitialMs,maxMs:C.pollMaxMs,
-   onUpdate:async w=>{L.workflow={id,data:w,error:null};const before=L.study?.status+'/'+L.study?.current_stage;await Live.reloadStudy();if(state.screen==='processing'){const after=L.study?.status+'/'+L.study?.current_stage;if(before!==after&&L.study?.status==='waiting_review')toast(`${STAGE[L.study.current_stage]} is ready.`);render()}},
+   onUpdate:async w=>{L.workflow={id,data:w,error:null};const before=L.study?.status+'/'+L.study?.current_stage;await Live.reloadStudy();if(state.screen==='processing'){const after=L.study?.status+'/'+L.study?.current_stage;if(before!==after&&L.study?.status==='waiting_review')toast(`${STAGE[L.study.current_stage]} is ready.`);render()}
+    // Results and Report & sign show what the run writes: once it ends, read them again.
+    else if(['complete','report'].includes(state.screen)&&before!==L.study?.status+'/'+L.study?.current_stage){for(const k of ['result:','report-state:','assets:'])Live.invalidate(k+id);render()}},
    onError:e=>{L.workflow={id,data:L.workflow?.data||null,error:e};if(state.screen==='processing')render()},
    shouldStop:w=>['COMPLETED','FAILED','CANCELED','TERMINATED','TIMED_OUT'].includes(String(w?.execution_status).toUpperCase())});
  }
  Live.startPolling=startPolling;Live.stopPolling=stopPolling;
+ // Approving Assets lands on Results while the report is written; follow that run there too.
+ Live.afterRender.push(()=>{if(['complete','report'].includes(state.screen)&&L.study?.id===L.studyId&&L.study?.status==='processing')startPolling()});
  function studyPeople(s){
   const me=Live.me?.(),firm=Live.firm?.();
   const known=BasisStudyOverview.creator(s,me,L.cache.get('members:'+s.org_id)?.data?.items||[]);

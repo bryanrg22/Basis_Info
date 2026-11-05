@@ -350,3 +350,5 @@
 #app .workspace:not([data-screen="viewer"]) .live-inventory table:has(th.num) :is(td,th){padding-inline:8px;overflow-wrap:break-word}
 /* With the unit price column, a narrow desktop narrows the photo column so the inventory keeps its width. */
 @media (max-width:1366px){#app .component-room-card .room-section-body:not([hidden]):has(.live-inventory th.num){grid-template-columns:200px minmax(0,1fr)}}
+/* In an inventory cell the AI's value sits above the engineer's. */
+#app .live-inventory td .live-ai{display:block;font-size:12.5px;line-height:1.3}
