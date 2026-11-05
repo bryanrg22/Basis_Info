@@ -49,7 +49,7 @@
  Live.actions['more-events']=()=>{const s=L.study,e=cached('timeline',s,()=>api.timeline(s.id));return more(e,cursor=>api.timeline(s.id,{cursor}))};
  // Whole counts with thousands separators; anything else is shown as recorded.
  const count=v=>Number.isInteger(Number(v))&&v!==null&&v!==''?new Intl.NumberFormat('en-US').format(Number(v)):esc(v===''||v==null?'Not recorded':v);
- const spendTable=(title,items)=>table(title,['Group','Calls','Failed calls','Input tokens','Output tokens','Cost'],items.map(x=>row([esc(x.key?words(x.key):'Not recorded'),count(x.calls),count(x.errors),count(x.input_tokens),count(x.output_tokens),money(x.cost_usd,6)])));
+ const spendTable=(title,items)=>table(title,['Group','Calls','Failed calls','Input tokens','Output tokens','Cost'],items.map(x=>row([esc(x.key?words(x.key):'Not recorded'),count(x.calls),count(x.errors),count(x.input_tokens),count(x.output_tokens),money(x.cost_usd,6)])),'is-numeric');
  Live.screens.spend=()=>Live.withStudy(s=>{
   if(!owner(s))return heading('Study spend','Study spending is shown to firm admins.',back(s));
   const e=cached('spend',s,()=>api.spend(s.id)),calls=cached('calls',s,()=>api.calls(s.id));

@@ -61,7 +61,7 @@
  // web/README.md ("API work still required") stay in mock mode until the API has them.
  function liveObjectActions(s){
   if(s.source==='manual')return `<div class="vision-action-row vision-edit">${view.newId===s.id?act('confirm','Keep addition','','class="vision-primary"'):''}${act('delete','Delete','','class="vision-danger"')}</div>`;
-  return `<p class="vision-scope">Detected on this photo. To correct it, change the room inventory above.</p>`;
+  return '';// The room inventory box above carries the correction for detected objects.
  }
  function inspector(){
   const c=context,s=current(),types=[...new Set(counted().map(i=>i.label))].sort(),label=view.focusLabel,objects=sorted(label);

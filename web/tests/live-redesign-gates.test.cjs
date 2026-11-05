@@ -147,12 +147,12 @@ test('room previews start collapsed, preserve explicit expansion, and isolate st
  study.id='study';study.revision=1;live.actions['toggle-room'](el,'kitchen');assert.equal(body.hidden,true);assert.equal(attrs['aria-expanded'],'false');
 });
 
-test('Components previews summarize only three types while keeping every inventory row behind expansion',()=>{
+test('Components previews summarize two types on one line while keeping every inventory row behind expansion',()=>{
  const {ctx,live,room}=boot(true,'components_review');
  room.inventory.push({component_id:'c3',label:'window',count:2},{component_id:'c4',label:'door',count:3},{component_id:'c5',label:'sink',count:1});
  const html=live.componentsScreen(),summary=html.split('room-summary-categories')[1].split('</div><div class="room-section-body"')[0];
- assert.equal((summary.match(/class="room-category-stat"/g)||[]).length,3);
- assert.match(summary,/light_fixture/);assert.match(summary,/>7<\/strong>/);assert.match(summary,/\+1 more types/);assert.doesNotMatch(summary,/sink/);
+ assert.equal((summary.match(/class="room-category-stat"/g)||[]).length,2);
+ assert.match(summary,/light_fixture/);assert.match(summary,/>7<\/strong>/);assert.match(summary,/\+2 more types/);assert.doesNotMatch(summary,/sink/);
  assert.match(html,/>4 types</);assert.match(html,/>13 components</);assert.match(html,/id="live-room-body-0" hidden/);
  assert.match(html,/<b>sink<\/b>/);assert.doesNotMatch(ctx.rooms(),/room-summary-categories/);
 });

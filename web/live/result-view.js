@@ -16,7 +16,7 @@
  const link=(screen,id,label,entity)=>`<a class="button small" href="${route(screen,id,entity)}">${esc(label)}</a>`;
  const pair=(label,value)=>`<div><dt>${esc(label)}</dt><dd>${esc(value)}</dd></div>`;
  const empty=message=>`<p class="result-empty">${esc(message)}</p>`;
- const table=(caption,headers,rows)=>`<div class="result-table-scroll" tabindex="0" role="region" aria-label="${esc(caption)}"><table class="result-table"><caption>${esc(caption)}</caption><thead><tr>${headers.map(h=>`<th scope="col">${esc(h)}</th>`).join('')}</tr></thead><tbody>${rows.join('')}</tbody></table></div>`;
+ const table=(caption,headers,rows,cls='')=>`<div class="result-table-scroll" tabindex="0" role="region" aria-label="${esc(caption)}"><table class="result-table${cls?' '+cls:''}"><caption>${esc(caption)}</caption><thead><tr>${headers.map(h=>`<th scope="col">${esc(h)}</th>`).join('')}</tr></thead><tbody>${rows.join('')}</tbody></table></div>`;
  const row=values=>`<tr>${values.map((v,i)=>i?`<td>${v}</td>`:`<th scope="row">${v}</th>`).join('')}</tr>`;
  const section=(title,body,extra='')=>`<section class="result-section"><header><h2>${esc(title)}</h2>${extra}</header>${body}</section>`;
  const disclosure=(title,body,open=false)=>`<details class="result-disclosure" ${open?'open':''}><summary>${esc(title)}<span aria-hidden="true" class="result-disclosure-action"></span></summary><div>${body}</div></details>`;

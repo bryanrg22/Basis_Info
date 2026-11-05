@@ -102,9 +102,8 @@
 #app .main .study-desk .desk-last-editor{color:#4f6447}
 
 /* Asset correction: the measured quantity, its unit and where it was measured, together. */
-.live-asset-quantity{border:1px solid #d5dfd8;border-radius:12px;padding:10px 14px 14px;margin:14px 0 0;display:grid;grid-template-columns:1fr 110px;gap:10px 12px}
+.live-asset-quantity{border:1px solid #d5dfd8;border-radius:12px;padding:10px 14px 14px;margin:12px 0 0;display:grid;grid-template-columns:110px 96px minmax(0,1fr);gap:10px 12px;align-items:end}
 .live-asset-quantity legend{font-size:13px;font-weight:600;color:#213b30;padding:0 4px}
-.live-asset-quantity .live-asset-qty-source{grid-column:1/-1}
 
 /* Summary counts on Rooms and Components: one compact line, so the rooms come first. */
 #app .placement-stats,#app .workspace[data-screen="components"] .study-summary,#app .workspace[data-screen="rooms"] .study-summary{display:inline-flex;gap:24px;padding:8px 16px;margin:0 0 12px;min-height:0}
@@ -293,3 +292,10 @@
 .vision-inspector header .vision-add-object{display:inline-flex;align-items:center;gap:6px;width:auto;padding:0 12px;font-size:13px;font-weight:600;white-space:nowrap}
 /* Results tables: a row header reads like its row (the global th rule is for column headers). */
 #app .result-table tbody th{font-size:14px;font-weight:600;color:var(--ui-ink,#213b30);background:transparent}
+/* Asset correction dialog: compact fields, quantity on one row, the next route before the limits. */
+#app .modal:has(#live-asset-category) .field input,#app .modal:has(#live-asset-category) .field select[data-native="true"],#app .modal:has(#live-asset-category) .field>.product-select{min-height:40px;padding-block:8px}
+.modal:has(#live-asset-category) .live-asset-quantity .field{margin:0}
+.modal:has(#live-asset-category) #live-asset-reason{min-height:60px}
+.live-asset-route{margin:12px 0 0;font-size:13.5px;color:#213b30}
+/* Results tables of figures: numbers right-aligned under right-aligned headings. */
+#app .result-table.is-numeric td,#app .result-table.is-numeric thead th:not(:first-child){text-align:right}
