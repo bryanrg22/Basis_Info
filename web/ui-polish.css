@@ -199,3 +199,21 @@
 #app .component-room-card:has(.component-room-toggle[aria-expanded="true"]) .component-room-summary>.component-room-counts{margin-top:4px}
 /* Rooms: a room with one or two photos stays in its column when opened. */
 #app .placement-room.is-expanded:not(:has(.placement-gallery > :nth-child(3))){grid-column:auto}
+
+/* Asset detail: the values under review first; the asset list names each room. */
+#app .asset-facts{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:0;margin:12px 0 4px;border:1px solid #d5dfd8;border-radius:12px;background:#fff}
+#app .asset-facts div{padding:10px 14px;min-width:0}#app .asset-facts div+div{border-left:1px solid #e1e9e3}
+#app .asset-facts dt{font-size:12.5px;color:#475a50}#app .asset-facts dd{margin:2px 0 0;font-size:16px;font-weight:650;color:#213b30;font-variant-numeric:tabular-nums;overflow-wrap:anywhere}
+#app .asset-nav .asset-nav-name{display:grid;min-width:0}#app .asset-nav .asset-nav-name small{font-size:12px;color:#475a50;font-weight:400}
+#app details.asset-review-warning>summary{cursor:pointer;list-style:revert}#app details.asset-review-warning>summary h3{display:inline;margin:0}
+/* Photo viewer: the detections list says it is this photo's, apart from the room inventory. */
+.vision-list-label{margin:12px 0 4px;font-size:12px;font-weight:600;letter-spacing:.02em;text-transform:uppercase;color:#475a50}
+/* Supporting labels and table headings at 14px. */
+#app .workspace:not([data-screen="viewer"]) :is(.tablewrap,.live-inventory) th,#app .result-table thead th,.nd-schedule thead th{font-size:14px;font-weight:600}
+#app .result-facts dt,#app .result-summary dt,#app .profile-settings-pane label+span,#app .settings-section-heading p{font-size:14px}
+@media(max-width:1100px){#app .asset-facts{grid-template-columns:repeat(3,minmax(0,1fr))}}
+/* A long citation: two lines and an explicit control for the rest. */
+#app .citation-preview>summary{list-style:none;cursor:pointer}#app .citation-preview>summary::-webkit-details-marker{display:none}
+#app .citation-preview>summary span{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+#app .citation-preview>summary b{display:inline-block;margin-top:4px;font-size:13px;color:#2f6b4a}
+#app .citation-preview[open]>summary span{display:none}#app .citation-preview[open]>summary b{display:none}
