@@ -281,3 +281,9 @@
 #app .main .room-sections{grid-template-columns:repeat(auto-fill,minmax(400px,1fr))}
 /* Narrow desktops: the step status keeps a clear inset inside the active step's box. */
 @media (max-width:1366px){#app .workspace:not([data-screen="viewer"]) .study-navigation .step{padding-right:10px}#app .workspace:not([data-screen="viewer"]) .study-navigation .step small{font-size:12px;gap:4px}}
+/* Appraisal: unselected fields mark "needs a look" with a small amber marker; the section header is its legend. */
+#app .appraisal-organized .look-mark{display:inline-block;width:8px;height:8px;margin:0 0 1px 8px;vertical-align:middle;border-radius:50%;background:#94621e;box-shadow:0 0 0 2px #f6e7cc}
+#app .appraisal-organized .look-mark.is-retained{background:#6c7d73;box-shadow:0 0 0 2px #e3e9e5}
+#app .appraisal-organized .look-legend{display:inline-flex;align-items:center;gap:5px}
+#app .appraisal-organized .look-dot{display:inline-block;width:7px;height:7px;border-radius:50%;background:#94621e;box-shadow:0 0 0 2px #f6e7cc}
+#app .appraisal-organized .look-legend.is-retained .look-dot{background:#6c7d73;box-shadow:0 0 0 2px #e3e9e5}
