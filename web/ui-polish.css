@@ -184,3 +184,18 @@
 .live-scope{font-size:13px;color:#34473d;background:#f4f7f5;border:1px solid #dfe7e2;border-radius:8px;padding:8px 10px}
 /* An opened room's photos at a deliberate size, several to a row. */
 #app .placement-room.is-expanded .placement-gallery{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,280px));gap:12px}
+
+/* Study progress: the corrections just sent, while the stage reruns. */
+#app .hub-sent{border:1px solid #c6dbee;background:#eef5fb;border-radius:14px;padding:14px 18px;margin:0 0 14px}
+#app .workspace .content .hub-sent h2{font-size:15px;margin:0 0 8px;color:#1d3d5c}
+#app .hub-sent ul{list-style:none;margin:0;padding:0;display:grid;gap:4px}
+#app .hub-sent li{display:flex;gap:12px;justify-content:space-between;font-size:13.5px}
+#app .hub-sent li span{color:#34473d;text-align:right}
+#app .hub-sent p{margin:8px 0 0}
+/* An opened components room: its heading, counts and Hide button on one compact header row. */
+#app .component-room-card:has(.component-room-toggle[aria-expanded="true"]) .component-room-summary{display:grid;grid-template-columns:minmax(0,1fr) auto;column-gap:16px;align-items:start}
+#app .component-room-card:has(.component-room-toggle[aria-expanded="true"]) .component-room-summary>.component-room-preview{grid-column:2;grid-row:1;margin:0}
+#app .component-room-card:has(.component-room-toggle[aria-expanded="true"]) .component-room-summary>:not(.component-room-preview){grid-column:1}
+#app .component-room-card:has(.component-room-toggle[aria-expanded="true"]) .component-room-summary>.component-room-counts{margin-top:4px}
+/* Rooms: a room with one or two photos stays in its column when opened. */
+#app .placement-room.is-expanded:not(:has(.placement-gallery > :nth-child(3))){grid-column:auto}

@@ -2,9 +2,12 @@
  'use strict';
  const catalogue=typeof module==='object'&&module.exports?require('./error-catalogue.js'):scope.BasisErrorCatalogue;
  const esc=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+ // Engineer-facing fixes the app can offer today, where the generated catalogue's text names a
+ // route the API does not have yet (web/FRONTEND_BACKLOG.md section 13). The catalogue is unchanged.
+ const FIX={'BASIS-CHECK-012':'Correct the asset’s category to one the firm’s cost table prices, or add a row for it to the cost table. A price override is not available yet.'};
  function explain(code,message=''){
   const key=code||String(message).match(/BASIS-[A-Z]+-\d{3}/)?.[0],entry=catalogue[key];
-  return {code:key||null,known:!!entry,what:entry?.what||message||'No failure detail was recorded.',fix:entry?.fix||'Review the recorded detail. If the issue persists, share the code and request ID with your administrator.',retry:entry?.retry||'unknown'};
+  return {code:key||null,known:!!entry,what:entry?.what||message||'No failure detail was recorded.',fix:FIX[key]||entry?.fix||'Review the recorded detail. If the issue persists, share the code and request ID with your administrator.',retry:entry?.retry||'unknown'};
  }
  function html(code,message=''){
   const e=explain(code,message);
