@@ -70,7 +70,7 @@
   const readOnly=Boolean(stage)&&!(study.status==='waiting_review'&&study.current_stage===stage);
   if(study.status==='completed'){
    const final=completion(study,reportEntry);
-   return {...final,readOnly,action:view==='report'?null:'report',actionLabel:final.complete?'View signed report':'Report & sign'};
+   return {...final,readOnly,action:view==='report'?null:'report',actionLabel:final.complete?'View signed report':({'Needs signature':`Review and sign revision ${study.revision}`,'Update required':'Update the report','Needs details':'Add report details'})[final.status]||'Report & sign'};
   }
   if(study.status==='archived')return {tone:'neutral',title:'Study archived',readOnly,detail:'This study is archived. Recorded steps remain available to view.',action:view==='processing'?null:'processing'};
   if(!readOnly)return null;

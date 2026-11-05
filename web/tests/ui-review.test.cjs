@@ -97,3 +97,11 @@ test('an asset flag shows each recorded reason once, with its fix and code, and 
  assert.equal(H.flags([],[]),'');
  delete globalThis.BasisReasons;
 });
+
+test('the finished-study banner names the next report action',()=>{
+ const label=entry=>G.reviewContext(study(),'complete',entry).actionLabel;
+ assert.equal(label(reportState(null,false)),'Review and sign revision 3');
+ assert.equal(label(reportState(['firm'])),'Update the report');
+ assert.equal(label(reportState([])),'View signed report');
+ assert.equal(G.reviewContext(study(),'report',reportState(null,false)).action,null,'no link to the page you are on');
+});
