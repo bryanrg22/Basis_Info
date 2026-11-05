@@ -75,7 +75,8 @@
   };
  };
  const oldSettings=settings;
- settings=function(){if(state.setting==='Cost sources')return Live.screens['cost-indices']();return oldSettings()+`<section class="study-tools"><a class="button" href="#cost-indices">Cost indices & citations</a></section>`};
+ settings=function(){if(state.setting==='Cost sources')return Live.screens['cost-indices']();const html=oldSettings();// Owners reach cost indices through Cost sources in the nav; everyone else through this link.
+  return html.includes('data-value="Cost sources"')?html:html+`<section class="study-tools"><a class="button" href="#cost-indices">Cost indices & citations</a></section>`};
  Live.afterRender.push(()=>{
   const form=root.querySelector('#index-filter');if(form)form.onsubmit=e=>{e.preventDefault();L.indexSeries=form.elements.series.value;L.indexYear=form.elements.year.value;L.indexVersions=form.elements.versions.checked;Live.render()};
  });

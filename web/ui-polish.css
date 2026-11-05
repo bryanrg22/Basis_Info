@@ -138,7 +138,10 @@
 #app .room-sections>.room-section[hidden]{display:none}
 /* An opened components room: photo previews capped so the inventory follows right under them. */
 /* An opened components room: photo cards stay about 220px high (aspect kept), so the inventory follows right under them. */
-#app .main .component-room-card .room-photo-grid{grid-template-columns:repeat(auto-fill,minmax(240px,340px))}
+#app .component-room-card .room-section-body:not([hidden]){display:grid;grid-template-columns:minmax(240px,34%) minmax(0,1fr);column-gap:20px;align-items:start}
+#app .main .component-room-card .room-section-body>.room-photo-grid{grid-column:1;grid-row:1/span 6;grid-template-columns:1fr}
+#app .component-room-card .room-section-body>:not(.room-photo-grid){grid-column:2;min-width:0}
+@media(max-width:900px){#app .component-room-card .room-section-body:not([hidden]){display:block}}
 /* An approved asset's flag explanation reads as history, not as an open warning. */
 #app .asset-review-warning.is-retained{background:#f4f7f5!important;border-color:#cfdad3!important;color:#34473d!important}
 #app .asset-review-warning.is-retained h3{color:#213b30!important}
@@ -155,3 +158,14 @@
 #app button.review-heading-progress:hover{border-color:#c7d9cd;background:#f2f7f3}
 #app button.review-heading-progress:focus-visible{outline:2px solid #3c6b54;outline-offset:2px}
 #app .link-button{border:0;background:none;padding:0;font:inherit;color:#2f6b4a;font-weight:600;text-decoration:underline;cursor:pointer}
+/* Request corrections lists exactly what it sends. */
+.live-send-list{list-style:none;margin:0 0 14px;padding:0;max-height:220px;overflow:auto;border:1px solid #e1e9e3;border-radius:10px}
+.live-send-list li{display:flex;justify-content:space-between;gap:12px;padding:8px 12px;border-top:1px solid #edf2ee;font-size:13px}
+.live-send-list li:first-child{border-top:0}.live-send-list span{color:#475a50;text-align:right}
+.vision-queued .link-button{color:inherit}
+/* Table headings and settings navigation a step more legible; nav labels on one line. */
+#app .workspace:not([data-screen="viewer"]) :is(.tablewrap,.live-inventory) th,#app .result-table thead th,.nd-schedule thead th{font-size:13px}
+#app .settings-sections :is(button,a){white-space:nowrap}
+#app .workspace:not([data-screen="viewer"]) .component-room-card .live-inventory :is(td,th){padding:11px 10px}
+#app .workspace:not([data-screen="viewer"]) .component-room-card .live-inventory td.text-right{width:84px;min-width:84px;padding-right:8px}
+#app .workspace:not([data-screen="viewer"]) .component-room-card .live-inventory th:last-child{width:92px}
