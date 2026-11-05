@@ -653,3 +653,14 @@ upload slow tests 142 passed.
 | `web/tests/live-photos.test.cjs` | A photo on screen is fetched from `/image` and the original from `/content`, separately cached; each copy once for concurrent asks; a fetched photo renders with its `src` at once and the original never replaces it | 2 tests, pass |
 | `web/tests/api-client.test.cjs` | Added: `documentImage` requests `.../documents/{id}/image` with the ids URL-encoded | 1 test, pass |
 
+
+## UI review: status, reopening and the New design (2026-11-05)
+
+| Test file | Coverage | Result |
+| --- | --- | --- |
+| `web/tests/ui-review.test.cjs` | A finished study's delivery state comes from its report state (Update required, Signed, Needs signature) and reads "Reviews approved" while unknown, loading or failed; an in-progress study never reads its report. Change <step> appears on the five approved review views of a completed study, for engineers and owners only, never for a viewer, an in-progress study or a non-review screen; a legacy study reopens at its rooms gate. Reopening sends `dry_run` first and writes only on confirmation; Study progress forwards to the reopened review only once it is open. The New design switch is off by default, round-trips, and reads as off when storage throws | 4 pass |
+| `web/tests/gates.test.cjs` | Every step carries a status tone (done, review, danger, progress, idle), including Report & sign for update-required and signed reports | 11 pass |
+| `web/tests/study-overview.test.cjs` | Report & sign has no study-status strip above its own panel; other review pages keep it; the read-only pill reads "Read-only" | 13 pass |
+| `web/tests/room-placement-controller.test.cjs` | A completed Rooms page shows no editing instructions (the caption that restated the title is gone) | passes in the 359-test web suite |
+
+The full `web/tests/*.test.cjs` suite passed 359 tests.

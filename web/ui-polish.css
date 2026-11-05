@@ -1,6 +1,8 @@
 /* Shared polish (UI review, November 2026). Loaded last: status that reads at a glance, one
  * compact study-status strip, readable contrast, and layout fixes that apply to every screen.
  * Brand green, Inter and the glass sidebar are unchanged. */
+/* Secondary text tokens a step darker everywhere (13px secondary text needs 6:1 to read well). */
+:root{--ui-muted:#475a50;--muted:#4c5f56;--product-muted:#4d5f49;--product-secondary:#4a5d4d;--desk-muted:#4f6352;--vr-muted:#475a50}
 :root{--st-done:#1f6a43;--st-done-bg:#e3f1e8;--st-review:#8a4a00;--st-review-bg:#fdeed6;--st-danger:#a3271b;--st-danger-bg:#fde6e2;--st-progress:#245d8f;--st-progress-bg:#e3eef8;--st-idle:#56685e}
 
 /* Step bar: the status under each step is a colored label, not faint gray text. */
@@ -114,3 +116,26 @@
 .vision-scope{margin:4px 0 10px;font-size:13px;line-height:1.45;color:#34473d}
 .vision-queued{margin:10px 0 0;padding:8px 10px;border-radius:8px;background:#fdf3e2;color:#6b3d00;font-size:12.5px;font-weight:600}
 .vision-queued a{color:inherit}
+.placement-change-list span{color:#4f6258}
+
+/* Secondary text: 13px and the darker token, in the work area. */
+#app .main .small,#app .main .muted,#app .main .footnote{color:var(--ui-muted)}
+#app .workspace .content p.small,#app .workspace .content span.small{font-size:13px}
+
+/* Dialogs fit the viewport: the form scrolls, its actions stay in view. */
+#app .modal-backdrop .modal:not(.pdf-modal){max-height:calc(100vh - 48px);overflow:auto;overscroll-behavior:contain}
+#app .modal-backdrop .modal:not(.pdf-modal)>.actions{position:sticky;bottom:-28px;margin:16px -28px -28px;padding:14px 28px 28px;background:#fff;border-top:1px solid #e1e9e3;z-index:1}
+/* Asset correction: the classification fields side by side. */
+#app .modal .field:has(#live-asset-bucket),#app .modal .field:has(#live-asset-period),#app .modal .field:has(#live-asset-irs){display:inline-grid;width:calc(33.3% - 8px);margin-right:8px;vertical-align:top}
+.vision-room-count.is-live{display:grid;gap:8px}
+.vision-room-count.is-live>span{display:grid;gap:2px;font-size:12.5px;color:#475a50}
+.vision-room-count.is-live strong{font-size:20px;color:#213b30}.vision-room-count.is-live s{color:#6b7c72;font-weight:500}
+
+/* Find a room (live/room-filter.js). */
+#app .room-filter{display:flex;align-items:center;gap:12px;margin:0 0 14px}
+#app .room-filter .review-search{flex:0 1 420px}
+#app .room-filter [role=status]{font-size:13px;color:#475a50}
+#app .room-sections>.room-section[hidden]{display:none}
+/* An opened components room: photo previews capped so the inventory follows right under them. */
+/* An opened components room: photo cards stay about 220px high (aspect kept), so the inventory follows right under them. */
+#app .main .component-room-card .room-photo-grid{grid-template-columns:repeat(auto-fill,minmax(240px,340px))}

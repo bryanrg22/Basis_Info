@@ -117,7 +117,7 @@
   for(const el of root.querySelectorAll('.account .account-role'))el.textContent=label;
   root.querySelector('#account-menu-trigger')?.setAttribute('aria-label',`${who}, ${label} — account menu`);
   // The design names its sample role in the top bar outside a study.
-  for(const el of root.querySelectorAll('.topbar .right-meta .badge.complete'))el.textContent=label;
+  for(const el of root.querySelectorAll('.topbar .right-meta .badge.complete:not(.study-delivery)'))el.textContent=label;// a study's delivery badge keeps its state
   if(me.pending_invitations.length&&state.screen==='dashboard'&&!root.querySelector('.live-invite-note')){
    const n=me.pending_invitations.length;
    root.querySelector('.collection-header')?.insertAdjacentHTML('afterend',`<div class="attention live-invite-note"><div class="row">${icon('mail',19)}<div><span class="strong">${n===1?`${esc(me.pending_invitations[0].org_name)} invited you.`:`${n} firms invited you.`}</span><p>Answer the invitation to join or decline.</p></div></div><a class="button" href="#join">Review</a></div>`);

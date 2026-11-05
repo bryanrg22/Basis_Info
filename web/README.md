@@ -31,9 +31,17 @@ current server.
   confirmation that lists the steps that reopen and what is redone, then the reopen
   (docs/api/REVISIONS.md). In-progress studies have no such route (the API reopens completed
   studies only; `FRONTEND_BACKLOG.md` section 13).
-* **Photo objects in live mode** offer what the API does: a found object's type and count are
-  corrected through the room inventory (Change type, Remove from count); an object an
-  engineer added can be deleted. The proposed per-object operations stay in mock mode.
+* **Photo objects in live mode** offer what the API does: the viewer's room-inventory box
+  corrects a type's label and count (Change type, Edit count, with the count's before and
+  after and the corrections waiting); an object an engineer added can be deleted. The
+  proposed per-object operations stay in mock mode.
+* **Asset corrections** take a measured quantity with its unit and where it was measured
+  (`quantity`, `quantity_unit`, `quantity_source`, EVAL_REPORT 78), beside category, class,
+  period and IRS section. Dialogs fit the viewport with their actions always visible.
+* **Find a room** (`live/room-filter.js`): Rooms and Components with six or more rooms get a
+  search box that hides non-matching room cards; drafts and drag and drop are untouched.
+* **Reopening forwards**: after Change <step> or Start a new revision, Study progress opens
+  the reopened review as soon as it is ready.
 * **New design** (Settings > New design, off by default, `design-flag.js`, saved in this
   browser): `live/new-design.js` and `new-design.css` replace the Assets, Results and Report
   & sign pages while the switch is on, with the same data, corrections and decisions. Assets is

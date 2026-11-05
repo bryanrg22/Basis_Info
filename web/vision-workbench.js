@@ -61,8 +61,7 @@
  // web/README.md ("API work still required") stay in mock mode until the API has them.
  function liveObjectActions(s){
   if(s.source==='manual')return `<div class="vision-action-row vision-edit">${view.newId===s.id?act('confirm','Keep addition','','class="vision-primary"'):''}${act('delete','Delete','','class="vision-danger"')}</div>`;
-  const queued=Live.state.corrections[reviewStage()]?.size||0;
-  return `<p class="vision-scope">Counted as <strong>${esc(name(s.label))}</strong> in <strong>${esc(context.room?.name||'this room')}</strong>’s inventory. These change the room’s count, not this outline.</p><div class="vision-action-row vision-edit">${act('type','Change type')}${act('count-down','Lower the room count')}</div>${queued?`<p class="vision-queued">${queued} ${queued===1?'correction':'corrections'} waiting · sent with Request corrections on <a href="${Live.route(context.back||'components',context.id)}">${esc(name(context.back||'components'))}</a></p>`:''}`;
+  return `<p class="vision-scope">Detected by Basis and counted in <strong>${esc(context.room?.name||'this room')}</strong>’s ${esc(name(s.label).toLowerCase())}. To change its type or the count, correct the room inventory above.</p>`;
  }
  function inspector(){
   const c=context,s=current(),types=[...new Set(counted().map(i=>i.label))].sort(),label=view.focusLabel,objects=sorted(label);
@@ -77,7 +76,11 @@
   if(label){
    html+=`<div class="vision-type-title">${act('all',icon('back',14)+'All types')}<h3>${esc(name(label))}</h3><span>${objects.length} in photo</span></div>`;
    const row=(c.room.inventory||[]).find(i=>i.label===label&&!i.added),pending=Live?.state.corrections[reviewStage()]?.get('component:'+row?.component_id)||Live?.state.corrections[reviewStage()]?.get(`room_component:${c.room.id}:${label}`),suggest=(c.room.suggested_counts||[]).find(i=>i.label===label),roomCount=Live?(V.roomCount(c.room,label,Live.state.corrections[reviewStage()])||undefined):fixture.counts.get(c.room.id+':'+label)??row?.count;
-   html+=`<div class="vision-room-count"><span>Room inventory<strong>${roomCount??'Not listed'}</strong></span>${c.open?act('count','Edit count',label,'class="vision-edit"'):''}${suggest&&suggest.suggested>(roomCount||0)?`<p>Photos suggest ${suggest.suggested} in this room.</p>`:''}${pending?'<p>Correction pending · send from Room inventory.</p>':''}</div>`;
+   if(Live){
+    // Live: the room inventory is what a correction changes; it says so, with before and after.
+    const before=V.roomCount(c.room,label)||0,queued=Live.state.corrections[reviewStage()]?.size||0;
+    html+=`<section class="vision-room-count is-live" aria-label="Room inventory correction"><span>${esc(c.room.name)} · ${esc(name(label))} in the room inventory<strong>${pending&&roomCount!==before?`<s>${before}</s> → ${roomCount??0}`:roomCount??'Not listed'}</strong></span>${c.open?`<div class="vision-action-row vision-edit">${act('type','Change type')}${act('count','Edit count',label)}</div>`:''}${suggest&&suggest.suggested>(roomCount||0)?`<p>Photos suggest ${suggest.suggested} in this room.</p>`:''}${queued?`<p class="vision-queued">${queued} ${queued===1?'correction':'corrections'} waiting · <a href="${Live.route(c.back||'components',c.id)}">Review and send</a></p>`:''}</section>`;
+   }else html+=`<div class="vision-room-count"><span>Room inventory<strong>${roomCount??'Not listed'}</strong></span>${c.open?act('count','Edit count',label,'class="vision-edit"'):''}${suggest&&suggest.suggested>(roomCount||0)?`<p>Photos suggest ${suggest.suggested} in this room.</p>`:''}${pending?'<p>Correction pending · send from Room inventory.</p>':''}</div>`;
   }
   if(s){const index=objects.findIndex(i=>i.id===s.id)+1;
    html+=`<section class="vision-detail"><div><span>Selected object ${index}</span>${act('clear','×','','aria-label="Deselect object"')}</div><h3>${esc(name(s.label))}</h3><p>${s.source==='manual'?'Added by an engineer':'Found in photo'} · ${s.polygon?'Hand-drawn shape':s.mask?'Object outline':'Box outline'}${s.review?' · '+(s.review==='confirm'?'Confirmed':'Marked wrong'):''}</p>${s.score!==null&&s.score<.65?'<p>Needs a look</p>':''}${view.newId===s.id?'<p class="vision-receipt">Added to this photo. Check its outline.</p>':''}${c.open?(Live?liveObjectActions(s):`<div class="vision-action-row vision-edit">${act('confirm',view.newId===s.id?'Keep addition':'Confirm','','class="vision-primary"')}${act('wrong','Mark wrong')}${act('type','Change type')}${act('delete','Delete','','class="vision-danger"')}</div><details class="vision-fix vision-edit"><summary>Fix the outline</summary><p>Adjust an edge, separate objects, or remove an extra outline.</p><div class="vision-action-row">${act('refine','Refine')}${act('split','Split')}${act('merge','Merge')}${act('keep-box','Keep my box')}</div></details>`):''}</section>`;
@@ -199,9 +202,9 @@
   }
   function unavailable(title,text){modal(esc(title),`<p>${esc(text)}</p><p class="vision-unavailable">Not available in live mode yet. This action did not change the study.</p>`,closeBtn)}
   function liveType(){
-   const s=current();if(!s)return;const rows=(c.room.inventory||[]).filter(i=>i.label===s.label),row=rows.find(i=>!i.added)||rows[0];
+   const label=current()?.label||view.focusLabel;if(!label)return;const rows=(c.room.inventory||[]).filter(i=>i.label===label),row=rows.find(i=>!i.added)||rows[0];
    if(row)Live.actions['edit-component']({dataset:{room:c.room.id}},row.component_id);
-   else Live.actions['add-room-component']({dataset:{label:s.label,count:String(sorted(s.label).length)}},c.room.id);
+   else Live.actions['add-room-component']({dataset:{label,count:String(sorted(label).length)}},c.room.id);
   }
   function countEdit(){
    const label=view.focusLabel;if(!label)return;const rows=(c.room.inventory||[]).filter(i=>i.label===label),row=rows.find(i=>!i.added)||rows[0];
@@ -249,8 +252,7 @@
    if(a==='finish'){if(view.points.length<3)return;const points=view.points,box={x1:Math.min(...points.map(p=>p.x)),y1:Math.min(...points.map(p=>p.y)),x2:Math.max(...points.map(p=>p.x)),y2:Math.max(...points.map(p=>p.y))};view.draft={box,polygon:[...points,points[0]]};paint();return}
    if(a==='commit'&&view.draft){if(view.replacing&&!Live){const s=c.items.find(i=>i.id===view.replacing);s.polygon=view.draft.polygon;s.box=view.draft.box;view.replacing=null;selection(s);return}submit({kind:'box',label:view.addLabel,box:view.draft.box});return}
    if(a==='delete'){remove();return}if(a==='count'){countEdit();return}
-   if(Live&&a==='type'){liveType();return}
-   if(a==='count-down'){const s=current();if(s)view.focusLabel=s.label;countEdit();return}if(['confirm','wrong','type','refine','split','merge','keep-box'].includes(a))fix(a);
+   if(Live&&a==='type'){liveType();return}if(['confirm','wrong','type','refine','split','merge','keep-box'].includes(a))fix(a);
   }
   function down(e){
    if(e.target.closest('button')||view.busy||e.button!==0)return;

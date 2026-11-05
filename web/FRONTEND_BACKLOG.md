@@ -184,17 +184,17 @@ not use. Nothing here is built in the app; each needs the backend first or is a 
   section and a measured quantity (positive only, `check_quantity`); nothing removes or
   excludes an asset. The Assets page offers Edit only. Needs an audited exclusion (who, why)
   that the allocation and the report respect.
-- **Correct an asset's quantity.** The API takes `quantity`, `quantity_unit` and
-  `quantity_source` together (EVAL_REPORT 78); the Edit asset dialog does not ask for them.
 - **Change an approved step while the study is still in review.** `POST .../reopen` reopens
   completed studies only (409 `study-not-completed`). Mid-study, the only way back is to
   request corrections at the step that is open. The completed-study path ("Change
   Components" and friends) is built on the read-only review pages and on Report & sign.
 - **Change type, confirm, mark wrong or delete a found object on a photo.** The proposed
   object operations in `web/README.md` ("API work still required") are still proposals. In
-  live mode the photo viewer now offers what works for a found object: change its type or
-  remove it from the count through the room inventory correction; Delete stays for objects
-  an engineer added.
+  live mode the photo viewer offers what works: the room inventory correction (label and
+  count) for a type, and Delete for objects an engineer added. A per-object correction of
+  Basis's own detections needs the object PATCH the README proposes.
+- **Unit cost.** An asset correction cannot change the unit cost; the cost follows the cost
+  table. An engineer's override would need a priced-row correction with its source.
 
 ## Testing
 
