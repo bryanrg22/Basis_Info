@@ -169,3 +169,15 @@
 #app .workspace:not([data-screen="viewer"]) .component-room-card .live-inventory :is(td,th){padding:11px 10px}
 #app .workspace:not([data-screen="viewer"]) .component-room-card .live-inventory td.text-right{width:84px;min-width:84px;padding-right:8px}
 #app .workspace:not([data-screen="viewer"]) .component-room-card .live-inventory th:last-child{width:92px}
+/* Table text a size up (12px read small in long review sessions). */
+#app .workspace:not([data-screen="viewer"]) :is(.tablewrap,.live-inventory) table{font-size:13px}
+#app .main .component-room-preview span,#app .main .room-summary-previews+* span{font-size:12.5px}
+
+/* Photo viewer: the room inventory box stays in view while the object list scrolls. */
+.vision-inspector-body .vision-room-count.is-live{position:sticky;top:0;z-index:2;background:#fff;box-shadow:0 6px 10px -8px #213b3033}
+/* Step statuses at 14px semibold; actionable ones carry a filled mark. */
+#app .workspace:not([data-screen="viewer"]) .study-navigation .step small,#app .hub-progress-step small,#app .hub-step-status{font-size:14px;font-weight:600}
+#app .workspace:not([data-screen="viewer"]) .study-navigation .step-tone-review small::before,#app .step-tone-review .hub-progress-step small::before,#app .step-tone-review .hub-step-status::before{width:9px;height:9px;box-shadow:0 0 0 2px #fdeed6}
+/* Rooms: less space before the records. */
+#app .placement-page-heading{margin-bottom:8px}
+#app .placement-overview{padding-bottom:10px;margin-bottom:12px}
