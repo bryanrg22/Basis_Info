@@ -37,9 +37,9 @@
 .reviewbar .button.quiet,.reviewbar button.quiet{color:#e0e9e3!important;background:transparent;border-color:#6f8c7e}
 
 /* Rooms: the photo toggle sits in the room header; no empty row when a room is open. */
-#app .placement-heading{display:flex;align-items:flex-start;gap:12px}
-#app .placement-heading .placement-title{flex:1;min-width:0}
-#app .placement-tools{display:flex;flex-wrap:wrap;gap:8px;justify-content:flex-end}
+#app .placement-heading{display:flex;flex-wrap:wrap;align-items:flex-start;gap:10px 12px}
+#app .placement-heading .placement-title{flex:1 1 100%;min-width:0}
+#app .placement-tools{display:flex;flex-wrap:wrap;gap:8px;justify-content:flex-start}
 #app .workspace[data-screen="rooms"] .placement-toggle{margin-left:0}
 #app .placement-room.is-expanded .placement-preview{display:none}
 
@@ -277,3 +277,7 @@
 #app .appraisal-organized .field-correct:focus-visible{outline:2px solid #1f6b45;outline-offset:-2px}
 #app .main .profile-field-row{padding:16px 0;align-items:center}
 #app .main .profile-field-row p{margin-top:2px}
+/* Rooms and Components: as many 400px+ cards per row as fit (3 at 1440, 2 at 1280). */
+#app .main .room-sections{grid-template-columns:repeat(auto-fill,minmax(400px,1fr))}
+/* Narrow desktops: the step status keeps a clear inset inside the active step's box. */
+@media (max-width:1366px){#app .workspace:not([data-screen="viewer"]) .study-navigation .step{padding-right:10px}#app .workspace:not([data-screen="viewer"]) .study-navigation .step small{font-size:12px;gap:4px}}
