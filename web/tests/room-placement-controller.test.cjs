@@ -24,7 +24,7 @@ test('create from the move dialog emits a create, move, remove batch; save needs
  assert.equal(h.state.placement.draft.rooms[0].photos[0].document_id,'p');h.Live.actions['placement-save']();assert.equal(h.saved,0);h.dialogs.at(-1).querySelector('#placement-confirm').onclick();assert.equal(h.saved,1);
 });
 test('completed studies expose photos but no editing or approval, and action handlers refuse mutations',()=>{
- const h=harness({editable:false});const html=h.render();assert.match(html,/Photos grouped by room/);assert.doesNotMatch(html,/placement-readonly/);assert.doesNotMatch(html,/draggable="true"|data-live="placement-create"|data-live="approve"/);
+ const h=harness({editable:false});const html=h.render();assert.doesNotMatch(html,/Drag photos into the right room/);assert.doesNotMatch(html,/placement-readonly/);assert.doesNotMatch(html,/draggable="true"|data-live="placement-create"|data-live="approve"/);
  for(const name of ['placement-create','placement-edit','placement-remove','placement-move','placement-save','placement-undo'])h.Live.actions[name](null,'k');
  assert.equal(h.dialogs.length,0);assert.equal(h.state.corrections.rooms_review.size,0);assert.equal(h.saved,0);
 });

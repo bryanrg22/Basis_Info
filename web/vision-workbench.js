@@ -55,6 +55,15 @@
  function current(){return context.items.find(i=>i.id===view.selectedId)}
  function counted(){return context.items.filter(i=>i.counted)}
  function sorted(label){return counted().filter(i=>!label||i.label===label).sort((a,b)=>a.box.x1-b.box.x1||a.box.y1-b.box.y1||a.id.localeCompare(b.id))}
+ // Live mode offers only what the API does today. A found object's type and count are
+ // corrected through the room inventory (a component correction, sent with Request
+ // corrections); an object an engineer added can be deleted. The per-object operations in
+ // web/README.md ("API work still required") stay in mock mode until the API has them.
+ function liveObjectActions(s){
+  if(s.source==='manual')return `<div class="vision-action-row vision-edit">${view.newId===s.id?act('confirm','Keep addition','','class="vision-primary"'):''}${act('delete','Delete','','class="vision-danger"')}</div>`;
+  const queued=Live.state.corrections[reviewStage()]?.size||0;
+  return `<p class="vision-scope">Counted as <strong>${esc(name(s.label))}</strong> in <strong>${esc(context.room?.name||'this room')}</strong>’s inventory. These change the room’s count, not this outline.</p><div class="vision-action-row vision-edit">${act('type','Change type')}${act('count-down','Lower the room count')}</div>${queued?`<p class="vision-queued">${queued} ${queued===1?'correction':'corrections'} waiting · sent with Request corrections on <a href="${Live.route(context.back||'components',context.id)}">${esc(name(context.back||'components'))}</a></p>`:''}`;
+ }
  function inspector(){
   const c=context,s=current(),types=[...new Set(counted().map(i=>i.label))].sort(),label=view.focusLabel,objects=sorted(label);
   if(c.loading)return '<p class="vision-empty">Loading components…</p>';
@@ -71,7 +80,7 @@
    html+=`<div class="vision-room-count"><span>Room inventory<strong>${roomCount??'Not listed'}</strong></span>${c.open?act('count','Edit count',label,'class="vision-edit"'):''}${suggest&&suggest.suggested>(roomCount||0)?`<p>Photos suggest ${suggest.suggested} in this room.</p>`:''}${pending?'<p>Correction pending · send from Room inventory.</p>':''}</div>`;
   }
   if(s){const index=objects.findIndex(i=>i.id===s.id)+1;
-   html+=`<section class="vision-detail"><div><span>Selected object ${index}</span>${act('clear','×','','aria-label="Deselect object"')}</div><h3>${esc(name(s.label))}</h3><p>${s.source==='manual'?'Added by an engineer':'Found in photo'} · ${s.polygon?'Hand-drawn shape':s.mask?'Object outline':'Box outline'}${s.review?' · '+(s.review==='confirm'?'Confirmed':'Marked wrong'):''}</p>${s.score!==null&&s.score<.65?'<p>Needs a look</p>':''}${view.newId===s.id?'<p class="vision-receipt">Added to this photo. Check its outline.</p>':''}${c.open?`<div class="vision-action-row vision-edit">${act('confirm',view.newId===s.id?'Keep addition':'Confirm','','class="vision-primary"')}${act('wrong','Mark wrong')}${act('type','Change type')}${act('delete','Delete','','class="vision-danger"')}</div><details class="vision-fix vision-edit"><summary>Fix the outline</summary><p>Adjust an edge, separate objects, or remove an extra outline.</p><div class="vision-action-row">${act('refine','Refine')}${act('split','Split')}${act('merge','Merge')}${act('keep-box','Keep my box')}</div></details>`:''}</section>`;
+   html+=`<section class="vision-detail"><div><span>Selected object ${index}</span>${act('clear','×','','aria-label="Deselect object"')}</div><h3>${esc(name(s.label))}</h3><p>${s.source==='manual'?'Added by an engineer':'Found in photo'} · ${s.polygon?'Hand-drawn shape':s.mask?'Object outline':'Box outline'}${s.review?' · '+(s.review==='confirm'?'Confirmed':'Marked wrong'):''}</p>${s.score!==null&&s.score<.65?'<p>Needs a look</p>':''}${view.newId===s.id?'<p class="vision-receipt">Added to this photo. Check its outline.</p>':''}${c.open?(Live?liveObjectActions(s):`<div class="vision-action-row vision-edit">${act('confirm',view.newId===s.id?'Keep addition':'Confirm','','class="vision-primary"')}${act('wrong','Mark wrong')}${act('type','Change type')}${act('delete','Delete','','class="vision-danger"')}</div><details class="vision-fix vision-edit"><summary>Fix the outline</summary><p>Adjust an edge, separate objects, or remove an extra outline.</p><div class="vision-action-row">${act('refine','Refine')}${act('split','Split')}${act('merge','Merge')}${act('keep-box','Keep my box')}</div></details>`):''}</section>`;
   }
   if(label){html+=`<div class="vision-object-list" role="group" aria-label="${esc(name(label))} objects">${objects.map((i,n)=>act('select',`<span class="vision-number">${n+1}</span><span>${esc(name(i.label))} ${n+1}<small>${i.source==='manual'?'Added':'Found in photo'}</small></span>${i.id===view.selectedId?icon('check',14):''}`,i.id,`class="vision-instance ${i.id===view.selectedId?'is-selected':''}" aria-pressed="${i.id===view.selectedId}"`)).join('')}</div>${c.open?act('add',icon('plus',14)+'Add '+esc(name(label).toLowerCase()),label,'class="vision-add-type vision-edit"'):''}`}
   else html+=`<div class="vision-type-list" role="group" aria-label="Component types">${types.map(l=>act('type-select',`<span>${esc(name(l))}</span><strong>${sorted(l).length}</strong>${icon('chevron',14)}`,l,'class="vision-type" aria-pressed="false"')).join('')||'<p class="vision-empty">No components found in this photo.</p>'}</div>`;
@@ -189,8 +198,13 @@
    m.querySelector('#vision-remove').onclick=async()=>{m.remove();view.busy=true;try{if(Live){await Live.api.deleteObject(c.id,c.doc,s.id);await refresh()}else c.items.splice(c.items.indexOf(s),1);selection(null);view.notice='Object removed.'}catch(e){view.notice=Live?Live.errorText(e):e.message;view.error=true}finally{view.busy=false;paint()}};
   }
   function unavailable(title,text){modal(esc(title),`<p>${esc(text)}</p><p class="vision-unavailable">Not available in live mode yet. This action did not change the study.</p>`,closeBtn)}
+  function liveType(){
+   const s=current();if(!s)return;const rows=(c.room.inventory||[]).filter(i=>i.label===s.label),row=rows.find(i=>!i.added)||rows[0];
+   if(row)Live.actions['edit-component']({dataset:{room:c.room.id}},row.component_id);
+   else Live.actions['add-room-component']({dataset:{label:s.label,count:String(sorted(s.label).length)}},c.room.id);
+  }
   function countEdit(){
-   const label=view.focusLabel;if(!label)return;const row=(c.room.inventory||[]).find(i=>i.label===label&&!i.added);
+   const label=view.focusLabel;if(!label)return;const rows=(c.room.inventory||[]).filter(i=>i.label===label),row=rows.find(i=>!i.added)||rows[0];
    if(Live){
     if(!row){Live.actions['add-room-component']({dataset:{label,count:String(sorted(label).length)}},c.room.id);return}
     const pending=Live.state.corrections[reviewStage()]||=new Map(),total=V.roomCount(c.room,label,pending),prior=pending.get('component:'+row.component_id),original=prior?.after.count??row.count,others=total-original;
@@ -234,7 +248,9 @@
    if(a==='candidate-use'&&view.candidates){submit({kind:'candidate',candidate_id:view.candidates.ids[view.candidates.at]});return}
    if(a==='finish'){if(view.points.length<3)return;const points=view.points,box={x1:Math.min(...points.map(p=>p.x)),y1:Math.min(...points.map(p=>p.y)),x2:Math.max(...points.map(p=>p.x)),y2:Math.max(...points.map(p=>p.y))};view.draft={box,polygon:[...points,points[0]]};paint();return}
    if(a==='commit'&&view.draft){if(view.replacing&&!Live){const s=c.items.find(i=>i.id===view.replacing);s.polygon=view.draft.polygon;s.box=view.draft.box;view.replacing=null;selection(s);return}submit({kind:'box',label:view.addLabel,box:view.draft.box});return}
-   if(a==='delete'){remove();return}if(a==='count'){countEdit();return}if(['confirm','wrong','type','refine','split','merge','keep-box'].includes(a))fix(a);
+   if(a==='delete'){remove();return}if(a==='count'){countEdit();return}
+   if(Live&&a==='type'){liveType();return}
+   if(a==='count-down'){const s=current();if(s)view.focusLabel=s.label;countEdit();return}if(['confirm','wrong','type','refine','split','merge','keep-box'].includes(a))fix(a);
   }
   function down(e){
    if(e.target.closest('button')||view.busy||e.button!==0)return;

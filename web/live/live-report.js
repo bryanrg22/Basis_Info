@@ -105,6 +105,7 @@
    catch(e){m.remove();refresh(s);if(e.status===409){toast(e.kind==='workflow-running'?'This study is still processing. Try again in a moment.':e.kind==='study-archived'?'The study is archived: unarchive it first.':'The study is no longer completed. It has been refreshed.');await Live.reloadStudy();Live.render();return}throw e}
    m.remove();toast(`Revision ${started.revision} started. Approve the assets review to write the updated report, then sign it.`);
    Live.invalidate('studies');Live.invalidate('revisions:'+s.id);Live.invalidate('report-state:'+s.id);L.reportPreview=null;
+   L.reopenTarget={studyId:s.id,stage:'assets_review'};// Study progress opens the assets review once it is ready
    await Live.reloadStudy();Live.go('processing',s.id);
   });
  });

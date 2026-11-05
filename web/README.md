@@ -18,6 +18,30 @@ Recovery and current verification limits are recorded in
 implementation notes; their backend-gap statements must be checked against the
 current server.
 
+## UI review: status, reopening and the New design (November 2026)
+
+* **Status reads at a glance.** `live/gates.js` gives every step a `tone` (done, review,
+  danger, progress, idle); the step bar and Study progress color the status labels with it
+  (`ui-polish.css`). A finished study's delivery state (Signed, Update required, Needs
+  signature) comes from its report state (`Live.delivery`) on Home, Library and the header.
+  The study-status strip is one compact row, and Report & sign does not repeat it above its
+  own panel.
+* **Change an approved step.** On a completed study every read-only review page offers
+  "Change <step>" (`live/gate-reopen.js`): `POST .../reopen` with `dry_run` first, a
+  confirmation that lists the steps that reopen and what is redone, then the reopen
+  (docs/api/REVISIONS.md). In-progress studies have no such route (the API reopens completed
+  studies only; `FRONTEND_BACKLOG.md` section 13).
+* **Photo objects in live mode** offer what the API does: a found object's type and count are
+  corrected through the room inventory (Change type, Remove from count); an object an
+  engineer added can be deleted. The proposed per-object operations stay in mock mode.
+* **New design** (Settings > New design, off by default, `design-flag.js`, saved in this
+  browser): `live/new-design.js` and `new-design.css` replace the Assets, Results and Report
+  & sign pages while the switch is on, with the same data, corrections and decisions. Assets is
+  one schedule grouped by recovery class or room with Edit on every row; Results leads with the
+  reconciliation verdict, the allocation by class and the checks to review; Report & sign shows
+  the report PDF inline beside one status and its next step. With the switch off nothing
+  changes.
+
 ## UAD 3.6 frontend integration (PR #75)
 
 The live intake accepts an appraisal PDF (legacy or UAD), a UAD ZIP, or MISMO XML

@@ -1,0 +1,116 @@
+/* Shared polish (UI review, November 2026). Loaded last: status that reads at a glance, one
+ * compact study-status strip, readable contrast, and layout fixes that apply to every screen.
+ * Brand green, Inter and the glass sidebar are unchanged. */
+:root{--st-done:#1f6a43;--st-done-bg:#e3f1e8;--st-review:#8a4a00;--st-review-bg:#fdeed6;--st-danger:#a3271b;--st-danger-bg:#fde6e2;--st-progress:#245d8f;--st-progress-bg:#e3eef8;--st-idle:#56685e}
+
+/* Step bar: the status under each step is a colored label, not faint gray text. */
+#app .workspace:not([data-screen="viewer"]) .study-navigation .step small{display:inline-flex;align-items:center;gap:5px;width:max-content;font-size:12.5px;font-weight:600;letter-spacing:0;color:var(--st-idle)}
+#app .workspace:not([data-screen="viewer"]) .study-navigation .step small::before{content:"";width:7px;height:7px;border-radius:50%;background:currentColor;flex:none}
+#app .workspace:not([data-screen="viewer"]) .study-navigation .step-tone-idle small::before{background:transparent;box-shadow:inset 0 0 0 1.5px currentColor}
+#app .workspace:not([data-screen="viewer"]) .study-navigation .step-tone-done small{color:var(--st-done)}
+#app .workspace:not([data-screen="viewer"]) .study-navigation .step-tone-review small{color:var(--st-review)}
+#app .workspace:not([data-screen="viewer"]) .study-navigation .step-tone-danger small{color:var(--st-danger)}
+#app .workspace:not([data-screen="viewer"]) .study-navigation .step-tone-progress small{color:var(--st-progress)}
+#app .workspace:not([data-screen="viewer"]) .study-navigation .step-tone-review .step-marker{background:var(--st-review);border-color:var(--st-review);color:#fff}
+#app .workspace:not([data-screen="viewer"]) .study-navigation .step-tone-done .step-marker{background:var(--st-done-bg);border-color:#b9d9c5;color:var(--st-done)}
+#app .workspace:not([data-screen="viewer"]) .study-navigation [aria-disabled="true"]{opacity:1}
+#app .workspace:not([data-screen="viewer"]) .study-navigation [aria-disabled="true"] strong{color:#4d6157}
+
+/* The study-status strip: one compact row above the steps. */
+#app .workspace .content section.study-status{padding:12px 16px;gap:12px;margin:0 0 14px;border-radius:12px}
+#app .workspace .content section.study-status h2{font-size:15px;font-weight:650;letter-spacing:-.01em}
+#app .workspace .content section.study-status p{font-size:13px;line-height:1.45;margin:2px 0 0}
+#app .workspace .content section.study-status .study-status-symbol{width:32px;height:32px}
+#app .workspace .content section.study-status .study-status-action{min-height:36px;padding:7px 12px;font-size:13px}
+#app .workspace .content section.study-status .study-access{padding:2px 7px;font-size:11.5px;border-radius:999px}
+
+/* Reopen an approved step: the plan the API returned, before anything is written. */
+.reopen-plan p{margin:0 0 14px}
+.reopen-plan dl{display:grid;gap:12px;margin:0;padding:14px 16px;border:1px solid #d5dfd8;border-radius:12px;background:#f6f9f7}
+.reopen-plan dt{font-size:12px;font-weight:600;color:#3f5247;margin:0 0 4px}
+.reopen-plan dd{margin:0;font-size:14px;color:#213b30}
+.reopen-step{display:inline-flex;align-items:center;margin:0 6px 4px 0;padding:3px 10px;border-radius:999px;background:var(--st-review-bg);color:var(--st-review);font-weight:600;font-size:13px}
+
+/* Contrast: the local toolbar's quiet button and the faint helper grays. */
+.reviewbar .button.quiet,.reviewbar button.quiet{color:#e0e9e3!important;background:transparent;border-color:#6f8c7e}
+
+/* Rooms: the photo toggle sits in the room header; no empty row when a room is open. */
+#app .placement-heading{display:flex;align-items:flex-start;gap:12px}
+#app .placement-heading .placement-title{flex:1;min-width:0}
+#app .placement-tools{display:flex;flex-wrap:wrap;gap:8px;justify-content:flex-end}
+#app .workspace[data-screen="rooms"] .placement-toggle{margin-left:0}
+#app .placement-room.is-expanded .placement-preview{display:none}
+
+/* Component inventory: action buttons never wrap letter by letter. */
+#app .workspace .button,#app .workspace .button.small{white-space:nowrap}
+#app .workspace table td.text-right{white-space:nowrap;width:1%}
+
+/* Settings: section labels readable; the New design switch. */
+.settings-sections>span{color:#56685e;font-size:11px;font-weight:600}
+.design-switch-row{display:flex;align-items:center;justify-content:space-between;gap:16px;padding:16px 0;border-top:1px solid #e1e9e3;margin-top:8px}
+.design-switch-row strong{display:block;font-size:14px;color:#213b30}.design-switch-row span{font-size:13px;color:#56685e}
+.design-switch{position:relative;width:46px;height:26px;border-radius:999px;border:0;background:#b9c7bf;cursor:pointer;flex:none;padding:0}
+.design-switch span{position:absolute;top:3px;left:3px;width:20px;height:20px;border-radius:50%;background:#fff;box-shadow:0 1px 3px #0003;transition:transform .15s}
+.design-switch[aria-checked="true"]{background:#2f6b4a}.design-switch[aria-checked="true"] span{transform:translateX(20px)}
+.design-switch:focus-visible{outline:2px solid #3c6b54;outline-offset:3px}
+@media(prefers-reduced-motion:reduce){.design-switch span{transition:none}}
+
+/* Study progress: the same status tones on its step bar and its step list. */
+#app .hub-progress-step small,#app .hub-step-status{display:inline-flex;align-items:center;gap:5px;font-size:12.5px;font-weight:600;color:var(--st-idle)}
+#app .hub-progress-step small::before,#app .hub-step-status::before{content:"";width:7px;height:7px;border-radius:50%;background:currentColor;flex:none}
+#app .step-tone-idle .hub-progress-step small::before,#app .step-tone-idle .hub-step-status::before{background:transparent;box-shadow:inset 0 0 0 1.5px currentColor}
+#app .step-tone-done .hub-progress-step small,#app .step-tone-done .hub-step-status{color:var(--st-done)}
+#app .step-tone-review .hub-progress-step small,#app .step-tone-review .hub-step-status{color:var(--st-review)}
+#app .step-tone-danger .hub-progress-step small,#app .step-tone-danger .hub-step-status{color:var(--st-danger)}
+#app .step-tone-progress .hub-progress-step small,#app .step-tone-progress .hub-step-status{color:var(--st-progress)}
+#app .hub-step-status{justify-content:flex-end;font-size:12.5px}
+
+/* Study lists: status chips that read at a glance (Needs review is the engineer's move). */
+#app .desk-status{font-size:12px;font-weight:600;padding:4px 9px;border-radius:999px;color:#3f5247;background:#edf2ee;border:1px solid #d8e1db}
+#app .desk-status.completed{color:var(--st-done);background:var(--st-done-bg);border-color:#bcdcc8}
+#app .desk-status.waiting_review{color:var(--st-review);background:var(--st-review-bg);border-color:#efd3a3}
+#app .desk-status.processing{color:var(--st-progress);background:var(--st-progress-bg);border-color:#c6dbee}
+#app .desk-status:is(.failed,.stalled){color:var(--st-danger);background:var(--st-danger-bg);border-color:#f2c3bb}
+
+/* Contrast: small labels that read below 4.5:1, kept in the green family. */
+#app .tiny-avatar{color:#3f5c45}
+#app .main .study-desk .review-waiting,#app .review-waiting{color:#3f5a35}
+#app kbd{color:#4f5f49;border-color:#c9d3c2}
+#app .appraisal-table-head>span{color:#4c5e43}
+#app .error-guidance code{color:#4b5d52}
+#app .draft{color:#56614f}
+#app .desk-footer,#app .desk-footer>span{color:#4f6255}
+#app .main .profile-account-details span,#app .profile-account-details>span{color:#4f6447}
+#app .main .activity-avatar,#app .activity-avatar{color:#3f5c30}
+#app .main .activity-day{color:#4d6440!important}
+/* A flag kept on an approved review reads as information, not as work left to do. */
+#app .field-row small.is-retained{color:#4f6258!important;background:#eef2ef!important;border-color:#d8e1db!important}
+
+/* An opened room takes the full row, so its photos and inventory table have room to read. */
+#app .component-room-card:has(> .component-room-summary [data-live="toggle-room"][aria-expanded="true"]),#app .component-room-card:has([data-live="toggle-room"][aria-expanded="true"]),#app .placement-room.is-expanded{grid-column:1/-1}
+#app .placement-room{padding:16px 18px}
+/* Long cited sources wrap inside their column instead of pushing the table sideways. */
+#app .result-table td{white-space:normal;overflow-wrap:anywhere}
+
+/* Legibility: step names, table headers and room metadata a size up and darker. */
+#app .workspace:not([data-screen="viewer"]) .study-navigation strong{font-size:13px}
+#app .workspace:not([data-screen="viewer"]) :is(.tablewrap,.live-inventory) th{font-size:12px;font-weight:600;color:#3f5247}
+#app .component-room-meta,#app .component-room-meta span{font-size:13px;color:#4f6258}
+#app .placement-title p{font-size:13px;color:#4f6258}
+#app .main .study-desk .desk-last-editor{color:#4f6447}
+
+/* Asset correction: the measured quantity, its unit and where it was measured, together. */
+.live-asset-quantity{border:1px solid #d5dfd8;border-radius:12px;padding:10px 14px 14px;margin:14px 0 0;display:grid;grid-template-columns:1fr 110px;gap:10px 12px}
+.live-asset-quantity legend{font-size:13px;font-weight:600;color:#213b30;padding:0 4px}
+.live-asset-quantity .live-asset-qty-source{grid-column:1/-1}
+
+/* Summary counts on Rooms and Components: one compact line, so the rooms come first. */
+#app .placement-stats,#app .workspace[data-screen="components"] .study-summary,#app .workspace[data-screen="rooms"] .study-summary{display:inline-flex;gap:24px;padding:8px 16px;margin:0 0 12px;min-height:0}
+#app .placement-stats>div,#app .workspace[data-screen="components"] .study-summary>div,#app .workspace[data-screen="rooms"] .study-summary>div{display:flex;align-items:baseline;gap:8px;padding:0;border:0;min-width:0}
+#app .placement-stats dd,#app .workspace[data-screen="components"] .study-summary dd,#app .workspace[data-screen="rooms"] .study-summary dd{order:-1;font-size:20px;margin:0}
+#app .placement-stats dt,#app .workspace[data-screen="components"] .study-summary dt,#app .workspace[data-screen="rooms"] .study-summary dt{font-size:13px;color:#4f6258}
+
+/* Photo viewer: say what a found object's correction changes, and keep queued corrections in sight. */
+.vision-scope{margin:4px 0 10px;font-size:13px;line-height:1.45;color:#34473d}
+.vision-queued{margin:10px 0 0;padding:8px 10px;border-radius:8px;background:#fdf3e2;color:#6b3d00;font-size:12.5px;font-weight:600}
+.vision-queued a{color:inherit}

@@ -175,6 +175,27 @@ Plain bugs an engineer would hit on the first day, in the order they bite:
   (docs/api/PHOTOS.md), so only this pre-upload preview is affected. Show the photo icon instead
   when the browser cannot decode the file (the `<img>`'s `error` event), or name the format.
 
+## 13. Found by the UI review of every screen (November 2026)
+
+What the engineer asked for that the API cannot do yet, and what it offers that the app does
+not use. Nothing here is built in the app; each needs the backend first or is a follow-up.
+
+- **Remove an asset.** An asset correction takes category, recovery class and period, IRS
+  section and a measured quantity (positive only, `check_quantity`); nothing removes or
+  excludes an asset. The Assets page offers Edit only. Needs an audited exclusion (who, why)
+  that the allocation and the report respect.
+- **Correct an asset's quantity.** The API takes `quantity`, `quantity_unit` and
+  `quantity_source` together (EVAL_REPORT 78); the Edit asset dialog does not ask for them.
+- **Change an approved step while the study is still in review.** `POST .../reopen` reopens
+  completed studies only (409 `study-not-completed`). Mid-study, the only way back is to
+  request corrections at the step that is open. The completed-study path ("Change
+  Components" and friends) is built on the read-only review pages and on Report & sign.
+- **Change type, confirm, mark wrong or delete a found object on a photo.** The proposed
+  object operations in `web/README.md` ("API work still required") are still proposals. In
+  live mode the photo viewer now offers what works for a found object: change its type or
+  remove it from the count through the room inventory correction; Delete stays for objects
+  an engineer added.
+
 ## Testing
 
 No automated test loads any live screen (`web/tests/*.test.cjs` cover the helper
