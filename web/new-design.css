@@ -76,7 +76,9 @@
 .nd-class-table{width:100%;border-collapse:collapse;margin-top:14px;font-size:13.5px}
 .nd-class-table th,.nd-class-table td{padding:8px 4px;border-bottom:1px solid #e7eee9;text-align:left}
 .nd-class-table thead th{font-size:12px;font-weight:600;color:#3f5247}
-.nd-class-table tbody th{font-weight:600;display:flex;align-items:center;gap:8px}
+#app .nd-class-table tbody th{font-weight:600;white-space:nowrap;background:transparent;vertical-align:middle}
+#app .nd-class-table td{vertical-align:middle}
+.nd-class-table tbody th .nd-dot{display:inline-block;vertical-align:middle;margin:0 8px 2px 0}
 .nd-class-table .num{text-align:right;font-variant-numeric:tabular-nums}
 .nd-checks ul{list-style:none;margin:0;padding:0;display:grid;gap:8px}
 .nd-check{display:grid;grid-template-columns:auto 1fr auto;gap:10px;align-items:start;padding:10px 12px;border-radius:10px;background:var(--nd-soft)}
@@ -135,3 +137,5 @@
 .nd-link{justify-self:start;padding:0;border:0;background:none;font:600 13px/1.4 inherit;color:#1f6b45;text-decoration:underline;text-underline-offset:2px;cursor:pointer}
 .nd-link:focus-visible{outline:2px solid #1f6b45;outline-offset:2px;border-radius:3px}
 .nd-why{margin-top:10px;font-size:13px;color:#34473d}.nd-why summary{cursor:pointer;font-weight:600;color:#7a4100}.nd-why p{margin:6px 0 0}
+#app .nd-class-table tbody th,#app .nd-class-table tbody td{padding:10px 6px;font-size:14px;line-height:1.4;height:auto}
+#app .nd-class-table thead th{padding:8px 6px;font-size:12.5px}
