@@ -82,3 +82,18 @@ test('the building formula renders one step per row, keeps every recorded word, 
  for(const word of f.replace(/[()[\]]/g,' ').split(/\s+/).filter(Boolean))assert.ok(plainText.includes(word),`kept: ${word}`);
  for(const bad of ['',null,undefined,'a + b','(a + b','(a) x (b','a x 2','(a + "b) x 2'])assert.equal(V.formulaSteps(bad,1),'',`falls back: ${bad}`);
 });
+
+test('an asset flag shows each recorded reason once, with its fix and code, and no placeholder text',()=>{
+ globalThis.BasisReasons=require('../live/review-reasons.js');
+ const H=require('../live/error-help.js');
+ const html=H.flags(['model:The label is "other"; the notes are empty.','cross:COST_ROW_MISSING','takeoff:upper_bound'],['BASIS-ASSETS-009','BASIS-CHECK-012','BASIS-ASSETS-010','BASIS-ASSETS-008']);
+ const rows=html.split('</li>').filter(Boolean);
+ assert.equal(rows.length,4,'three reasons and the one code no reason matches');
+ assert.match(rows[0],/asked for review: “The label is &quot;other&quot;; the notes are empty\.”/);
+ assert.match(rows[0],/BASIS-ASSETS-009/);assert.doesNotMatch(html,/Read the reason/);
+ assert.match(rows[1],/no cost yet[^]*cost table[^]*BASIS-CHECK-012/);assert.doesNotMatch(html,/Price it by hand/);
+ assert.match(rows[2],/upper bound/);assert.doesNotMatch(rows[2],/flag-fix/,'its sentence already says what to do');
+ assert.match(rows[3],/BASIS-ASSETS-008/);
+ assert.equal(H.flags([],[]),'');
+ delete globalThis.BasisReasons;
+});

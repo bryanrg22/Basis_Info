@@ -257,3 +257,11 @@
 #app .main .profile-account-details strong{font-size:14px;color:var(--ui-ink,#1f3328)}
 #app .calc-steps thead{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%);white-space:nowrap}
 #app .live-evidence-caption>a{justify-self:start}
+/* Asset flags: one row per reason, its fix under it, the code last. */
+#app .flag-list{list-style:none;margin:8px 0 0;padding:0;display:grid;gap:10px}
+#app .flag-row{display:grid;gap:4px;padding:10px 12px;border-radius:8px;background:#fff;border:1px solid #e6dcc6}
+#app .asset-review-warning.is-retained .flag-row{border-color:#d9e2dc}
+#app .workspace .content .flag-row p{margin:0;font-size:14px;line-height:1.5;color:#213b30}
+#app .workspace .content .flag-row .flag-fix{font-size:13.5px;color:#34473d}
+#app .flag-row .flag-fix::before{content:"Fix: ";font-weight:600}
+#app .flag-row code{justify-self:start;font-size:12px;color:#475a50;background:#f1f5f2;border-radius:4px;padding:1px 6px}
