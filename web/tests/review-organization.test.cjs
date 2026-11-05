@@ -139,8 +139,9 @@ test('section navigation follows filtered results and does not navigate when not
 });
 test('single-section reviews retain corrections when editable without an empty next-section button',()=>{
  const {view}=layout(),props={fields:[ownership],study:{id:'s',revision:1},selected:'owner',corrections:new Map(),canCorrect:true};
- const footer=view.appraisal(props).split('class="field-review-actions"')[1];
- assert.doesNotMatch(footer,/next-field-section/);assert.match(footer,/data-live="correct-field" data-value="owner"/);
+ const [body,footer]=view.appraisal(props).split('class="field-review-actions"');
+ assert.doesNotMatch(footer,/next-field-section/);assert.doesNotMatch(footer,/correct-field/,'the action moved onto the selected field');
+ assert.match(body,/<div class="field-cell[^"]*">[^]*?aria-pressed="true"[^]*?data-live="correct-field" data-value="owner"[^]*?<\/div>/);
  assert.doesNotMatch(view.appraisal({...props,canCorrect:false}),/data-live="correct-field"/);
 });
 

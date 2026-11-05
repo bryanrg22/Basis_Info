@@ -29,7 +29,10 @@
  }
  function fieldButton(f,featured,context){
   const c=context.corrections.get(f.id),selected=f.id===context.selected;
-  return `<button class="field-row ${featured?'property-fact':''} ${P.fieldKey(f)==='subject.property_address'?'property-address':['subject.city','subject.state','subject.zip'].includes(P.fieldKey(f))?'property-location':''} ${selected?'selected':''}" data-live="select-field" data-value="${esc(f.id)}" aria-pressed="${selected}"><span class="field-label">${esc(featured?P.fieldLabel(f):f.label||Live.labelName(f.field))}${f.source==='mismo_xml'?' <small class="field-origin" title="Value extracted from MISMO XML">XML</small>':''}</span><strong>${esc(c?c.display:P.fieldValue(f))}${c?'<small>Correction added</small>':''}${P.needsLook(f)?`<small class="${context.canCorrect?'':'is-retained'}">${context.canCorrect?'Needs a look':'Low confidence'}</small>`:''}</strong><span class="page-tag">${(globalThis.BasisAppraisalSource?.page(f)||f.page)?'p. '+(globalThis.BasisAppraisalSource?.page(f)||f.page):'—'}</span></button>`;
+  const place=P.fieldKey(f)==='subject.property_address'?'property-address':['subject.city','subject.state','subject.zip'].includes(P.fieldKey(f))?'property-location':'';
+  const row=`<button class="field-row ${featured?'property-fact':''} ${place} ${selected?'selected':''}" data-live="select-field" data-value="${esc(f.id)}" aria-pressed="${selected}"><span class="field-label">${esc(featured?P.fieldLabel(f):f.label||Live.labelName(f.field))}${f.source==='mismo_xml'?' <small class="field-origin" title="Value extracted from MISMO XML">XML</small>':''}</span><strong>${esc(c?c.display:P.fieldValue(f))}${c?'<small>Correction added</small>':''}${P.needsLook(f)?`<small class="${context.canCorrect?'':'is-retained'}">${context.canCorrect?'Needs a look':'Low confidence'}</small>`:''}</strong><span class="page-tag">${(globalThis.BasisAppraisalSource?.page(f)||f.page)?'p. '+(globalThis.BasisAppraisalSource?.page(f)||f.page):'—'}</span></button>`;
+  // The selected field carries its own Correct action, under its value.
+  return selected&&context.canCorrect?`<div class="field-cell ${featured?'is-fact':''} ${place}">${row}<button class="field-correct" data-live="correct-field" data-value="${esc(f.id)}">${icon('edit',14)}Correct value</button></div>`:row;
  }
  function fieldList(context){
   const {fields,ui,corrections}=context,groups=P.fieldGroups(fields,{...ui,corrections}),matching=groups.reduce((n,g)=>n+g.fields.length,0),searching=!!ui.query||ui.filter!=='all';
@@ -44,7 +47,7 @@
  }
  function fieldActions(context){
   const next=nextFieldGroup(context);
-  return `${next?`<button class="field-next-section" data-review-action="next-field-section"><span><small>${next.wrap?'Back to':'Next section'}</small><strong>${esc(next.group.name)}</strong></span>${icon('chevron',16)}</button>`:''}${context.canCorrect?`<button class="button small" data-live="correct-field" data-value="${esc(context.selected)}">Correct value</button>`:''}`;
+  return `${next?`<button class="field-next-section" data-review-action="next-field-section"><span><small>${next.wrap?'Back to':'Next section'}</small><strong>${esc(next.group.name)}</strong></span>${icon('chevron',16)}</button>`:''}`;
  }
  function appraisal({fields,study,selected,corrections,canCorrect}){
   const ui=getState('fields',study),selectedGroup=P.fieldGroups(fields).find(g=>g.fields.some(f=>f.id===selected));
