@@ -193,6 +193,10 @@ not use. Nothing here is built in the app; each needs the backend first or is a 
   live mode the photo viewer offers what works: the room inventory correction (label and
   count) for a type, and Delete for objects an engineer added. A per-object correction of
   Basis's own detections needs the object PATCH the README proposes.
+- **Remove a component from a room.** A `component` correction's count is 1 to the maximum
+  (`basis/domain/counts.py`, `count_problem`), so a type the photos do not show cannot be taken
+  out of a room's inventory; the engineer can relabel it or lower it to 1. Needs a removal (count
+  0 or an exclusion) that the assets then drop.
 - **Unit cost.** An asset correction cannot change the unit cost; the cost follows the cost
   table. An engineer's override would need a priced-row correction with its source.
 

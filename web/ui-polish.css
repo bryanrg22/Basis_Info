@@ -139,3 +139,12 @@
 /* An opened components room: photo previews capped so the inventory follows right under them. */
 /* An opened components room: photo cards stay about 220px high (aspect kept), so the inventory follows right under them. */
 #app .main .component-room-card .room-photo-grid{grid-template-columns:repeat(auto-fill,minmax(240px,340px))}
+/* An approved asset's flag explanation reads as history, not as an open warning. */
+#app .asset-review-warning.is-retained{background:#f4f7f5!important;border-color:#cfdad3!important;color:#34473d!important}
+#app .asset-review-warning.is-retained h3{color:#213b30!important}
+
+/* A review page's own access, next to its title. */
+#app .gate-access{display:flex;align-items:center;gap:10px;margin:14px 0 10px}
+#app .gate-access .study-access{display:inline-flex;align-items:center;gap:6px;padding:4px 10px;border-radius:999px;background:#edf2ee;color:#34473d;font-size:12.5px;font-weight:600;border:1px solid #d5dfd8}
+/* Step statuses one size up. */
+#app .workspace:not([data-screen="viewer"]) .study-navigation .step small,#app .hub-progress-step small,#app .hub-step-status{font-size:13px}

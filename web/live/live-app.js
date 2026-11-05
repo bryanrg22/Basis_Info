@@ -363,14 +363,20 @@
   // Report & sign states the report's status once, in its own panel; the strip would repeat it.
   if(view==='report')return '';
   const context=G.reviewContext(s,view,Live.reportStateEntry?.(s));if(!context)return '';
+  return `<section class="study-status study-status--${context.tone}" aria-label="Study status"><span class="study-status-symbol" aria-hidden="true">${icon(context.tone==='complete'?'check':context.tone==='attention'?'help':'eye',18)}</span><div class="study-status-copy"><div class="study-status-title"><h2>${esc(context.title)}</h2></div><p>${esc(context.detail)}</p></div>${context.action?`<a class="button study-status-action" href="${Live.route(context.action,s.id)}">${esc(context.actionLabel||'Study progress')}${icon('arrow',16)}</a>`:''}</section>`;
+ };
+ // This page's own access, next to its title: read-only (approved, or not open yet) and, on a
+ // completed study, the way to change it. The study-wide report notice stays in the strip above.
+ Live.gateAccess=(s,view=state.screen)=>{
+  const context=G.reviewContext(s,view,Live.reportStateEntry?.(s));if(!context?.readOnly)return '';
   const reopen=Live.reopenButton?Live.reopenButton(s,view):'';
-  return `<section class="study-status study-status--${context.tone}" aria-label="Study status"><span class="study-status-symbol" aria-hidden="true">${icon(context.tone==='complete'?'check':context.tone==='attention'?'help':'eye',18)}</span><div class="study-status-copy"><div class="study-status-title"><h2>${esc(context.title)}</h2>${context.readOnly?'<span class="study-access">'+icon('eye',14)+'Read-only</span>':''}</div><p>${esc(context.detail)}</p></div>${reopen}${context.action?`<a class="button study-status-action" href="${Live.route(context.action,s.id)}">${esc(context.actionLabel||'Study progress')}${icon('arrow',16)}</a>`:''}</section>`;
+  return `<div class="gate-access"><span class="study-access">${icon('eye',14)}${s.status==='completed'?'Approved · read-only':'Read-only'}</span>${reopen.replace('button study-status-action','button small')}</div>`;
  };
  Live.steps=s=>`${Live.studyStatus(s)}<nav class="steps study-navigation" aria-label="Study steps">${G.navigation(s,state.screen,Live.reportStateEntry?.(s)).map(({label,state:st,selected,status,tone,destination,available},i)=>{
   const content=`<span class="step-marker" aria-hidden="true">${st==='done'?'✓':i+1}</span><div class="step-copy"><strong>${label}</strong><small>${status}</small></div>`;
   const attrs=`class="step ${st==='done'?'done':''} ${st==='active'?'workflow-current':''} ${selected?'is-selected':''} step-tone-${tone||'idle'}" ${selected?'aria-current="page"':''}`;
   return available?`<a href="${s.id?Live.route(destination,s.id):'#upload'}" ${attrs}>${content}</a>`:`<span ${attrs} aria-disabled="true">${content}</span>`;
- }).join('')}</nav>`;
+ }).join('')}</nav>${Live.gateAccess(s)}`;
 
  /* ---------- files ---------- */
  studyFiles=function(){

@@ -138,7 +138,7 @@ ${shown?`<div class="nd-table-wrap"><table class="nd-schedule"><caption class="s
    const history=earlier.length?`<section class="nd-panel nd-history" aria-labelledby="nd-history-title"><header><h2 id="nd-history-title">Earlier signed reports</h2></header><ul>${earlier.map(x=>`<li><span>Revision ${x.revision} · ${esc(Live.when(x.signature.signed_at))}</span><button class="button small quiet" data-live="report-download-revision" data-value="${x.revision}">${icon('download',14)}PDF</button></li>`).join('')}</ul></section>`:'';
    const reopen=Live.canReopen&&s.status==='completed'&&engineer?`<section class="nd-panel nd-reopen" aria-labelledby="nd-reopen-title"><header><h2 id="nd-reopen-title">Change an approved step</h2></header><p>Reopens that step and the steps after it on a new revision. You see what reruns before anything changes.</p><div class="nd-dl-row">${['appraisal','rooms',...(G.componentsGate(s)?['components']:[]),'assets'].map(v=>Live.reopenButton(s,v).replace('study-status-action','small')).join('')}</div></section>`:'';
    const label=sig?`Signed report · revision ${sig.revision??s.revision}`:state.exported&&!state.skipped?`Draft report · revision ${s.revision}`:'Report';
-   const doc=`<section class="nd-doc" aria-label="${esc(label)}"><header><strong>${esc(label)}</strong><span class="nd-doc-page" data-nd-page></span></header>${pdf.key?(pdf.error?`<div class="nd-doc-empty">${Live.failed(pdf.error,'report-reload')}</div>`:`<div class="nd-pdf-slot" data-nd-pdf></div>`):`<div class="nd-doc-empty"><p>The report is written when every review is approved.</p></div>`}</section>`;
+   const doc=`<section class="nd-doc" aria-label="${esc(label)}"><header><strong>${esc(label)}</strong><span class="nd-doc-page" data-nd-page></span></header>${pdf.key?(pdf.error?`<div class="nd-doc-empty">${Live.failed(pdf.error,'nd-pdf-retry')}</div>`:`<div class="nd-pdf-slot" data-nd-pdf></div>`):`<div class="nd-doc-empty"><p>The report is written when every review is approved.</p></div>`}</section>`;
    return `${Live.steps(s)}<div class="nd nd-report"><header class="nd-head"><div><h1>Report & sign</h1><p>${esc(s.property_name)} · revision ${s.revision}</p></div></header><div class="nd-report-grid">${doc}<aside class="nd-rail">${statusCard(s,state,final,role)}${inputs}${downloads}${reopen}${history}</aside></div></div>`;
   });
  }
@@ -162,6 +162,8 @@ ${shown?`<div class="nd-table-wrap"><table class="nd-schedule"><caption class="s
  assets=function(){return on()?assetsPage():currentAssets()};
  Live.screens.report=()=>on()?reportPage():currentReport();
  if(currentResults){Live.resultScreen=()=>on()?resultsPage():currentResults()}
+ // A failed report PDF loads again from scratch (the report state alone would keep the same key).
+ Live.actions['nd-pdf-retry']=()=>{resetPdf();Live.render()};
  root.addEventListener('click',e=>{
   const t=e.target.closest('[data-nd]');if(!t||!L.study)return;const ui=uiFor(L.study),v=t.dataset.value;
   if(t.dataset.nd==='asset-filter'){ui.filter=ui.filter===v&&v!=='all'?'all':v;Live.render()}

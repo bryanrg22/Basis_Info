@@ -44,8 +44,8 @@
 .nd-schedule{width:100%;border-collapse:collapse;font-size:13.5px;color:var(--nd-ink);table-layout:fixed}
 .nd-col-room{width:15%}.nd-col-class{width:10%}.nd-col-qty{width:9%}.nd-col-unit{width:9%}.nd-col-total{width:10%}.nd-col-status{width:11%}.nd-col-actions{width:182px}
 .nd-schedule td{overflow:hidden;text-overflow:ellipsis}.nd-schedule td.nd-asset,.nd-schedule td.nd-actions{overflow:visible}
-.nd-schedule thead th{position:sticky;top:0;z-index:1;background:#f1f5f2;text-align:left;font-size:12px;font-weight:600;color:#3f5247;padding:9px 12px;border-bottom:1px solid var(--nd-line)}
-.nd-schedule td{padding:9px 12px;border-bottom:1px solid #e7eee9;vertical-align:middle}
+.nd-schedule thead th{position:sticky;top:var(--ui-bar-height,46px);z-index:3;background:#f1f5f2;text-align:left;font-size:12px;font-weight:600;color:#3f5247;padding:9px 12px;border-bottom:1px solid var(--nd-line)}
+.nd-schedule td{padding:7px 12px;border-bottom:1px solid #e7eee9;vertical-align:middle;line-height:1.35}
 .nd-schedule .num{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
 .nd-schedule tr.is-flagged td:first-child{box-shadow:inset 3px 0 #d58a1c}
 .nd-asset a{display:inline;color:var(--nd-ink);font-weight:600;text-decoration:none;overflow-wrap:anywhere;line-height:1.35}.nd-asset a:hover{text-decoration:underline}

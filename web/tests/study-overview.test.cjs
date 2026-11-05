@@ -97,7 +97,7 @@ test('completed status is above navigation and read-only is scoped to review pag
   ctx.state.screen=screen;const html=live.steps(s);
   assert(html.indexOf('Study completed')<html.indexOf('<nav'));
   assert.equal((html.match(/Study completed/g)||[]).length,1);
-  assert.equal(/Read-only<\/span>/.test(html),['appraisal','rooms','components','assets','asset-detail'].includes(screen));
+  assert.equal(/read-only<\/span>/i.test(html),['appraisal','rooms','components','assets','asset-detail'].includes(screen));
  }
  live.state.studyId=s.id;live.state.cache.set('study:'+s.id,{done:true,data:s});
  const overview=ctx.processing();assert(overview.indexOf('Study completed')<overview.indexOf('<nav'));
@@ -121,7 +121,7 @@ test('pending, failed, draft and changed report states never flash completed abo
  const {ctx,live}=boot();const s=study();ctx.state.screen='components';
  for(const e of [null,{done:false},{done:true,error:Error('offline')},{done:true,data:{study_id:s.id,revision:3,exported:true,missing_for_final:['signature'],signature:null}},{done:true,data:{study_id:s.id,revision:3,exported:true,signature:{study_id:s.id,revision:3},changed_since_signing:['study']}}]){
   live.reportStateEntry=()=>e;const html=live.steps(s);
-  assert.doesNotMatch(html,/Study completed|study-status--complete/);assert.match(html,/Read-only<\/span>/);assert.match(html,/href="#report\/study"/);
+  assert.doesNotMatch(html,/Study completed|study-status--complete/);assert.match(html,/read-only<\/span>/i);assert.match(html,/href="#report\/study"/);
  }
 });
 
