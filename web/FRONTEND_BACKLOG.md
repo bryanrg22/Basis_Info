@@ -197,6 +197,9 @@ not use. Nothing here is built in the app; each needs the backend first or is a 
   (`basis/domain/counts.py`, `count_problem`), so a type the photos do not show cannot be taken
   out of a room's inventory; the engineer can relabel it or lower it to 1. Needs a removal (count
   0 or an exclusion) that the assets then drop.
+- **Unpriced-asset guidance.** `BASIS-CHECK-012`'s fix text (the generated error catalogue)
+  says "Price it by hand, or add the row to the cost table", but an asset correction cannot set
+  a price; the catalogue text should name the cost-table route only, until an override exists.
 - **Unit cost.** An asset correction cannot change the unit cost; the cost follows the cost
   table. An engineer's override would need a priced-row correction with its source.
 

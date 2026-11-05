@@ -181,3 +181,6 @@
 /* Rooms: less space before the records. */
 #app .placement-page-heading{margin-bottom:8px}
 #app .placement-overview{padding-bottom:10px;margin-bottom:12px}
+.live-scope{font-size:13px;color:#34473d;background:#f4f7f5;border:1px solid #dfe7e2;border-radius:8px;padding:8px 10px}
+/* An opened room's photos at a deliberate size, several to a row. */
+#app .placement-room.is-expanded .placement-gallery{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,280px));gap:12px}
