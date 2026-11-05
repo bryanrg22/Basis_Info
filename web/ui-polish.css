@@ -174,7 +174,7 @@
 #app .main .component-room-preview span,#app .main .room-summary-previews+* span{font-size:12.5px}
 
 /* Photo viewer: the room inventory box stays in view while the object list scrolls. */
-.vision-inspector-body .vision-room-count.is-live{position:sticky;top:0;z-index:2;background:#fff;box-shadow:0 6px 10px -8px #213b3033}
+.vision-inspector-body .vision-room-count.is-live{background:#fff;align-self:stretch;grid-template-columns:minmax(0,1fr)}
 /* Step statuses at 14px semibold; actionable ones carry a filled mark. */
 #app .workspace:not([data-screen="viewer"]) .study-navigation .step small,#app .hub-progress-step small,#app .hub-step-status{font-size:14px;font-weight:600}
 #app .workspace:not([data-screen="viewer"]) .study-navigation .step-tone-review small::before,#app .step-tone-review .hub-progress-step small::before,#app .step-tone-review .hub-step-status::before{width:9px;height:9px;box-shadow:0 0 0 2px #fdeed6}
@@ -287,3 +287,7 @@
 #app .appraisal-organized .look-legend{display:inline-flex;align-items:center;gap:5px}
 #app .appraisal-organized .look-dot{display:inline-block;width:7px;height:7px;border-radius:50%;background:#94621e;box-shadow:0 0 0 2px #f6e7cc}
 #app .appraisal-organized .look-legend.is-retained .look-dot{background:#6c7d73;box-shadow:0 0 0 2px #e3e9e5}
+/* Viewer: the type heading sits inside the sticky room inventory box; the add action is labelled. */
+.vision-room-count.is-live>.vision-type-title{margin:0 0 4px;padding:0}
+.vision-room-count.is-live>.vision-room-value{width:100%;display:grid!important;grid-template-columns:minmax(0,1fr) auto;align-items:baseline}
+.vision-inspector header .vision-add-object{display:inline-flex;align-items:center;gap:6px;width:auto;padding:0 12px;font-size:13px;font-weight:600;white-space:nowrap}
