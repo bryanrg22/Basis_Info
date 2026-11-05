@@ -95,8 +95,10 @@ test('completed status is above navigation and read-only is scoped to review pag
  live.reportStateEntry=()=>({done:true,data:{study_id:s.id,revision:3,exported:true,skipped:null,missing_for_final:[],signature:{study_id:s.id,revision:3},changed_since_signing:[]}});
  for(const screen of ['appraisal','rooms','components','assets','asset-detail','complete','files','structure','intake']){
   ctx.state.screen=screen;const html=live.steps(s);
-  assert(html.indexOf('Study completed')<html.indexOf('<nav'));
-  assert.equal((html.match(/Study completed/g)||[]).length,1);
+  // Review pages carry the finished state in the step bar and header; progress, results and records keep the strip.
+  const review=['appraisal','rooms','components','assets','asset-detail'].includes(screen);
+  assert.equal((html.match(/Study completed/g)||[]).length,review?0:1);
+  if(!review)assert(html.indexOf('Study completed')<html.indexOf('<nav'));
   assert.equal(/read-only<\/span>/i.test(html),['appraisal','rooms','components','assets','asset-detail'].includes(screen));
  }
  live.state.studyId=s.id;live.state.cache.set('study:'+s.id,{done:true,data:s});
@@ -125,9 +127,10 @@ test('pending, failed, draft and changed report states never flash completed abo
  }
 });
 
-test('Report & sign states the report status once: no study-status strip above its own panel',()=>{
+test('the report notice appears once: not above Report & sign, not on a finished study\'s review pages',()=>{
  const {ctx,live}=boot();const s=study();
  live.reportStateEntry=()=>({done:true,data:{study_id:s.id,revision:3,exported:true,missing_for_final:[],signature:{study_id:s.id,revision:3},changed_since_signing:['firm']}});
  ctx.state.screen='report';assert.doesNotMatch(live.steps(s),/study-status/);
- ctx.state.screen='components';assert.match(live.steps(s),/Report needs updating/);
+ ctx.state.screen='complete';assert.match(live.steps(s),/Report needs updating/);
+ ctx.state.screen='components';const html=live.steps(s);assert.doesNotMatch(html,/study-status/);assert.match(html,/step-tone-review[^>]*>[\s\S]*?Update required/);
 });

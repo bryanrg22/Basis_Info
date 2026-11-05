@@ -361,7 +361,10 @@
  // study with the single rooms review).
  Live.studyStatus=(s,view=state.screen)=>{
   // Report & sign states the report's status once, in its own panel; the strip would repeat it.
+  // On a finished study's review pages the header badge and the Report & sign step already say
+  // it (Update required, Signed), so the strip is kept for progress, results and the records.
   if(view==='report')return '';
+  if(s.status==='completed'&&['appraisal','rooms','components','assets','asset-detail','viewer'].includes(view))return '';
   const context=G.reviewContext(s,view,Live.reportStateEntry?.(s));if(!context)return '';
   return `<section class="study-status study-status--${context.tone}" aria-label="Study status"><span class="study-status-symbol" aria-hidden="true">${icon(context.tone==='complete'?'check':context.tone==='attention'?'help':'eye',18)}</span><div class="study-status-copy"><div class="study-status-title"><h2>${esc(context.title)}</h2></div><p>${esc(context.detail)}</p></div>${context.action?`<a class="button study-status-action" href="${Live.route(context.action,s.id)}">${esc(context.actionLabel||'Study progress')}${icon('arrow',16)}</a>`:''}</section>`;
  };

@@ -33,7 +33,7 @@
  }
  function fieldList(context){
   const {fields,ui,corrections}=context,groups=P.fieldGroups(fields,{...ui,corrections}),matching=groups.reduce((n,g)=>n+g.fields.length,0),searching=!!ui.query||ui.filter!=='all';
-  return `${searching?`<p class="field-results-count" role="status">${matching} of ${fields.length} fields</p>`:''}${groups.map(group=>`<details class="field-group" data-field-group="${esc(group.key)}" ${searching||ui.open.has(group.key)?'open':''}><summary><span><strong>${esc(group.name)}</strong><small>${plural(group.fields.length,'field')}${group.review?` · ${group.review} need a look`:''}</small></span>${disclosure('fields')}</summary><div class="${group.key==='overview'?'property-facts':'field-group-rows'}">${group.fields.map(f=>fieldButton(f,group.key==='overview',context)).join('')}</div></details>`).join('')||'<div class="review-empty"><h3>No matching fields</h3><p>Try another search or clear the filters.</p><button class="button small" data-review-action="clear-fields">Clear filters</button></div>'}`;
+  return `${searching?`<p class="field-results-count" role="status">${matching} of ${fields.length} fields</p>`:''}${groups.map(group=>`<details class="field-group" data-field-group="${esc(group.key)}" ${searching||ui.open.has(group.key)?'open':''}><summary><span><strong>${esc(group.name)}</strong><small>${plural(group.fields.length,'field')}${group.review?` · ${group.review} ${context.canCorrect?'need a look':'low confidence'}`:''}</small></span>${disclosure('fields')}</summary><div class="${group.key==='overview'?'property-facts':'field-group-rows'}">${group.fields.map(f=>fieldButton(f,group.key==='overview',context)).join('')}</div></details>`).join('')||'<div class="review-empty"><h3>No matching fields</h3><p>Try another search or clear the filters.</p><button class="button small" data-review-action="clear-fields">Clear filters</button></div>'}`;
  }
  function nextFieldGroup(context){
   const groups=P.fieldGroups(context.fields,{...context.ui,corrections:context.corrections});
@@ -80,6 +80,7 @@
    const list=root.querySelector('.appraisal-organized .ui-field-scroll');
    if(group&&list){list.scrollTop+=group.getBoundingClientRect().top-list.getBoundingClientRect().top-10;group.querySelector('summary')?.focus({preventScroll:true})}
   }
+  if(action==='filter-critical'&&fieldContext){const f=root.querySelector('#appraisal-field-filter');if(f){f.value='critical';f.dispatchEvent(new Event('change',{bubbles:true}))}else{fieldContext.ui.filter='critical';updateFields()}}
   if(action==='clear-assets'&&assetContext){assetContext.ui.query='';assetContext.ui.filter='all';renderAssetState()}
   if(action==='clear-fields'&&fieldContext){fieldContext.ui.query='';fieldContext.ui.filter='all';root.querySelector('#appraisal-field-search').value='';root.querySelector('#appraisal-field-filter').value='all';updateFields()}
  });
