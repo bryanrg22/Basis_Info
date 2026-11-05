@@ -225,3 +225,6 @@
 .live-asset-limits{margin:12px 0 0;font-size:12.5px;color:#475a50}
 /* Review pages leave room above the decision footer for their last rows. */
 #app .workspace .content:has(.review-decision){padding-bottom:120px}
+/* Inventory beside the photos: the count column holds its "Use N" suggestion. */
+#app .workspace:not([data-screen="viewer"]) .component-room-card .live-inventory th:nth-child(2){width:26%}
+#app .component-room-card .live-suggest-count{display:flex;flex-wrap:wrap;align-items:center;gap:4px 8px}
