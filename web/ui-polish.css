@@ -9,7 +9,7 @@
 #app .workspace:not([data-screen="viewer"]) .study-navigation .step small{display:inline-flex;align-items:center;gap:5px;width:max-content;font-size:12.5px;font-weight:600;letter-spacing:0;color:var(--st-idle)}
 #app .workspace:not([data-screen="viewer"]) .study-navigation .step small::before{content:"";width:7px;height:7px;border-radius:50%;background:currentColor;flex:none}
 #app .workspace:not([data-screen="viewer"]) .study-navigation .step-tone-idle small::before{background:transparent;box-shadow:inset 0 0 0 1.5px currentColor}
-#app .workspace:not([data-screen="viewer"]) .study-navigation .step-tone-done small{color:var(--st-done)}
+#app .workspace:not([data-screen="viewer"]) .study-navigation .step-tone-done small{color:var(--st-done);font-weight:500}
 #app .workspace:not([data-screen="viewer"]) .study-navigation .step-tone-review small{color:var(--st-review)}
 #app .workspace:not([data-screen="viewer"]) .study-navigation .step-tone-danger small{color:var(--st-danger)}
 #app .workspace:not([data-screen="viewer"]) .study-navigation .step-tone-progress small{color:var(--st-progress)}
@@ -61,7 +61,7 @@
 #app .hub-progress-step small,#app .hub-step-status{display:inline-flex;align-items:center;gap:5px;font-size:12.5px;font-weight:600;color:var(--st-idle)}
 #app .hub-progress-step small::before,#app .hub-step-status::before{content:"";width:7px;height:7px;border-radius:50%;background:currentColor;flex:none}
 #app .step-tone-idle .hub-progress-step small::before,#app .step-tone-idle .hub-step-status::before{background:transparent;box-shadow:inset 0 0 0 1.5px currentColor}
-#app .step-tone-done .hub-progress-step small,#app .step-tone-done .hub-step-status{color:var(--st-done)}
+#app .step-tone-done .hub-progress-step small,#app .step-tone-done .hub-step-status{color:var(--st-done);font-weight:500}
 #app .step-tone-review .hub-progress-step small,#app .step-tone-review .hub-step-status{color:var(--st-review)}
 #app .step-tone-danger .hub-progress-step small,#app .step-tone-danger .hub-step-status{color:var(--st-danger)}
 #app .step-tone-progress .hub-progress-step small,#app .step-tone-progress .hub-step-status{color:var(--st-progress)}
@@ -251,7 +251,7 @@
 #app .live-evidence-caption{display:grid;gap:2px;margin-top:6px;font-size:13px;line-height:1.4;color:#34473d}
 #app .live-evidence-caption .live-evidence-file{font-weight:600;color:var(--ui-ink,#1f3328);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 /* Settings: supporting text at the shared secondary size and ink. */
-#app .main .profile-field-row p,#app .main .profile-photo-controls #profile-photo-help,#app .main .profile-account-details span,#app .main .profile-local-note{font-size:13px;line-height:1.5;color:var(--ui-muted,#475a50)}
+#app .main .profile-field-row p,#app .main .profile-photo-controls #profile-photo-help,#app .main .profile-account-details span,#app .main .profile-local-note{font-size:14px;line-height:1.5;color:var(--ui-muted,#475a50)}
 #app .main .profile-field-row p{max-width:240px}
 #app .main .profile-account-details strong{font-size:14px;color:var(--ui-ink,#1f3328)}
 #app .calc-steps thead{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%);white-space:nowrap}
@@ -282,10 +282,10 @@
 @media (max-width:1366px){#app .workspace:not([data-screen="viewer"]) .study-navigation .step{padding-right:10px}#app .workspace:not([data-screen="viewer"]) .study-navigation .step small{font-size:12px;gap:4px}}
 /* Appraisal: unselected fields mark "needs a look" with a small amber marker; the section header is its legend. */
 #app .appraisal-organized .look-mark{display:inline-block;width:8px;height:8px;margin:0 0 1px 8px;vertical-align:middle;border-radius:50%;background:#94621e;box-shadow:0 0 0 2px #f6e7cc}
-#app .appraisal-organized .look-mark.is-retained{background:#6c7d73;box-shadow:0 0 0 2px #e3e9e5}
+#app .appraisal-organized .look-mark.is-retained{background:#4f6458;box-shadow:0 0 0 2px #dfe7e2}
 #app .appraisal-organized .look-legend{display:inline-flex;align-items:center;gap:5px}
 #app .appraisal-organized .look-dot{display:inline-block;width:7px;height:7px;border-radius:50%;background:#94621e;box-shadow:0 0 0 2px #f6e7cc}
-#app .appraisal-organized .look-legend.is-retained .look-dot{background:#6c7d73;box-shadow:0 0 0 2px #e3e9e5}
+#app .appraisal-organized .look-legend.is-retained .look-dot{background:#4f6458;box-shadow:0 0 0 2px #dfe7e2}
 /* Viewer: the type heading sits inside the sticky room inventory box; the add action is labelled. */
 .vision-room-count.is-live>.vision-type-title{margin:0 0 4px;padding:0}
 .vision-room-count.is-live>.vision-room-value{width:100%;display:grid!important;grid-template-columns:minmax(0,1fr) auto;align-items:baseline}
@@ -302,3 +302,11 @@
 /* With corrections waiting, the decision bar's send action leads. */
 #app .review-decision .button.is-pending{background:#94621e;border-color:#94621e;color:#fff}
 #app .review-decision .button.is-pending:hover{background:#7d5218}
+/* Team: table text at the shared sizes, cells centred on their row. */
+#app .workspace[data-screen="team"] .main td{vertical-align:middle}
+#app .workspace[data-screen="team"] .main td b{font-size:14px}
+#app .workspace[data-screen="team"] .main td small{font-size:13px;color:var(--ui-muted,#475a50)}
+#app .workspace[data-screen="team"] .main td .badge{font-size:12.5px}
+#app .workspace[data-screen="team"] .main td .button.small{font-size:13px}
+#app .workspace[data-screen="team"] .main td .product-select-value{font-size:13.5px}
+#app .live-team-policy p{font-size:13.5px;line-height:1.5;color:#34473d}
