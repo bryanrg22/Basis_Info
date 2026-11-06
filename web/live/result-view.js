@@ -20,7 +20,14 @@
  const row=values=>`<tr>${values.map((v,i)=>i?`<td>${v}</td>`:`<th scope="row">${v}</th>`).join('')}</tr>`;
  const section=(title,body,extra='')=>`<section class="result-section"><header><h2>${esc(title)}</h2>${extra}</header>${body}</section>`;
  const disclosure=(title,body,open=false)=>`<details class="result-disclosure" ${open?'open':''}><summary>${esc(title)}<span aria-hidden="true" class="result-disclosure-action"></span></summary><div>${body}</div></details>`;
- function checkList(checks){return checks?.length?`<ul class="result-checks">${checks.map(c=>`<li class="check-${esc(c.severity)}"><span class="result-check-status">${esc({ok:'Passed',error:'Needs correction',warning:'Review',not_checked:'Not checked'}[c.severity]||c.severity)}</span><div><p>${esc(c.message)}</p><code>${esc(c.code)}</code></div></li>`).join('')}</ul>`:''}
+ const ABBR={RCNLD:'cost less depreciation',RCN:'replacement cost new'};
+ function readable(message){
+  return String(message??'').replace(/\b(RCNLD|RCN)\b/g,m=>ABBR[m]).replace(/\b[a-z]+(?:_[a-z]+)+\b/g,w=>w.replace(/_/g,' '))
+   // Group figures (588779.76 -> 588,779.76, 9620.24 -> 9,620.24); a bare four-digit number may be a
+   // year, so it stays as written, as do pages and short counts.
+   .replace(/(?<![\w.,])(\d{4,})(\.\d+)?(?![\w,])/g,(m,int,dec)=>int.length===4&&!dec?m:Number(int).toLocaleString('en-US')+(dec||''));
+ }
+ function checkList(checks){return checks?.length?`<ul class="result-checks">${checks.map(c=>`<li class="check-${esc(c.severity)}"><span class="result-check-status">${esc({ok:'Passed',error:'Needs correction',warning:'Review',not_checked:'Not checked'}[c.severity]||c.severity)}</span><div><p title="${esc(c.code)}: ${esc(c.message)}">${esc(readable(c.message))}</p></div></li>`).join('')}</ul>`:''}
  function resultState(r){
   if(!r?.allocation)return {tone:'warning',title:'Allocation withheld',detail:'Resolve the items below before a final allocation can be produced.'};
   const checks=[...(r.worksheet?.checks||[]),...(r.allocation.checks||[]),...(r.reconciliation?.checks||[])];
@@ -41,7 +48,7 @@
   const systems=a?.by_system?.length?table('Allocation by building system',['Building system','Replacement cost','Cost less depreciation','Allocated basis'],a.by_system.map(c=>row([esc(c.system),money(c.rcn),money(c.rcnld),money(c.allocated)]))):empty(a?.by_system_reason||'Building-system allocation is unavailable until allocation is produced.');
   const assetRows=a?.assets?.length?disclosure('Allocated assets',table('Allocated assets',['Asset','Recovery class','Replacement cost','Allocated basis'],a.assets.map(c=>row([`<a href="${route('asset-detail',s.id,c.asset_id)}">${esc(words(c.label||c.category))}</a>`,esc(bucket(c.bucket)),money(c.rcn),money(c.allocated)])))):'';
   const unpriced=q.unpriced?.length?disclosure(`${q.unpriced.length} unpriced ${q.unpriced.length===1?'asset':'assets'}`,`<ul class="result-causes">${q.unpriced.map(id=>{const asset=assets.find(a=>a.id===id);return `<li>${link('asset-detail',s.id,asset?`${words(asset.label||asset.category)}${asset.room?.name?' · '+asset.room.name:''}`:`Review asset ${id}`,id)}</li>`}).join('')}</ul>`):'';
-  return `<div class="results-workspace">${lead?hero+stats:''}<nav class="result-section-nav" aria-label="Result sections"><button data-live="result-jump" data-value="basis-worksheet">Basis worksheet</button><button data-live="result-jump" data-value="basis-reconciliation">Reconciliation</button><button data-live="result-jump" data-value="basis-allocation">Allocation</button>${link('structure',s.id,'Concealed systems')}${link('history',s.id,'Study history')}</nav><div class="result-columns"><div id="basis-worksheet">${section('Basis worksheet',worksheet,link('intake',s.id,'Review inputs'))}</div><div id="basis-reconciliation">${section('Reconciliation',reconciliation)}</div></div><div id="basis-allocation">${section('Recovery classes',allocation+unpriced+assetRows)}</div>${section('Building systems',systems)}${r.not_produced?.length?section('Systems not priced',`<ul class="result-causes">${r.not_produced.map(c=>`<li><strong>${esc(c.system)}</strong><p>${esc(c.reason)}</p></li>`).join('')}</ul>`):''}</div>`;
+  return `<div class="results-workspace">${lead?hero+stats:''}<nav class="result-section-nav" aria-label="Result sections"><button data-live="result-jump" data-value="basis-worksheet">Basis worksheet</button><button data-live="result-jump" data-value="basis-reconciliation">Reconciliation</button><button data-live="result-jump" data-value="basis-allocation">Allocation</button><a class="result-section-link" href="${route('structure',s.id)}">Concealed systems</a><a class="result-section-link" href="${route('history',s.id)}">Study history</a></nav><div class="result-columns"><div id="basis-worksheet">${section('Basis worksheet',worksheet,link('intake',s.id,'Review inputs'))}</div><div id="basis-reconciliation">${section('Reconciliation',reconciliation)}</div></div><div id="basis-allocation">${section('Recovery classes',allocation+unpriced+assetRows)}</div>${section('Building systems',systems)}${r.not_produced?.length?section('Systems not priced',`<ul class="result-causes">${r.not_produced.map(c=>`<li><strong>${esc(c.system)}</strong><p>${esc(c.reason)}</p></li>`).join('')}</ul>`):''}</div>`;
  }
  /* Split a recorded formula at operators outside brackets and quotes; null when it does not parse cleanly. */
  function splitTop(f,sep){
@@ -130,6 +137,6 @@
   if(body.series==='city'&&body.region.includes(':')){if(!d.city?.trim())errors.push('Enter the city name for a ZIP-prefix region.');else body.detail={city:d.city.trim()}}
   return {body,errors};
  }
- const api={esc,present,number,money,percent,words,bucket,when,duration,text,route,link,pair,empty,table,row,section,disclosure,checkList,resultState,result,structure,formulaSteps,costTrail,changes,provenance,csv,indexBody};
+ const api={readable,esc,present,number,money,percent,words,bucket,when,duration,text,route,link,pair,empty,table,row,section,disclosure,checkList,resultState,result,structure,formulaSteps,costTrail,changes,provenance,csv,indexBody};
  if(typeof module==='object'&&module.exports)module.exports=api;else scope.BasisResultView=api;
 })(globalThis);

@@ -131,6 +131,7 @@ test('the report notice appears once: not above Report & sign, not on a finished
  const {ctx,live}=boot();const s=study();
  live.reportStateEntry=()=>({done:true,data:{study_id:s.id,revision:3,exported:true,missing_for_final:[],signature:{study_id:s.id,revision:3},changed_since_signing:['firm']}});
  ctx.state.screen='report';assert.doesNotMatch(live.steps(s),/study-status/);
- ctx.state.screen='complete';assert.match(live.steps(s),/Report needs updating/);
+ ctx.state.screen='processing';assert.match(live.steps(s),/Report needs updating/);// once, on Study progress, with its action
+ for(const screen of ['complete','files','structure','history'])ctx.state.screen=screen,assert.doesNotMatch(live.steps(s),/study-status/,screen);// the header badge and step bar say it there
  ctx.state.screen='components';const html=live.steps(s);assert.doesNotMatch(html,/study-status/);assert.match(html,/step-tone-review[^>]*>[\s\S]*?Update required/);
 });

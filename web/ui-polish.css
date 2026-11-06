@@ -249,7 +249,7 @@
 #app .room-summary-link:focus-visible{outline:2px solid #1f6b45;outline-offset:2px}
 /* Asset photo evidence: the file on one line, what it shows on the next. */
 #app .live-evidence-caption{display:grid;gap:2px;margin-top:6px;font-size:13px;line-height:1.4;color:#34473d}
-#app .live-evidence-caption .live-evidence-file{font-weight:600;color:var(--ui-ink,#1f3328);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+#app .live-evidence-caption .live-evidence-file{font-weight:600;color:var(--ui-ink,#1f3328);overflow-wrap:anywhere}
 /* Settings: supporting text at the shared secondary size and ink. */
 #app .main .profile-field-row p,#app .main .profile-photo-controls #profile-photo-help,#app .main .profile-account-details span,#app .main .profile-local-note{font-size:14px;line-height:1.5;color:var(--ui-muted,#475a50)}
 #app .main .profile-field-row p{max-width:240px}
@@ -413,7 +413,7 @@ body:has(.review-decision) #toast{bottom:118px}
 #app .review-decision.is-flash{animation:decision-flash .9s ease-out 1}
 @media (prefers-reduced-motion:reduce){#app .review-decision.is-flash{animation:none;outline:2px solid #94621e}}
 /* Rows clear the sticky decision bar at the end of the page. */
-#app .workspace:has(.review-decision) .content{padding-bottom:140px}
+#app .workspace:not([data-screen="appraisal"]):has(.review-decision) .content{padding-bottom:140px}
 /* r23: each correction to send: what, then one change per line, then the reason. */
 .live-send-list li{display:grid;justify-content:stretch;gap:2px}
 .live-send-list li strong{font-size:13.5px;color:#213b30}
@@ -428,3 +428,12 @@ body:has(.review-decision) #toast{bottom:118px}
 #app .workspace:not([data-screen="viewer"]) .study-navigation .step small{font-size:13px}
 #app .workspace:not([data-screen="viewer"]) .study-navigation .step.step-tone-done small::before{display:none}
 #app .workspace:not([data-screen="viewer"]) .study-navigation .step.step-tone-done:not(.is-selected) strong{font-weight:600}
+
+/* r26: each delivery state its own pill: Update required solid amber, signature work blue, missing details neutral; every pill leads with a dot. */
+#app .desk-status{display:inline-flex;align-items:center;gap:6px}
+#app .desk-status:not(:has(>span))::before{content:"";width:7px;height:7px;border-radius:50%;background:currentColor;flex:none}
+#app .desk-status.is-update{color:#fff;background:#8a4b00;border-color:#8a4b00}
+#app .desk-status.is-details{color:#3f5247;background:#fff;border-color:#b8c6bd}
+/* r26: one card for the photo-vs-priced difference: Use N or Keep M. */
+.vision-room-suggest .vision-suggest-actions{display:inline-flex;gap:6px;flex:none}
+.vision-room-count.is-live .vision-use.is-keep{background:#fff;border-color:#d6c3a1;color:#5b4a2f;font-weight:500}
