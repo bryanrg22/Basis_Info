@@ -9105,8 +9105,8 @@
         "tags": [
           "firms"
         ],
-        "summary": "Create a firm; you become its owner",
-        "description": "How a new customer starts: any signed-in user whose sign-in confirms their email creates a firm and is its first owner (403 `email-unverified` otherwise). You may own or belong to several firms; names are not unique. Invite the rest of the firm with `POST /v1/orgs/{org_id}/invitations`.",
+        "summary": "Create a firm; you become its owner (when firms are self-serve)",
+        "description": "Off by default (`FIRM_SELF_SERVE`): Basis sets each firm up with `python -m basis.admin create-firm`, which invites its owner, and the owner invites the engineers; this route then answers 403 `firm-self-serve-off`. With it on, any signed-in user whose sign-in confirms their email creates a firm and is its first owner (403 `email-unverified` otherwise). You may own or belong to several firms; names are not unique. Invite the rest of the firm with `POST /v1/orgs/{org_id}/invitations`.",
         "operationId": "create_firm_v1_orgs_post",
         "security": [
           {

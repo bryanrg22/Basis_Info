@@ -87,6 +87,7 @@ class E:
     FIRM_INVITATION_DECLINED = "BASIS-FIRM-008"
     FIRM_INVITATION_REVOKED = "BASIS-FIRM-009"
     FIRM_INVITATION_EXPIRED = "BASIS-FIRM-010"
+    FIRM_SELF_SERVE_OFF = "BASIS-FIRM-011"
 
     # ---------------------------------------------------------------- uploads (documents)
     UPLOAD_DUPLICATE_DOCUMENT = "BASIS-UPLOAD-001"

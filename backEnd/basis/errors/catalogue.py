@@ -685,6 +685,19 @@ ENTRIES: Final[tuple[Entry, ...]] = (
         "no",
         problem="invitation-expired",
     ),
+    _e(
+        E.FIRM_SELF_SERVE_OFF,
+        "refusal",
+        "`POST /orgs`",
+        "basis.api.routes.orgs",
+        "Firms are set up by Basis (`FIRM_SELF_SERVE` off, the default): a signed-in user cannot "
+        "create one.",
+        "403 `firm-self-serve-off`.",
+        "Ask Basis to set up the firm (`python -m basis.admin create-firm`), then accept the "
+        "owner invitation that appears after sign-in.",
+        "no",
+        problem="firm-self-serve-off",
+    ),
     # ------------------------------------------------------------------ UPLOAD
     _e(
         E.UPLOAD_DUPLICATE_DOCUMENT,

@@ -13,6 +13,8 @@
   writes for preconditions. Each new user of ``api`` owns a firm of their own.
 * ``invite_only_api``: the same app without that: users join firms only by invitation,
   as in the product (``tests/api/test_firms.py``).
+* ``self_serve_api``: ``invite_only_api`` with ``FIRM_SELF_SERVE`` on, for the tests of
+  ``POST /v1/orgs`` (off by default: Basis sets each firm up).
 
 Tests that use these fixtures are marked ``integration`` in their own modules.
 """
@@ -96,6 +98,27 @@ async def invite_only_api(
 ) -> AsyncIterator[Api]:
     app = build_api_app(
         api_settings(database_url), sessionmaker, storage, verifier, own_firms=False
+    )
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url=BASE_URL) as client:
+        yield Api(client)
+
+
+@pytest.fixture
+async def self_serve_api(
+    database_url: str,
+    sessionmaker: async_sessionmaker[AsyncSession],
+    storage: LocalStorage,
+    verifier: FakeVerifier,
+) -> AsyncIterator[Api]:
+    """``invite_only_api`` with ``FIRM_SELF_SERVE`` on: a verified user may create a firm
+    (``POST /v1/orgs``), which the default refuses (firms are set up by Basis)."""
+    app = build_api_app(
+        api_settings(database_url, firm_self_serve=True),
+        sessionmaker,
+        storage,
+        verifier,
+        own_firms=False,
     )
     transport = httpx.ASGITransport(app=app)
     async with httpx.AsyncClient(transport=transport, base_url=BASE_URL) as client:

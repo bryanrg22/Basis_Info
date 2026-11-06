@@ -408,9 +408,9 @@ async def test_engineers_and_viewers_get_403_and_non_members_404_on_every_admin_
 
 
 async def test_a_verified_user_creates_a_firm_and_owns_it(
-    invite_only_api: Api, seed: Seed, sessionmaker: async_sessionmaker[AsyncSession]
+    self_serve_api: Api, seed: Seed, sessionmaker: async_sessionmaker[AsyncSession]
 ) -> None:
-    api = invite_only_api
+    api = self_serve_api
     key = str(uuid.uuid4())
 
     created = await api.post("nina", "/v1/orgs", {"name": "  Harbor Cost Seg "}, key=key)
@@ -437,22 +437,39 @@ async def test_a_verified_user_creates_a_firm_and_owns_it(
     assert await count(sessionmaker, Org) == 1
 
 
+async def test_firms_are_set_up_by_basis_by_default(
+    invite_only_api: Api, sessionmaker: async_sessionmaker[AsyncSession]
+) -> None:
+    """``FIRM_SELF_SERVE`` off (the default): even a verified user cannot create a firm; Basis
+    sets each firm up (``python -m basis.admin create-firm``). Nothing is written, and the
+    Idempotency-Key replay answers the same refusal."""
+    key = str(uuid.uuid4())
+    for _ in range(2):
+        refused = await invite_only_api.post("nina", "/v1/orgs", {"name": "Harbor"}, key=key)
+        assert refused.status_code == 403, refused.text
+        assert problem_type(refused) == "firm-self-serve-off"
+        assert refused.json()["code"] == "BASIS-FIRM-011"
+    assert await count(sessionmaker, Org) == 0 and await count(sessionmaker, OrgMember) == 0
+    me = (await invite_only_api.get("nina", "/v1/me")).json()
+    assert me["memberships"] == []
+
+
 async def test_creating_a_firm_needs_a_verified_email(
-    invite_only_api: Api, verifier: FakeVerifier, sessionmaker: async_sessionmaker[AsyncSession]
+    self_serve_api: Api, verifier: FakeVerifier, sessionmaker: async_sessionmaker[AsyncSession]
 ) -> None:
     verifier.identities["nina"] = Principal(uid="nina", email="nina@example.test")
     verifier.identities["anon"] = Principal(uid="anon", email=None, email_verified=True)
 
     for uid in ("nina", "anon"):
-        response = await invite_only_api.post(uid, "/v1/orgs", {"name": "Harbor"})
+        response = await self_serve_api.post(uid, "/v1/orgs", {"name": "Harbor"})
         assert response.status_code == 403, response.text
         assert problem_type(response) == "email-unverified"
         assert response.json()["code"] == "BASIS-FIRM-003"
     assert await count(sessionmaker, Org) == 0 and await count(sessionmaker, OrgMember) == 0
 
 
-async def test_a_user_may_own_several_firms(invite_only_api: Api) -> None:
-    api = invite_only_api
+async def test_a_user_may_own_several_firms(self_serve_api: Api) -> None:
+    api = self_serve_api
     first = (await api.post("nina", "/v1/orgs", {"name": "Second"})).json()
     second = (await api.post("nina", "/v1/orgs", {"name": "First"})).json()
 
@@ -482,15 +499,15 @@ async def test_a_user_may_own_several_firms(invite_only_api: Api) -> None:
     ],
 )
 async def test_invalid_firm_names_are_422(
-    invite_only_api: Api, seed: Seed, body: Any, sessionmaker: async_sessionmaker[AsyncSession]
+    self_serve_api: Api, seed: Seed, body: Any, sessionmaker: async_sessionmaker[AsyncSession]
 ) -> None:
     org = await firm(seed)
-    created = await invite_only_api.post("nina", "/v1/orgs", body)
-    renamed = await patch(invite_only_api, "olivia", f"/v1/orgs/{org}", body)
+    created = await self_serve_api.post("nina", "/v1/orgs", body)
+    renamed = await patch(self_serve_api, "olivia", f"/v1/orgs/{org}", body)
     assert created.status_code == 422 and renamed.status_code == 422, body
     assert created.headers["content-type"] == PROBLEM_JSON and created.json()["errors"]
     assert await count(sessionmaker, Org) == 1
-    assert (await invite_only_api.get("olivia", "/v1/me")).json()["memberships"][0][
+    assert (await self_serve_api.get("olivia", "/v1/me")).json()["memberships"][0][
         "org_name"
     ] == "Basis"
 
@@ -526,8 +543,8 @@ async def firm_activity(api: Api, uid: str, org: str) -> list[tuple[str, str, An
     return [(i["event_type"], i["actor_type"], i["before"], i["after"]) for i in reversed(items)]
 
 
-async def test_creating_and_renaming_a_firm_are_on_its_history(invite_only_api: Api) -> None:
-    api = invite_only_api
+async def test_creating_and_renaming_a_firm_are_on_its_history(self_serve_api: Api) -> None:
+    api = self_serve_api
     created = (await api.post("nina", "/v1/orgs", {"name": "Harbor"})).json()
     nina = (await api.get("nina", "/v1/me")).json()["user"]["id"]
     org = created["id"]

@@ -22,7 +22,7 @@ Numbers are never reused. Source of truth: `backEnd/basis/errors/catalogue.py` (
 rendered from it: `uv run python -m basis.errors.catalogue --write`; a test fails while it is
 stale).
 
-295 codes in 23 areas.
+296 codes in 23 areas.
 
 ## API: API: request plumbing (authentication, idempotency, limits, dependencies)
 
@@ -82,6 +82,7 @@ stale).
 | `BASIS-FIRM-008` | refusal | answer or revoke an invitation; `basis.db.repositories.invitation` | The invitation was declined. | 409 `invitation-declined`. (type `invitation-declined`) | Invite again. | no |
 | `BASIS-FIRM-009` | refusal | answer an invitation; `basis.db.repositories.invitation` | The invitation was revoked. | 409 `invitation-revoked`. (type `invitation-revoked`) | Ask for a new invitation. | no |
 | `BASIS-FIRM-010` | refusal | answer an invitation; `basis.db.repositories.invitation` | The invitation expired. | 409 `invitation-expired`. (type `invitation-expired`) | Ask for a new invitation. | no |
+| `BASIS-FIRM-011` | refusal | `POST /orgs`; `basis.api.routes.orgs` | Firms are set up by Basis (`FIRM_SELF_SERVE` off, the default): a signed-in user cannot create one. | 403 `firm-self-serve-off`. (type `firm-self-serve-off`) | Ask Basis to set up the firm (`python -m basis.admin create-firm`), then accept the owner invitation that appears after sign-in. | no |
 
 ## UPLOAD: Uploads and documents
 
