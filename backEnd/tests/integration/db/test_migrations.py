@@ -54,6 +54,10 @@
   one context across releases merges when the answer agrees, the latest approval keeps the
   key when it does not, unknown versions and malformed keys are left alone; it downgrades
   back to the version keys;
+* ``0033_study_search`` (on 0030 until 0031 and 0032 land) creates ``study_search``, the
+  library's folded search document, backfills every study, keeps it by triggers on
+  ``studies``, ``extraction_fields`` and ``report_signatures``, and downgrades back to ``0030``
+  exactly (``pg_trgm`` and ``unaccent`` stay installed);
 * ``0030_operator_document_access`` lets ``study_events.actor_type`` be ``operator`` (Basis
   support opened a firm's file) and downgrades back to ``0029`` only while no such row exists
   (access records are append-only and never deleted);
@@ -120,8 +124,9 @@ pytestmark = pytest.mark.integration
 # 0025_invitation_email lands after 0022 (user activity), 0023 (rate-limit hits) and 0024
 # (review drafts); 0026 (retention and alerts) revises 0025, and 0027_signature_input_versions
 # revises 0026 (it was 0024, then 0026, until the branches before it landed).
-HEAD = "0030"
-HISTORY = [f"{n:04d}" for n in range(30, 0, -1)]  # "0030" .. "0001"
+# 0033_study_search revises 0030 while 0031 and 0032 are in review (re-chained at merge).
+HEAD = "0033"
+HISTORY = ["0033", *(f"{n:04d}" for n in range(30, 0, -1))]  # "0033", "0030" .. "0001"
 EXPECTED_TRIGGERS = (
     {(f"{table}_set_updated_at", table) for table in UPDATED_AT_TABLES}
     | {(f"{table}_append_only", table) for table in APPEND_ONLY_TABLES}
@@ -129,6 +134,14 @@ EXPECTED_TRIGGERS = (
     | {("users_firebase_uid_immutable", "users")}
     | {(f"{table}_published_immutable", table) for table in PUBLISHED_IMMUTABLE_TABLES}
     | {("corpus_versions_published_immutable", "corpus_versions")}
+    # 0033: the library's search document.
+    | {
+        ("study_search_study", "studies"),
+        ("study_search_field_insert", "extraction_fields"),
+        ("study_search_field_update", "extraction_fields"),
+        ("study_search_field_delete", "extraction_fields"),
+        ("study_search_signature", "report_signatures"),
+    }
 )
 EXPECTED_FUNCTIONS = {
     "set_updated_at",
@@ -136,6 +149,11 @@ EXPECTED_FUNCTIONS = {
     "forbid_firebase_uid_change",
     "forbid_published_corpus_write",
     "forbid_published_version_update",
+    # 0033 (the SQL-language study_search_document and study_search_fold are not listed:
+    # snapshot() reads plpgsql functions only).
+    "study_search_refresh",
+    "study_search_from_study",
+    "study_search_from_child",
 }
 
 
@@ -296,6 +314,8 @@ def test_offline_sql_rendering() -> None:
         assert f"CREATE TABLE {table} " in sql or f"CREATE UNLOGGED TABLE {table} " in sql, table
     assert "CREATE UNLOGGED TABLE rate_limit_hits " in sql  # 0022: ephemeral, no WAL
     assert "CREATE TRIGGER reviews_append_only" in sql
+    assert "CREATE EXTENSION IF NOT EXISTS pg_trgm" in sql  # 0033
+    assert "USING gin (document gin_trgm_ops)" in sql
     assert "CREATE TYPE outbox_status AS ENUM ('pending', 'delivered', 'dead')" in sql
     assert "UPDATE outbox SET status = 'delivered' WHERE delivered_at IS NOT NULL" in sql
     assert (
@@ -1679,3 +1699,60 @@ async def test_0030_operator_actor_and_a_downgrade_that_keeps_access_records(
         await connection.close()
     with pytest.raises(Exception, match="operator access records"):
         await downgrade(url, "0029")
+
+
+async def test_0033_backfills_every_study_and_downgrades_exactly(empty_database_url: str) -> None:
+    url = empty_database_url
+    await upgrade(url, "0030")
+    at_0030 = await snapshot(url)
+    connection = await asyncpg.connect(plain_dsn(url))
+    try:
+        study, _, _ = await _photo(connection)
+        await connection.execute(
+            "UPDATE studies SET property_name = 'Café Lofts', "
+            'intake = \'{"zip": "93035", "state": "CA"}\' WHERE id = $1',
+            study,
+        )
+        appraisal = await connection.fetchval(
+            "INSERT INTO documents (study_id, kind, filename, content_type, bytes, sha256, "
+            "gcs_uri) VALUES ($1, 'appraisal', 'a.pdf', 'application/pdf', 1, $2, 'gs://b/a') "
+            "RETURNING id",
+            study,
+            "b" * 64,
+        )
+        extraction = await connection.fetchval(
+            "INSERT INTO extractions (study_id, document_id, revision, method, raw) "
+            "VALUES ($1, $2, 1, 'm', '{}') RETURNING id",
+            study,
+            appraisal,
+        )
+        field = (
+            "INSERT INTO extraction_fields (extraction_id, study_id, section, field, value_text, "
+            "source) VALUES ($1, $2, $3, $4, $5, 's')"
+        )
+        await connection.execute(
+            field, extraction, study, "subject", "property_address", "4417 Quillon Ave"
+        )
+        await connection.execute(field, extraction, study, "improvements", "year_built", "1987")
+        empty = await connection.fetchval(
+            "INSERT INTO studies (org_id, created_by, property_name) "
+            "SELECT org_id, created_by, 'Zephyrine' FROM studies WHERE id = $1 RETURNING id",
+            study,
+        )
+    finally:
+        await connection.close()
+
+    await upgrade(url)
+    connection = await asyncpg.connect(plain_dsn(url))
+    try:
+        rows = dict(await connection.fetch("SELECT study_id, document FROM study_search"))
+        # Folded (lower case, no accents), one value per line; filler fields left out.
+        assert rows == {study: "cafe lofts\n93035\nca\n4417 quillon ave", empty: "zephyrine"}
+        assert "pg_trgm" in (await snapshot(url))["extensions"]
+    finally:
+        await connection.close()
+    await downgrade(url, "0030")
+    after = await snapshot(url)
+    assert {"pg_trgm", "unaccent"} <= after["extensions"]  # left installed, as vector is
+    after["extensions"] = at_0030["extensions"]
+    assert after == at_0030

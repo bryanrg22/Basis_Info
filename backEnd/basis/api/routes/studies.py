@@ -336,8 +336,11 @@ async def list_studies(
         Query(
             max_length=MAX_QUERY_LENGTH,
             pattern=NO_NUL_PATTERN,
-            description="Case-insensitive substring of the property name (trimmed; blank "
-            "matches everything).",
+            description="Search words, each of which must be found (as a substring, case and "
+            "accents ignored) in the property name, the intake's ZIP or state, the taxpayer, "
+            "the appraisal's address, city, state, ZIP, county, borrower, owner of record or "
+            "parcel number, the creator's name or email, or a signer's name or email. Blank "
+            "matches everything; `%`, `_` and `\\` are literal (docs/api/STUDY_LIBRARY.md).",
         ),
     ] = None,
     status: Annotated[

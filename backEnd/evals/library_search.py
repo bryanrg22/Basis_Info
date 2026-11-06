@@ -74,6 +74,10 @@ from evals import record
 
 VERSION: Final = "v1"
 PG_IMAGE: Final = "pgvector/pgvector:pg16"  # the image the stack and CI use
+# The schema the candidates are compared on: main before the search change, so a later
+# migration never changes what a candidate measures. ``implemented`` then upgrades to head.
+SCHEMA_REVISION: Final = "0030"
+IMPLEMENTED: Final = "implemented"
 BACKEND_ROOT: Final = Path(__file__).resolve().parents[1]
 SIZES: Final = {"2k": 2_000, "20k": 20_000, "200k": 200_000}
 FIRMS: Final = 8
@@ -880,10 +884,21 @@ def listing_sql(
 # --------------------------------------------------------------------------- the database
 
 
-async def create_schema(admin_dsn: str, name: str) -> str:
-    """A fresh database ``name`` at the migrations' head; its DSN."""
-    from alembic import command
+def _alembic(dsn: str) -> Any:
     from alembic.config import Config
+    from sqlalchemy.engine import make_url
+
+    config = Config(str(BACKEND_ROOT / "alembic.ini"))
+    config.attributes["database_url"] = (
+        make_url(dsn).set(drivername="postgresql+asyncpg").render_as_string(hide_password=False)
+    )
+    config.attributes["configure_logger"] = False
+    return config
+
+
+async def create_schema(admin_dsn: str, name: str) -> str:
+    """A fresh database ``name`` at :data:`SCHEMA_REVISION`; its DSN."""
+    from alembic import command
     from sqlalchemy.engine import make_url
 
     conn = await asyncpg.connect(admin_dsn)
@@ -900,12 +915,7 @@ async def create_schema(admin_dsn: str, name: str) -> str:
         await conn.execute("CREATE EXTENSION IF NOT EXISTS unaccent")
     finally:
         await conn.close()
-    config = Config(str(BACKEND_ROOT / "alembic.ini"))
-    config.attributes["database_url"] = (
-        make_url(dsn).set(drivername="postgresql+asyncpg").render_as_string(hide_password=False)
-    )
-    config.attributes["configure_logger"] = False
-    await asyncio.to_thread(command.upgrade, config, "head")
+    await asyncio.to_thread(command.upgrade, _alembic(dsn), SCHEMA_REVISION)
     return dsn
 
 
@@ -1316,6 +1326,150 @@ async def measure_candidate(
     }
 
 
+async def measure_implemented(
+    conn: Any,
+    dsn: str,
+    library: Library,
+    queries: list[tuple[str, str]],
+    plans_dir: Path,
+    run: record.EvalRun,
+    size: str,
+) -> dict[str, Any]:
+    """The shipped change, end to end: ``alembic upgrade head`` on the seeded library (the
+    migration's backfill and index build are the build time), then the repository itself:
+    correctness from its own filter clauses (every matching id), latency from
+    :meth:`StudyRepository.list_for_user` as the route calls it (count, first page, rows
+    loaded as ORM objects), plans from the statement it runs."""
+    from alembic import command
+    from sqlalchemy import func, select
+    from sqlalchemy.dialects import postgresql
+    from sqlalchemy.engine import make_url
+    from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+
+    from basis.db.models import OrgMember, Study
+    from basis.db.repositories.study import StudyFilters, StudyRepository, _filter_clauses
+
+    t0 = time.monotonic()
+    await asyncio.to_thread(command.upgrade, _alembic(dsn), "head")
+    build_s = time.monotonic() - t0
+    added = await relation_bytes(conn, ("study_search",))
+    probe = await write_probe(conn, library)
+    engine = create_async_engine(
+        make_url(dsn).set(drivername="postgresql+asyncpg").render_as_string(hide_password=False)
+    )
+    sessions = async_sessionmaker(engine, expire_on_commit=False)
+    user = library.searcher.id
+    member = (OrgMember.org_id == Study.org_id) & (OrgMember.user_id == user)
+
+    def matching(q: str) -> Any:
+        clauses = _filter_clauses(StudyFilters(q=q))
+        return select(Study.id).join(OrgMember, member).where(*clauses)
+
+    exact = 0
+    evaluated = 0
+    wrong: list[dict[str, Any]] = []
+    samples: list[float] = []
+    cut = False
+    try:
+        async with sessions() as session:
+            deadline = time.monotonic() + CANDIDATE_BUDGET_S
+            for qid, q in queries:
+                if time.monotonic() > deadline:
+                    break
+                evaluated += 1
+                got = set((await session.scalars(matching(q))).all())
+                page = await StudyRepository(session).list_for_user(
+                    user, PAGE, filters=StudyFilters(q=q)
+                )
+                expected = oracle(library, q, accents=True)
+                ok = got == expected and page.total == len(got)
+                exact += ok
+                labelled = next((lab for lab in LABELLED if lab.id == qid), None)
+                if labelled is not None:
+                    needles_ok = all(library.needles[n] in got for n in labelled.must) and not any(
+                        library.needles[n] in got for n in labelled.must_not
+                    )
+                    run.case(
+                        f"{size}:{IMPLEMENTED}:{qid}",
+                        "passed" if ok and needles_ok else "failed",
+                        kind="labelled",
+                        detail={
+                            "q": q,
+                            "category": labelled.category,
+                            "returned": len(got),
+                            "expected": len(expected),
+                            "needles_ok": needles_ok,
+                        },
+                    )
+                if not ok:
+                    wrong.append(
+                        {
+                            "query": qid,
+                            "q": q,
+                            "returned": len(got),
+                            "total": page.total,
+                            "expected": len(expected),
+                            "missing": len(expected - got),
+                            "extra": len(got - expected),
+                        }
+                    )
+                await session.rollback()  # each read in a fresh transaction, as a request
+            deadline = time.monotonic() + CANDIDATE_BUDGET_S
+            cut = evaluated < len(queries)
+            for _ in range(TIMED_PASSES):
+                for _, q in queries:
+                    if time.monotonic() > deadline:
+                        cut = True
+                        break
+                    t = time.perf_counter()
+                    await StudyRepository(session).list_for_user(
+                        user, PAGE, filters=StudyFilters(q=q)
+                    )
+                    samples.append((time.perf_counter() - t) * 1000)
+                    await session.rollback()
+                if cut:
+                    break
+            out = plans_dir / IMPLEMENTED
+            out.mkdir(parents=True, exist_ok=True)
+            for label, q in (("rare", "quillon"), ("common", "austin"), ("one_char", "a")):
+                stmt = (
+                    select(func.count())
+                    .select_from(Study)
+                    .join(OrgMember, member)
+                    .where(*_filter_clauses(StudyFilters(q=q)))
+                )
+                sql = str(
+                    stmt.compile(
+                        dialect=postgresql.dialect(),  # type: ignore[no-untyped-call]
+                        compile_kwargs={"literal_binds": True},
+                    )
+                )
+                lines = [f"-- q={q!r}\n-- count, as list_for_user runs it\n{sql}"]
+                lines += [r[0] for r in await conn.fetch(f"EXPLAIN (ANALYZE, BUFFERS) {sql}")]
+                (out / f"{label}.txt").write_text("\n".join(lines) + "\n")
+    finally:
+        await engine.dispose()
+    return {
+        "candidate": IMPLEMENTED,
+        "description": "the shipped change: migration 0033 (study_search, triggers, pg_trgm "
+        "GIN) and StudyRepository.list_for_user, measured through the repository",
+        "queries": len(queries),
+        "evaluated": evaluated,
+        "exact": exact,
+        "wrong": wrong,
+        "latency_ms": {
+            "samples": len(samples),
+            "p50": round(percentile(samples, 0.5), 2),
+            "p95": round(percentile(samples, 0.95), 2),
+            "max": round(max(samples), 2) if samples else None,
+            "cut_short": cut,
+        },
+        "added_bytes": added,
+        "build_seconds": round(build_s, 2),
+        "writes": probe,
+    }
+
+
 def _accent_label(qid: str) -> bool:
     """The accent labels are scored against the folded semantics for every candidate: that
     is the intended behaviour, and a candidate that does not fold fails them."""
@@ -1344,6 +1498,18 @@ async def run_size(
             )
             print(
                 f"[{size}] {candidate.name:14s} exact {result['exact']}/{result['queries']} "
+                f"p50 {result['latency_ms']['p50']} ms p95 {result['latency_ms']['p95']} ms "
+                f"added {result['added_bytes'] / 1e6:.1f} MB build {result['build_seconds']} s "
+                f"writes {result['writes']}",
+                flush=True,
+            )
+            results.append(result)
+        if not args.candidates or IMPLEMENTED in args.candidates:
+            result = await measure_implemented(
+                conn, dsn, library, queries, args.out / "plans" / size, run, size
+            )
+            print(
+                f"[{size}] {IMPLEMENTED:14s} exact {result['exact']}/{result['queries']} "
                 f"p50 {result['latency_ms']['p50']} ms p95 {result['latency_ms']['p95']} ms "
                 f"added {result['added_bytes'] / 1e6:.1f} MB build {result['build_seconds']} s "
                 f"writes {result['writes']}",
