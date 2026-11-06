@@ -37,7 +37,7 @@
  }
  function zoomAt(view,next,x,y){const zoom=clamp(next,1,6),ratio=zoom/view.zoom;return {zoom,x:x-(x-view.x)*ratio,y:y-(y-view.y)*ratio}}
  function roomCount(room,label,corrections=new Map()){
-  const total=(room.inventory||[]).reduce((n,i)=>{const a=corrections.get('component:'+i.component_id)?.after||{};return n+((a.label||i.label)===label?(a.count??i.count):0)},0);
+  const total=(room.inventory||[]).reduce((n,i)=>{if(corrections.has('component_remove:'+i.component_id))return n;const a=corrections.get('component:'+i.component_id)?.after||{};return n+((a.label||i.label)===label?(a.count??i.count):0)},0);
   return [...corrections.values()].reduce((n,c)=>n+(c.entity_type==='room_component'&&c.entity_id===room.id&&c.after.label===label?c.after.count:0),total);
  }
  function sampleItems(doc){

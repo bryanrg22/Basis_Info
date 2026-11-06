@@ -66,6 +66,14 @@
  const lowered=(s,excluded)=>Boolean(s)&&excluded>0&&s.photo_count>=1&&s.photo_count<s.inventory_count;
  /* The row count that brings the room to the busiest photo's count (the same difference rule as suggestedRowCount). */
  function photoRowCount(item,s){return Math.min(MAX_COUNT,Math.max(1,item.count+s.photo_count-s.inventory_count))}
+ /* The row a lowered count goes on: the largest row of the label, so one row edit can bring the
+  * room to the photo's count. null when no single row can (rows 1 + 1 + 1 with "Use 1": every
+  * row would have to go below 1), and then the lower count is not offered. */
+ function lowerRow(room,label,s){
+  const rows=(room?.inventory||[]).filter(c=>c.label===label);if(!rows.length||!s)return null;
+  const row=rows.reduce((a,b)=>b.count>a.count?b:a);
+  return row.count+s.photo_count-s.inventory_count>=1?row:null;
+ }
  /* Labels the photos show that the room's inventory lacks. */
  function missingLabels(room){return (room.suggested_counts||[]).filter(s=>s.inventory_count===0)}
 
@@ -90,6 +98,6 @@
   return {key:`room_component:${room.id}:${label}`,entity_type:'room_component',entity_id:room.id,before:null,after,reason:null,
    title:room.name,summary:`add ${count} ${labelName(label).toLowerCase()}${material?' ('+material+')':''}`};
  }
- const api={MATERIALS,ATTACHMENTS,MAX_COUNT,candidatesUnder,cycle,dragBox,outlineText,addedMessage,isDuplicate,suggestions,raised,lowered,rowFor,suggestedRowCount,photoRowCount,missingLabels,validCount,countCorrection,roomComponentCorrection};
+ const api={lowerRow,MATERIALS,ATTACHMENTS,MAX_COUNT,candidatesUnder,cycle,dragBox,outlineText,addedMessage,isDuplicate,suggestions,raised,lowered,rowFor,suggestedRowCount,photoRowCount,missingLabels,validCount,countCorrection,roomComponentCorrection};
  if(typeof module==='object'&&module.exports)module.exports=api;else scope.BasisManualAdd=api;
 })(typeof globalThis==='object'?globalThis:this);

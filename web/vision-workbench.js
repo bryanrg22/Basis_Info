@@ -79,6 +79,11 @@
   return rows.length?`<div class="vision-action-row vision-edit">${rows.join('')}</div>`:'';
  }
  // The AI detection a Change type replaced: excluded as "Type changed to …" at the same box.
+ // "Keep N" holds for this study, revision, room and type, and for the detections excluded when it
+ // was chosen: excluding another one asks again.
+ function keptKey(label){const c=context;return `${c.id}:${c.revision}:${c.room?.id}:${label}:${c.items.filter(i=>i.exclusion&&i.label===label).length}`}
+ // The object a Change type drew in place of this AI detection (the inverse of replacedBy).
+ function replacementOf(s){if(!s||s.source==='manual'||!/^Type changed to /.test(s.exclusion?.reason||''))return null;return context.items.find(i=>i.source==='manual'&&replacedBy(i)?.id===s.id)||null}
  function replacedBy(s){if(s.source!=='manual')return null;const b=s.box;return context.items.find(i=>i.exclusion&&/^Type changed to /.test(i.exclusion.reason||'')&&Math.abs(i.box.x1-b.x1)<.002&&Math.abs(i.box.y1-b.y1)<.002&&Math.abs(i.box.x2-b.x2)<.002&&Math.abs(i.box.y2-b.y2)<.002)||null}
  function exclusionNote(s){
   const x=s.exclusion;if(!x)return '';
@@ -104,7 +109,7 @@
     // Live: the room inventory is what a correction changes; it says so, with before and after.
     const before=V.roomCount(c.room,label)||0,queued=Live.state.corrections[reviewStage()]?.size||0;
     const retype=pending?.after?.label&&pending.after.label!==label?pending.after.label:null,moved=retype?(pending.after.count??row?.count??before):null;
-    const raisedNow=Boolean(suggest)&&suggest.suggested>(roomCount||0),lowerNow=!raisedNow&&!view.kept.has(label)&&Boolean(M.lowered({...suggest,inventory_count:roomCount||0},c.items.filter(i=>i.exclusion&&i.label===label).length)),offer=raisedNow||lowerNow;
+    const raisedNow=Boolean(suggest)&&suggest.suggested>(roomCount||0),lowerNow=!raisedNow&&!view.kept.has(keptKey(label))&&Boolean(M.lowerRow(c.room,label,suggest))&&Boolean(M.lowered({...suggest,inventory_count:roomCount||0},c.items.filter(i=>i.exclusion&&i.label===label).length)),offer=raisedNow||lowerNow;
     const suggestHtml=`${raisedNow?`<p class="vision-room-suggest"><span>Photos now show ${suggest.suggested} · inventory ${roomCount||0}</span>${c.open?act('use-suggested',`Use ${suggest.suggested}`,label,'class="vision-use"'):''}</p>`:''}${lowerNow?`<p class="vision-room-suggest is-lower"><span>Photos now show ${suggest.photo_count} · inventory ${roomCount}</span>${c.open?`<span class="vision-suggest-actions">${act('use-photo-count',`Use ${suggest.photo_count}`,label,'class="vision-use"')}${act('keep-count',`Keep ${roomCount}`,label,`class="vision-use is-keep" title="Photos overlap: keep ${roomCount} if another photo shows the rest"`)}</span>`:''}</p>`:''}`;
     // An object selected: the photo-vs-priced difference and its Use N sit above the object's card.
     if(s&&offer)html+=`<div class="vision-compare vision-room-count is-live">${suggestHtml}</div>`;
@@ -253,7 +258,10 @@
   }
   async function restore(){
    const s=current();if(!s?.exclusion||!caps()||!c.open||view.busy)return;view.busy=true;view.error=false;paint();
-   try{await setCounted(s,{counted:true});selection(c.items.find(i=>i.id===s.id)||null);view.notice=`${name(s.label)} counts again.`}catch(e){await fail(e)}finally{view.busy=false;paint()}
+   // Reset on a retyped AI detection undoes the whole Change type: the object drawn in its place
+   // goes too, or the same thing would count twice (once per type).
+   const drawn=replacementOf(s);
+   try{if(drawn)await Live.api.deleteObject(c.id,c.doc,drawn.id,BasisApi.newKey());await setCounted(s,{counted:true});selection(c.items.find(i=>i.id===s.id)||null);view.notice=drawn?`Back to the AI’s ${name(s.label).toLowerCase()}.`:`${name(s.label)} counts again.`}catch(e){await fail(e)}finally{view.busy=false;paint()}
   }
   function retype(){
    const s=current();if(!s||!caps()||!c.open||view.busy)return;const n=ordinal(s),options=[...new Set([...labels,...counted().map(i=>i.label)])].filter(l=>l!==s.label).sort();
@@ -315,8 +323,8 @@
    if(a==='finish'){if(view.points.length<3)return;const points=view.points,box={x1:Math.min(...points.map(p=>p.x)),y1:Math.min(...points.map(p=>p.y)),x2:Math.max(...points.map(p=>p.x)),y2:Math.max(...points.map(p=>p.y))};view.draft={box,polygon:[...points,points[0]]};paint();return}
    if(a==='commit'&&view.draft){if(view.replacing&&!Live){const s=c.items.find(i=>i.id===view.replacing);s.polygon=view.draft.polygon;s.box=view.draft.box;view.replacing=null;selection(s);return}submit({kind:'box',label:view.addLabel,box:view.draft.box});return}
    if(a==='delete'){remove();return}if(a==='count'){countEdit();return}
-   if(Live&&a==='keep-count'){view.kept.add(value);paint();return}
-   if(Live&&a==='use-photo-count'){const rows=(c.room.inventory||[]).filter(i=>i.label===value),row=rows.find(i=>!i.added)||rows[0];if(row)Live.actions['use-photo-count']({dataset:{room:c.room.id}},row.component_id);return}
+   if(Live&&a==='keep-count'){view.kept.add(keptKey(value));paint();return}
+   if(Live&&a==='use-photo-count'){const row=M.lowerRow(c.room,value,(c.room.suggested_counts||[]).find(i=>i.label===value));if(row)Live.actions['use-photo-count']({dataset:{room:c.room.id}},row.component_id);return}
    if(Live&&a==='use-suggested'){const rows=(c.room.inventory||[]).filter(i=>i.label===value),row=rows.find(i=>!i.added)||rows[0],sg=(c.room.suggested_counts||[]).find(i=>i.label===value);if(row)Live.actions['use-suggested']({dataset:{room:c.room.id}},row.component_id);else if(sg)Live.actions['add-room-component']({dataset:{label:value,count:String(sg.suggested)}},c.room.id);return}
    if(Live&&a==='exclude'){exclude();return}if(Live&&a==='retype'){retype();return}if(Live&&a==='restore'){restore();return}if(Live&&a==='reset-type'){resetType();return}
    if(Live&&a==='type'){liveType();return}if(['confirm','wrong','type','refine','split','merge','keep-box'].includes(a))fix(a);

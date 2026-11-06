@@ -80,3 +80,13 @@ test('a count is a whole number from 1 to the API maximum',()=>{
  for(const bad of ['0','-1','2.5','',null,'x',M.MAX_COUNT+1])assert.equal(M.validCount(bad),null,String(bad));
  assert.ok(M.MATERIALS.includes('metal')&&!M.MATERIALS.includes('unknown'));assert.deepEqual(M.ATTACHMENTS,['permanent','removable','freestanding']);
 });
+test('a lowered count goes on the largest row, and is withheld when no single row can reach it',()=>{
+ const s={label:'chair',photo_count:3,inventory_count:7,suggested:7};
+ const room={inventory:[{component_id:'a',label:'chair',count:1},{component_id:'b',label:'chair',count:6},{component_id:'c',label:'sink',count:9}]};
+ const row=M.lowerRow(room,'chair',s);
+ assert.equal(row.component_id,'b');
+ assert.equal(M.photoRowCount(row,s),2);// 1 + 2 = 3, the photo's count
+ assert.equal(M.lowerRow({inventory:[{component_id:'a',label:'chair',count:1},{component_id:'b',label:'chair',count:1},{component_id:'c',label:'chair',count:1}]},'chair',{photo_count:1,inventory_count:3}),null);
+ assert.equal(M.lowerRow({inventory:[]},'chair',s),null);
+ assert.equal(M.lowerRow(room,'chair',undefined),null);
+});
