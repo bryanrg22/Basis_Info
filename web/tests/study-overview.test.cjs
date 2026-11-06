@@ -95,10 +95,11 @@ test('completed status is above navigation and read-only is scoped to review pag
  live.reportStateEntry=()=>({done:true,data:{study_id:s.id,revision:3,exported:true,skipped:null,missing_for_final:[],signature:{study_id:s.id,revision:3},changed_since_signing:[]}});
  for(const screen of ['appraisal','rooms','components','assets','asset-detail','complete','files','structure','intake']){
   ctx.state.screen=screen;const html=live.steps(s);
-  // Review pages carry the finished state in the step bar and header; progress, results and records keep the strip.
-  const review=['appraisal','rooms','components','assets','asset-detail'].includes(screen);
-  assert.equal((html.match(/Study completed/g)||[]).length,review?0:1);
-  if(!review)assert(html.indexOf('Study completed')<html.indexOf('<nav'));
+  // Review pages carry the finished state in the step bar and header, and Files sits under the step bar;
+  // progress, results and records keep the strip.
+  const review=['appraisal','rooms','components','assets','asset-detail'].includes(screen),plain=review||screen==='files';
+  assert.equal((html.match(/Study completed/g)||[]).length,plain?0:1);
+  if(!plain)assert(html.indexOf('Study completed')<html.indexOf('<nav'));
   assert.equal(/read-only<\/span>/i.test(html),['appraisal','rooms','components','assets','asset-detail'].includes(screen));
  }
  live.state.studyId=s.id;live.state.cache.set('study:'+s.id,{done:true,data:s});
