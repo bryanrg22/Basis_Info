@@ -407,6 +407,8 @@
   // action; elsewhere the header badge (a link to Report & sign) and the step bar already say it.
   // The next step after approval (add details, sign) keeps its strip: it is where the engineer goes next.
   if(s.status==='completed'&&view!=='processing'&&Live.delivery(s).label==='Update required')return '';
+  // A delivered study's page: its header and its report card say it is signed; the banner would repeat it.
+  if(s.status==='completed'&&view==='processing'&&Live.studyDeliverables&&Live.delivery(s).tone==='done')return '';
   return `<section class="study-status study-status--${context.tone}" aria-label="Study status"><span class="study-status-symbol" aria-hidden="true">${icon(context.tone==='complete'?'check':context.tone==='attention'?'help':'eye',18)}</span><div class="study-status-copy"><div class="study-status-title"><h2>${esc(context.title)}</h2></div><p>${esc(context.detail)}</p></div>${context.action?`<a class="button study-status-action" href="${Live.route(context.action,s.id)}">${esc(context.actionLabel||'Study progress')}${icon('arrow',16)}</a>`:''}</section>`;
  };
  // This page's own access, next to its title: read-only (approved, or not open yet) and, on a

@@ -57,7 +57,8 @@
  /* ---------- Home ---------- */
  function studyRow(r,{owner=false}={}){
   const s=r.study,n=r.next;
-  return `<a class="fp-row" href="${href(s,n)}"><span class="fp-row-main"><strong>${esc(s.property_name)}</strong><span>${esc(sub(s)||s.created_by_name||'')}</span></span>${owner?`<span class="fp-row-owner" title="${esc(s.created_by_name||'')}">${avatar(s.created_by_name||'?','is-small')}<span>${esc(firstName(s.created_by_name)||'—')}</span></span>`:''}${stripOf(s,deliveryOf(s))}${pill(n.label,n.tone)}<span class="fp-row-when">${when(s.updated_at)}</span></a>`;
+  const m=s.summary;
+  return `<a class="fp-row" href="${href(s,n)}"><span class="fp-row-main"><strong>${esc(s.property_name)}</strong>${M.place(s)?`<span>${esc(M.place(s))}</span>`:''}${m?.client?`<span class="fp-row-client">${esc(m.client)}</span>`:!M.place(s)&&s.created_by_name?`<span>${esc(s.created_by_name)}</span>`:''}</span>${owner?`<span class="fp-row-owner" title="${esc(s.created_by_name||'')}">${avatar(s.created_by_name||'?','is-small')}<span>${esc(firstName(s.created_by_name)||'—')}</span></span>`:''}${stripOf(s,deliveryOf(s))}${pill(n.label,n.tone)}<span class="fp-row-when">${when(s.updated_at)}</span></a>`;
  }
  function entryHtml(e,{compact=false,inStudy=false}={}){
   const link=e.study?Live.route(e.screen||'processing',e.study.id):`#${e.screen||'activity'}`;
@@ -198,10 +199,12 @@
   const days=M.byDay(shown,now());
   const head=`<header class="fp-head"><div><h1>Activity</h1><p>${f.own?'Your own reviews, uploads and signatures. The firm’s feed appears here once the API offers it.':`Who did what across ${esc(firm.org_name)}, newest first.`}</p></div></header>`;
   const filters=`<div class="fp-lib-bar fp-act-bar"><div class="fp-chips" role="group" aria-label="Whose activity">${[['everyone','Everyone'],['me','Me']].map(([k,l])=>`<button type="button" class="fp-chip${who===k?' is-on':''}" data-live="fp-act-who" data-value="${k}" aria-pressed="${who===k}">${l}</button>`).join('')}<label><span class="sr-only">A colleague</span><select id="fp-act-person" data-native="true" class="fp-select${actors.some(([id])=>id===who)?' is-on':''}"><option value="">A colleague…</option>${actors.map(([id,n])=>`<option value="${esc(id)}" ${who===id?'selected':''}>${esc(n)}</option>`).join('')}</select></label></div><div class="fp-chips" role="group" aria-label="Kind of activity">${types.map(([k,l])=>`<button type="button" class="fp-chip${P.act.type===k?' is-on':''}" data-live="fp-act-type" data-value="${k}" aria-pressed="${P.act.type===k}">${l}</button>`).join('')}</div></div>`;
-  const body=days.length?days.map(d=>`<section class="fp-day" aria-labelledby="fp-day-${esc(d.key)}"><h2 id="fp-day-${esc(d.key)}">${esc(d.label)}</h2><ol class="fp-events">${d.entries.map(x=>entryHtml(x)).join('')}</ol></section>`).join(''):`<p class="fp-empty">Nothing matches these filters.</p>`;
-  return `<div class="fp fp-activity">${head}${filters}<div class="fp-card fp-timeline">${body}</div></div>`;
+  const jump=days.length>1?`<nav class="fp-day-nav" aria-label="Jump to a day">${days.slice(0,7).map(d=>`<button type="button" class="fp-chip" data-live="fp-day" data-value="${esc(d.key)}">${esc(d.label.replace(/^(\w+), /,''))}<span>${d.entries.length}</span></button>`).join('')}</nav>`:'';
+  const body=days.length?days.map(d=>`<section class="fp-day" id="fp-day-sec-${esc(d.key)}" aria-labelledby="fp-day-${esc(d.key)}"><h2 id="fp-day-${esc(d.key)}">${esc(d.label)}</h2><ol class="fp-events">${d.entries.map(x=>entryHtml(x)).join('')}</ol></section>`).join(''):`<p class="fp-empty">Nothing matches these filters.</p>`;
+  return `<div class="fp fp-activity">${head}${filters}${jump}<div class="fp-card fp-timeline">${body}</div></div>`;
  }
  Live.actions['fp-act-who']=(el,v)=>{P.act.who=v;Live.render()};
+ Live.actions['fp-day']=(el,key)=>{const sec=root.querySelector(`#fp-day-sec-${CSS.escape(key)}`);if(!sec)return;sec.scrollIntoView({block:'start',behavior:matchMedia('(prefers-reduced-motion: reduce)').matches?'auto':'smooth'});sec.querySelector('h2')?.setAttribute('tabindex','-1');sec.querySelector('h2')?.focus({preventScroll:true})};
  Live.actions['fp-act-type']=(el,v)=>{P.act.type=v;Live.render()};
 
  /* ---------- Team ---------- */
@@ -265,7 +268,12 @@
   if(sig.loading||!prof.done)return `<div class="fp fp-settings">${Live.loading('Loading your settings…')}</div>`;
   const p=prof.error?null:prof.data?.profile;
   const identity=`<section class="fp-card fp-settings-card" aria-labelledby="fp-you-title"><header><h2 id="fp-you-title">You</h2></header><dl class="fp-dl"><div><dt>Name</dt><dd>${esc(me.user.display_name||'—')}</dd></div><div><dt>Email</dt><dd>${esc(me.user.email||'—')} <span class="fp-muted">· sign-in</span></dd></div><div><dt>Firm</dt><dd>${esc(firm.org_name)}</dd></div><div><dt>Role</dt><dd>${pill(ROLE_LABEL(firm.role),'idle')}${admin?'':' <span class="fp-muted">· an admin changes roles</span>'}</dd></div></dl></section>`;
-  const signer=`<section class="fp-card fp-settings-card" aria-labelledby="fp-signer-title"><header><h2 id="fp-signer-title">Signer details</h2>${sig.signer?pill('Set','done'):pill('Not set','review')}</header><p class="fp-card-lead">${sig.own?'Printed in the signature block of every report you sign. A signed report keeps the details it was signed with.':admin?'Reports are signed with the firm profile’s engineer of record until each engineer can keep their own details. Edit it under Firm letterhead.':'Reports are signed with the firm profile’s engineer of record, which an admin edits.'}</p>${signerForm(sig)}</section>`;
+  const studies=Live.firmStudies(L.cache.get('studies-all')?.data||[]),toSign=studies.filter(x=>x.status==='completed'&&(admin||x.created_by===me.user.id)&&deliveryOf(x)?.tone==='review');
+  if(!L.cache.get('studies-all'))studiesEntry();else Live.loadDeliveries(studies.filter(x=>x.status==='completed'));
+  if(/^#report\//.test(lastHash)&&L.study&&lastHash.includes(L.study.id))P.backTo={hash:lastHash,name:L.study.property_name};
+  const back=P.backTo?`<a class="button" href="${esc(P.backTo.hash)}">${icon('back',15)}Back to ${esc(P.backTo.name)}’s report</a>`:'';
+  const next=sig.signer&&(back||toSign.length)?`<div class="fp-signer-next">${back}${toSign.length?`<p>${toSign.length===1?'One report waits':`${toSign.length} reports wait`} for ${admin?'a':'your'} signature: ${toSign.slice(0,3).map(x=>`<a href="${Live.route('report',x.id)}">${esc(x.property_name)}</a>`).join(', ')}${toSign.length>3?'…':''}</p>`:''}</div>`:'';
+  const signer=`<section class="fp-card fp-settings-card" aria-labelledby="fp-signer-title"><header><h2 id="fp-signer-title">Signer details</h2>${sig.signer?pill('Set','done'):pill('Not set','review')}</header><p class="fp-card-lead">${sig.own?'Printed in the signature block of every report you sign. A signed report keeps the details it was signed with.':admin?'Reports are signed with the firm profile’s engineer of record until each engineer can keep their own details. Edit it under Firm letterhead.':'Reports are signed with the firm profile’s engineer of record, which an admin edits.'}</p>${signerForm(sig)}${next}</section>`;
   const letter=p?[p.name,p.address,p.phone].filter(Boolean):[];
   const firmCard=admin?`<section class="fp-card fp-settings-card" aria-labelledby="fp-firm-title"><header><h2 id="fp-firm-title">Firm letterhead</h2>${p?'':pill('Not added','review')}</header><p class="fp-card-lead">Printed at the top of every report of ${esc(firm.org_name)}. Only admins edit it.</p><form data-fp-form="letterhead" novalidate><div class="fp-grid-2">${input('fp-firm-name','Firm name',p?.name||firm.org_name,'maxlength="200"')}${input('fp-firm-phone','Phone',p?.phone,'maxlength="100" autocomplete="tel"')}</div>${input('fp-firm-address','Address',p?.address,'maxlength="500" autocomplete="street-address"')}${sig.own?'':`<h3 class="fp-sub">Engineer of record</h3><div class="fp-grid-2">${input('fp-eng-name','Name',p?.engineer?.name,'maxlength="200"')}${input('fp-eng-cred','Credentials',p?.engineer?.credentials,'maxlength="100"')}${input('fp-eng-license','License number',p?.engineer?.license_number,'maxlength="50"')}<div class="fp-field"><label for="fp-eng-state">License state</label>${sel('fp-eng-state',p?.engineer?.license_state,[['','Choose a state'],...M.STATES.map(x=>[x,x])])}</div></div>`}<div class="fp-form-actions"><button type="submit" class="button primary">Save letterhead</button></div></form></section>`
    :`<section class="fp-card fp-settings-card" aria-labelledby="fp-firm-title"><header><h2 id="fp-firm-title">Firm letterhead</h2></header><p class="fp-card-lead">Printed at the top of every report. An admin edits it.</p>${letter.length?`<address class="fp-letterhead">${letter.map(esc).join('<br>')}</address>`:'<p class="fp-empty">Not added yet.</p>'}</section>`;
@@ -335,6 +343,12 @@
   const entries=M.feed(t.data.items.map(e=>({...e,study_id:s.id,property_name:s.property_name,actor_name:e.actor_name||nameOf(e.actor_id)})),{studies:[s]});
   return `<section class="panel fp-study-activity" aria-labelledby="fp-sa-title"><header><h2 id="fp-sa-title">Activity on this study</h2><a href="${Live.route('history',s.id)}">Full history ${icon('arrow',14)}</a></header>${entries.length?`<ol class="fp-events is-compact">${entries.slice(0,6).map(x=>entryHtml(x,{compact:true,inStudy:true})).join('')}</ol>`:'<p class="fp-empty">Nothing recorded yet.</p>'}</section>`;
  };
+
+ // Settings opened from a report offers the way back to it.
+ let lastHash=location.hash;
+ // The app renders on hashchange before this listener runs, so Settings reads the hash it came from
+ // (still in lastHash) while it renders; leaving Settings forgets it.
+ globalThis.addEventListener?.('hashchange',()=>{lastHash=location.hash;if(!/^#settings/.test(location.hash))P.backTo=null});
 
  /* ---------- register ---------- */
  Object.assign(Live.screens,{dashboard:homePage,library:libraryPage,activity:activityPage,team:teamPage,settings:settingsPage});
