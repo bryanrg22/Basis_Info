@@ -139,7 +139,7 @@ ${shown?`<div class="nd-table-wrap"><table class="nd-schedule"><caption class="s
   if(!engineer||!Live.mySigner)return '';
   const m=Live.mySigner();if(m.loading)return `<li><span class="nd-mark" aria-hidden="true"></span><div><strong>Signing as</strong><span>Loading…</span></div></li>`;
   const x=m.signer,line=x?[`${x.name}${x.credentials?', '+x.credentials:''}`,[x.license_state,x.license_number].filter(Boolean).join(' ')].filter(Boolean).join(' · '):'Not set: add your name, credentials and license in Settings';
-  return `<li class="${x?'is-done':''}"><span class="nd-mark" aria-hidden="true">${x?icon('check',13):''}</span><div><strong>Signing as</strong><span>${esc(line)}</span></div><a class="button small" href="#settings">${x?'Edit in Settings':'Add in Settings'}</a></li>`;
+  return `<li class="${x?'is-done':''}"><span class="nd-mark" aria-hidden="true">${x?icon('check',13):''}</span><div><strong>Signing as</strong><span>${esc(line)}</span></div><a class="button small" href="#settings">${x?'Edit my details':'Add my details'}</a></li>`;
  }
  function reportPage(){
   return Live.withStudy(s=>{

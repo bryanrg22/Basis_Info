@@ -68,7 +68,8 @@
  function next(study,delivery){
   const s=study||{},gate=GATE_STEP[s.current_stage];
   if(s.status==='archived')return {label:'Archived',tone:'idle',screen:'processing',action:false};
-  if(s.status==='failed'||s.status==='stalled')return {label:s.status==='failed'?'Failed · retry':'Needs attention',tone:'danger',screen:'processing',action:true};
+  const FAILED_AT={uploading:'upload',extracting:'reading',appraisal_review:'appraisal',rooms_review:'rooms',components_processing:'components',components_review:'components',assets_processing:'pricing',assets_review:'assets',exporting:'report'};
+  if(s.status==='failed'||s.status==='stalled')return {label:s.status==='failed'?`Failed at ${FAILED_AT[s.current_stage]||'a step'} · retry`:'Needs attention',tone:'danger',screen:'processing',action:true};
   if(s.status==='draft')return {label:'Finish uploading',tone:'review',screen:'processing',action:true};
   if(s.status==='waiting_review'&&gate)return {label:`Review ${gate[0].toLowerCase()}`,tone:'review',screen:gate[1],action:true};
   if(s.status==='processing')return {label:WORKING[s.current_stage]||'Processing',tone:'progress',screen:'processing',action:false};
