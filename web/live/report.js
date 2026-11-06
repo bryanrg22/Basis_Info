@@ -106,6 +106,15 @@
   const fields=[['Signing engineer',who(signed),who(now)],['License',lic(signed),lic(now)]].filter(([,a,b])=>a||b).map(([field,signedValue,nowValue])=>({field,signed:signedValue,now:nowValue,changed:signedValue!==nowValue}));
   return {fields,letterheadChanged:!fields.some(f=>f.changed),letterhead:[profile?.name,profile?.address].filter(Boolean).join(' · ')||null};
  }
- const api={summary,firmDiff,changeNotice,RANK,certification,CERTIFICATION_VERSION,PHOTOGRAPHS,status,checklist,signBlocker,signBody,answersBody,profileBody};
+ /* Which document the report page shows inline: the signed PDF once signed, else the draft preview.
+  * The draft depends on the firm profile and the study details as well as the revision, so their
+  * versions (GET .../report/state) are part of the key: saving either one fetches a new preview,
+  * and with it a new ETag to sign against. */
+ function previewKey(s,state){
+  if(state?.signature)return `${s.id}:${s.revision}:signed:${state.signature.id}`;
+  if(!state?.exported||state.skipped)return null;
+  return `${s.id}:${s.revision}:preview:${s.updated_at}:firm-${state.firm_profile_version??'none'}:study-${state.report_answers_version??'none'}`;
+ }
+ const api={summary,firmDiff,previewKey,changeNotice,RANK,certification,CERTIFICATION_VERSION,PHOTOGRAPHS,status,checklist,signBlocker,signBody,answersBody,profileBody};
  if(typeof module==='object'&&module.exports)module.exports=api;else scope.BasisReport=api;
 })(typeof globalThis==='object'?globalThis:this);

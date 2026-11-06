@@ -94,3 +94,17 @@ test('the firm change after signing compares the signed engineer with the profil
  assert.equal(gone.fields.every(f=>f.changed&&f.now===''),true);assert.equal(gone.letterhead,null);
  assert.deepEqual(R.firmDiff(null,null).fields,[]);// nothing recorded on either side
 });
+
+test('the inline report key changes when the firm profile or study details change, so a new preview is fetched',()=>{
+ const s={id:'s1',revision:2,updated_at:'2026-10-28T10:00:00Z'};
+ const base={exported:true,skipped:null,signature:null,firm_profile_version:3,report_answers_version:5};
+ const k=R.previewKey(s,base);
+ assert.equal(R.previewKey(s,{...base}),k,'same inputs, same key');
+ assert.notEqual(R.previewKey(s,{...base,firm_profile_version:4}),k,'a saved firm profile');
+ assert.notEqual(R.previewKey(s,{...base,report_answers_version:6}),k,'saved study details');
+ assert.notEqual(R.previewKey({...s,revision:3},base),k,'a new revision');
+ assert.equal(R.previewKey(s,{...base,exported:false}),null,'no export, no document');
+ assert.equal(R.previewKey(s,{...base,skipped:{message:'x'}}),null,'a skipped export has no document');
+ assert.equal(R.previewKey(s,{...base,signature:{id:'sig9'}}),'s1:2:signed:sig9','signed: the signed PDF, whatever the inputs');
+ assert.equal(R.previewKey(s,{...base,signature:{id:'sig9'},firm_profile_version:9}),'s1:2:signed:sig9');
+});

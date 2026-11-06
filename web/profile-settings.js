@@ -49,7 +49,8 @@ function designSettingsContent(){
  const on=globalThis.BasisDesign?.enabled();
  return `<section class="profile-settings-pane design-settings" aria-labelledby="design-heading"><header class="settings-section-heading"><h2 id="design-heading">New design</h2><p>Reworked Assets, Results and Report & sign pages. Switch back at any time; nothing in a study changes.</p></header><div class="design-switch-row"><div><strong id="design-switch-label">Use the new design</strong><span>Saved in this browser.</span></div><button class="design-switch" role="switch" aria-checked="${on?'true':'false'}" aria-labelledby="design-switch-label" data-action="toggle-design"><span aria-hidden="true"></span></button></div></section>`;
 }
-globalThis.root?.addEventListener?.('click',e=>{const t=e.target.closest('[data-action="toggle-design"]');if(!t)return;const on=globalThis.BasisDesign.set(!globalThis.BasisDesign.enabled());render();toast(on?'New design on for Assets, Results and Report & sign.':'Back to the current design.');root.querySelector('[data-action="toggle-design"]')?.focus()});
+// app.js declares `const root`, a global lexical binding, not a globalThis property: use it by name.
+if(typeof root!=='undefined')root.addEventListener?.('click',e=>{const t=e.target.closest('[data-action="toggle-design"]');if(!t)return;const on=globalThis.BasisDesign.set(!globalThis.BasisDesign.enabled());render();toast(on?'New design on for Assets, Results and Report & sign.':'Back to the current design.');root.querySelector('[data-action="toggle-design"]')?.focus()});
 function bindProfileSettings(){
  const form=root.querySelector('#profile-form');if(!form)return;
  let user=previewUser();const draft=profileDraft(user);let pending=false,selection=0;

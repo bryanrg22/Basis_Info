@@ -100,7 +100,6 @@ ${shown?`<div class="nd-table-wrap"><table class="nd-schedule"><caption class="s
  // The document shown inline: the signed PDF once signed, else the draft preview (whose ETag is
  // what Sign checks, so the engineer signs the report on screen).
  const pdf={key:null,url:null,tag:null,error:null,loading:false,node:null,viewer:null};
- function pdfKey(s,state){return state?.signature?`${s.id}:${s.revision}:signed:${state.signature.id}`:state?.exported&&!state.skipped?`${s.id}:${s.revision}:preview:${s.updated_at}`:null}
  async function loadPdf(s,state,key){
   pdf.loading=true;pdf.error=null;
   try{
@@ -138,8 +137,12 @@ ${shown?`<div class="nd-table-wrap"><table class="nd-schedule"><caption class="s
    if(!st.done||!an.done||!pr.done)return `${Live.steps(s)}<div class="nd">${Live.loading('Loading the report…')}</div>`;
    if(st.error)return `${Live.steps(s)}${Live.failed(st.error,'report-reload')}`;
    const state=st.data,final=G.completion(s,st),sig=state.signature,engineer=(R.RANK[role]??-1)>=R.RANK.engineer,owner=role==='owner';
-   const key=pdfKey(s,state);
-   if(key!==pdf.key){resetPdf();pdf.key=key;if(key)loadPdf(s,state,key)}
+   const key=R.previewKey(s,state);
+   // A refresh (saved inputs, a 412 at sign) drops the preview ETag; fetch the preview again so
+   // Sign has a tag for the document on screen. Only when the last preview carried one, so a
+   // preview without an ETag cannot loop.
+   const tagLost=key&&!sig&&key===pdf.key&&pdf.url&&pdf.tag&&!pdf.loading&&!(L.reportPreview&&L.reportPreview.studyId===s.id&&L.reportPreview.revision===s.revision);
+   if(key!==pdf.key||tagLost){resetPdf();pdf.key=key;if(key)loadPdf(s,state,key)}
    const a=an.data?.report_answers,p=pr.data?.profile;
    const items=R.checklist(state);
    const input=(k,label,detail,action)=>{const it=items.find(i=>i.key===k);return `<li class="${it?.done?'is-done':''}"><span class="nd-mark" aria-hidden="true">${it?.done?icon('check',13):''}</span><div><strong>${label}</strong><span>${esc(detail)}</span></div>${action}</li>`};
