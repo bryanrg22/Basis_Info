@@ -1,8 +1,7 @@
-/* Live mode: the reworked Assets, Results and Report & sign pages (Settings > New design).
- *
- * Off by default (design-flag.js); with it off every screen renders exactly as before. The
- * pages read the same API data and send the same corrections and decisions as the current
- * ones; only the presentation differs:
+/* Live mode: the Assets, Results and Report & sign pages (the new design, the only one since
+ * November 2026: the Settings switch that put them behind a preference is gone). They read the
+ * same API data and send the same corrections and decisions as the pages they replace (still
+ * defined in live-review.js, live-results.js and live-report.js, whose helpers they reuse):
  *   Assets: one schedule, grouped by recovery class (or room), every row with its quantity,
  *     cost, status and its Edit action, the review queue first.
  *   Results: the verdict (reconciled or not, by how much), where the basis goes by recovery
@@ -13,9 +12,8 @@
 (function(){
  'use strict';
  const C=globalThis.BASIS_CONFIG;if(!C||C.mode!=='live')return;
- const Live=globalThis.BasisLive,L=Live.state,api=Live.api,D=globalThis.BasisDesign,P=globalThis.BasisReviewOrganization,V=globalThis.BasisResultView,R=globalThis.BasisReport,G=globalThis.BasisGates;
- if(!D||!P||!V)return;
- const on=()=>D.enabled();
+ const Live=globalThis.BasisLive,L=Live.state,api=Live.api,P=globalThis.BasisReviewOrganization,V=globalThis.BasisResultView,R=globalThis.BasisReport,G=globalThis.BasisGates;
+ if(!P||!V)return;
  const num=v=>P.cost(v);
  const usd=(v,digits=0)=>num(v)===null?'—':Number(v).toLocaleString('en-US',{style:'currency',currency:'USD',minimumFractionDigits:digits,maximumFractionDigits:digits});
  const pct=(v,digits=1)=>num(v)===null?'—':`${(Number(v)*100).toFixed(digits)}%`;
@@ -126,10 +124,19 @@ ${shown?`<div class="nd-table-wrap"><table class="nd-schedule"><caption class="s
    return `<section class="nd-status-card is-attention" aria-labelledby="nd-status-title"><span class="nd-status-pill">Update required</span><h2 id="nd-status-title">Changed after signing</h2><ul class="nd-changes">${items.map(({t,d,was,now,cur},i)=>changed[i]==='firm'&&sig.engineer?`<li><strong>${esc(t)}</strong>${firmTable()}</li>`:`<li><strong>${esc(t)}</strong><span>${esc(d)}</span><dl class="nd-compare"><div><dt>Signed · revision ${esc(sig.revision??s.revision)}</dt><dd>${was!=null?`Version ${esc(was)}`:'Version not recorded'}<button class="nd-link" type="button" data-live="nd-pdf-page" data-value="1">See it on page 1</button></dd></div><div><dt>Now</dt><dd>${now!=null?`Version ${esc(now)}`:'Current'}${cur?`<span>${esc(cur)}</span>`:''}</dd></div></dl></li>`).join('')}</ul>${engineer?`<button class="button primary nd-wide" data-live="report-new-revision">Update the report (revision ${s.revision+1})</button><p class="nd-fine">Reopens Assets with the approved assets; approve them and sign the new report here.</p>`:'<p class="nd-fine">An engineer or admin updates the report.</p>'}<details class="nd-why"><summary>What happens to revision ${s.revision}</summary><p>Its signed PDF (on the left) stays exactly as signed and downloadable. Earlier input values are not stored apart from the signed PDF, so the signed side links to the page that shows them.</p></details></section>`;
   }
   if(final.complete)return `<section class="nd-status-card is-done" aria-labelledby="nd-status-title"><span class="nd-status-pill">Signed</span><h2 id="nd-status-title">Ready to deliver</h2><p>Signed by ${esc(sig.engineer.name)}${sig.engineer.credentials?', '+esc(sig.engineer.credentials):''} · ${esc(Live.when(sig.signed_at))}</p></section>`;
-  const blocker=R.signBlocker(state,role,L.reportPreview&&L.reportPreview.studyId===s.id&&L.reportPreview.revision===s.revision?L.reportPreview.tag:null);
+  const noSigner=Live.mySigner&&!Live.mySigner().loading&&!Live.mySigner().signer?'Add your signer details in Settings first: your name, credentials and license are printed in the signature.':null;
+  const blocker=R.signBlocker(state,role,L.reportPreview&&L.reportPreview.studyId===s.id&&L.reportPreview.revision===s.revision?L.reportPreview.tag:null)||noSigner;
   if(s.status!=='completed')return `<section class="nd-status-card" aria-labelledby="nd-status-title"><span class="nd-status-pill">Not started</span><h2 id="nd-status-title">Finish the reviews first</h2><p>The report is written when the assets review is approved.</p></section>`;
   if(state.skipped)return `<section class="nd-status-card is-attention" aria-labelledby="nd-status-title"><span class="nd-status-pill">Blocked</span><h2 id="nd-status-title">No report for this revision</h2><p>Resolve the findings in Results before the report can be written.</p><a class="button nd-wide" href="${Live.route('complete',s.id)}">Open Results</a></section>`;
   return `<section class="nd-status-card is-attention" aria-labelledby="nd-status-title"><span class="nd-status-pill">${esc(final.status)}</span><h2 id="nd-status-title">Sign revision ${s.revision}</h2><p>${blocker?esc(blocker):'The report on the left is what you sign. Your signature is added to it; a signature is never replaced.'}</p>${engineer?`<button class="button primary nd-wide" data-live="report-sign" ${blocker?'disabled':''}>${icon('check',15)}Sign the report</button>`:''}</section>`;
+ }
+ // Who signs: the signed-in engineer's own signer details (PROPOSED P6), else the firm profile's
+ // engineer of record. Read-only here; they are edited once, in Settings, never typed at signing.
+ function signerRow(engineer){
+  if(!engineer||!Live.mySigner)return '';
+  const m=Live.mySigner();if(m.loading)return `<li><span class="nd-mark" aria-hidden="true"></span><div><strong>Signing as</strong><span>Loading…</span></div></li>`;
+  const x=m.signer,line=x?[`${x.name}${x.credentials?', '+x.credentials:''}`,[x.license_state,x.license_number].filter(Boolean).join(' ')].filter(Boolean).join(' · '):'Not set: add your name, credentials and license in Settings';
+  return `<li class="${x?'is-done':''}"><span class="nd-mark" aria-hidden="true">${x?icon('check',13):''}</span><div><strong>Signing as</strong><span>${esc(line)}</span></div><a class="button small" href="#settings">${x?'Edit in Settings':'Add in Settings'}</a></li>`;
  }
  function reportPage(){
   return Live.withStudy(s=>{
@@ -146,7 +153,7 @@ ${shown?`<div class="nd-table-wrap"><table class="nd-schedule"><caption class="s
    const a=an.data?.report_answers,p=pr.data?.profile;
    const items=R.checklist(state);
    const input=(k,label,detail,action)=>{const it=items.find(i=>i.key===k);return `<li class="${it?.done?'is-done':''}"><span class="nd-mark" aria-hidden="true">${it?.done?icon('check',13):''}</span><div><strong>${label}</strong><span>${esc(detail)}</span></div>${action}</li>`};
-   const inputs=`<section class="nd-panel nd-inputs" aria-labelledby="nd-inputs-title"><header><h2 id="nd-inputs-title">${sig&&Array.isArray(state.changed_since_signing)&&state.changed_since_signing.length?'Current settings · for the next revision':'In the report'}</h2></header><ul>${input('firm','Firm profile',p?[p.name,p.engineer?.name&&`${p.engineer.name}${p.engineer.credentials?', '+p.engineer.credentials:''}`].filter(Boolean).join(' · '):'Not added yet',owner?`<button class="button small" data-live="report-edit-profile">${p?'Edit':'Add'}</button>`:'')}${input('study','Study details',a?[a.taxpayer_name,a.photographs&&({taxpayer:'Photographs supplied by the taxpayer',engineer:'Photographs taken by the engineer'}[a.photographs]||human(a.photographs))].filter(Boolean).join(' · '):'Not added yet',engineer?`<button class="button small" data-live="report-edit-answers">${a?'Edit':'Add'}</button>`:'')}${sig&&Array.isArray(state.changed_since_signing)&&state.changed_since_signing.length?`<li><span class="nd-mark" aria-hidden="true"></span><div><strong>Engineer’s signature</strong><span>New signature required for revision ${s.revision+1}</span></div></li>`:input('signature','Engineer’s signature',sig?`${sig.engineer.name} · ${Live.when(sig.signed_at)}`:'Added when you sign','')}</ul></section>`;
+   const inputs=`<section class="nd-panel nd-inputs" aria-labelledby="nd-inputs-title"><header><h2 id="nd-inputs-title">${sig&&Array.isArray(state.changed_since_signing)&&state.changed_since_signing.length?'Current settings · for the next revision':'In the report'}</h2></header><ul>${input('firm','Firm letterhead',p?[p.name,p.address].filter(Boolean).join(' · '):owner?'Not added yet':'Not added yet: an admin adds it in Settings',owner?`<a class="button small" href="#settings">${p?'Edit in Settings':'Add in Settings'}</a>`:'')}${signerRow(engineer)}${input('study','Study details',a?[a.taxpayer_name,a.photographs&&({taxpayer:'Photographs supplied by the taxpayer',engineer:'Photographs taken by the engineer'}[a.photographs]||human(a.photographs))].filter(Boolean).join(' · '):'Not added yet',engineer?`<button class="button small" data-live="report-edit-answers">${a?'Edit':'Add'}</button>`:'')}${sig&&Array.isArray(state.changed_since_signing)&&state.changed_since_signing.length?`<li><span class="nd-mark" aria-hidden="true"></span><div><strong>Engineer’s signature</strong><span>New signature required for revision ${s.revision+1}</span></div></li>`:input('signature','Engineer’s signature',sig?`${sig.engineer.name} · ${Live.when(sig.signed_at)}`:'Added when you sign','')}</ul></section>`;
    const files=new Set(state.files||[]),has=f=>files.has(f)||Boolean(sig&&f==='report.pdf');
    const dl=(fmt,file,text)=>`<button class="button small" data-live="report-download" data-value="${fmt}" ${has(file)?'':'disabled'}>${icon('download',14)}${text}</button>`;
    const downloads=`<section class="nd-panel nd-downloads" aria-labelledby="nd-dl-title"><header><h2 id="nd-dl-title">Downloads</h2><span>Revision ${s.revision}</span></header><div class="nd-dl-row">${dl('pdf','report.pdf',sig?`Signed report · revision ${s.revision}`:'Draft report')}${dl('csv','schedule.csv','Schedule CSV')}${dl('xlsx','schedule.xlsx','Schedule XLSX')}</div></section>`;
@@ -161,7 +168,7 @@ ${shown?`<div class="nd-table-wrap"><table class="nd-schedule"><caption class="s
  // Keep one PDF viewer across renders: the page re-renders on every load, the document must not.
  Live.afterRender.push(()=>{
   const slot=root.querySelector('[data-nd-pdf]');
-  if(!slot||!on()||state.screen!=='report'){if(!slot&&pdf.viewer&&state.screen!=='report')resetPdf();return}
+  if(!slot||state.screen!=='report'){if(!slot&&pdf.viewer&&state.screen!=='report')resetPdf();return}
   if(!pdf.url){slot.innerHTML=Live.loading('Loading the report…');return}
   if(!pdf.node){
    pdf.node=document.createElement('div');pdf.node.className='nd-pdf';
@@ -174,10 +181,10 @@ ${shown?`<div class="nd-table-wrap"><table class="nd-schedule"><caption class="s
  });
 
  /* ---------- wiring: the new pages replace the current ones only while the switch is on ---------- */
- const currentAssets=assets,currentReport=Live.screens.report,currentResults=Live.resultScreen;
- assets=function(){return on()?assetsPage():currentAssets()};
- Live.screens.report=()=>on()?reportPage():currentReport();
- if(currentResults){Live.resultScreen=()=>on()?resultsPage():currentResults()}
+ const currentResults=Live.resultScreen;
+ assets=function(){return assetsPage()};
+ Live.screens.report=()=>reportPage();
+ if(currentResults){Live.resultScreen=()=>resultsPage()}
  // A failed report PDF loads again from scratch (the report state alone would keep the same key).
  Live.actions['nd-pdf-retry']=()=>{resetPdf();Live.render()};
  Live.actions['nd-pdf-page']=el=>{const n=Number(el?.dataset?.value)||1;if(pdf.viewer){pdf.viewer.goTo(n);document.querySelector('[data-nd-pdf]')?.closest('.nd-doc')?.scrollIntoView({block:'start',behavior:'smooth'})}};

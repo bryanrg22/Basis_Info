@@ -1,5 +1,5 @@
 // The UI review (November 2026): delivery status from the report, reopening an approved step,
-// forwarding to the reopened review, and the New design switch.
+// forwarding to the reopened review.
 const {test}=require('node:test'),assert=require('node:assert/strict');
 const fs=require('node:fs'),path=require('node:path'),vm=require('node:vm');
 const H=require('../live/study-overview.js'),G=require('../live/gates.js'),R=require('../live/report.js');
@@ -70,16 +70,6 @@ test('reopening reads the plan first (dry run), writes only on confirmation, the
  ctx.state.screen='processing';ctx.processing();assert.equal(timers.length,0,'still copying: stays on progress');
  live.state.cache.set('study:study',{done:true,data:{...reopened,status:'waiting_review'}});
  assert.match(ctx.processing(),/Opening the review/);timers.shift()();assert.deepEqual(plain(went.at(-1)),['components','study']);assert.equal(live.state.reopenTarget,null);
-});
-
-test('the New design switch is off by default, survives storage failures as off, and round-trips',()=>{
- const load=storage=>{const g={localStorage:storage,document:{documentElement:{dataset:{}}}};g.globalThis=g;vm.createContext(g);vm.runInContext(fs.readFileSync(path.join(__dirname,'../design-flag.js'),'utf8'),g);return g};
- const mem=new Map(),store={getItem:k=>mem.get(k)??null,setItem:(k,v)=>mem.set(k,v),removeItem:k=>mem.delete(k)};
- let g=load(store);assert.equal(g.BasisDesign.enabled(),false);assert.equal(g.document.documentElement.dataset.design,'current');
- assert.equal(g.BasisDesign.set(true),true);assert.equal(mem.get('basis-new-design-v1'),'on');assert.equal(load(store).BasisDesign.enabled(),true);
- g.BasisDesign.set(false);assert.equal(mem.has('basis-new-design-v1'),false);
- const broken={getItem(){throw Error('blocked')},setItem(){throw Error('blocked')},removeItem(){throw Error('blocked')}};
- g=load(broken);assert.equal(g.BasisDesign.enabled(),false);assert.equal(g.BasisDesign.set(true),true,'the choice holds for this page even when it cannot be saved');
 });
 
 test('the building formula renders one step per row, keeps every recorded word, and falls back when it does not parse',()=>{

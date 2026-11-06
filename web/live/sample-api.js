@@ -775,7 +775,7 @@
   const at=iso(S.clock()),review={id:S.next(7),study_id:S.id,stage:S.stage,revision:S.revision,decision:body.decision,reviewer_id:actorOf(S).id,comment:body.comment??null,created_at:at};
   S.reviews.push(review);const rev=S.revisions[S.revisions.length-1];rev.decisions.push({stage:review.stage,decision:review.decision,reviewer_id:actorOf(S).id,review_id:review.id,at});
   const stg=S.stages[S.stages.length-1];stg.decided_at=at;stg.decision=body.decision;stg.review_wait_ms=stg.gate_opened_at?Date.parse(at)-Date.parse(stg.gate_opened_at):null;
-  event(S,'review.decided',{actor:'engineer',entity_type:'review',entity_id:review.id,after:{decision:body.decision},detail:{corrections:corrections.length}});
+  event(S,'review.decided',{actor:'engineer',entity_type:'review',entity_id:review.id,after:{decision:body.decision},detail:{decision:body.decision,comment:body.comment??null,corrections:corrections.length}});
   audit(S,'decision',body.decision==='approve'?'approved':'rejected',{entity_type:'review',entity_id:review.id,review_id:review.id,reason:body.comment??null});
   const gate=S.stage;
   if(body.decision==='approve'){

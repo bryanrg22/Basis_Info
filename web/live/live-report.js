@@ -147,18 +147,19 @@
  };
 
  Live.actions['report-sign']=()=>{
-  const s=L.study,state=stateEntry(s).data,tag=previewTag(s),answers=answersEntry(s).data?.report_answers,e=profileEntry(s).data?.profile?.engineer||{};
+  const s=L.study,state=stateEntry(s).data,tag=previewTag(s),answers=answersEntry(s).data?.report_answers;
   if(R.signBlocker(state,roleIn(s),tag)){toast(R.signBlocker(state,roleIn(s),tag));return}
-  const m=modal('Sign the report',`<p>You are signing revision ${s.revision} of ${esc(s.property_name)}: the report in the preview you opened, with your signature added. A signature is never replaced; a later revision is signed on its own.</p>${field('live-sign-name','Your name',e.name,'maxlength="500"')}${field('live-sign-cred','Credentials',e.credentials,'maxlength="500"')}${field('live-sign-license','License number',e.license_number,'maxlength="500"')}${field('live-sign-state','License state',e.license_state,'maxlength="2"')}<div class="live-report-cert"><p class="strong">I certify that, to the best of my knowledge and belief:</p><ul>${R.certification(answers).map(t=>`<li>${esc(t)}</li>`).join('')}</ul></div><label class="live-report-attest"><input type="checkbox" id="live-sign-attest"> I have reviewed the report and I sign it.</label>`,`${closeBtn}<button class="button primary" id="live-sign-go">Sign report</button>`);
+  // The signer's details come from Settings (their own, or the firm profile's engineer of record);
+  // they are shown here, not typed.
+  const who=Live.mySigner?Live.mySigner():{signer:profileEntry(s).data?.profile?.engineer||null};
+  const e=who.signer;if(!e){toast('Add your signer details in Settings first.');location.hash='#settings';return}
+  const line=[`${e.name}${e.credentials?', '+e.credentials:''}`,[e.license_state,e.license_number].filter(Boolean).join(' ')].filter(Boolean).join(' · ');
+  const m=modal('Sign the report',`<p>You are signing revision ${s.revision} of ${esc(s.property_name)}: the report in the preview you opened, with your signature added. A signature is never replaced; a later revision is signed on its own.</p><div class="live-report-signer"><span>Signing as</span><strong>${esc(line)}</strong><a href="#settings" data-close>Edit in Settings</a></div><div class="live-report-cert"><p class="strong">I certify that, to the best of my knowledge and belief:</p><ul>${R.certification(answers).map(t=>`<li>${esc(t)}</li>`).join('')}</ul></div><label class="live-report-attest"><input type="checkbox" id="live-sign-attest"> I have reviewed the report and I sign it.</label>`,`${closeBtn}<button class="button primary" id="live-sign-go">Sign report</button>`);
   m.querySelector('#live-sign-go').onclick=()=>Live.guarded('report-sign',async()=>{
-   const v=id=>m.querySelector(id).value;
    if(!m.querySelector('#live-sign-attest').checked){toast('Check the box to confirm you reviewed and sign the report.');return}
-   const st=v('#live-sign-state').trim().toUpperCase();
-   if(!v('#live-sign-name').trim()||!v('#live-sign-cred').trim()){toast('Enter your name and credentials.');return}
-   if(st&&!/^[A-Z]{2}$/.test(st)){toast('The license state is a two-letter code.');return}
-   try{await api.request('POST',`/v1/studies/${sid()}/report/sign`,{body:R.signBody(state,tag,{name:v('#live-sign-name'),credentials:v('#live-sign-cred'),license_number:v('#live-sign-license'),license_state:st})})}
+   try{await api.request('POST',`/v1/studies/${sid()}/report/sign`,{body:R.signBody(state,tag,{name:e.name,credentials:e.credentials,license_number:e.license_number||'',license_state:e.license_state||''})})}
    catch(err){if(err.status===412){m.remove();toast('The report changed since you opened the preview. Open it again, review it, then sign.');refresh(s);return}if(err.status===409){m.remove();refresh(s)}throw err}
-   m.remove();toast('Report signed. The signed PDF is ready to download.');refresh(s);
+   m.remove();toast('Report signed. The signed PDF is ready to download.');Live.invalidate('studies');Live.invalidate('revisions:'+s.id);Live.invalidate('fp-timeline:'+s.id);refresh(s);
   });
  };
  Live.render();
