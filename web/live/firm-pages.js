@@ -107,8 +107,9 @@
   Live.loadDeliveries(studies);if(!people().length)membersEntry(firm.org_id);
   const h=M.home(studies,me.user,{admin,deliveryOf,now:now()});
   const count=(n,one,many)=>`${n} ${n===1?one:many}`;
-  const summary=!all.length?`${firm.org_name} has no studies yet`:[admin?count(h.needs.length,'study needs attention','studies need attention'):count(h.needs.length,'study needs you','studies need you'),count(h.working.length,'processing','processing'),`${h.signedThisMonth} signed in the last 30 days`].join(' · ');
-  const list=(rows,empty,limit=6)=>rows.length?`<div class="fp-rows">${rows.slice(0,limit).map(r=>studyRow(r,{owner:admin})).join('')}</div>${rows.length>limit?`<a class="fp-more" href="#library">${rows.length-limit} more in the Library ${icon('arrow',14)}</a>`:''}`:`<p class="fp-empty">${empty}</p>`;
+  const jumpTo=(id,text)=>`<a href="#dashboard" data-live="fp-jump" data-value="${id}">${esc(text)}</a>`;
+  const summary=!all.length?esc(`${firm.org_name} has no studies yet`):[jumpTo('fp-needs-title',admin?count(h.needs.length,'study needs attention','studies need attention'):count(h.needs.length,'study needs you','studies need you')),h.working.length?jumpTo('fp-working-title',count(h.working.length,'processing','processing')):'0 processing',h.finished.length?jumpTo('fp-signed-title',`${h.signedThisMonth} signed in the last 30 days`):`${h.signedThisMonth} signed in the last 30 days`].join(' · ');
+  const list=(rows,empty,limit=5)=>rows.length?`<div class="fp-rows">${rows.slice(0,limit).map(r=>studyRow(r,{owner:admin})).join('')}</div>${rows.length>limit?`<a class="fp-more" href="#library">${rows.length-limit} more in the Library ${icon('arrow',14)}</a>`:''}`:`<p class="fp-empty">${empty}</p>`;
   const needs=`<section class="fp-card" aria-labelledby="fp-needs-title"><header><h2 id="fp-needs-title">${admin?'Needs attention':'Needs you'}</h2><span>${h.needs.length}</span></header>${list(h.needs,admin?'Nothing is waiting on anyone. New reviews appear here as Basis finishes each step.':'Nothing is waiting on you. New reviews appear here as Basis finishes each step.')}</section>`;
   const working=h.working.length?`<section class="fp-card" aria-labelledby="fp-working-title"><header><h2 id="fp-working-title">Processing</h2><span>Basis is working; nothing to do yet</span></header>${list(h.working,'',4)}</section>`:'';
   const signed=h.finished.length?`<section class="fp-card fp-finished" aria-labelledby="fp-signed-title"><header><h2 id="fp-signed-title">Recently signed</h2><a href="#library" data-live="fp-lib-filter" data-value="signed">All signed ${icon('arrow',14)}</a></header><div class="fp-rows">${h.finished.slice(0,3).map(r=>studyRow(r,{owner:admin})).join('')}</div></section>`:'';
@@ -118,18 +119,19 @@
   if(admin&&!setup){const inv=invitationsEntry(firm.org_id),mem=membersEntry(firm.org_id);if(inv.done&&mem.done&&!inv.error&&!mem.error){const pending=inv.data.items.filter(i=>i.status==='pending').length,noSigner=mem.data.items.filter(m=>m.role!=='viewer'&&'signer' in m&&!m.signer);
    const lines=[pending&&`${pending} pending ${pending===1?'invitation':'invitations'}`,noSigner.length&&`${noSigner.map(m=>firstName(m.display_name||m.email)).join(', ')} ${noSigner.length===1?'has':'have'} no signer details`].filter(Boolean);
    if(lines.length)team=`<section class="fp-card fp-team-note" aria-labelledby="fp-team-title"><header><h2 id="fp-team-title">Team</h2><a href="#team">Manage ${icon('arrow',14)}</a></header><ul>${lines.map(l=>`<li>${esc(l)}</li>`).join('')}</ul></section>`}}
-  const head=`<header class="fp-head"><div><h1>${esc(M.greeting(now()))}, ${esc(firstName(meName(me)))}</h1><p>${esc(summary)}</p></div>${F.canCreate(firm)?`<a class="button primary" href="#upload">${icon('plus',16)}Start a study</a>`:''}</header>`;
+  const head=`<header class="fp-head"><div><h1>${esc(M.greeting(now()))}, ${esc(firstName(meName(me)))}</h1><p class="fp-summary">${summary}</p></div>${F.canCreate(firm)?`<a class="button primary" href="#upload">${icon('plus',16)}Start a study</a>`:''}</header>`;
   return `<div class="fp fp-home">${head}${admin?setup:welcomeCard(me,firm,all)}<div class="fp-home-grid"><div class="fp-col">${needs}${working}${signed}</div><div class="fp-col">${feed}${team}</div></div></div>`;
  }
 
  /* ---------- Library ---------- */
- const FILTERS=[['all','All'],['review','Needs review'],['sign','To sign'],['processing','Processing'],['signed','Signed'],['failed','Failed'],['draft','Drafts'],['archived','Archived']];
+ const FILTERS=[['all','All'],['review','Needs review'],['sign','To sign'],['update','Update required'],['processing','Processing'],['signed','Signed'],['failed','Failed'],['draft','Drafts'],['archived','Archived']];
  function inFilter(s,f){
   const d=deliveryOf(s);
   switch(f){
    case 'all':return s.status!=='archived';
    case 'review':return ['waiting_review','stalled'].includes(s.status);
-   case 'sign':return s.status==='completed'&&d?.tone==='review';
+   case 'sign':return s.status==='completed'&&d?.tone==='review'&&d.label!=='Update required';
+   case 'update':return s.status==='completed'&&d?.label==='Update required';
    case 'processing':return s.status==='processing';
    case 'signed':return s.status==='completed'&&d?.tone==='done';
    case 'failed':return s.status==='failed';
@@ -174,6 +176,7 @@
   const chips=root.querySelector('#fp-chips'),results=root.querySelector('#fp-results');
   if(chips)chips.innerHTML=chipsHtml(hits);if(results)results.innerHTML=resultsHtml(hits);
  }
+ Live.actions['fp-jump']=(el,id)=>{const h=root.querySelector('#'+id);if(!h)return;h.closest('section')?.scrollIntoView({block:'start',behavior:matchMedia('(prefers-reduced-motion: reduce)').matches?'auto':'smooth'});h.setAttribute('tabindex','-1');h.focus({preventScroll:true})};
  Live.actions['fp-lib-filter']=(el,v)=>{P.lib.filter=v||'all';if(state.screen!=='library'){location.hash='#library';return}Live.render()};
  Live.actions['fp-lib-clear']=()=>{P.lib={...P.lib,q:'',filter:'all',engineer:''};Live.render();root.querySelector('#fp-search')?.focus()};
  root.addEventListener('input',e=>{if(e.target.id==='fp-search'){P.lib.q=e.target.value;root.querySelector('.fp-search-clear')?.toggleAttribute('hidden',!P.lib.q);paintLibrary()}},true);

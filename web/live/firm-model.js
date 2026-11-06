@@ -75,7 +75,7 @@
   if(s.status==='completed'){
    const d=delivery||{label:'Checking…',tone:'pending'};
    if(d.tone==='done')return {label:d.label==='Signed'?'Signed':d.label,tone:'done',screen:'processing',action:false};
-   if(d.tone==='review')return {label:d.label==='Needs signature'?'Sign report':d.label==='Update required'?'Update required':d.label,tone:'review',screen:'report',action:true};
+   if(d.tone==='review')return {label:d.label==='Needs signature'?'Sign report':d.label==='Update required'?'Update the report':d.label,tone:'review',screen:'report',action:true};
    return {label:d.label,tone:'idle',screen:'processing',action:false};
   }
   return {label:s.status||'Unknown',tone:'idle',screen:'processing',action:false};
@@ -95,7 +95,7 @@
   return {needs,working,finished,others,signedThisMonth:recent.length,checking:rows.filter(r=>r.study.status==='completed'&&r.next.tone==='pending').length};
  }
  // Failures first, then what waits on a signature, then reviews (oldest wait first within each).
- const rank=r=>r.next.tone==='danger'?0:r.next.label==='Sign report'||r.next.label==='Update required'?1:r.study.status==='draft'?3:2;
+ const rank=r=>r.next.tone==='danger'?0:r.next.label==='Sign report'||r.next.label==='Update the report'?1:r.study.status==='draft'?3:2;
 
  /* ---------- events as sentences ---------- */
  const STEP_OF={uploading:'Upload',extracting:'Upload',appraisal_review:'Appraisal',rooms_review:'Rooms',components_processing:'Components',components_review:'Components',assets_processing:'Assets',assets_review:'Assets',exporting:'Results',completed:'Report & sign'};

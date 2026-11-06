@@ -255,3 +255,14 @@
 #app .fp-signer-next p a{color:var(--ui-accent);font-weight:600}
 #app .nd-sealed-note{margin:12px 0 8px;font-size:13.5px;color:var(--ui-muted);line-height:1.45}
 #app .fp-field select.fp-select{padding-right:32px}
+
+/* Round 4 */
+#app .fp-summary a{color:inherit;text-decoration:underline;text-decoration-color:#b7c9bd;text-underline-offset:3px}
+#app .fp-summary a:hover{color:var(--ui-accent)}
+#app .nd-inputs li span{white-space:normal!important;overflow:visible!important;text-overflow:clip!important;line-height:1.45}
+#app .nd-signing-as{display:grid;gap:2px;margin:0 0 12px;padding:10px 12px;border-radius:10px;background:#fff;border:1px solid #e9d9b8}
+#app .nd-signing-as span{font-size:12px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;color:var(--ui-muted)}
+#app .nd-signing-as strong{font-size:14.5px}
+#app .workspace:not([data-screen="viewer"]) .study-file-meta>span{font-size:14px;color:#3f5248}
+#app .workspace:not([data-screen="viewer"]) .study-file-meta>strong{font-size:14px}
+#app .workspace:not([data-screen="viewer"]) .study-file-meta button{color:#2f5c46;font-weight:600;font-size:14px}

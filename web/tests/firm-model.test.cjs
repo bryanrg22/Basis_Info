@@ -52,7 +52,7 @@ test('next: what each study needs and where it goes',()=>{
  assert.deepEqual(n({status:'failed',current_stage:'extracting'}),['Failed · retry','danger','processing',true]);
  assert.deepEqual(n({status:'draft',current_stage:'uploading'}),['Finish uploading','review','processing',true]);
  assert.deepEqual(n({status:'completed',current_stage:'completed'},{label:'Needs signature',tone:'review'}),['Sign report','review','report',true]);
- assert.deepEqual(n({status:'completed',current_stage:'completed'},{label:'Update required',tone:'review'}),['Update required','review','report',true]);
+ assert.deepEqual(n({status:'completed',current_stage:'completed'},{label:'Update required',tone:'review'}),['Update the report','review','report',true]);
  assert.deepEqual(n({status:'completed',current_stage:'completed'},{label:'Signed',tone:'done'}),['Signed','done','processing',false]);
  assert.deepEqual(n({status:'completed',current_stage:'completed'}),['Checking…','idle','processing',false],'never "Signed" before the report state loads');
  assert.deepEqual(n({status:'archived',current_stage:'completed'}),['Archived','idle','processing',false]);
