@@ -16,6 +16,11 @@
   const abort=new AbortController(),pages=stage.ownerDocument.createElement('div');
   pages.className='pdfViewer basis-pdf-pages';stage.replaceChildren(pages);
   stage.setAttribute('aria-busy','true');
+  // Annotations are not rendered (annotationMode 0), but a tagged PDF's structure layer still
+  // points aria-owns at them ("4072R", an annotation reference): an invalid reference for
+  // assistive technology that can never resolve. Drop exactly those references.
+  const dangling=typeof MutationObserver==='function'?new MutationObserver(()=>{for(const el of stage.querySelectorAll('[aria-owns]')){const id=el.getAttribute('aria-owns');if(/^\d+R$/.test(id)&&!stage.ownerDocument.getElementById(id))el.removeAttribute('aria-owns')}}):null;
+  dangling?.observe(stage,{subtree:true,childList:true});
   function changed(){
    if(disposed||!initialized)return;
    stage.dataset.page=String(pdfViewer.currentPageNumber);
@@ -67,7 +72,7 @@
    }catch(error){if(!disposed){stage.setAttribute('aria-busy','false');onError(error)}}
   })();
   function destroy(){
-   if(disposed)return;disposed=true;stopGestures?.();resize?.disconnect();
+   if(disposed)return;disposed=true;stopGestures?.();resize?.disconnect();dangling?.disconnect();
    pdfViewer?.setDocument(null);abort.abort();
    // PDFViewer's idle timer is separate from its document/scroll listeners.
    if(pdfViewer?.renderingQueue)clearTimeout(pdfViewer.renderingQueue.idleTimeout);

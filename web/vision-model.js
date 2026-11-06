@@ -11,7 +11,7 @@
  function select(view,item){return {...view,focusLabel:item?.label||null,selectedId:item?.id||null}}
  function toggleType(view,label){return {...view,focusLabel:view.focusLabel===label?null:label,selectedId:null}}
  function under(items,u,v,Rle){
-  return items.filter(i=>{if(!i.counted)return false;
+  return items.filter(i=>{if(!i.counted&&!i.exclusion)return false;
    if(i.polygon?.length){let inside=false;const p=i.polygon;for(let a=0,b=p.length-1;a<p.length;b=a++){if((p[a].y>v)!==(p[b].y>v)&&u<(p[b].x-p[a].x)*(v-p[a].y)/(p[b].y-p[a].y)+p[a].x)inside=!inside}return inside}
    if(i.mask?.counts?.length&&Rle){try{return Rle.contains(i.mask,i._bits||(i._bits=Rle.decode(i.mask)),u,v)}catch{/* recover with box */}}
    const b=i.box;return b&&u>=b.x1&&u<=b.x2&&v>=b.y1&&v<=b.y2;
@@ -37,7 +37,7 @@
  }
  function zoomAt(view,next,x,y){const zoom=clamp(next,1,6),ratio=zoom/view.zoom;return {zoom,x:x-(x-view.x)*ratio,y:y-(y-view.y)*ratio}}
  function roomCount(room,label,corrections=new Map()){
-  const total=(room.inventory||[]).reduce((n,i)=>{const a=corrections.get('component:'+i.component_id)?.after||{};return n+((a.label||i.label)===label?(a.count??i.count):0)},0);
+  const total=(room.inventory||[]).reduce((n,i)=>{if(corrections.has('component_remove:'+i.component_id))return n;const a=corrections.get('component:'+i.component_id)?.after||{};return n+((a.label||i.label)===label?(a.count??i.count):0)},0);
   return [...corrections.values()].reduce((n,c)=>n+(c.entity_type==='room_component'&&c.entity_id===room.id&&c.after.label===label?c.after.count:0),total);
  }
  function sampleItems(doc){

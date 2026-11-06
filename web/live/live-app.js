@@ -22,17 +22,47 @@
  document.documentElement.dataset.basisMode='live';
  const L={authReady:false,user:null,authError:'',studies:null,studiesError:null,studyId:null,docId:null,study:null,cache:new Map(),blobs:new Map(),poller:null,workflow:null,upload:null,returnTo:null,busy:new Set(),corrections:{},viewer:{mode:'spotlight',focusLabel:null,selectedId:null,tool:null,addLabel:null},assetsFilter:'all',studiesFilter:'All studies',studiesQuery:'',studiesSort:'updated'};
  // Every call is a breadcrumb and every failure an event in the error capture (live/errors.js).
- const api=BasisApi.createClient({baseUrl:C.apiBase,getToken:()=>BasisAuth.getToken(),onUnauthorized:()=>{if(BasisAuth.user)toast('Your session has expired. Sign in again.')},observe:info=>globalThis.BasisErrors?.apiCall(info)});
+ // The sample API (live/sample-api.js, ?api=sample) answers in the page; the real API path is unchanged.
+ const SAMPLE=C.apiBase==='sample'&&globalThis.BasisSampleApi?.active?globalThis.BasisSampleApi:null;
+ const api=BasisApi.createClient({baseUrl:SAMPLE?SAMPLE.base:C.apiBase,fetchImpl:SAMPLE?SAMPLE.fetch:undefined,getToken:()=>BasisAuth.getToken(),onUnauthorized:()=>{if(BasisAuth.user)toast('Your session has expired. Sign in again.')},observe:info=>globalThis.BasisErrors?.apiCall(info)});
  const reportError=(err,context)=>{try{globalThis.BasisErrors?.report(err,context)}catch{}};
  // An API refusal the client already recorded (test and fixture harnesses stub BasisApi without ApiError).
  const apiRefusal=e=>typeof BasisApi.ApiError==='function'&&e instanceof BasisApi.ApiError;
  const Live=globalThis.BasisLive={config:C,api,state:L,screens:{}};
+ // Proposed capabilities (web/FRONTEND_BACKLOG.md 14, "Engineer overrides"): GET /v1/capabilities
+ // says which proposed corrections the API accepts. Anything but a 200 means none, so the current
+ // API (404) shows exactly what it showed before. Asked once per session, outside the error capture.
+ Live.caps={objectExclusion:false,unitCostOverride:false,roomCreate:false};
+ Live.loadCaps=async()=>{
+  if(Live.loadCaps.done)return;Live.loadCaps.done=true;
+  try{
+   const token=await BasisAuth.getToken(),headers={Accept:'application/json'};if(token)headers.Authorization=`Bearer ${token}`;
+   const r=await (SAMPLE?SAMPLE.fetch:fetch)((SAMPLE?SAMPLE.base:C.apiBase)+'/v1/capabilities',{headers});
+   if(!r.ok)return;const d=await r.json();
+   Live.caps={objectExclusion:d?.object_exclusion===true,unitCostOverride:d?.unit_cost_override===true,roomCreate:d?.room_create===true};
+   if(Object.values(Live.caps).some(Boolean))Live.render?.();
+  }catch{}
+ };
  const STAGE={uploading:'Waiting for documents',extracting:'Extracting the appraisal and analyzing photos',appraisal_review:'Appraisal review',rooms_review:'Rooms review',components_processing:'Preparing components',components_review:'Components review',assets_processing:'Preparing asset costs',assets_review:'Assets review',exporting:'Preparing results',completed:'Reviews approved'};
  const STATUS={draft:'Draft',processing:'Processing',waiting_review:'Ready for review',stalled:'Needs attention',completed:'Reviews approved',archived:'Archived',failed:'Failed'};
  // The gates (live/gates.js): the rooms review, then the components review, unless the
  // study's workflow has the single rooms review (studies.components_gate false).
  const G=globalThis.BasisGates,GATE_SCREEN=G.GATE_SCREEN;
  const PUBLIC=new Set(['landing','login']);
+ // A completed study's delivery state (signed, update required, needs signature) from its report
+ // state, loaded once per revision; "Reviews approved" until it is known.
+ // A finished study's delivery state as a pill class: each state reads differently at a glance
+ // (Update required solid amber, Needs signature/Verify signature blue, Needs details neutral, Blocked red).
+ Live.deliveryClass=d=>d?.tone==='done'?'completed':({'Update required':'waiting_review is-update','Needs signature':'processing is-sign','Verify signature':'processing is-sign','Check status':'processing is-sign','Needs details':'is-details','Not ready':'is-details','Checking…':'is-details','Report status unavailable':'is-details',Blocked:'failed'}[d?.label]||'waiting_review');
+ // A finished study's delivery state comes from its report state (GET .../report/state), one request
+ // per study: until it loads the study reads Checking…, never Finished.
+ const deliveryOf=(s,e)=>!e?.done?{label:'Checking…',tone:'pending'}:e.error?{label:'Report status unavailable',tone:'pending'}:(f=>({label:f.status,tone:f.complete?'done':'review'}))(G.completion(s,e));
+ Live.delivery=s=>s?.status==='completed'?deliveryOf(s,Live.reportStateEntry?.(s)):{label:'Reviews approved',tone:'done'};
+ // The same, read from the cache without starting a request.
+ Live.deliveryPeek=s=>deliveryOf(s,L.cache.get('report-state:'+s.id+':'+s.revision));
+ // Load the report state of every finished study, six requests at a time (the study list does not
+ // carry it); each answer re-renders the page, which starts the next.
+ Live.loadDeliveries=list=>{const todo=list.filter(s=>s.status==='completed'),key=s=>'report-state:'+s.id+':'+s.revision;let busy=todo.filter(s=>L.cache.get(key(s))&&!L.cache.get(key(s)).done).length;for(const s of todo){if(busy>=6)break;if(!L.cache.has(key(s))){Live.reportStateEntry?.(s);busy++}}};
  Live.STAGE=STAGE;Live.STATUS=STATUS;Live.GATE_SCREEN=GATE_SCREEN;Live.gates=G;
  Live.labelName=l=>String(l||'').replace(/_/g,' ').replace(/^./,c=>c.toUpperCase());
  Live.when=v=>v?new Intl.DateTimeFormat('en-US',{month:'short',day:'numeric',hour:'numeric',minute:'2-digit'}).format(new Date(v)):'—';
@@ -150,7 +180,7 @@
    root.querySelector('#account-menu-trigger')?.setAttribute('aria-label',who+' — account menu');}
   for(const link of root.querySelectorAll('aside a[href="#admin"]'))if(!link.querySelector('.live-mock-tag'))link.insertAdjacentHTML('beforeend','<span class="live-mock-tag" title="Not connected to the API yet: sample data">Mock</span>');
   const crumb=root.querySelector('.breadcrumbs .strong');if(crumb&&['appraisal','rooms','components','viewer','assets','asset-detail','complete','report','processing','files','history','spend','structure','intake'].includes(state.screen))crumb.innerHTML=!L.study?'Loading study…':state.screen==='processing'?esc(L.study.property_name):`<a class="study-overview-link" href="${Live.route('processing',L.study.id)}" title="Study progress">${esc(L.study.property_name)} ${icon('chevron',12)}</a>`;
-  for(const meta of root.querySelectorAll('.topbar .right-meta'))meta.innerHTML=L.study&&L.studyId&&['appraisal','rooms','components','viewer','assets','asset-detail','complete','report','processing','files','history','spend','structure','intake'].includes(state.screen)?`<span>Revision ${L.study.revision}</span>${L.study.status==='completed'?'<span class="badge">Reviews approved</span>':statusBadge(L.study.status)}`:'';
+  for(const meta of root.querySelectorAll('.topbar .right-meta'))meta.innerHTML=L.study&&L.studyId&&['appraisal','rooms','components','viewer','assets','asset-detail','complete','report','processing','files','history','spend','structure','intake'].includes(state.screen)?`<span>Revision ${L.study.revision}</span>${L.study.status==='completed'?(d=>state.screen==='processing'&&d.tone!=='done'?'':d.tone==='done'?`<span class="badge study-delivery complete">${esc(d.label)}</span>`:`<a class="badge study-delivery review" href="${Live.route('report',L.study.id)}" title="Open Report & sign">${esc(d.label)}</a>`)(Live.delivery(L.study)):statusBadge(L.study.status)}`:'';
   const titles={dashboard:'Home',library:'Library',processing:'Study progress',complete:'Study results',report:'Report & sign',activity:'Activity'};if(titles[state.screen])document.title='Basis · '+titles[state.screen];
   hydrateImages();
   Live.afterRender.forEach(fn=>fn());
@@ -161,7 +191,7 @@
   const mock=new URL(location.href);mock.searchParams.delete('mode');
   const developer=new URL('developer/',location.href);developer.search=location.search;developer.hash='';
   const developerLink=['localhost','127.0.0.1','[::1]'].includes(location.hostname)?`<a href="${esc(developer.toString())}">System health</a>`:'';
-  return `<div class="reviewbar live-bar"><div class="row"><strong>Basis</strong><span class="live-badge">Live</span><span class="small">API ${esc(host)}${C.firebase.emulatorHost?' · Auth emulator':''}</span></div><div class="row">${L.user&&Live.barExtra?Live.barExtra():''}${L.user?`<span class="small">${esc(L.user.email||L.user.displayName||'Signed in')}</span><button class="button quiet small" data-live="sign-out">Sign out</button>`:''}${developerLink}<a href="${esc(mock.toString())}">Design review (mock)</a></div></div>`;
+  return `<div class="reviewbar live-bar"><div class="row"><strong>Basis</strong><span class="live-badge">Live</span><span class="small">${SAMPLE?'Sample data · nothing is saved':`API ${esc(host)}${C.firebase.emulatorHost?' · Auth emulator':''}`}</span></div><div class="row">${L.user&&Live.barExtra?Live.barExtra():''}${L.user?`<span class="small">${esc(L.user.email||L.user.displayName||'Signed in')}</span><button class="button quiet small" data-live="sign-out">Sign out</button>`:''}${developerLink}<a href="${esc(mock.toString())}">Design review (mock)</a></div></div>`;
  }
  reviewbar=liveBar;
  // Study drafts are mock-only: their leave-page guard must not hold up live navigation.
@@ -182,19 +212,23 @@
 
  /* ---------- studies: the dashboard and the library ---------- */
  function studiesEntry(force=false){return load('studies',()=>api.listStudies().then(p=>p.items),{force})}
- const FILTERS={'All studies':()=>true,'Needs review':s=>['waiting_review','stalled','failed'].includes(s.status),'Processing':s=>s.status==='processing','Reviews approved':s=>s.status==='completed','Drafts':s=>s.status==='draft'};
+ // "Report to sign": finished studies whose report needs the engineer, among those whose report state is loaded.
+ const reportDue=s=>s.status==='completed'&&Live.deliveryPeek(s).tone==='review';
+ // Finished: delivered. A study whose report state has not loaded (or failed) is in neither count.
+ const delivered=s=>s.status==='completed'&&Live.deliveryPeek(s).tone==='done';
+ const FILTERS={'All studies':()=>true,'Needs review':s=>['waiting_review','stalled','failed'].includes(s.status),'Report to sign':reportDue,'Processing':s=>s.status==='processing','Finished':delivered,'Drafts':s=>s.status==='draft'};
  function studiesTable(rows){
-  return `<div class="collection-table-wrap"><table class="collection-table"><caption class="sr-only">Studies</caption><thead><tr><th scope="col">Study</th><th scope="col">Status</th><th scope="col">Revision</th><th scope="col">Updated</th><th scope="col"><span class="sr-only">Open</span></th></tr></thead><tbody>${rows.map(s=>`<tr><td class="collection-study-cell"><a class="collection-entry" href="${Live.route('processing',s.id)}"><span><strong>${esc(s.property_name)}</strong><span class="collection-address">${esc(STAGE[s.current_stage]||s.current_stage)}${s.failure_reason?' · '+esc(s.failure_reason):''}</span></span></a></td><td class="collection-state-cell">${s.status==='completed'?'<span class="desk-status">Reviews approved</span>':deskStatus(s)}</td><td class="num">${s.revision}</td><td class="collection-date-cell"><time datetime="${esc(s.updated_at)}">${Live.when(s.updated_at)}</time></td><td class="collection-open-cell"><a class="collection-open" href="${Live.route('processing',s.id)}" aria-label="Open ${esc(s.property_name)}"><span>Open study</span>${icon('arrow',17)}</a></td></tr>`).join('')||`<tr><td colspan="5"><div class="collection-empty">${icon('search',28)}<h2>${L.studies?.length?'No matching studies':'No studies yet'}</h2><p>${L.studies?.length?'Try another name or status.':'Start a study to upload an appraisal and property photos.'}</p>${L.studies?.length?'':`<a class="button primary" href="#upload">${icon('plus',15)}Start a study</a>`}</div></td></tr>`}</tbody></table></div>`;
+  return `<div class="collection-table-wrap"><table class="collection-table"><caption class="sr-only">Studies</caption><thead><tr><th scope="col">Study</th><th scope="col">Status</th><th scope="col">Revision</th><th scope="col">Updated</th><th scope="col"><span class="sr-only">Open</span></th></tr></thead><tbody>${rows.map((s,i)=>`<tr><td class="collection-study-cell"><a class="collection-entry" href="${Live.route('processing',s.id)}"><span><strong>${esc(s.property_name)}</strong>${s.status==='completed'&&!s.failure_reason?'':`<span class="collection-address">${esc(STAGE[s.current_stage]||s.current_stage)}${s.failure_reason?' · '+esc(s.failure_reason):''}</span>`}</span></a></td><td class="collection-state-cell">${s.status==='completed'?(d=>`<span class="desk-status ${Live.deliveryClass(d)}">${esc(d.label)}</span>`)(Live.deliveryPeek(s)):deskStatus(s)}</td><td class="num">${s.revision}</td><td class="collection-date-cell"><time datetime="${esc(s.updated_at)}">${Live.when(s.updated_at)}</time></td><td class="collection-open-cell"><a class="collection-open" href="${Live.route('processing',s.id)}" aria-label="Open ${esc(s.property_name)}"><span>Open study</span>${icon('arrow',17)}</a></td></tr>`).join('')||`<tr><td colspan="5"><div class="collection-empty">${icon('search',28)}<h2>${L.studies?.length?'No matching studies':'No studies yet'}</h2><p>${L.studies?.length?'Try another name or status.':'Start a study to upload an appraisal and property photos.'}</p>${L.studies?.length?'':`<a class="button primary" href="#upload">${icon('plus',15)}Start a study</a>`}</div></td></tr>`}</tbody></table></div>`;
  }
  function studiesView(title,subtitle){
   const e=studiesEntry();if(!e.done)return Live.loading('Loading your studies…');
   // Removed from the firm meanwhile: re-read /v1/me (the gate then explains) and the list.
   if(e.error?.kind==='no-firm'){Live.invalidate('studies');Live.refreshMe?.();return Live.loading('Checking your firm…')}
   if(e.error)return Live.failed(e.error,'reload-studies');
-  L.studies=Live.firmStudies?Live.firmStudies(e.data):e.data;const q=L.studiesQuery.trim().toLowerCase();
+  L.studies=Live.firmStudies?Live.firmStudies(e.data):e.data;Live.loadDeliveries(L.studies);const q=L.studiesQuery.trim().toLowerCase();
   const matched=L.studies.filter(s=>!q||s.property_name.toLowerCase().includes(q));
   const rows=matched.filter(FILTERS[L.studiesFilter]).sort((a,b)=>L.studiesSort==='name'?a.property_name.localeCompare(b.property_name):L.studiesSort==='oldest'?a.updated_at.localeCompare(b.updated_at):b.updated_at.localeCompare(a.updated_at));
-  return `<div class="collection-desk live-studies"><header class="collection-header"><div><h1>${title}</h1><p>${subtitle}</p></div><a class="collection-create" href="#upload">${icon('plus',17)}Start a study</a></header><div class="collection-search-area"><label class="collection-search-field">${icon('search',21)}<input id="live-study-search" aria-label="Search studies" placeholder="Search by property name…" value="${esc(L.studiesQuery)}"></label></div><section class="collection-panel" aria-label="Studies"><div class="collection-toolbar"><div class="collection-status-filters" aria-label="Filter studies by status">${Object.keys(FILTERS).map(f=>`<button type="button" data-live="studies-filter" data-value="${f}" aria-pressed="${L.studiesFilter===f}">${f}<span>${matched.filter(FILTERS[f]).length}</span></button>`).join('')}</div><label class="library-sort"><span class="sr-only">Sort studies</span><select id="live-study-sort" aria-label="Sort studies">${[['updated','Last updated'],['oldest','Oldest first'],['name','Property A–Z']].map(([v,l])=>`<option value="${v}" ${L.studiesSort===v?'selected':''}>${l}</option>`).join('')}</select></label></div><div id="live-study-results">${studiesTable(rows)}</div></section></div>`;
+  return `<div class="collection-desk live-studies"><header class="collection-header"><div><h1>${title}</h1>${subtitle?`<p>${subtitle}</p>`:''}</div><a class="collection-create" href="#upload">${icon('plus',17)}Start a study</a></header><div class="collection-search-area"><label class="collection-search-field">${icon('search',21)}<input id="live-study-search" aria-label="Search studies" placeholder="Search by property name…" value="${esc(L.studiesQuery)}"></label></div><section class="collection-panel" aria-label="Studies"><div class="collection-toolbar"><div class="collection-status-filters" aria-label="Filter studies by status">${Object.keys(FILTERS).map(f=>`<button type="button" data-live="studies-filter" data-value="${f}" aria-pressed="${L.studiesFilter===f}">${f}<span>${matched.filter(FILTERS[f]).length}</span></button>`).join('')}${(n=>n?`<span class="library-checking">Report status for ${n} ${n===1?'study':'studies'} still loading; they are not in Report to sign or Finished yet.</span>`:'')(matched.filter(s=>s.status==='completed'&&Live.deliveryPeek(s).tone==='pending').length)}</div><label class="library-sort"><span class="sr-only">Sort studies</span><select id="live-study-sort" aria-label="Sort studies">${[['updated','Last updated'],['oldest','Oldest first'],['name','Property A–Z']].map(([v,l])=>`<option value="${v}" ${L.studiesSort===v?'selected':''}>${l}</option>`).join('')}</select></label></div><div id="live-study-results">${studiesTable(rows)}</div></section></div>`;
  }
  function withStudies(fn){
   const e=studiesEntry();if(!e.done)return Live.loading('Loading your studies…');
@@ -203,17 +237,25 @@
   L.studies=Live.firmStudies?Live.firmStudies(e.data):e.data;return fn(L.studies);
  }
  function homeStudy(s){
+  // A finished study that still needs the engineer (update required, signature) opens on Report & sign.
+  const d=s.status==='completed'?Live.delivery(s):null;
+  if(d?.tone==='review')return `<a class="home-study" href="${Live.route('report',s.id)}"><div><strong>${esc(s.property_name)}</strong><span>Report & sign</span></div><span><span class="desk-status ${Live.deliveryClass(d)}">${esc(d.label)}</span></span>${icon('chevron',16)}</a>`;
   return `<a class="home-study" href="${Live.route('processing',s.id)}"><div><strong>${esc(s.property_name)}</strong><span>${esc(s.status==='draft'?'Finish uploading documents':STAGE[s.current_stage]||s.current_stage)}</span></div><span>${statusBadge(s.status)}</span>${icon('chevron',16)}</a>`;
  }
  dashboard=()=>withStudies(studies=>{
   const h=BasisStudyOverview.home(studies);
-  return `<div class="home-desk">${heading('Home','Your next actions and recent studies.',`<a class="button primary" href="#upload">${icon('plus',16)}Start a study</a>`)}<dl class="study-summary" aria-label="Study overview"><div><dt>Need attention</dt><dd>${h.attention.length}</dd></div><div><dt>In progress</dt><dd>${h.processing.length}</dd></div><div><dt>Reviews approved</dt><dd>${h.completed}</dd></div></dl><div class="home-columns"><section class="panel home-attention"><div class="panel-head"><h2>Needs your attention</h2><span class="small">${h.attention.length} ${h.attention.length===1?'study':'studies'}</span></div>${h.attention.map(homeStudy).join('')||`<div class="home-empty"><h3>${studies.length?'No reviews waiting':'Your first study starts here'}</h3><p>${studies.length?'Approved studies may still need report details or a signature.':'Upload an appraisal and property photos to get started.'}</p>${studies.length?'':'<a class="button" href="#upload">Start a study</a>'}</div>`}${h.processing.length?`<div class="panel-head"><h2>In progress</h2></div>${h.processing.map(homeStudy).join('')}`:''}</section><section class="home-recent"><div class="row between"><h2>Recently updated</h2><a class="screen-link" href="#library">View library ${icon('arrow',14)}</a></div>${h.recent.map(s=>`<a class="home-recent-study" href="${Live.route('processing',s.id)}"><strong>${esc(s.property_name)}</strong><span>${esc(STATUS[s.status]||s.status)} · ${Live.when(s.updated_at)}</span></a>`).join('')||'<p class="small">Your studies will appear here.</p>'}</section></div></div>`;
+  // Finished studies whose report needs the engineer join the attention queue. Every finished
+  // study's report state is read (six at a time, once per revision); until one loads, that study
+  // counts as neither waiting nor finished.
+  Live.loadDeliveries(studies);
+  for(const s of studies.filter(x=>x.status==='completed').sort((a,b)=>String(b.updated_at).localeCompare(String(a.updated_at))))if(Live.deliveryPeek(s).tone==='review'&&!h.attention.includes(s))h.attention.push(s);
+  return `<div class="home-desk">${heading('Home','',`<a class="button primary" href="#upload">${icon('plus',16)}Start a study</a>`)}<dl class="study-summary" aria-label="Study overview"><div><dt>Need attention</dt><dd>${h.attention.length}</dd></div><div><dt>In progress</dt><dd>${h.processing.length}</dd></div><div><dt>Finished</dt><dd>${studies.filter(x=>x.status==='completed'&&!h.attention.includes(x)&&Live.deliveryPeek(x).tone==='done').length}</dd></div></dl><div class="home-columns"><section class="panel home-attention"><div class="panel-head"><h2>Needs your attention</h2><span class="small">${h.attention.length} ${h.attention.length===1?'study':'studies'}</span></div>${h.attention.map(homeStudy).join('')||`<div class="home-empty"><h3>${studies.length?'No reviews waiting':'Your first study starts here'}</h3><p>${studies.length?'Approved studies may still need report details or a signature.':'Upload an appraisal and property photos to get started.'}</p>${studies.length?'':'<a class="button" href="#upload">Start a study</a>'}</div>`}${h.processing.length?`<div class="panel-head"><h2>In progress</h2></div>${h.processing.map(homeStudy).join('')}`:''}</section><section class="home-recent"><div class="row between"><h2>Recently updated</h2><a class="screen-link" href="#library">View library ${icon('arrow',14)}</a></div>${h.recent.map(s=>`<a class="home-recent-study" href="${Live.route('processing',s.id)}"><strong>${esc(s.property_name)}</strong><span>${esc(s.status==='completed'?Live.delivery(s).label:STATUS[s.status]||s.status)} · ${Live.when(s.updated_at)}</span></a>`).join('')||'<p class="small">Your studies will appear here.</p>'}</section></div></div>`;
  });
  activity=()=>withStudies(studies=>{
   const events=BasisStudyOverview.activity(studies);
   return `${heading('Activity','Study creation and the latest saved update for each study.')}<section class="panel study-activity" aria-label="Study updates">${events.map(event=>`<article class="study-update"><span class="study-update-icon">${icon(event.kind==='created'?'plus':'clock',18)}</span><div><p>${event.kind==='created'?'Study created':'Study updated'}</p><a href="${Live.route('processing',event.study.id)}">${esc(event.study.property_name)}</a>${event.kind==='updated'?`<span class="small">Current status: ${esc(STATUS[event.study.status]||event.study.status)}</span>`:''}</div><time datetime="${esc(event.at)}">${Live.when(event.at)}</time></article>`).join('')||'<div class="home-empty"><h3>No study activity yet</h3><p>Updates will appear here as your team works on studies.</p></div>'}</section>`;
  });
- studyLibrary=()=>studiesView('Library','Every study in your workspace.');
+ studyLibrary=()=>studiesView('Library','');
  archiveStudy=()=>Live.withStudy(s=>{location.replace(Live.route('processing',s.id));return Live.loading()});
 
  /* ---------- start a study: create, signed uploads, start ---------- */
@@ -308,19 +350,30 @@
  function startPolling(){
   if(L.poller||!L.studyId)return;const id=L.studyId;
   L.poller=BasisApi.pollWorkflow(signal=>api.workflow(id,signal),{initialMs:C.pollInitialMs,maxMs:C.pollMaxMs,
-   onUpdate:async w=>{L.workflow={id,data:w,error:null};const before=L.study?.status+'/'+L.study?.current_stage;await Live.reloadStudy();if(state.screen==='processing'){const after=L.study?.status+'/'+L.study?.current_stage;if(before!==after&&L.study?.status==='waiting_review')toast(`${STAGE[L.study.current_stage]} is ready.`);render()}},
+   onUpdate:async w=>{L.workflow={id,data:w,error:null};const before=L.study?.status+'/'+L.study?.current_stage;await Live.reloadStudy();if(state.screen==='processing'){const after=L.study?.status+'/'+L.study?.current_stage;if(before!==after&&L.study?.status==='waiting_review')toast(`${STAGE[L.study.current_stage]} is ready.`);render()}
+    // Results and Report & sign show what the run writes: once it ends, read them again.
+    else if(['complete','report'].includes(state.screen)&&before!==L.study?.status+'/'+L.study?.current_stage){for(const k of ['result:','report-state:','assets:'])Live.invalidate(k+id);render()}},
    onError:e=>{L.workflow={id,data:L.workflow?.data||null,error:e};if(state.screen==='processing')render()},
    shouldStop:w=>['COMPLETED','FAILED','CANCELED','TERMINATED','TIMED_OUT'].includes(String(w?.execution_status).toUpperCase())});
  }
  Live.startPolling=startPolling;Live.stopPolling=stopPolling;
+ // Approving Assets lands on Results while the report is written; follow that run there too.
+ Live.afterRender.push(()=>{if(['complete','report'].includes(state.screen)&&L.study?.id===L.studyId&&L.study?.status==='processing')startPolling()});
  function studyPeople(s){
   const me=Live.me?.(),firm=Live.firm?.();
   const known=BasisStudyOverview.creator(s,me,L.cache.get('members:'+s.org_id)?.data?.items||[]);
   if(!known&&firm?.org_id===s.org_id&&firm?.role==='owner')Live.load('members:'+s.org_id,()=>api.members(s.org_id));
   return known;
  }
+ // A status label's tone, as the step bar shows it (gates.js navigation): done, review, danger, progress or idle.
+ const toneOf=status=>({Completed:'done',Signed:'done','Needs review':'review','Update required':'review','Needs signature':'review','Needs details':'review','Add files':'review','Needs attention':'danger',Blocked:'review',// Blocked: the report waits on the engineer (amber, as in the step bar), not a failure
+'In progress':'progress','Checking…':'progress'}[status]||'idle');
  processing=function(){
   return Live.withStudy(s=>{
+   // Just reopened a step (live/gate-reopen.js): open its review as soon as it is ready.
+   const target=L.reopenTarget;
+   if(target?.studyId===s.id&&s.status==='waiting_review'&&s.current_stage===target.stage&&GATE_SCREEN[target.stage]){L.reopenTarget=null;L.lastSent=null;setTimeout(()=>Live.go(GATE_SCREEN[target.stage],s.id));return Live.loading('Opening the review…')}
+   const sent=L.lastSent?.studyId===s.id&&s.status==='processing'?L.lastSent:null;
    if(!['draft','completed','archived'].includes(s.status))startPolling();
    const w=L.workflow?.id===s.id?L.workflow:null,p=w?.data?.status||null,docs=s.documents||[],confirmed=docs.filter(d=>d.uploaded_at),photos=confirmed.filter(d=>d.kind==='photo');
    const notStarted=s.status==='draft'||(w?.error?.status===404&&s.status!=='completed'&&s.status!=='archived');
@@ -333,30 +386,46 @@
    const action=finished?`<a class="button primary" href="${Live.route('complete',s.id)}">View results ${icon('arrow',16)}</a>`:failed?(failure.canRetry?'<button class="button primary" data-live="retry">Retry processing</button>':'<p class="small">An engineer or admin can resolve this issue.</p>'):gate?`<a class="button primary" href="${Live.route(GATE_SCREEN[gate],s.id)}">Review ${esc(GATE_SCREEN[gate])} ${icon('arrow',16)}</a>`:notStarted&&confirmed.length?'<button class="button primary" data-live="start">Start the study</button>':'';
    const progressBar=`<nav class="hub-progress" aria-label="Study stages"><ol style="--hub-step-count:${list.length}">${list.map((step,i)=>{
     const content=`<span class="hub-progress-marker" aria-hidden="true">${step.state==='done'?'✓':i+1}</span><span><strong>${esc(step.label)}</strong><small>${esc(step.status)}</small></span>`;
-    return `<li class="${step.state==='done'?'is-done':step.state==='active'?'is-current':''}" ${step.state==='active'?'aria-current="step"':''}>${step.canOpen?`<a class="hub-progress-step" href="${Live.route(step.destination,s.id)}">${content}</a>`:`<span class="hub-progress-step" aria-disabled="true">${content}</span>`}</li>`;
+    return `<li class="${step.state==='done'?'is-done':step.state==='active'?'is-current':''} step-tone-${toneOf(step.status)}" ${step.state==='active'?'aria-current="step"':''}>${step.canOpen?`<a class="hub-progress-step" href="${Live.route(step.destination,s.id)}">${content}</a>`:`<span class="hub-progress-step" aria-disabled="true">${content}</span>`}</li>`;
    }).join('')}</ol></nav>`;
-   return `${Live.studyStatus(s,'processing')}${progressBar}<div class="study-hub">${heading('Study progress','Open a step to review its details.')}<div class="hub-layout"><div class="hub-main">${finished?'':`<section class="hub-next ${finished?'is-complete':''}" aria-label="${finished?'Study complete':'Current step'}"><div><span class="hub-eyebrow">${finished?'Completed':archived?'Archived':failed?'Needs attention':gate?'Up next':notStarted?'Getting started':'In progress'}</span><h2>${esc(current)}</h2>${failed&&globalThis.BasisErrorHelp?BasisErrorHelp.html(p?.failure_code,s.failure_reason||p?.failure||detail):`<p>${esc(detail)}</p>`}</div>${action}</section>`}<section class="panel hub-steps" aria-label="Study progress steps"><div class="panel-head"><h2>Study steps</h2><span class="small">${done} of ${list.length} complete</span></div><ol>${list.map((step,i)=>{
+   return `${Live.studyStatus(s,'processing')}${progressBar}<div class="study-hub">${heading('Study progress','')}<div class="hub-layout"><div class="hub-main">${sent?`<section class="hub-sent" aria-label="Corrections sent"><h2>Sent ${sent.items.length} ${sent.items.length===1?'correction':'corrections'} · rerunning as revision ${sent.revision}</h2><ul>${sent.items.map(i=>`<li><strong>${esc(i.title)}</strong><span>${esc(i.changes)}</span></li>`).join('')}</ul>${sent.comment?`<p>${esc(sent.comment)}</p>`:''}<p class="small">The review opens again with these applied; nothing can be approved while it reruns.</p></section>`:''}${finished?'':`<section class="hub-next ${finished?'is-complete':''}" aria-label="${finished?'Study complete':'Current step'}"><div><span class="hub-eyebrow">${finished?'Completed':archived?'Archived':failed?'Needs attention':gate?'Up next':notStarted?'Getting started':'In progress'}</span><h2>${esc(current)}</h2>${failed&&globalThis.BasisErrorHelp?BasisErrorHelp.html(p?.failure_code,s.failure_reason||p?.failure||detail):`<p>${esc(detail)}</p>`}</div>${action}</section>`}<section class="panel hub-steps" aria-label="Study progress steps"><div class="panel-head"><h2>Study steps</h2><span class="small">${done} of ${list.length} complete</span></div><ol>${list.map((step,i)=>{
     const content=`<span class="hub-step-marker" aria-hidden="true">${step.state==='done'?'✓':i+1}</span><span class="hub-step-name"><strong>${esc(step.label)}</strong><small>${esc(step.hint)}</small></span><span class="hub-step-status">${esc(step.status)}</span>${step.canOpen?icon('chevron',15):''}`;
-    return `<li class="${step.state==='active'?'is-current':''} ${step.state==='done'?'is-done':''}">${step.canOpen?`<a href="${Live.route(step.destination,s.id)}" ${step.state==='active'?'aria-current="step"':''}>${content}</a>`:`<div ${step.state==='active'?'aria-current="step"':'aria-disabled="true"'}>${content}</div>`}</li>`;
+    return `<li class="${step.state==='active'?'is-current':''} ${step.state==='done'?'is-done':''} step-tone-${toneOf(step.status)}">${step.canOpen?`<a href="${Live.route(step.destination,s.id)}" ${step.state==='active'?'aria-current="step"':''}>${content}</a>`:`<div ${step.state==='active'?'aria-current="step"':'aria-disabled="true"'}>${content}</div>`}</li>`;
    }).join('')}</ol></section>${p?.flagged_photos?.length?`<div class="note"><h3>${p.flagged_photos.length} photos need attention</h3><p>These photos remain available in the ${G.componentsGate(s)?'components':'rooms'} review.</p></div>`:''}${Live.studyTools?Live.studyTools(s):''}${w?.error&&w.error.status!==404?`<p class="live-upload-error">Status unavailable: ${esc(Live.errorText(w.error))}. Showing the last confirmed state.</p>`:''}</div><aside class="hub-details"><section class="panel panel-body"><h2>Study details</h2><dl><div><dt>Study</dt><dd>${esc(s.property_name)}</dd></div>${person?`<div><dt>Created by</dt><dd>${esc(person.name)}${person.email&&person.email!==person.name?`<small>${esc(person.email)}</small>`:''}</dd></div>`:''}<div><dt>Created</dt><dd>${Live.when(s.created_at)}</dd></div><div><dt>Last update</dt><dd>${Live.when(s.updated_at)}</dd></div><div><dt>Revision</dt><dd>${s.revision}</dd></div></dl></section><section class="panel panel-body"><h2>Source files</h2><div class="hub-file-row"><span>Appraisal</span><strong>${confirmed.some(d=>d.kind==='appraisal')?'Uploaded':'Missing'}</strong></div><div class="hub-file-row"><span>Photos</span><strong>${photos.length}</strong></div><a class="screen-link" href="${Live.route('files',s.id)}">View files ${icon('arrow',14)}</a></section></aside></div>${!finished&&!archived?`<div class="actionbar"><p>${gate?'Decisions apply to revision '+s.revision+'.':notStarted?'Confirm the appraisal and photos before starting.':'Progress updates automatically.'}</p>${!notStarted?'<button class="button quiet danger small" data-live="cancel">Cancel study</button>':''}</div>`:''}</div>`;
   });
  };
  // Upload · Appraisal · Rooms · Components · Assets · Results · Report & sign (no Components step for a
  // study with the single rooms review).
  Live.studyStatus=(s,view=state.screen)=>{
+  // Report & sign states the report's status once, in its own panel; the strip would repeat it.
+  // On a finished study's review pages the header badge and the Report & sign step already say
+  // it (Update required, Signed), so the strip is kept for progress, results and the records.
+  if(view==='report')return '';
+  if(s.status==='completed'&&['appraisal','rooms','components','assets','asset-detail','viewer'].includes(view))return '';
   const context=G.reviewContext(s,view,Live.reportStateEntry?.(s));if(!context)return '';
-  return `<section class="study-status study-status--${context.tone}" aria-label="Study status"><span class="study-status-symbol" aria-hidden="true">${icon(context.tone==='complete'?'check':context.tone==='attention'?'help':'eye',23)}</span><div class="study-status-copy"><div class="study-status-title"><h2>${esc(context.title)}</h2>${context.readOnly?'<span class="study-access">'+icon('eye',14)+'Read-only review</span>':''}</div><p>${esc(context.detail)}</p></div>${context.action?`<a class="button study-status-action" href="${Live.route(context.action,s.id)}">${esc(context.actionLabel||'Study progress')}${icon('arrow',16)}</a>`:''}</section>`;
+  // r26: "Update required" (a signed report is out of date) is said once, on Study progress with its
+  // action; elsewhere the header badge (a link to Report & sign) and the step bar already say it.
+  // The next step after approval (add details, sign) keeps its strip: it is where the engineer goes next.
+  if(s.status==='completed'&&view!=='processing'&&Live.delivery(s).label==='Update required')return '';
+  return `<section class="study-status study-status--${context.tone}" aria-label="Study status"><span class="study-status-symbol" aria-hidden="true">${icon(context.tone==='complete'?'check':context.tone==='attention'?'help':'eye',18)}</span><div class="study-status-copy"><div class="study-status-title"><h2>${esc(context.title)}</h2></div><p>${esc(context.detail)}</p></div>${context.action?`<a class="button study-status-action" href="${Live.route(context.action,s.id)}">${esc(context.actionLabel||'Study progress')}${icon('arrow',16)}</a>`:''}</section>`;
  };
- Live.steps=s=>`${Live.studyStatus(s)}<nav class="steps study-navigation" aria-label="Study steps">${G.navigation(s,state.screen,Live.reportStateEntry?.(s)).map(({label,state:st,selected,status,destination,available},i)=>{
+ // This page's own access, next to its title: read-only (approved, or not open yet) and, on a
+ // completed study, the way to change it. The study-wide report notice stays in the strip above.
+ Live.gateAccess=(s,view=state.screen)=>{
+  const context=G.reviewContext(s,view,Live.reportStateEntry?.(s));if(!context?.readOnly)return '';
+  const reopen=Live.reopenButton?Live.reopenButton(s,view):'';
+  return `<div class="gate-access"><span class="study-access">${icon('eye',14)}${s.status==='completed'?'Approved · read-only':'Read-only'}</span>${reopen.replace('button study-status-action','button small')}</div>`;
+ };
+ Live.steps=s=>`${Live.studyStatus(s)}<nav class="steps study-navigation" aria-label="Study steps">${G.navigation(s,state.screen,Live.reportStateEntry?.(s)).map(({label,state:st,selected,status,tone,destination,available},i)=>{
   const content=`<span class="step-marker" aria-hidden="true">${st==='done'?'✓':i+1}</span><div class="step-copy"><strong>${label}</strong><small>${status}</small></div>`;
-  const attrs=`class="step ${st==='done'?'done':''} ${st==='active'?'workflow-current':''} ${selected?'is-selected':''}" ${selected?'aria-current="page"':''}`;
+  const attrs=`class="step ${st==='done'?'done':''} ${st==='active'?'workflow-current':''} ${selected?'is-selected':''} step-tone-${tone||'idle'}" ${selected?'aria-current="page"':''}`;
   return available?`<a href="${s.id?Live.route(destination,s.id):'#upload'}" ${attrs}>${content}</a>`:`<span ${attrs} aria-disabled="true">${content}</span>`;
- }).join('')}</nav>`;
+ }).join('')}</nav>${Live.gateAccess(s)}`;
 
  /* ---------- files ---------- */
  studyFiles=function(){
   return Live.withStudy(s=>{const docs=s.documents||[],groups=[['appraisal','Appraisal'],['photo','Property photos'],['other','Supporting documents']];
-   return `${Live.steps(s)}<div class="study-files"><header class="review-heading"><div><p>${esc(s.property_name)} <span>Study materials</span></p><h1>Uploaded files</h1><div>Original documents and photos for this study.</div></div><a class="button" href="${Live.route('processing',s.id)}">Study progress</a></header>${groups.map(([kind,label])=>{const list=docs.filter(d=>d.kind===kind);return list.length?`<h2 class="live-files-heading">${label} <span>${list.length}</span></h2><div class="study-file-grid" data-file-kind="${kind}">${list.map(d=>`<article class="study-file-card"><button class="file-preview-trigger" data-live="open-doc" data-value="${esc(d.id)}" aria-label="${(Live.isPdf(d)||Live.isAppraisalSource(d))?'Preview':'Open'} ${esc(d.filename)}">${d.kind==='photo'?Live.photo(d.id,d.filename):(Live.isPdf(d)||Live.isAppraisalSource(d))?Live.pdfThumbnail(d):`<div class="file-document-thumbnail">${icon('file',46)}<strong>${esc(d.filename)}</strong></div>`}</button><div class="study-file-meta"><strong>${esc(d.filename)}</strong><span>${(d.bytes/1048576).toFixed(1)} MB <i>·</i> ${d.uploaded_at?'Confirmed':'Upload not confirmed'}</span><div><button data-live="open-doc" data-value="${esc(d.id)}">${(Live.isPdf(d)||Live.isAppraisalSource(d))?'Preview':'Open'}</button><button data-live="download-doc" data-value="${esc(d.id)}">${icon('download',15)}Download</button></div></div></article>`).join('')}</div>`:''}).join('')||'<div class="file-empty"><h3>No files yet</h3></div>'}</div>`});
+   return `${Live.steps(s)}<div class="study-files"><header class="review-heading"><div><p>${esc(s.property_name)} <span>Study materials</span></p><h1>Uploaded files</h1></div><a class="button" href="${Live.route('processing',s.id)}">Study progress</a></header>${groups.map(([kind,label])=>{const list=docs.filter(d=>d.kind===kind);return list.length?`<h2 class="live-files-heading">${label} <span>${list.length}</span></h2><div class="study-file-grid" data-file-kind="${kind}">${list.map(d=>`<article class="study-file-card"><button class="file-preview-trigger" data-live="open-doc" data-value="${esc(d.id)}" aria-label="${(Live.isPdf(d)||Live.isAppraisalSource(d))?'Preview':'Open'} ${esc(d.filename)}">${d.kind==='photo'?Live.photo(d.id,d.filename):(Live.isPdf(d)||Live.isAppraisalSource(d))?Live.pdfThumbnail(d):`<div class="file-document-thumbnail">${icon('file',46)}<strong>${esc(d.filename)}</strong></div>`}</button><div class="study-file-meta"><strong>${esc(d.filename)}</strong><span>${(d.bytes/1048576).toFixed(1)} MB <i>·</i> ${d.uploaded_at?'Confirmed':'Upload not confirmed'}</span><div><button data-live="open-doc" data-value="${esc(d.id)}">${(Live.isPdf(d)||Live.isAppraisalSource(d))?'Preview':'Open'}</button><button data-live="download-doc" data-value="${esc(d.id)}">${icon('download',15)}Download</button></div></div></article>`).join('')}</div>`:''}).join('')||'<div class="file-empty"><h3>No files yet</h3></div>'}</div>`});
  };
  Live.openDocument=async(docId,page=1)=>{
   const d=(L.study?.documents||[]).find(x=>x.id===docId);if(!d)return;
@@ -404,7 +473,7 @@
 
  /* ---------- start ---------- */
  // Another account signed in: nothing cached for the previous one may show.
- BasisAuth.onChange(user=>{if(L.user&&user?.uid!==L.user.uid)L.cache.clear();L.user=user;if(L.authReady)render()});
- BasisAuth.init(C.firebase).then(()=>{L.authReady=true;L.user=BasisAuth.user;L.authError=BasisAuth.redirectError||'';const back=sessionStorage.getItem('basis-live-return');sessionStorage.removeItem('basis-live-return');if(L.user&&back&&/^#(login)?$/.test(location.hash||'#')){location.hash=back}render()},e=>{L.authError=`The Firebase SDK could not load (${e.message}). Check the network connection.`;render()});
+ BasisAuth.onChange(user=>{if(L.user&&user?.uid!==L.user.uid)L.cache.clear();L.user=user;if(user)Live.loadCaps();if(L.authReady)render()});
+ BasisAuth.init(C.firebase).then(()=>{L.authReady=true;L.user=BasisAuth.user;if(L.user)Live.loadCaps();L.authError=BasisAuth.redirectError||'';const back=sessionStorage.getItem('basis-live-return');sessionStorage.removeItem('basis-live-return');if(L.user&&back&&/^#(login)?$/.test(location.hash||'#')){location.hash=back}render()},e=>{L.authError=`The Firebase SDK could not load (${e.message}). Check the network connection.`;render()});
  render();
 })();

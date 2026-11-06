@@ -36,6 +36,8 @@
   iteration_cap:fallback('reached its step limit without answering'),
   timeout:fallback('timed out'),
   budget_exceeded:fallback('stopped at the study’s model budget'),
+  'takeoff:upper_bound':'Its quantity is an upper bound (the whole unbuilt lot), not a measurement. Measure or confirm it.',
+  'structure:building_rcn_review':'It comes from the building cost model, which needs your confirmation: check the quality class, building type and exterior wall under Concealed systems.',
  };
  const CHECKS={
   // validation: (basis.domain.validators)
@@ -51,7 +53,7 @@
   // cross: (basis.domain.cross_validation)
   SECTION_1245_SF_LARGE:'It is section 1245 but measured as more than 100 SF. Section 1245 property is usually equipment or removable finishes, not large areas.',
   COST_NEEDS_QUANTITY:'The cost table prices it by area or length, but the takeoff only counts it, so it has no cost yet. Measure it to price it.',
-  COST_ROW_MISSING:'No cost table row matches it, so its cost needs a manual estimate.',
+  COST_ROW_MISSING:'No cost table row matches it, so it has no cost yet.',
   COST_BELOW_RANGE:'Its unit cost is far below the typical range for this component.',
   COST_ABOVE_RANGE:'Its unit cost is far above the typical range for this component.',
   COST_TOTAL_MISMATCH:'Its total cost is not the unit cost times the quantity.',

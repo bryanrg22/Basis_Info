@@ -53,3 +53,9 @@ test('polygon selection follows the drawn shape instead of its surrounding box',
  const triangle={...item('shape','sink',{x1:0,y1:0,x2:1,y2:1}),polygon:[{x:0,y:0},{x:1,y:0},{x:0,y:1}]};
  assert.equal(V.under([triangle],.1,.1).length,1);assert.equal(V.under([triangle],.8,.8).length,0);
 });
+test('the viewer room count leaves out a row removed and pending send',()=>{
+ const room={id:'r1',inventory:[{component_id:'a',label:'sink',count:1},{component_id:'b',label:'sink',count:2}]};
+ const pending=new Map([['component_remove:b',{entity_type:'component_remove',entity_id:'b',after:{}}]]);
+ assert.equal(V.roomCount(room,'sink',pending),1);
+ assert.equal(V.roomCount(room,'sink',new Map()),3);
+});

@@ -78,7 +78,7 @@ function productPolishPage(){
  if(['processing','complete'].includes(state.screen))root.querySelector('.study-presence')?.remove();
  // Workflow scenarios belong to the review toolbar, outside the product's work area.
  const statebar=root.querySelector('.main .statebar');if(statebar){const details=document.createElement('details');details.className='scenario-menu workflow-scenarios';details.innerHTML='<summary>Workflow states</summary><div></div>';details.lastElementChild.append(statebar);root.querySelector('.reviewbar>.row:last-child')?.prepend(details)}
- if(['assets','complete'].includes(state.screen))root.querySelectorAll('.content table').forEach(t=>t.classList.add('asset-register'));
+ if(['assets','complete'].includes(state.screen))root.querySelectorAll('.content table').forEach(t=>{if(!t.closest('.nd'))t.classList.add('asset-register')});
  for(const strip of root.querySelectorAll('.main .steps,.main .tabs,.main .asset-nav')){
   const selected=strip.querySelector('.active');if(!selected||strip.scrollWidth<=strip.clientWidth)continue;
   const parent=strip.getBoundingClientRect(),item=selected.getBoundingClientRect();strip.scrollLeft+=item.left-parent.left-(strip.clientWidth-item.width)/2;

@@ -17,6 +17,7 @@
    types.set(label,(types.get(label)||0)+count);
   };
   for(const item of room.inventory||[]){
+   if(corrections.has('component_remove:'+item.component_id))continue;// a row the engineer removed, pending send
    const after=corrections.get('component:'+item.component_id)?.after||{};
    add({label:after.label||item.label,count:after.count??item.count});
   }

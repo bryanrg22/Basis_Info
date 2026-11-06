@@ -710,3 +710,35 @@ upload slow tests 142 passed.
 | `tests/integration/db/test_migrations.py` | Changed: head 0031; the `0031` table, its checks and an exact downgrade | pass |
 | `tests/api/apitest_support.py` | Changed: the own-firm dependency passes the request to `get_current_user` | (support) |
 
+
+## UI review: status, reopening and the New design (2026-11-05)
+
+| Test file | Coverage | Result |
+| --- | --- | --- |
+| `web/tests/ui-review.test.cjs` | A finished study's delivery state comes from its report state (Update required, Signed, Needs signature) and reads Checking… while unknown or loading and Report status unavailable when it failed, so it is neither Report to sign nor Finished; every finished study's report state loads, six requests at a time; an in-progress study never reads its report. Change <step> appears on the five approved review views of a completed study, for engineers and owners only, never for a viewer, an in-progress study or a non-review screen; a legacy study reopens at its rooms gate. Reopening sends `dry_run` first and writes only on confirmation; Study progress forwards to the reopened review only once it is open. The New design switch is off by default, round-trips, and reads as off when storage throws The building formula renders one step per row with every recorded word kept, and falls back to the paragraph when it does not parse; an asset flag shows each recorded reason once with its fix and code and no placeholder text; the finished-study banner names the next report action (Review and sign revision N, Update the report, View signed report). | 8 pass |
+| `web/tests/gates.test.cjs` | Every step carries a status tone (done, review, danger, progress, idle), including Report & sign for update-required and signed reports | 11 pass |
+| `web/tests/study-overview.test.cjs` | The report notice appears once: not above Report & sign's own panel and not on a finished study's review pages (the step bar and header carry it there), while progress, results and record pages keep the strip above the steps; review pages show their access ("Approved · read-only", "Read-only") by the title | 13 pass |
+| `web/tests/room-placement-controller.test.cjs` | A completed Rooms page shows no editing instructions; creating a room from the Move dialog needs the room_create capability and emits a create and a move; without it there is no New room button or create option; a lone room offers no merge; a merge without a target never loses photos; a merge sends one merge_into; a renamed room shows the AI name struck through and Reset to AI restores it with no correction left | 8 pass |
+| `web/tests/review-organization.test.cjs` | The selected appraisal field carries its own Correct value action; the footer keeps only the next-section control | 20 pass |
+| `web/tests/live-redesign-gates.test.cjs` | The photo viewer's add control is found by its visible "Draw missing object" label where the step is open, and absent on read-only and photo-only views; an edited inventory row shows the AI value struck through beside the engineer value with "Edited by you", a removed row stays struck through with its reason and Undo, and the unit price column and dialog fields appear only when the API offers unit_cost_override; the row dialog carries type, count stepper, material, attachment, reason, Remove row and (with unsent edits) Reset to AI | 23 pass |
+| `web/tests/room-placement.test.cjs` | A room emptied by moves sends only its photo moves (the API has no room delete); merging sends one `room` `merge_into` correction, follows chains, keeps a photo moved on after its merge, and refuses a missing or self target | 12 pass |
+| `web/tests/sample-api.test.cjs` | The in-browser sample API: every GET the live screens use, in all eight states and for all three studies, validates against its 200 schema in docs/api/openapi.json (only the proposed `exclusion` and `cost.override` fields are allowed extras); decisions, reopen, objects with the duplicate guard, signing, answers and profile follow the documented statuses and problem types; the proposed capabilities, object exclusion, unit price override and room creation; inactive without ?api=sample; no client-data strings (by digest) | 28 pass |
+
+Code review of the branch (Sol on Codex, Opus on the Claude provider), each fix with a test that fails on the code before it:
+
+| Test file | Coverage | Result |
+| --- | --- | --- |
+| `web/tests/profile.test.cjs` | Added: the New design switch registers one click handler on the app root (`const root`, a global lexical binding, not `globalThis.root`) and flips the preference; other clicks leave it alone | 5 pass |
+| `web/tests/report.test.cjs` | Added: the inline report key changes with the firm profile and study details versions and the revision, is null without an export or with a skipped one, and is the signed PDF's once signed | 11 pass |
+| `web/tests/rooms.test.cjs`, `web/tests/vision-model.test.cjs` | Added: a row removed and pending send leaves the room summary and the viewer's room count; dropping the removal brings it back | pass |
+| `web/tests/manual-add.test.cjs` | Added: a lowered count goes on the largest row of the type (rows 1 + 6, photo 3: the 6 becomes 2), and is withheld when no single row can reach it | 8 pass |
+| `web/tests/live-redesign-gates.test.cjs` | Added: sent room corrections read as room names (merge, photo move) and recovery classes by name, never ids; Study progress returns to the review only after a send succeeds, not after a refused one | 26 pass |
+| `web/tests/sample-api.test.cjs` | Added: a stale-preview sign answers 412 BASIS-REPORT-010 with the current preview ETag; If-Match on the report answers reads as `parse_if_match` (unquoted and weak never match, a tag list does, `*` needs existing answers); with the PROPOSED section deleted the sample still runs and `/v1/capabilities` is 404 | 30 pass |
+
+Driving the branch against the real API (main with the signer, overrides and team branches):
+
+| Test file | Coverage | Result |
+| --- | --- | --- |
+| `web/tests/sample-api.test.cjs` | Changed: P2 answers in the backend's override shape (the price a decimal string as entered, `level`, `correction_id`, `revision`; trail `engineer_price` with the table's pricing kept as `replaced`; the `source_row` text; a price alone keeps the bucket and the classification's reasons and clears only the table's pricing reasons; more than two decimals or a string price is refused); the validator checks `cost.override` against the contract once the contract has it. Added: a checkout without the five untracked photos serves the committed synthetic stand-in for each, whole, and a missing report still fails. Passes against main's `openapi.json` and each backend branch's (overrides, signer details, team duplicate, library search), and in a clean clone without the photos (9 of 410 failed there before) | 31 pass |
+
+The full `web/tests/*.test.cjs` suite passed 411 tests.

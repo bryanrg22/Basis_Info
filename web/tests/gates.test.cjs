@@ -113,3 +113,15 @@ test('the final report is the next action for an unsigned study and changed sign
  assert.equal(G.reviewContext(s,'report',changed).title,'Report needs updating');
  assert.equal(G.reviewContext(s,'report',changed).action,null);
 });
+
+test('each step carries a status tone for the step bar: done, review, danger, progress or idle',()=>{
+ const tones=(s,view,entry)=>G.navigation(s,view,entry).map(x=>x.tone);
+ assert.deepEqual(tones(study('assets_review','waiting_review',true),'assets'),['done','done','done','done','review','idle','idle']);
+ assert.deepEqual(tones(study('components_processing','processing',true),'processing'),['done','done','done','progress','idle','idle','idle']);
+ assert.equal(G.navigation(study('assets_processing','failed',true),'processing').find(x=>x.selected).tone,'danger');
+ const done={...study('completed','completed',true),id:'s1'};
+ const report=changed=>({done:true,data:{study_id:'s1',revision:3,exported:true,missing_for_final:[],signature:{study_id:'s1',revision:3},changed_since_signing:changed}});
+ assert.equal(G.navigation(done,'report',report(['firm'])).at(-1).tone,'review');
+ assert.equal(G.navigation(done,'report',report([])).at(-1).tone,'done');
+ assert.equal(G.navigation(done,'report',report([])).at(-1).status,'Signed');
+});

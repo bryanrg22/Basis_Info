@@ -29,3 +29,15 @@ test('owner-only spend view does not even fetch calls for an engineer or viewer'
 test('withheld Results never offer an allocation CSV and missing API returns a retryable view',()=>{const {live,entries}=controller();entries.set(`result:s1:2:${study.updated_at}`,{done:true,data:minimal});assert.doesNotMatch(live.resultScreen(),/Download allocation CSV/);assert.match(live.resultScreen(),/Download result JSON/);entries.set(`result:s1:2:${study.updated_at}`,{done:true,error:{status:404}});assert.match(live.resultScreen(),/not available on the connected server/)});
 test('index write controls are hidden for non-owners and unknown server versions',()=>{const {live,entries}=controller('engineer');entries.set('cost-indices:::false',{done:true,data:{items:[]}});assert.doesNotMatch(live.screens['cost-indices'](),/Add cited value/);const owner=controller();owner.entries.set('cost-indices:::false',{done:true,error:{status:404}});assert.doesNotMatch(owner.live.screens['cost-indices'](),/Add cited value/)});
 test('index Settings return clears the Cost sources panel selection',()=>{const {live,context}=controller();context.state.setting='Cost sources';live.actions['index-settings']();assert.equal(context.state.setting,'Profile');assert.equal(context.location.hash,'#settings')});
+
+test('recorded check messages read as words and grouped figures; the record stays in the title',()=>{
+ const V=require('../live/result-view.js');
+ assert.equal(V.readable('RCNLD 588779.76 against the purchase price less land 598400: gap 9620.24 (+1.6 %)'),'cost less depreciation 588,779.76 against the purchase price less land 598,400: gap 9,620.24 (+1.6 %)');
+ assert.equal(V.readable('appraisal_site_value is preferred over flat_percentage (ATG p.37, p.64)'),'appraisal site value is preferred over flat percentage (ATG p.37, p.64)');
+ assert.equal(V.readable('RSMeans Residential 2020 p.15; 10.0 %'),'RSMeans Residential 2020 p.15; 10.0 %');// years, pages and percents stay
+ assert.equal(V.readable('already 1,234,567 grouped; BASIS-COST-003 kept'),'already 1,234,567 grouped; BASIS-COST-003 kept');
+ assert.equal(V.readable('placed in service 2024; 1999 basement'),'placed in service 2024; 1999 basement');// bare four-digit numbers may be years
+ assert.equal(V.readable(null),'');
+ const html=V.checkList([{severity:'ok',code:'reconciliation',message:'RCNLD 588779.76'}]);
+ assert.match(html,/title="reconciliation: RCNLD 588779.76"/);assert.doesNotMatch(html,/<code>/);assert.match(html,/cost less depreciation 588,779.76/);
+});
