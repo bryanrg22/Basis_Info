@@ -401,18 +401,17 @@
             "schema": {
               "anyOf": [
                 {
-                  "type": "string",
-                  "maxLength": 200,
-                  "pattern": "^[^\\x00]*$"
+                  "type": "string"
                 },
                 {
                   "type": "null"
                 }
               ],
-              "description": "Case-insensitive substring of the property name (trimmed; blank matches everything).",
+              "maxLength": 200,
+              "description": "Search words, each of which must be found (as a substring, case and accents ignored) in the property name, the intake's ZIP or state, the taxpayer, the appraisal's address, city, state, ZIP, county, borrower, owner of record or parcel number, the creator's name or email, or a signer's name or email. Blank matches everything; `%`, `_` and `\\` are literal; at most 10 distinct words (docs/api/STUDY_LIBRARY.md).",
               "title": "Q"
             },
-            "description": "Case-insensitive substring of the property name (trimmed; blank matches everything)."
+            "description": "Search words, each of which must be found (as a substring, case and accents ignored) in the property name, the intake's ZIP or state, the taxpayer, the appraisal's address, city, state, ZIP, county, borrower, owner of record or parcel number, the creator's name or email, or a signer's name or email. Blank matches everything; `%`, `_` and `\\` are literal; at most 10 distinct words (docs/api/STUDY_LIBRARY.md)."
           },
           {
             "name": "status",

@@ -35,6 +35,8 @@ VERSIONS = Path(__file__).resolve().parents[3] / "basis/db/alembic/versions"
 MIGRATION = VERSIONS / "0001_initial.py"
 
 SPEC_TABLES = {
+    # The library's search document, kept by triggers (migration 0034_study_search).
+    "study_search": "study_id document",
     # Retention (migration 0026_retention_alerts): orgs.retention_days, studies.purged_at.
     "orgs": "id name retention_days created_at",
     # Browser error capture (migration 0028_client_errors, docs/api/CLIENT_ERRORS.md).
@@ -274,6 +276,7 @@ SPEC_SIMPLE_FKS = {
     ("cost_indices", "obtained_by", "users"),
     ("cost_indices", "run_id", "cost_index_runs"),
     ("cost_index_runs", "actor_id", "users"),
+    ("study_search", "study_id", "studies"),
 }
 
 SPEC_UNIQUES = {
@@ -314,6 +317,8 @@ SPEC_PRIMARY_KEYS = {
     "signer_details": ("user_id",),
     # Browser error capture (0028): one issue per fingerprint.
     "client_error_issues": ("fingerprint",),
+    # The search document (0033): one per study.
+    "study_search": ("study_id",),
 }
 
 SPEC_CHECKS = {
@@ -426,6 +431,7 @@ STUDY_SCOPED = {
     "object_prompts",
     "study_events",
     "photo_room_answers",
+    "study_search",
 }
 
 
@@ -692,6 +698,14 @@ def test_indexes() -> None:
         for index in t.indexes
     }
     assert indexes["ix_studies_org_id_created_at"] == ["studies.org_id", "created_at DESC"]
+    # 0033: the library search's pg_trgm GIN index, deleted with its study.
+    assert indexes["ix_study_search_document_trgm"] == ["study_search.document"]
+    search = table("study_search")
+    (trgm,) = search.indexes
+    assert trgm.dialect_options["postgresql"]["using"] == "gin"
+    assert trgm.dialect_options["postgresql"]["ops"] == {"document": "gin_trgm_ops"}
+    (fk,) = search.foreign_keys
+    assert fk.ondelete == "CASCADE"
     assert indexes["ix_chunks_corpus_version_id_doc_id"] == [
         "chunks.corpus_version_id",
         "chunks.doc_id",

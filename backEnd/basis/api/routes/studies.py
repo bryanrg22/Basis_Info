@@ -23,6 +23,7 @@ from collections.abc import Sequence
 from typing import Annotated, Any, Final
 
 from fastapi import Depends, Header, Query, Request, Response, status
+from pydantic import AfterValidator
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from basis.api.errors import (
@@ -67,7 +68,14 @@ from basis.db.repositories import (
     UserRepository,
     VisibleStudy,
 )
-from basis.db.repositories.study import DEFAULT_SORT, MAX_PAGE_SIZE, StudyFilters, StudySort
+from basis.db.repositories.study import (
+    DEFAULT_SORT,
+    MAX_PAGE_SIZE,
+    MAX_SEARCH_WORDS,
+    StudyFilters,
+    StudySort,
+    search_words,
+)
 from basis.db.repositories.study_event import StudyEventRepository
 from basis.db.session import SessionDep, session_scope
 from basis.domain.intake import StudyIntake, StudyIntakeIn, with_location
@@ -306,6 +314,15 @@ async def put_intake(
     return await study_out(session, study)
 
 
+def _at_most_search_words(q: str | None) -> str | None:
+    """422 for a query of more than ``MAX_SEARCH_WORDS`` distinct words: each word is a
+    search of its own, and one- and two-letter words cannot use the index (EVAL_REPORT 92:
+    a 200-character query of 66 two-letter words took 2 s at 200,000 studies)."""
+    if len(search_words(q)) > MAX_SEARCH_WORDS:
+        raise ValueError(f"q has more than {MAX_SEARCH_WORDS} distinct words")
+    return q
+
+
 @reads.get(
     "/studies",
     summary="List studies visible to you: search, filter, sort, page (the library)",
@@ -333,11 +350,16 @@ async def list_studies(
     ] = None,
     q: Annotated[
         str | None,
+        AfterValidator(_at_most_search_words),
         Query(
             max_length=MAX_QUERY_LENGTH,
             pattern=NO_NUL_PATTERN,
-            description="Case-insensitive substring of the property name (trimmed; blank "
-            "matches everything).",
+            description="Search words, each of which must be found (as a substring, case and "
+            "accents ignored) in the property name, the intake's ZIP or state, the taxpayer, "
+            "the appraisal's address, city, state, ZIP, county, borrower, owner of record or "
+            "parcel number, the creator's name or email, or a signer's name or email. Blank "
+            "matches everything; `%`, `_` and `\\` are literal; at most 10 distinct words "
+            "(docs/api/STUDY_LIBRARY.md).",
         ),
     ] = None,
     status: Annotated[

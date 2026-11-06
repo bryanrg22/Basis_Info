@@ -437,6 +437,32 @@ class Study(Base):
     updated_at: Mapped[datetime] = _updated_at()
 
 
+class StudySearch(Base):
+    """The library's search document of one study (migration ``0034_study_search``,
+    docs/api/STUDY_LIBRARY.md, EVAL_REPORT 92): the property name, the intake's ZIP and
+    state, the taxpayer, the creator's name and email, the appraisal's identifying subject
+    fields and the signers' names, one per line, lower-cased and accent-folded
+    (``study_search_fold``). Written only by the database's triggers on those sources; the
+    application reads it. A table of its own so that a document change never touches
+    ``studies.updated_at`` (the library's default order)."""
+
+    __tablename__ = "study_search"
+    __table_args__ = (
+        Index(
+            "ix_study_search_document_trgm",
+            "document",
+            postgresql_using="gin",
+            postgresql_ops={"document": "gin_trgm_ops"},
+        ),
+    )
+
+    study_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("studies.id", ondelete="CASCADE"), primary_key=True
+    )
+    document: Mapped[str]
+    created_at: Mapped[datetime] = _created_at()
+
+
 class Document(Base):
     __tablename__ = "documents"
     __table_args__ = (

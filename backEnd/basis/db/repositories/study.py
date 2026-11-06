@@ -20,7 +20,7 @@ from datetime import datetime
 from types import EllipsisType
 from typing import Any, Final, Literal
 
-from sqlalchemy import ColumnElement, and_, func, select, tuple_, update
+from sqlalchemy import ColumnElement, and_, exists, func, select, tuple_, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from basis.db.enums import OrgRole, Stage, StudyStatus, status_for_stage
@@ -31,7 +31,14 @@ from basis.db.errors import (
     PreconditionFailedError,
     StaleStateError,
 )
-from basis.db.models import Extraction, ExtractionField, OrgMember, Run, Study
+from basis.db.models import (
+    Extraction,
+    ExtractionField,
+    OrgMember,
+    Run,
+    Study,
+    StudySearch,
+)
 from basis.db.repositories.study_event import Actor, StudyEventRepository
 from basis.domain.intake import StudyIntake
 
@@ -55,7 +62,8 @@ class StudyPage:
 class StudyFilters:
     """What ``GET /v1/studies`` narrows the listing by (docs/api/STUDY_LIBRARY.md)."""
 
-    q: str | None = None  # case-insensitive substring of the property name (trimmed)
+    # Words that must each be found in the study's searched values (``_word_clause``).
+    q: str | None = None
     statuses: Sequence[StudyStatus] = ()
     created_by: uuid.UUID | None = None
     include_archived: bool = False
@@ -189,6 +197,34 @@ def _escape_like(text: str) -> str:
     return text.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
 
 
+# The most distinct words a library query may have (the route refuses more with a 422):
+# each word is one more EXISTS, and a short one cannot use the trigram index (EVAL_REPORT 92).
+MAX_SEARCH_WORDS: Final = 10
+
+
+def search_words(q: str | None) -> list[str]:
+    """The words of a library query: ``q`` split on whitespace (so trimmed; blank is none),
+    a repeated word (case ignored) kept once, since it can only match what it matched."""
+    kept: dict[str, str] = {}
+    for word in (q or "").split():
+        kept.setdefault(word.casefold(), word)
+    return list(kept.values())
+
+
+def _word_clause(word: str) -> ColumnElement[bool]:
+    """One word of ``q``: a substring of the study's search document (``study_search``: the
+    name, the intake's ZIP and state, the taxpayer, the creator, the appraisal's identifying
+    subject fields, the signers), the word folded by ``study_search_fold`` as the document
+    was (lower-cased, accents removed), so case and accents never decide a match. LIKE
+    wildcards in the word are literal. One ``EXISTS`` per word, so the planner can start
+    from the document's pg_trgm index when the word is rare (EVAL_REPORT 92)."""
+    pattern = func.concat("%", func.study_search_fold(_escape_like(word)), "%")
+    return exists().where(
+        StudySearch.study_id == Study.id,
+        StudySearch.document.like(pattern, escape="\\"),
+    )
+
+
 def _filter_clauses(filters: StudyFilters) -> list[ColumnElement[bool]]:
     clauses: list[ColumnElement[bool]] = []
     statuses = list(filters.statuses)
@@ -197,9 +233,9 @@ def _filter_clauses(filters: StudyFilters) -> list[ColumnElement[bool]]:
     # Archived studies are hidden unless asked for, by the switch or by naming the status.
     if not filters.include_archived and StudyStatus.ARCHIVED not in statuses:
         clauses.append(Study.status != StudyStatus.ARCHIVED)
-    q = (filters.q or "").strip()
-    if q:
-        clauses.append(Study.property_name.ilike(f"%{_escape_like(q)}%", escape="\\"))
+    # Every word must match (in any of the searched values, in any order): a query that
+    # matched the property name as one substring still matches, word by word.
+    clauses.extend(_word_clause(word) for word in search_words(filters.q))
     if filters.created_by is not None:
         clauses.append(Study.created_by == filters.created_by)
     return clauses
