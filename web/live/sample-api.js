@@ -299,9 +299,9 @@
   const out=new Map();
   for(const doc of room.photos){
    const per=new Map();for(const o of liveObjects(S,doc).filter(o=>o.counted)){const p=per.get(o.label)||{model:0,manual:0};p[o.source==='manual'?'manual':'model']++;per.set(o.label,p)}
-   for(const [label,p] of per){const best=out.get(label);if(!best||p.model+p.manual>best.photo_count+best.manual_count)out.set(label,{label,inventory_count:0,photo_count:p.model,manual_count:p.manual,document_id:doc,suggested:0})}
+   for(const [label,p] of per){const best=out.get(label),total=p.model+p.manual;if(!best||total>best.photo_count||(total===best.photo_count&&p.manual>best.manual_count))out.set(label,{label,inventory_count:0,photo_count:total,manual_count:p.manual,document_id:doc,suggested:0})}
   }
-  for(const s of out.values()){s.inventory_count=room.inventory.filter(i=>i.label===s.label).reduce((a,i)=>a+i.count,0);s.suggested=Math.max(s.inventory_count,s.photo_count+s.manual_count)}
+  for(const s of out.values()){s.inventory_count=room.inventory.filter(i=>i.label===s.label).reduce((a,i)=>a+i.count,0);s.suggested=Math.max(s.inventory_count,s.photo_count)}
   return [...out.values()];
  }
  function roomsOut(S){

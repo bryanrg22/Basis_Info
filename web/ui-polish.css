@@ -390,3 +390,12 @@ body:has(.review-decision) #toast{bottom:118px}
 .vision-room-count.is-live>.vision-type-title{display:flex;flex-direction:row-reverse;justify-content:space-between;align-items:center;gap:12px}
 .vision-room-count.is-live>.vision-type-title h3{margin:0;min-width:0}
 .modal .field:has(#vision-retype-reason),.modal .field:has(#vision-exclude-reason){margin-top:14px}
+.vision-room-count.is-live>.vision-room-keep{margin:-2px 0 0;font-size:12.5px;line-height:1.4;color:#475a50}
+/* r21: completed steps recede so the one decision left leads; the selected step keeps its weight. */
+#app .workspace:not([data-screen="viewer"]) .study-navigation .step.step-tone-done:not(.is-selected) small,#app .step-tone-done .hub-progress-step small,#app .step-tone-done .hub-step-status{font-weight:500}
+#app .workspace:not([data-screen="viewer"]) .study-navigation .step.step-tone-done:not(.is-selected) strong{font-weight:500;color:#34473d}
+.vision-room-count.is-live>.vision-room-suggest .vision-use{white-space:nowrap;flex:none}
+.vision-room-count.is-live>.vision-room-suggest>span{min-width:0}
+/* Live, an object selected: the type, then the object's card, then the room inventory. */
+.vision-inspector-body>.vision-type-title{display:flex;flex-direction:row-reverse;justify-content:space-between;align-items:center;gap:12px;padding:4px 20px 10px}
+.vision-inspector-body>.vision-type-title h3{margin:0;min-width:0}

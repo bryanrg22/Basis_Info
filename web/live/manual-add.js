@@ -59,6 +59,13 @@
   * sums every row of the label, so the row takes the difference, not the suggestion
   * itself (rows 1 + 6 with "Use 8": this row becomes 2, not 8). */
  function suggestedRowCount(item,s){return Math.min(MAX_COUNT,Math.max(1,item.count+s.suggested-s.inventory_count))}
+ /* Lowered: after the engineer marks objects Not counted, the busiest photo of the room can
+  * show fewer than the room counts. `suggested` never goes below the inventory (a room holds
+  * at least what one photo shows, and photos overlap), so the lower count is only offered,
+  * beside a way to keep the inventory, once an exclusion on the photo prompts it. */
+ const lowered=(s,excluded)=>Boolean(s)&&excluded>0&&s.photo_count>=1&&s.photo_count<s.inventory_count;
+ /* The row count that brings the room to the busiest photo's count (the same difference rule as suggestedRowCount). */
+ function photoRowCount(item,s){return Math.min(MAX_COUNT,Math.max(1,item.count+s.photo_count-s.inventory_count))}
  /* Labels the photos show that the room's inventory lacks. */
  function missingLabels(room){return (room.suggested_counts||[]).filter(s=>s.inventory_count===0)}
 
@@ -83,6 +90,6 @@
   return {key:`room_component:${room.id}:${label}`,entity_type:'room_component',entity_id:room.id,before:null,after,reason:null,
    title:room.name,summary:`add ${count} ${labelName(label).toLowerCase()}${material?' ('+material+')':''}`};
  }
- const api={MATERIALS,ATTACHMENTS,MAX_COUNT,candidatesUnder,cycle,dragBox,outlineText,addedMessage,isDuplicate,suggestions,raised,rowFor,suggestedRowCount,missingLabels,validCount,countCorrection,roomComponentCorrection};
+ const api={MATERIALS,ATTACHMENTS,MAX_COUNT,candidatesUnder,cycle,dragBox,outlineText,addedMessage,isDuplicate,suggestions,raised,lowered,rowFor,suggestedRowCount,photoRowCount,missingLabels,validCount,countCorrection,roomComponentCorrection};
  if(typeof module==='object'&&module.exports)module.exports=api;else scope.BasisManualAdd=api;
 })(typeof globalThis==='object'?globalThis:this);

@@ -80,3 +80,17 @@ test('report summary never equates study completion with a signed deliverable',(
  assert.match(R.summary({...signed,changed_since_signing:['study']}).title,/inputs changed/);
  assert.match(R.summary({...signed,changed_since_signing:null}).title,/unverified/);
 });
+
+test('the firm change after signing compares the signed engineer with the profile now, field by field',()=>{
+ const signed={name:'A. Engineer',credentials:'PE',license_state:'NY',license_number:'000000',email:null};
+ const same=R.firmDiff(signed,{name:'Basis (test firm)',address:'1 Example St',engineer:{...signed}});
+ assert.deepEqual(same.fields.map(f=>[f.field,f.signed,f.now,f.changed]),[['Signing engineer','A. Engineer, PE','A. Engineer, PE',false],['License','NY 000000','NY 000000',false]]);
+ assert.equal(same.letterheadChanged,true);// the engineer matches: the letterhead is what changed
+ assert.equal(same.letterhead,'Basis (test firm) · 1 Example St');
+ const moved=R.firmDiff(signed,{name:'Basis',engineer:{...signed,license_state:'NJ',license_number:'12345'}});
+ assert.deepEqual(moved.fields.find(f=>f.field==='License'),{field:'License',signed:'NY 000000',now:'NJ 12345',changed:true});
+ assert.equal(moved.letterheadChanged,false);
+ const gone=R.firmDiff(signed,null);// no profile now: every field reads as changed to blank
+ assert.equal(gone.fields.every(f=>f.changed&&f.now===''),true);assert.equal(gone.letterhead,null);
+ assert.deepEqual(R.firmDiff(null,null).fields,[]);// nothing recorded on either side
+});

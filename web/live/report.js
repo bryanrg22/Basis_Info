@@ -98,6 +98,14 @@
   if(body.engineer.license_state&&!/^[A-Z]{2}$/.test(body.engineer.license_state))problems.push('The license state is a two-letter code.');
   return {body,problems};
  }
- const api={summary,changeNotice,RANK,certification,CERTIFICATION_VERSION,PHOTOGRAPHS,status,checklist,signBlocker,signBody,answersBody,profileBody};
+ /* The firm-profile change after signing, as actual values: the signature keeps the engineer
+  * block it signed (SignatureOut.engineer); the letterhead itself is only in the signed PDF. When
+  * the engineer's fields match, the letterhead is what changed (changed_since_signing has firm). */
+ function firmDiff(signed,profile){
+  const who=e=>[e?.name,e?.credentials].filter(Boolean).join(', '),lic=e=>[e?.license_state,e?.license_number].filter(Boolean).join(' '),now=profile?.engineer||{};
+  const fields=[['Signing engineer',who(signed),who(now)],['License',lic(signed),lic(now)]].filter(([,a,b])=>a||b).map(([field,signedValue,nowValue])=>({field,signed:signedValue,now:nowValue,changed:signedValue!==nowValue}));
+  return {fields,letterheadChanged:!fields.some(f=>f.changed),letterhead:[profile?.name,profile?.address].filter(Boolean).join(' · ')||null};
+ }
+ const api={summary,firmDiff,changeNotice,RANK,certification,CERTIFICATION_VERSION,PHOTOGRAPHS,status,checklist,signBlocker,signBody,answersBody,profileBody};
  if(typeof module==='object'&&module.exports)module.exports=api;else scope.BasisReport=api;
 })(typeof globalThis==='object'?globalThis:this);

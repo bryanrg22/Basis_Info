@@ -299,6 +299,8 @@ test('objects: a duplicate box answers 200 created false; a new box 201; delete 
  problem(await x.post(P,{kind:'box',label:'not_a_label',box:{x1:0,y1:0,x2:.1,y2:.1}}),422,'validation');
  let after=check('GET',T,await x.a.call('GET',P));assert.equal(after.counts.light_fixture,5);
  const rooms=(await x.a.call('GET',S(x.id)+'/rooms')).body.items,sug=rooms[0].suggested_counts.find(s=>s.label==='light_fixture');assert.ok(sug.manual_count>=1);
+ // openapi SuggestedCountOut: photo_count includes the manual instances; suggested = max(inventory_count, photo_count).
+ assert.equal(sug.photo_count,5);assert.equal(sug.suggested,Math.max(sug.inventory_count,sug.photo_count));
  check('DELETE',T+'/{object_id}',await x.a.call('DELETE',`${P}/${added.object.id}`));
  problem(await x.a.call('DELETE',`${P}/${pendant.id}`),409,'not-manual');
  problem(await x.a.call('DELETE',`${P}/nope`),404,'not-found');
