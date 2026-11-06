@@ -119,6 +119,21 @@ async def rows(deps: Deps, sid: uuid.UUID, revision: int) -> dict[str, tuple[Ass
     return out
 
 
+async def all_rows(deps: Deps, sid: uuid.UUID, revision: int) -> list[tuple[str, Asset, Any, Any]]:
+    """Every ``(label, asset, takeoff, cost)`` of the revision's itemized assets."""
+    async with session_scope(deps.sessionmaker) as session:
+        found = (
+            await session.execute(
+                select(Component.label, Asset, Takeoff, CostEstimate)
+                .join(Component, Component.id == Asset.component_id)
+                .join(Takeoff, Takeoff.asset_id == Asset.id)
+                .join(CostEstimate, CostEstimate.asset_id == Asset.id)
+                .where(Asset.study_id == sid, Asset.revision == revision)
+            )
+        ).all()
+    return [(label, asset, takeoff, cost) for label, asset, takeoff, cost in found]
+
+
 async def component_of(deps: Deps, asset: Asset) -> Component:
     async with session_scope(deps.sessionmaker) as session:
         found = await session.get(Component, asset.component_id)
@@ -422,17 +437,23 @@ async def test_a_price_does_not_price_a_missing_quantity(
     priced = table_deps(deps)
     sid = analyzed.study_id
     await activity_env.run(ProcessAssets(priced).run, process(analyzed))
-    before = await rows(deps, sid, 1)
-    label, (asset, takeoff, _) = next(
-        (label, row)
-        for label, row in before.items()
-        if isinstance(row[1].inputs, dict) and row[1].inputs.get("missing_input")
+    asset = next(
+        a
+        for _, a, t, _ in await all_rows(deps, sid, 1)
+        if isinstance(t.inputs, dict) and t.inputs.get("missing_input")
     )
+    assert asset.component_id is not None
     await reject(
         priced, analyzed, activity_env, "components_review", 1,
         ("component", asset.component_id, {"unit_cost": 4.25, "unit_cost_source": "Bid"}, "bid"),
     )  # fmt: skip
-    asset, takeoff, cost = (await rows(deps, sid, 2))[label]
+    # The row is found by the price it carries, not by its label: a label (a floor in two
+    # rooms) can name several rows, and which one a label lookup returns follows random ids.
+    carrying = [
+        (a, c) for _, a, _, c in await all_rows(deps, sid, 2) if (c.trail or {}).get("override")
+    ]
+    assert len(carrying) == 1, carrying
+    asset, cost = carrying[0]
     assert cost.unit_cost is None and cost.total is None
     assert cost.trail["kind"] == "unpriced" and cost.trail["override"]["unit_cost"] == "4.25"
     assert "input:gla" in (asset.review_reason or "").split("; ")
