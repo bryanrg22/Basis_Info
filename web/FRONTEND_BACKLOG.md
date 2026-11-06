@@ -206,6 +206,10 @@ not use. Nothing here is built in the app; each needs the backend first or is a 
   the changed fields only (owner only). After a change, Report & sign shows "signed with version
   1 · now version 2" and links to the signed PDF's first page. Showing the signed and current
   value of each changed field needs the signed inputs kept with the signature.
+- **Delivery state in the study list.** Home and Library read `GET .../report/state` once per
+  finished study (six at a time) to tell Update required, Needs signature and Signed apart;
+  until a study's answer arrives it reads Checking… and counts as neither Report to sign nor
+  Finished. `GET /v1/studies` carrying each study's delivery state would make that one request.
 
 ## 14. Engineer overrides: what the app needs from the API (November 2026)
 
