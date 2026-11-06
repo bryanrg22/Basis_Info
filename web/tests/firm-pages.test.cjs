@@ -53,9 +53,9 @@ test('Library: a client’s name finds its study and says the field; the archive
  const hit=await e.page('library'),rows=hit.split('<tbody>')[1];
  assert.equal((rows.match(/<tr /g)||[]).length,1);assert.match(rows,/<mark>Harbor<\/mark> House<\/a>/);assert.match(rows,/<td><mark>Harbor<\/mark> <mark>Property<\/mark> <mark>Partners<\/mark><\/td>/,"the client column marks the words");
  for(const fn of e.events.input)fn({target:{id:'fp-search',value:'Pinecrest'}});
- assert.match(await e.page('library'),/No study matches/);
+ const none=await e.page('library');assert.match(none,/No active study matches “Pinecrest”/);assert.match(none,/1 in Archived/);assert.match(none,/data-value="archived">Show archived \(1\)/);
  e.Live.actions['fp-lib-filter'](null,'archived');e.g.state.screen='library';
- assert.match(await e.page('library'),/Pinecrest Bungalow/);
+ assert.match(await e.page('library'),/Pinecrest<\/mark> Bungalow/);
 });
 
 test('Activity: day groups, colleagues by name, each entry linking to its study and step',async()=>{

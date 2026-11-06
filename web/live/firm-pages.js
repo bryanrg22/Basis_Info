@@ -148,6 +148,9 @@
  function resultsHtml(hits){
   const q=P.lib.q.trim();
   const rows=hits.filter(x=>inFilter(x.s,P.lib.filter)).sort((a,b)=>P.lib.sort==='name'?a.s.property_name.localeCompare(b.s.property_name):P.lib.sort==='created'?String(b.s.created_at).localeCompare(String(a.s.created_at)):String(b.s.updated_at).localeCompare(String(a.s.updated_at)));
+  // Nothing under this filter, but the search matches elsewhere: say where, with the way there.
+  if(!rows.length&&q&&hits.length){const where=FILTERS.filter(([k])=>k!==P.lib.filter&&k!=='all').map(([k,l])=>[k,l,hits.filter(x=>inFilter(x.s,k)).length]).filter(x=>x[2]);
+   if(where.length)return `<div class="fp-lib-empty">${icon('search',26)}<h2>No ${P.lib.filter==='all'?'active':esc((FILTERS.find(f=>f[0]===P.lib.filter)||FILTERS[0])[1].toLowerCase())} study matches “${esc(q)}”</h2><p>${where.map(([,l,n])=>`${n} in ${esc(l)}`).join(' · ')}</p><div class="fp-chips">${where.map(([k,l,n])=>`<button class="button small" data-live="fp-lib-filter" data-value="${k}">Show ${esc(l.toLowerCase())} (${n})</button>`).join('')}</div></div>`}
   if(!rows.length)return `<div class="fp-lib-empty">${icon('search',26)}<h2>${q?`No study matches “${esc(q)}”`:'No studies here yet'}</h2><p>${q?'Search looks at the property name, address, client, taxpayer, file number, parcel number, county, borrower and engineer.':'Studies appear here when an engineer starts one.'}</p>${q||P.lib.filter!=='all'||P.lib.engineer?'<button class="button small" data-live="fp-lib-clear">Clear search and filters</button>':''}</div>`;
   // Why it matched, when the field is not already a column or the line under the name.
   const matched=(x)=>x.m.field&&!['Property','Address','File number','Client','Engineer'].includes(x.m.field)?`<span class="fp-match"><em>${esc(x.m.field)}</em> ${M.highlight(x.m.value,q)}</span>`:'';
