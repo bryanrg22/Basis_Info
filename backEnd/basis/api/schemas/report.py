@@ -145,7 +145,7 @@ class ReportStateOut(BaseModel):
         "unsigned, or when the signature predates the record of the versions it was signed "
         "with.",
     )
-    signer_details: SignerDetails | None = Field(
+    signer: SignerDetails | None = Field(
         default=None,
         description="Once signed: the signer's saved details now, to show next to "
         "`signature.engineer` (what was signed); null while unsigned or when the signer has "

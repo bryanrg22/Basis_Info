@@ -150,7 +150,7 @@ class MemberOut(ResponseModel):
     role: OrgRole = Field(description=ROLE_DESCRIPTION)
     joined_at: datetime
     last_seen_at: datetime | None
-    signer_details: SignerDetails | None = Field(
+    signer: SignerDetails | None = Field(
         default=None,
         description="The name, credentials and license the member signs reports with, as "
         "they saved them (`PUT /v1/me/signer`); null when they have saved none. Read-only "
@@ -166,7 +166,7 @@ class MemberOut(ResponseModel):
             role=member.role,
             joined_at=member.joined_at,
             last_seen_at=member.last_seen_at,
-            signer_details=signer,
+            signer=signer,
         )
 
 

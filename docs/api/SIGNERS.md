@@ -26,7 +26,7 @@ PE). When a license is given, it is given as a seal gives it: number and jurisdi
 
 | Route | Who | Body / answer |
 |---|---|---|
-| `GET /v1/me/signer` | any signed-in user, their own | `{user_id, signer_details, version, updated_at}`. `signer_details` null and `ETag: "0"` until saved (200, not 404: the app asks on every Report & sign load). |
+| `GET /v1/me/signer` | any signed-in user, their own | `{user_id, signer, version, updated_at}`. `signer` null and `ETag: "0"` until saved (200, not 404: the app asks on every Report & sign load). |
 | `PUT /v1/me/signer` | any signed-in user, their own (a firm or not) | `SignerDetails`, written whole. `If-Match` optional: 412 `BASIS-REPORT-016` with the current `ETag` when stale; `*` only over saved details. 200 with the new `ETag`. No `Idempotency-Key` (a whole-document `PUT`, like the intake). |
 
 `SignerDetails`:
@@ -35,7 +35,7 @@ PE). When a license is given, it is given as a seal gives it: number and jurisdi
 |---|---|
 | `name` | required; one line, 1 to 500 characters, trimmed |
 | `credentials` | required; same rule; e.g. `PE`, `PE, CCSP` |
-| `license_number` | optional; one line, 1 to 40 characters, trimmed |
+| `license_number` | optional; one line, 1 to 50 characters, trimmed (the web app's limit) |
 | `license_state` | with `license_number`, and only with it; a two-letter code of a jurisdiction that licenses engineers: the 50 states, `DC`, `GU`, `MP`, `PR`, `VI` (the 55 NCEES member jurisdictions; `AS` has no board). Upper case; an `enum` in the OpenAPI document. |
 
 Anything else is 422 (an unknown field too). Saving logs `signer details saved` with the user,
@@ -45,8 +45,8 @@ Where others see them (read-only):
 
 | Where | Field |
 |---|---|
-| `GET /v1/orgs/{org_id}/members` (owners: the Team view), and the role change and removal answers | `signer_details` per member, null when they saved none |
-| `GET /v1/studies/{id}/report/state` (viewers) | `signer_details`: the signature's signer's details now, next to `signature.engineer` (what was signed); null while unsigned |
+| `GET /v1/orgs/{org_id}/members` (owners: the Team view), and the role change and removal answers | `signer` per member, null when they saved none |
+| `GET /v1/studies/{id}/report/state` (viewers) | `signer`: the signature's signer's details now, next to `signature.engineer` (what was signed); null while unsigned |
 
 ## 3. Signing with them
 

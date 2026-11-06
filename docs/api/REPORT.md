@@ -164,7 +164,7 @@ match it:
 |---|---|
 | `signature.firm_profile_version`, `signature.report_answers_version` | the versions of the two inputs the signed report was rendered with (also in the `report.signed` event's `detail`) |
 | `changed_since_signing` | `[]`: nothing was written since; `["study"]`: the answers were; `["firm"]`: the profile was; `["signer"]`: the signer's saved details now differ from `signature.engineer` (compared by value, docs/api/SIGNERS.md 3); any combination, in that order; `null` while unsigned, or for a signature recorded before the versions were kept (migration 0027): unknown rather than guessed from timestamps |
-| `signer_details` | the signer's saved details now, to show next to `signature.engineer`; null while unsigned or when the signer saved none |
+| `signer` | the signer's saved details now, to show next to `signature.engineer`; null while unsigned or when the signer saved none |
 | `signature.letterhead` | the letterhead as signed, to show next to the current profile; null before migration 0032 |
 
 A client shows a signed report with `changed_since_signing` non-empty as "signed with earlier

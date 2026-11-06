@@ -144,9 +144,9 @@ carried; null when unknown). The report signature (`POST .../report/sign`,
 the name the engineer attested to stays in `engineer`. One `users` read per response.
 
 `GET /v1/orgs/{org_id}/members` (owners), and the answers of the role change and the removal,
-carry each member's `signer_details` (the name, credentials and license they sign with; null
+carry each member's `signer` (the name, credentials and license they sign with; null
 when they saved none). Read-only: only the member writes their own (`PUT /v1/me/signer`,
-docs/api/SIGNERS.md). One `signer_details` read per response.
+docs/api/SIGNERS.md). One signer-details read per response.
 
 ## 6. Settings
 

@@ -15,7 +15,7 @@ class SignerDetailsOut(ResponseModel):
     """Your signer details and their version (also the ``ETag``; 0 while none are saved)."""
 
     user_id: uuid.UUID
-    signer_details: SignerDetails | None = Field(
+    signer: SignerDetails | None = Field(
         description="The name, credentials and license printed on every report you sign; "
         "null until you save them."
     )

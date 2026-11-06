@@ -13518,3 +13518,14 @@ the deployment requires them.
    not kept. The signatures keep what each one printed.
 4. Turn `REPORT_SIGNER_DETAILS_REQUIRED` on once the app saves details in the account, then
    remove the firm profile's `engineer` from the app's form.
+
+### 91.5 Matched to the web app (2026-11-06)
+
+Driving the web app of #155 and #160 against this API on a copy of the demo database showed
+that the app reads the details under `signer` (`GET /v1/me/signer` and each member of
+`GET /v1/orgs/{org_id}/members`), as its sample API proposes (P5, P6), while this branch
+answered `signer_details`. The save worked but the app could not see it: Settings read "Not
+set" and Report & sign refused to sign with "Add your signer details in Settings first". The
+field is now `signer` in those answers and in `GET .../report/state`; the `report.signed`
+event's `signer_details: saved | entered` is unchanged (recorded history). The app allows a
+license number of up to 50 characters, so the API now does too (it allowed 40).

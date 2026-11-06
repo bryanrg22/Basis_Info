@@ -10145,7 +10145,7 @@
           "me"
         ],
         "summary": "Your signer details: the name, credentials and license you sign reports with",
-        "description": "`signer_details` is null until you save them; the `ETag` is `\"0\"` then. Send the `ETag` back as `If-Match` on the `PUT`.",
+        "description": "`signer` is null until you save them; the `ETag` is `\"0\"` then. Send the `ETag` back as `If-Match` on the `PUT`.",
         "operationId": "get_signer_v1_me_signer_get",
         "security": [
           {
@@ -20856,7 +20856,7 @@
             ],
             "title": "Last Seen At"
           },
-          "signer_details": {
+          "signer": {
             "anyOf": [
               {
                 "$ref": "#/components/schemas/SignerDetails"
@@ -22780,7 +22780,7 @@
             "title": "Changed Since Signing",
             "description": "Once signed: the inputs changed after the signature (`firm`: the firm profile was written, `study`: the report answers were, `signer`: the signer's saved details now differ from the ones the signature printed). The signed PDF is unchanged; the stored inputs no longer match it. `[]` when none changed; null while unsigned, or when the signature predates the record of the versions it was signed with."
           },
-          "signer_details": {
+          "signer": {
             "anyOf": [
               {
                 "$ref": "#/components/schemas/SignerDetails"
@@ -24628,7 +24628,7 @@
             "anyOf": [
               {
                 "type": "string",
-                "maxLength": 40,
+                "maxLength": 50,
                 "minLength": 1,
                 "pattern": "^[^\\x00-\\x1f\\x7f-\\x9f]*[^\\x00-\\x1f\\x7f-\\x9f\\s][^\\x00-\\x1f\\x7f-\\x9f]*$"
               },
@@ -24725,7 +24725,7 @@
             "format": "uuid",
             "title": "User Id"
           },
-          "signer_details": {
+          "signer": {
             "anyOf": [
               {
                 "$ref": "#/components/schemas/SignerDetails"
@@ -24758,7 +24758,7 @@
         "type": "object",
         "required": [
           "user_id",
-          "signer_details",
+          "signer",
           "version",
           "updated_at"
         ],

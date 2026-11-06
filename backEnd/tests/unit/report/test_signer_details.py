@@ -78,6 +78,14 @@ def test_a_number_and_a_state_come_together(license: dict[str, Any]) -> None:
         SignerDetails(**{**DETAILS, **license})
 
 
+def test_a_license_number_is_up_to_50_characters_as_the_web_app_allows() -> None:
+    """The web app's signer form takes up to 50 (found driving it against the API,
+    2026-11-06): 50 is accepted, 51 refused."""
+    assert SignerDetails(**{**DETAILS, "license_number": "N" * 50}).license_number == "N" * 50
+    with pytest.raises(ValidationError):
+        SignerDetails(**{**DETAILS, "license_number": "N" * 51})
+
+
 def test_no_license_at_all_is_allowed_and_values_are_trimmed() -> None:
     details = SignerDetails(name=" Alice ", credentials=" CCSP")
     assert (details.name, details.credentials, details.license_number) == ("Alice", "CCSP", None)

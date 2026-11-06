@@ -99,14 +99,14 @@ async def state(api: Api, uid: str, sid: str) -> dict[str, Any]:
 async def test_your_details_are_versioned_and_yours(api: Api, seed: Seed) -> None:
     none_yet = await api.get("alice", ME)
     assert none_yet.status_code == 200 and none_yet.headers["etag"] == '"0"'
-    assert none_yet.json()["signer_details"] is None and none_yet.json()["version"] == 0
+    assert none_yet.json()["signer"] is None and none_yet.json()["version"] == 0
     assert none_yet.json()["updated_at"] is None
     # "*" means "over saved details": nothing is saved yet.
     star = await save(api, "alice", ALICE, **{"If-Match": "*"})
     assert star.status_code == 412 and star.json()["code"] == E.REPORT_SIGNER_PRECONDITION_FAILED
     first = await save(api, "alice", ALICE, **{"If-Match": '"0"'})
     assert first.status_code == 200, first.text
-    assert first.headers["etag"] == '"1"' and first.json()["signer_details"] == ALICE
+    assert first.headers["etag"] == '"1"' and first.json()["signer"] == ALICE
     assert first.json()["user_id"] == str((await seed.user("alice")).id)
     stale = await save(api, "alice", {**ALICE, "credentials": "PE, CCSP"}, **{"If-Match": '"0"'})
     assert stale.status_code == 412 and stale.headers["etag"] == '"1"'
@@ -118,9 +118,9 @@ async def test_your_details_are_versioned_and_yours(api: Api, seed: Seed) -> Non
     # Another user, in the same firm or not, reads and writes only their own.
     org = await org_of(seed, "alice")
     await seed.member(org, "owen", OrgRole.OWNER)
-    assert (await api.get("owen", ME)).json()["signer_details"] is None
+    assert (await api.get("owen", ME)).json()["signer"] is None
     assert (await save(api, "owen", ERIN)).json()["version"] == 1
-    assert (await api.get("alice", ME)).json()["signer_details"] == ALICE
+    assert (await api.get("alice", ME)).json()["signer"] == ALICE
     # No route takes another user's id: /v1/me/signer is the caller's, whatever the role.
     assert (await api.client.get(f"{ME}/{uuid.uuid4()}")).status_code in (401, 404, 405)
 
@@ -140,7 +140,7 @@ async def test_a_user_with_no_firm_may_save_details(invite_only_api: Api) -> Non
         ({"license_state": None}, "a number without its state"),
         ({"license_number": None}, "a state without its number"),
         ({"license_number": "   "}, "blank number"),
-        ({"license_number": "1" * 41}, "number over 40"),
+        ({"license_number": "1" * 51}, "number over 50"),
         ({"name": ""}, "empty name"),
         ({"name": "   "}, "blank name"),
         ({"name": "A\u0000B"}, "NUL"),
@@ -161,16 +161,14 @@ async def test_invalid_details_are_refused_and_nothing_is_written(
 @pytest.mark.parametrize("state_code", ["DC", "PR", "GU", "VI", "MP", "CA", "WY"])
 async def test_every_kind_of_licensing_jurisdiction_is_accepted(api: Api, state_code: str) -> None:
     saved = await save(api, "alice", {**ALICE, "license_state": state_code})
-    assert saved.status_code == 200 and saved.json()["signer_details"]["license_state"] == (
-        state_code
-    )
+    assert saved.status_code == 200 and saved.json()["signer"]["license_state"] == (state_code)
 
 
 async def test_values_are_trimmed_and_the_license_is_optional(api: Api) -> None:
     padded = {"name": "  Alice Licensee ", "credentials": " CCSP ", "license_number": None}
     saved = await save(api, "alice", padded)
     assert saved.status_code == 200, saved.text
-    assert saved.json()["signer_details"] == {
+    assert saved.json()["signer"] == {
         "name": "Alice Licensee",
         "credentials": "CCSP",
         "license_number": None,
@@ -233,7 +231,7 @@ async def test_signing_prints_the_saved_details_and_records_them(
     assert event["detail"]["signer_details_version"] == 1
     assert event["detail"]["letterhead"]["name"] == PROFILE["name"]
     current = await state(api, "alice", sid)
-    assert current["signer_details"] == ALICE and current["changed_since_signing"] == []
+    assert current["signer"] == ALICE and current["changed_since_signing"] == []
 
 
 async def test_a_sent_engineer_must_be_the_saved_details(
@@ -283,7 +281,7 @@ async def test_without_saved_details_the_sent_engineer_is_signed_as_before(
     assert event["detail"]["signer_details"] == "entered"
     # Saving afterwards the very details typed at signing is not a change; others are.
     current = await state(api, "alice", sid)
-    assert current["signer_details"] is None and current["changed_since_signing"] == []
+    assert current["signer"] is None and current["changed_since_signing"] == []
     await save(api, "alice", {**SIGNER, "license_number": None})
     assert (await state(api, "alice", sid))["changed_since_signing"] == []
     await save(api, "alice", ALICE)
@@ -380,7 +378,7 @@ async def test_two_engineers_sign_different_revisions_each_with_their_own_detail
     assert "Alice Licensee" not in rev2
     current = await state(api, "alice", sid)
     assert current["signature"]["signed_by_name"] == "Erin"
-    assert current["signer_details"] == ERIN and current["changed_since_signing"] == []
+    assert current["signer"] == ERIN and current["changed_since_signing"] == []
     # Alice edits her details: revision 2 (Erin's) is not affected.
     await save(api, "alice", {**ALICE, "license_number": "PE-000001"})
     assert (await state(api, "alice", sid))["changed_since_signing"] == []
@@ -389,7 +387,7 @@ async def test_two_engineers_sign_different_revisions_each_with_their_own_detail
     changed = await state(api, "alice", sid)
     assert changed["changed_since_signing"] == ["signer"]
     assert changed["signature"]["engineer"]["license_number"] == "98765"  # what was signed
-    assert changed["signer_details"]["license_number"] == "11111"  # what she has now
+    assert changed["signer"]["license_number"] == "11111"  # what she has now
     # Undone, it is no longer a change: the values are compared, not the versions.
     await save(api, "erin", ERIN)
     assert (await state(api, "alice", sid))["changed_since_signing"] == []
@@ -401,16 +399,16 @@ async def test_the_members_list_shows_each_members_details_read_only(api: Api, s
     await save(api, "erin", ERIN)
     members = (await api.get("alice", f"/v1/orgs/{org}/members")).json()["items"]
     by_email = {m["email"]: m for m in members}
-    assert by_email["erin@example.test"]["signer_details"] == ERIN
-    assert by_email["alice@example.test"]["signer_details"] is None
+    assert by_email["erin@example.test"]["signer"] == ERIN
+    assert by_email["alice@example.test"]["signer"] is None
     erin = (await seed.user("erin")).id
     role = await api.post(
         "alice", f"/v1/orgs/{org}/members/{erin}/role", {"role": OrgRole.VIEWER.value}
     )
-    assert role.status_code == 200 and role.json()["signer_details"] == ERIN
+    assert role.status_code == 200 and role.json()["signer"] == ERIN
     # An owner writing "their" details writes their own, never the member's.
     await save(api, "alice", {**ERIN, "name": "Not Erin"})
-    assert (await api.get("erin", ME)).json()["signer_details"] == ERIN
+    assert (await api.get("erin", ME)).json()["signer"] == ERIN
 
 
 async def test_two_first_saves_with_one_etag_at_once_write_one(
@@ -431,4 +429,4 @@ async def test_two_first_saves_with_one_etag_at_once_write_one(
     assert (mine.status_code, theirs.status_code) == (200, 412), (mine.text, theirs.text)
     assert theirs.headers["etag"] == '"1"'
     assert theirs.json()["code"] == E.REPORT_SIGNER_PRECONDITION_FAILED
-    assert (await api.get("alice", ME)).json()["signer_details"] == ALICE
+    assert (await api.get("alice", ME)).json()["signer"] == ALICE

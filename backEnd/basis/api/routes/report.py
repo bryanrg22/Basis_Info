@@ -544,7 +544,7 @@ async def report_state(
         firm_profile_version=firm_version,
         report_answers_version=study.report_answers_version,
         changed_since_signing=changed,
-        signer_details=signer_now,
+        signer=signer_now,
     )
 
 

@@ -643,6 +643,7 @@ upload slow tests 142 passed.
 | `tests/unit/db/test_models_metadata.py` | Changed: `signer_details` (columns, natural key, `updated_at` trigger from 0032), the two signature columns, 39 JSONB columns | pass |
 | `tests/api/test_report_signing.py` | Unchanged and rerun: every existing signing test passes as before (the request still names `engineer`, the signer has saved none: the typed-details path) | 22 tests, pass |
 | `web/tests/result-workspace.test.cjs` | Changed: the browser catalogue has 298 codes (BASIS-REPORT-014 to 016 added) | pass |
+| `tests/api/test_signer_details.py`, `tests/unit/report/test_signer_details.py`, `tests/api/test_firms.py` | Changed: the field is `signer` (what the web app reads, #160's P5 and P6), a license number is up to 50 characters (51 refused) | pass |
 
 ## The five defects the free comparisons found, fixed (2026-11-03; EVAL_REPORT 89)
 

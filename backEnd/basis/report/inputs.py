@@ -57,7 +57,7 @@ LicensingJurisdiction = Literal[
     "DC", "GU", "MP", "PR", "VI",
 ]  # fmt: skip
 US_LICENSING_JURISDICTIONS: Final = frozenset(get_args(LicensingJurisdiction))
-LicenseNumber = Annotated[str, Field(min_length=1, max_length=40, pattern=TEXT_PATTERN)]
+LicenseNumber = Annotated[str, Field(min_length=1, max_length=50, pattern=TEXT_PATTERN)]
 
 
 class Engineer(_Model):

@@ -40,7 +40,7 @@ def _out(user_id: object, row: SignerDetailsRow | None) -> SignerDetailsOut:
     return SignerDetailsOut.model_validate(
         {
             "user_id": user_id,
-            "signer_details": row.details() if row else None,
+            "signer": row.details() if row else None,
             "version": row.version if row else 0,
             "updated_at": row.updated_at if row else None,
         }
@@ -50,7 +50,7 @@ def _out(user_id: object, row: SignerDetailsRow | None) -> SignerDetailsOut:
 @reads.get(
     "/me/signer",
     summary="Your signer details: the name, credentials and license you sign reports with",
-    description='`signer_details` is null until you save them; the `ETag` is `"0"` then. '
+    description='`signer` is null until you save them; the `ETag` is `"0"` then. '
     "Send the `ETag` back as `If-Match` on the `PUT`.",
 )
 async def get_signer(
