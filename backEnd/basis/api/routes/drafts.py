@@ -46,7 +46,7 @@ from __future__ import annotations
 import uuid
 from typing import Annotated, Any, Final
 
-from fastapi import Depends, Header, Path, Response
+from fastapi import Depends, Header, Path, Request, Response
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from basis.api.errors import Conflict, NotFound, PreconditionFailed
@@ -59,10 +59,12 @@ from basis.api.routes.decisions import (
     check_field_add_targets,
     check_removal_targets,
     check_removals_and_additions,
+    check_unit_cost_targets,
 )
 from basis.api.schemas.drafts import DraftIn, DraftOut, DraftsOut, OtherDraftOut, StaleReason
 from basis.api.schemas.reviews import CorrectionIn, ReviewStage
 from basis.api.users import CurrentUserDep, study_access
+from basis.config import Settings
 from basis.db.enums import OrgRole, Stage, StudyStatus
 from basis.db.errors import NotVisibleError, PreconditionFailedError
 from basis.db.models import ReviewDraft, Study
@@ -232,6 +234,7 @@ async def get_draft(
 async def put_draft(
     stage: StagePath,
     body: DraftIn,
+    request: Request,
     access: Annotated[VisibleStudy, Depends(study_access(DRAFT_ROLE))],
     user: CurrentUserDep,
     session: SessionDep,
@@ -244,7 +247,8 @@ async def put_draft(
     review_stage = Stage(stage)
     # The checks that need no database, in the decision route's order.
     check_correction_types(stage, body.corrections, components_gate=study.components_gate is True)
-    check_correction_values(body.corrections)
+    settings: Settings = request.app.state.settings
+    check_correction_values(body.corrections, unit_cost_override=settings.unit_cost_override)
     check_removals_and_additions(body.corrections)
     drafts = ReviewDraftRepository(session)
     if body.revision != study.revision:
@@ -268,6 +272,7 @@ async def put_draft(
     await check_correction_targets(reviews, access, body.revision, body.corrections)
     await check_removal_targets(session, study.id, body.revision, body.corrections)
     await check_field_add_targets(session, study.id, body.corrections)
+    await check_unit_cost_targets(session, study.id, body.corrections)
     condition = parse_if_match(if_match)
     try:
         await drafts.write(

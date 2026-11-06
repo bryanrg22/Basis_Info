@@ -65,7 +65,9 @@ def view(report: StudyReport, photos: tuple[ExhibitPhoto, ...] = ()) -> dict[str
     firm = inputs.firm
     study = inputs.study
     sig = inputs.signature
-    engineer = sig.engineer if sig else (firm.engineer if firm else None)
+    # The signer's attested details; unsigned, the reader who may sign (their own saved
+    # details), else the firm's deprecated engineer as the draft's placeholder (EVAL_REPORT 91).
+    engineer = sig.engineer if sig else (inputs.preparer or (firm.engineer if firm else None))
     return {
         "draft": report.draft,
         "missing": list(report.missing_for_final),
@@ -85,8 +87,11 @@ def view(report: StudyReport, photos: tuple[ExhibitPhoto, ...] = ()) -> dict[str
         "engineer": {
             "name": engineer.name if engineer else "[engineer name]",
             "credentials": engineer.credentials if engineer else "[credentials]",
+            # A typed engineer (the firm's, or one entered at signing) may carry a number
+            # without a state: it printed "(None)" before EVAL_REPORT 91.
             "license": (
-                f"License {engineer.license_number} ({engineer.license_state})"
+                f"License {engineer.license_number}"
+                + (f" ({engineer.license_state})" if engineer.license_state else "")
                 if engineer and engineer.license_number
                 else ""
             ),
@@ -179,6 +184,7 @@ def view(report: StudyReport, photos: tuple[ExhibitPhoto, ...] = ()) -> dict[str
                 "asset_class": i.asset_class or "",
                 "estimated": i.estimated,
                 "contested": i.contested,
+                "engineer_price": i.engineer_price or "",
             }
             for i in report.items
         ],
@@ -232,6 +238,7 @@ def view(report: StudyReport, photos: tuple[ExhibitPhoto, ...] = ()) -> dict[str
             {"severity": f.severity, "code": f.code, "message": f.message} for f in report.flags
         ],
         "contested": str(report.contested),
+        "engineer_prices": str(sum(1 for i in report.items if i.engineer_price)),
         "conventions_used": str(report.conventions_used),
         "photograph_count": str(report.photographs),
         "limiting": list(firm.limiting_conditions) if firm and firm.limiting_conditions else None,

@@ -124,6 +124,9 @@ class ItemLine:
     contested: bool
     also_in: tuple[str, ...]
     asset_ids: tuple[str, ...]
+    # EVAL_REPORT 90: priced at the engineer's unit price, not the cost table: the price
+    # and its source, as the report prints them; None for a table or model price.
+    engineer_price: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -320,6 +323,19 @@ def _asset_class(
     return default, ("the class's default" if default else "real property (IRC 168(e)(2))")
 
 
+def engineer_price(asset: Mapping[str, Any]) -> str | None:
+    """``$<price> per <unit>: <source>`` when the engineer priced the row (its cost trail is
+    an ``engineer_price``, EVAL_REPORT 90); None otherwise."""
+    trail = asset.get("cost_trail")
+    if not isinstance(trail, Mapping) or trail.get("kind") != "engineer_price":
+        return None
+    override = trail.get("override")
+    if not isinstance(override, Mapping):
+        return None
+    unit = asset.get("unit") or (trail.get("quantity") or {}).get("unit") or "unit"
+    return f"${money(override.get('unit_cost')):,.2f} per {unit}: {override.get('source')}"
+
+
 def _description(name: str, material: str | None) -> str:
     """The item's category name (one name per row, ATG C.5) with its material when the
     name does not already say it."""
@@ -444,6 +460,7 @@ def build_report(
                 contested=str(a.get("review_reason") or "").find("rule_contested") >= 0,
                 also_in=tuple(seen_in) if whole else (),
                 asset_ids=(aid, *sorted(folded.get(aid, []))),
+                engineer_price=engineer_price(a),
             )
         )
     order = {b: i for i, b in enumerate(CLASS_ORDER)}
@@ -543,7 +560,7 @@ def build_report(
     structure = (basis.get("structure") or {}).get("building_rcn") or {}
     photos = len(document.get("photos") or [])
     model = structure.get("model") or {}
-    methodology = (
+    methodology: tuple[Fact, ...] = (
         Fact(
             "Cost source",
             "RSMeans Residential Costs 2020, unit costs including the installing "
@@ -587,6 +604,19 @@ def build_report(
             "take-off",
         ),
     )
+    engineer_priced = sum(1 for i in items if i.engineer_price)
+    if engineer_priced:
+        # EVAL_REPORT 90: the methodology names the lines the cost table did not price.
+        methodology = (
+            *methodology,
+            Fact(
+                "Engineer's prices",
+                f"{engineer_priced} item{'s' if engineer_priced != 1 else ''} priced at the "
+                "unit price the engineer set, from the source shown in Appendix 1, instead "
+                "of the cost table; the table's price is kept in the cost trail",
+                "engineer",
+            ),
+        )
     recon_lines = tuple(
         ReconciliationLine(
             component=str(r.get("component")).replace("_", " "),

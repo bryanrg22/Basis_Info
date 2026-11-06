@@ -9,7 +9,14 @@ from typing import Annotated, Any, Literal
 from pydantic import BaseModel, ConfigDict, Field
 
 from basis.api.schemas.common import ResponseModel
-from basis.report.inputs import CERTIFICATION_VERSION, Engineer, FirmProfile, StudyAnswers
+from basis.errors.codes import E
+from basis.report.inputs import (
+    CERTIFICATION_VERSION,
+    Engineer,
+    FirmProfile,
+    SignerDetails,
+    StudyAnswers,
+)
 
 Sha256 = Annotated[str, Field(pattern=r"^[0-9a-f]{64}$")]
 
@@ -41,7 +48,14 @@ class SignIn(BaseModel):
     reviewed_sha256: Sha256 = Field(
         description="The `ETag` of `GET .../report/preview` the engineer reviewed, unquoted."
     )
-    engineer: Engineer = Field(description="The name and credentials the signer attests to.")
+    engineer: Engineer | None = Field(
+        default=None,
+        description="The name, credentials and license the signer attests to. With saved "
+        "signer details (`PUT /v1/me/signer`) the report prints those: leave this out, or "
+        f"send the same values (anything else is 409 {E.REPORT_SIGNER_DETAILS_MISMATCH}). "
+        "Without saved details it is what the report prints, unless the deployment requires "
+        f"saved details (409 {E.REPORT_SIGNER_DETAILS_MISSING}).",
+    )
     attest: Literal[True] = Field(
         description="Must be true: the signer affirms the certification (section 10)."
     )
@@ -53,6 +67,13 @@ class SignIn(BaseModel):
             description="The certification text's version the client showed.",
         ),
     ]
+
+
+class Letterhead(BaseModel):
+    name: str
+    address: str | None
+    phone: str | None
+    logo_sha256: str | None = Field(description="Null when the profile had no logo.")
 
 
 class SignatureOut(ResponseModel):
@@ -81,6 +102,17 @@ class SignatureOut(ResponseModel):
     report_answers_version: int | None = Field(
         description="The report answers' version the report was signed with (null as above)."
     )
+    signer_details_version: int | None = Field(
+        default=None,
+        description="The version of the signer's saved details printed in `engineer`; null "
+        "when the details were entered at signing (the signer had saved none) or the "
+        "signature predates saved details.",
+    )
+    letterhead: Letterhead | None = Field(
+        default=None,
+        description="The firm profile's letterhead as signed (name, address, phone, the "
+        "logo's sha256); null on a signature recorded before it was kept.",
+    )
 
 
 class ReportSkip(BaseModel):
@@ -104,17 +136,26 @@ class ReportStateOut(BaseModel):
     signature: SignatureOut | None
     firm_profile_version: int = Field(description="0 while the firm has no profile.")
     report_answers_version: int
-    changed_since_signing: list[Literal["firm", "study"]] | None = Field(
+    changed_since_signing: list[Literal["firm", "study", "signer"]] | None = Field(
         default=None,
-        description="Once signed: the inputs written after the signature (`firm`: the firm "
-        "profile, `study`: the report answers). The signed PDF is unchanged; the stored "
-        "inputs no longer match it. `[]` when none changed; null while unsigned, or when the "
-        "signature predates the record of the versions it was signed with.",
+        description="Once signed: the inputs changed after the signature (`firm`: the firm "
+        "profile was written, `study`: the report answers were, `signer`: the signer's saved "
+        "details now differ from the ones the signature printed). The signed PDF is "
+        "unchanged; the stored inputs no longer match it. `[]` when none changed; null while "
+        "unsigned, or when the signature predates the record of the versions it was signed "
+        "with.",
+    )
+    signer: SignerDetails | None = Field(
+        default=None,
+        description="Once signed: the signer's saved details now, to show next to "
+        "`signature.engineer` (what was signed); null while unsigned or when the signer has "
+        "saved none.",
     )
 
 
 __all__ = [
     "FirmProfileOut",
+    "Letterhead",
     "ReportAnswersOut",
     "ReportSkip",
     "ReportStateOut",
