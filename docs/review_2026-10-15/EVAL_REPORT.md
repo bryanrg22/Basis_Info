@@ -13533,3 +13533,18 @@ its report are byte-identical to main's, and every path listed is tested.
   section 6).
 * How commercial estimating and annotation tools record overrides was not researched from
   their documentation (90.1).
+
+### 90.8 Found driving the web app: PATCH was not allowed from the browser (2026-11-06)
+
+Not counted is a `PATCH`, and the API's CORS list allowed only GET, POST, PUT and DELETE. The
+browser's preflight was refused (400), so the request never left the page, while every test
+here passed because none goes through a browser. The same held on main for
+`PATCH /v1/orgs/{org_id}` (renaming a firm, #111). PATCH is now allowed, and a test walks every
+method the OpenAPI document publishes through a preflight (it fails without PATCH). With the
+fix, the web app of #155 marked a model detection Not counted on a copy of the demo database:
+the count went from 9 to 8, the object carried who, when and why, the timeline recorded
+`object.excluded`, and Reset to AI counted it again. The same run priced an unpriced asset at
+the engineer's $850 (trail `engineer_price`, the table's `unpriced` kept as `replaced`), and an
+A/B of the same reopen and correction on main and on main plus #157, #158 and this branch
+priced the other 339 assets identically (one pre-existing tie-break moved a quantity between
+two rows of the same label; the dollars were equal).
