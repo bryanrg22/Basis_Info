@@ -87,6 +87,10 @@ BODIES: Final[dict[str, Any]] = {
         "point": {"x": 0.5, "y": 0.5},
     },
     "DELETE /v1/studies/{study_id}/photos/{document_id}/objects/{object_id}": None,
+    "PATCH /v1/studies/{study_id}/photos/{document_id}/objects/{object_id}": {
+        "counted": False,
+        "reason": "x",
+    },
     "POST /v1/studies/{study_id}/start": None,
     "GET /v1/studies/{study_id}/workflow": None,
     "POST /v1/studies/{study_id}/cancel": None,
@@ -302,6 +306,7 @@ async def test_own_scope_does_not_reach_another_firms_rows(
         ("GET", "/v1/studies/{study_id}/photos/{document_id}/objects"),
         ("POST", "/v1/studies/{study_id}/photos/{document_id}/objects"),
         ("DELETE", "/v1/studies/{study_id}/photos/{document_id}/objects/{object_id}"),
+        ("PATCH", "/v1/studies/{study_id}/photos/{document_id}/objects/{object_id}"),
         ("POST", "/v1/orgs/{org_id}/members/{user_id}/role"),
         ("DELETE", "/v1/orgs/{org_id}/members/{user_id}"),
         ("DELETE", "/v1/orgs/{org_id}/invitations/{invitation_id}"),

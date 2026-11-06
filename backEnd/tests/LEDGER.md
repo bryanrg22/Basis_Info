@@ -667,3 +667,4 @@ upload slow tests 142 passed.
 | `tests/unit/db/test_models_metadata.py`, `tests/api/test_health.py` | Changed: the three `photo_objects` columns, their foreign key and checks; the two new routes in the known-routes list | pass |
 | `tests/unit/domain/test_cost_trail.py`, `tests/unit/api/test_asset_out.py` | Changed: the API's trail and cost carry `override` and `replaced` (null unless the engineer priced the row), an additive member | pass |
 | `web/tests/result-workspace.test.cjs` | Changed: the browser catalogue has 300 codes (five added: `BASIS-OBJECT-010` to `012`, `BASIS-CORRECT-044`, `045`) | pass |
+| `tests/api/test_tenancy.py` | Changed: `PATCH .../objects/{object_id}` is in the walk of every scoped route and in the another-firm id swaps (404 like a missing id) | pass |
