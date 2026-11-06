@@ -18,7 +18,7 @@
  * about two seconds (status processing), then the next gate opens.
  *
  * Three things the real API does not have yet are implemented only in the PROPOSED section
- * near the end (web/FRONTEND_BACKLOG.md, .ui-climb/override-contract.md); deleting that
+ * near the end (web/FRONTEND_BACKLOG.md section 14, "Engineer overrides"); deleting that
  * section removes them and leaves the API as it is.
  *
  * Node: require('./sample-api.js').create({state, now, fetchAsset}) makes an instance.
@@ -373,9 +373,9 @@
   COMPONENTS.forEach(([code,name,share,label],i)=>{
    const top=shares[i],mine=itemized.filter(a=>a.comp===code),itemCents=mine.reduce((s,a)=>s+(a.cost.total?toCents(a.cost.total):0),0),residual=Math.max(0,top-itemCents),clamped=Math.max(0,itemCents-top);
    const id=S.uid(6,900+i),edit=S.assetEdits[id];
-   const amount=money(residual),qty={value:'1',unit:'LS',formula:`${name} top-down share less its itemized rows`,method:'structure_residual',inputs:{component:code,share:share.toFixed(2),top_down:money(top),itemized:money(itemCents)},assumptions:[]};
+   const amount=money(residual),qty={value:'1',unit:'EA',formula:`${name} top-down share less its itemized rows`,method:'structure_residual',inputs:{component:code,share:share.toFixed(2),top_down:money(top),itemized:money(itemCents)},assumptions:[]};
    rows.push({id,component_id:null,label:null,count:null,room:null,category:'Building structure: '+name.toLowerCase(),bucket:edit?.bucket??'y39',recovery_period:edit?.recovery_period??'39',irs_section:edit?.irs_section??'1250',method:'structure_model',confidence:null,needs_review:false,review_reasons:[],
-    takeoff:{quantity:'1',unit:'LS',formula:qty.formula,method:'structure_residual',inputs:qty.inputs,assumptions:[]},
+    takeoff:{quantity:'1',unit:'EA',formula:qty.formula,method:'structure_residual',inputs:qty.inputs,assumptions:[]},
     cost:{unit_cost:amount,total:amount,source_row:null,location_factor:COST.location.toFixed(3),cost_year:COST.costYear,trail:{version:1,kind:'structure_residual',quantity:qty,base:null,year:null,location:null,structure:{label,system:name,component:code,source:'square_foot_model',rcn:amount,building:{amount:money(loc),source:'square_foot_model',formula:buildingFormula(),inputs:buildingInputs(),assumptions:buildingAssumptions()}},intake_version:S.intakeVersion,property_class:'nonresidential',method:{...METHOD},cost_year:COST.costYear,location_factor:COST.location.toFixed(3),unit_cost:amount,total:amount,rounding:'cent',priced_per:null,missing:null},trail_recorded:true},
     citations:1,verified_citations:1,review_codes:[],provenance:provenanceOf(edit,null),convention:null,comp:code,structureLabel:label});
    components.push({component:code,name,share:share.toFixed(6),top_down:money(top),itemized:money(itemCents),itemized_assets:mine.filter(a=>a.cost.total).length,unpriced_assets:mine.filter(a=>!a.cost.total).length,residual:money(residual),clamped:money(clamped),concealed:money(residual)});
@@ -864,7 +864,7 @@
 
  /* =====================================================================================
   * PROPOSED: not in the real API. Three corrections the backend does not offer yet
-  * (web/FRONTEND_BACKLOG.md, "Engineer overrides"; .ui-climb/override-contract.md P0-P3).
+  * (web/FRONTEND_BACKLOG.md section 14, "Engineer overrides": P0 to P3 below).
   * Deleting from here to "END PROPOSED" removes them; everything above answers as the
   * real API does (no /v1/capabilities: the client then shows none of the three).
   *

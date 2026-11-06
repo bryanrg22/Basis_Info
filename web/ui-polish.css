@@ -45,6 +45,8 @@
 
 /* Component inventory: action buttons never wrap letter by letter. */
 #app .workspace .button,#app .workspace .button.small{white-space:nowrap}
+/* At phone width a long label wraps instead of running past the clipped main column. */
+@media (max-width:600px){#app .workspace .button,#app .workspace .button.small{white-space:normal}}
 #app .workspace table td.text-right{white-space:nowrap;width:1%}
 
 /* Settings: section labels readable; the New design switch. */
@@ -427,3 +429,6 @@ body:has(.review-decision) #toast{bottom:118px}
 /* r26: one card for the photo-vs-priced difference: Use N or Keep M. */
 .vision-room-suggest .vision-suggest-actions{display:inline-flex;gap:6px;flex:none}
 .vision-room-count.is-live .vision-use.is-keep{background:#fff;border-color:#d6c3a1;color:#5b4a2f;font-weight:500}
+
+/* Library: finished studies whose report status has not loaded yet are named, not miscounted. */
+#app .library-checking{flex-basis:100%;font-size:12.5px;color:#475a50}

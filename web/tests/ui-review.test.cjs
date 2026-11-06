@@ -21,15 +21,25 @@ function boot({role='engineer'}={}){
  return {ctx:globals,live,calls,modals,timers};
 }
 
-test('a finished study reads its delivery state from its report, and "Reviews approved" until that is known',()=>{
+test('a finished study reads its delivery state from its report, and Checking… until that is known (never Finished by default)',()=>{
  const {live}=boot();const s=study();
- live.reportStateEntry=()=>undefined;assert.deepEqual(plain(live.delivery(s)),{label:'Reviews approved',tone:'done'});
- live.reportStateEntry=()=>({done:false});assert.equal(live.delivery(s).label,'Reviews approved');
- live.reportStateEntry=()=>({done:true,error:Error('offline')});assert.equal(live.delivery(s).label,'Reviews approved');
+ live.reportStateEntry=()=>undefined;assert.deepEqual(plain(live.delivery(s)),{label:'Checking…',tone:'pending'});
+ live.reportStateEntry=()=>({done:false});assert.equal(live.delivery(s).label,'Checking…');
+ live.reportStateEntry=()=>({done:true,error:Error('offline')});assert.deepEqual(plain(live.delivery(s)),{label:'Report status unavailable',tone:'pending'});
  live.reportStateEntry=()=>reportState(['firm']);assert.deepEqual(plain(live.delivery(s)),{label:'Update required',tone:'review'});
  live.reportStateEntry=()=>reportState([]);assert.deepEqual(plain(live.delivery(s)),{label:'Signed',tone:'done'});
  live.reportStateEntry=()=>reportState(null,false);assert.deepEqual(plain(live.delivery(s)),{label:'Needs signature',tone:'review'});
  live.reportStateEntry=()=>{throw Error('a study in progress must not read its report')};assert.equal(live.delivery(study('waiting_review','rooms_review')).label,'Reviews approved');
+});
+test('every finished study\'s report state loads, six requests at a time, and an unloaded one is neither due nor finished',()=>{
+ const {live}=boot();const list=Array.from({length:8},(_,i)=>({...study(),id:'s'+i,revision:3}));list.push({...study('waiting_review','rooms_review'),id:'open'});
+ const asked=[];live.reportStateEntry=x=>{asked.push(x.id);const e={done:false};live.state.cache.set('report-state:'+x.id+':'+x.revision,e);return e};
+ live.loadDeliveries(list);assert.deepEqual(asked,['s0','s1','s2','s3','s4','s5']);
+ live.loadDeliveries(list);assert.equal(asked.length,6,'six in flight: wait');
+ live.state.cache.get('report-state:s0:3').done=true;const signed=reportState([]);signed.data.study_id='s0';signed.data.signature.study_id='s0';Object.assign(live.state.cache.get('report-state:s0:3'),signed);
+ live.loadDeliveries(list);assert.deepEqual(asked.slice(6),['s6'],'one answered, one more starts');
+ assert.equal(live.deliveryPeek(list[0]).label,'Signed');assert.equal(live.deliveryPeek(list[7]).label,'Checking…');
+ assert(!asked.includes('open'),'a study still in review never reads its report');
 });
 
 test('Change <step> is offered on approved review pages of a completed study, to engineers and owners only',()=>{

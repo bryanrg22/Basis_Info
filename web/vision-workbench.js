@@ -55,11 +55,8 @@
  function current(){return context.items.find(i=>i.id===view.selectedId)}
  function counted(){return context.items.filter(i=>i.counted)}
  function sorted(label){return counted().filter(i=>!label||i.label===label).sort((a,b)=>a.box.x1-b.box.x1||a.box.y1-b.box.y1||a.id.localeCompare(b.id))}
- // Live mode offers only what the API does today. A found object's type and count are
- // corrected through the room inventory (a component correction, sent with Request
- // corrections); an object an engineer added can be deleted. The per-object operations in
- // web/README.md ("API work still required") stay in mock mode until the API has them.
- // Live: an engineer-added object can be deleted. With object_exclusion (GET /v1/capabilities,
+ // Live mode offers only what the API does. A found object's priced count is corrected through
+ // the room inventory (a component correction, sent with Review & send). Live: an engineer-added object can be deleted. With object_exclusion (GET /v1/capabilities,
  // proposed) any object can be marked Not counted or given another type; neither erases the AI's
  // box. Without it the panel offers only what the API does.
  /* Live: what is saved and what waits, always in view under the panel. Photo changes (Not counted,
@@ -238,7 +235,7 @@
    const m=modal(s.source==='manual'?'Remove this added object?':'Remove this object?','<p>It will no longer count in this photo. Check the room inventory afterward.</p>',`${closeBtn}<button class="button danger" id="vision-remove">Remove object</button>`);
    m.querySelector('#vision-remove').onclick=async()=>{m.remove();view.busy=true;try{if(Live){await Live.api.deleteObject(c.id,c.doc,s.id);await refresh()}else c.items.splice(c.items.indexOf(s),1);selection(null);view.notice='Object removed.'}catch(e){view.notice=Live?Live.errorText(e):e.message;view.error=true}finally{view.busy=false;paint()}};
   }
-  // Proposed object_exclusion (web/FRONTEND_BACKLOG.md 13). Not counted keeps the AI's box as
+  // Proposed object_exclusion (web/FRONTEND_BACKLOG.md 14). Not counted keeps the AI's box as
   // evidence; Change type is Not counted on the AI's box plus an engineer object of the new type
   // at the same box, so the backend needs one new concept, not two.
   const caps=()=>Boolean(Live?.caps?.objectExclusion);
