@@ -141,5 +141,7 @@ client-data guard on every commit.
 - `docs/LOCAL_SIGN_IN.md`: seeing the web app locally: mock mode, signing in to a live stack
   from an agent's browser, and why sessions get stuck at the sign-in page.
 - `docs/api/WORKFLOW.md`, `STUDY_RESULT.md`, `TIMELINE_AND_AUDIT.md`, `REPORT.md`: the API.
+- `docs/api/REVIEW_RULES.md`: what is flagged at each gate (with thresholds and settings), what
+  approving does, and what a correction request, reopen or restore redoes.
 - `docs/review_2026-10-15/EVAL_REPORT.md`: what was measured, section by section; read the
   section a default cites before changing it.
