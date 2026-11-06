@@ -270,7 +270,9 @@ The mock screens show five sample room photos (`assets/bedroom.webp`, `exterior.
 `kitchen.webp`, `kitchen-detail.webp`, `living.webp`). They are not in git (listing-style
 images of unknown license); copy them into `web/assets/` from the design review folder
 (`design-review/assets/`). Without them the mock shows empty image frames; live mode does
-not use them.
+not use them. The sample API (`?api=sample`) serves a committed synthetic stand-in
+(`assets/sample-photo.webp`, drawn by `tooling/fixtures/make_sample_photo.py`) for each
+missing photo, so sample mode and `node --test web/tests/*.test.cjs` work from a clean clone.
 
 ## Live mode, locally
 

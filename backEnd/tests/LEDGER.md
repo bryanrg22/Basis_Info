@@ -678,7 +678,13 @@ Code review of the branch (Sol on Codex, Opus on the Claude provider), each fix 
 | `web/tests/live-redesign-gates.test.cjs` | Added: sent room corrections read as room names (merge, photo move) and recovery classes by name, never ids; Study progress returns to the review only after a send succeeds, not after a refused one | 26 pass |
 | `web/tests/sample-api.test.cjs` | Added: a stale-preview sign answers 412 BASIS-REPORT-010 with the current preview ETag; If-Match on the report answers reads as `parse_if_match` (unquoted and weak never match, a tag list does, `*` needs existing answers); with the PROPOSED section deleted the sample still runs and `/v1/capabilities` is 404 | 30 pass |
 
-The full `web/tests/*.test.cjs` suite passed 410 tests.
+Driving the branch against the real API (main with the signer, overrides and team branches):
+
+| Test file | Coverage | Result |
+| --- | --- | --- |
+| `web/tests/sample-api.test.cjs` | Changed: P2 answers in the backend's override shape (the price a decimal string as entered, `level`, `correction_id`, `revision`; trail `engineer_price` with the table's pricing kept as `replaced`; the `source_row` text; a price alone keeps the bucket and the classification's reasons and clears only the table's pricing reasons; more than two decimals or a string price is refused); the validator checks `cost.override` against the contract once the contract has it. Added: a checkout without the five untracked photos serves the committed synthetic stand-in for each, whole, and a missing report still fails. Passes against main's `openapi.json` and each backend branch's (overrides, signer details, team duplicate, library search), and in a clean clone without the photos (9 of 410 failed there before) | 31 pass |
+
+The full `web/tests/*.test.cjs` suite passed 411 tests.
 
 ### The firm pages: Home, Library, Activity, Team, Settings, onboarding (web/, November 2026)
 
@@ -715,4 +721,4 @@ Firms are set up by Basis, not self-serve (`POST /v1/orgs` off by default; `pyth
 | --- | --- | --- |
 | `web/tests/firm-pages.test.cjs` | Added: the no-firm screen, for an admin, an engineer and a viewer sign-in, says to ask the firm's admin for an invitation or contact Basis, offers only Check for an invitation and Use another account, and has no form or create control; a create-firm form submitted anyway sends nothing, and the sample API creates no firm (fails on the code before the change) | 22 pass |
 
-The full `web/tests/*.test.cjs` suite passed 442 tests.
+The full `web/tests/*.test.cjs` suite passed 443 tests.

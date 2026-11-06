@@ -5,10 +5,16 @@ const fs=require('node:fs'),path=require('node:path'),crypto=require('node:crypt
 const A=require('../live/sample-api.js');
 const WEB=path.join(__dirname,'..'),OPENAPI=JSON.parse(fs.readFileSync(path.join(WEB,'..','docs','api','openapi.json'),'utf8'));
 const fetchAsset=p=>fs.readFileSync(path.join(WEB,p));
+// The five photos are not in git (web/README.md); without them the sample serves the committed stand-in.
+const STAND_IN=fs.readFileSync(path.join(WEB,'assets','sample-photo.webp'));
+const servedBytes=d=>fs.existsSync(path.join(WEB,'assets',d.filename))?d.bytes:STAND_IN.length;
 
 /* ---------- a small JSON-schema validator (the subset openapi.json uses) ---------- */
 // Proposed fields are the only extras allowed, and only where the contract puts them.
-const PROPOSED_EXTRAS=new Set(['PhotoObjectOut.exclusion','CostOut.override','StudyOut.summary','StudyDetail.summary','MemberOut.signer']);
+// The backend branch of the overrides (docs/api/OVERRIDES.md there) adds these to the
+// contract; once it is in openapi.json the schema itself checks them and these are inert.
+const PROPOSED_EXTRAS=new Set(['PhotoObjectOut.exclusion','CostOut.override','CostTrailOut.override','CostTrailOut.replaced','StudyOut.summary','StudyDetail.summary','MemberOut.signer']);
+const PROPOSED_VALUES=new Map([['CostTrailOut.kind',['engineer_price']]]);
 function validate(schema,value,where='$',owner=null,errors=[]){
  if(schema.$ref){const name=schema.$ref.split('/').pop();return validate(OPENAPI.components.schemas[name],value,where,name,errors)}
  if(schema.allOf)for(const s of schema.allOf)validate(s,value,where,owner,errors);
@@ -38,7 +44,7 @@ function validate(schema,value,where='$',owner=null,errors=[]){
   const props=schema.properties||{};
   for(const r of schema.required||[])if(!(r in value))errors.push(`${where}: missing required ${r}`);
   for(const [k,v] of Object.entries(value)){
-   if(props[k]){validate(props[k],v,`${where}.${k}`,null,errors);continue}
+   if(props[k]){if(!props[k].enum?.includes(v)&&PROPOSED_VALUES.get(`${owner}.${k}`)?.includes(v))continue;validate(props[k],v,`${where}.${k}`,null,errors);continue}
    if(schema.additionalProperties===false)errors.push(`${where}: ${k} is not allowed (additionalProperties false)`);
    else if(schema.additionalProperties&&typeof schema.additionalProperties==='object')validate(schema.additionalProperties,v,`${where}.${k}`,null,errors);
    else if(schema.properties&&!PROPOSED_EXTRAS.has(`${owner}.${k}`))errors.push(`${where}: ${k} is not in ${owner||'the schema'}`);
@@ -84,7 +90,7 @@ async function readAll(a,studyId,label){
  for(const d of study.documents.filter(d=>d.kind==='photo')){
   const o=check('GET',T+'/photos/{document_id}/objects',await get(`${S(studyId)}/photos/${d.id}/objects?revision=${study.revision}`));
   const counted={};for(const x of o.items)if(x.counted)counted[x.label]=(counted[x.label]||0)+1;assert.deepEqual(o.counts,counted,`${label}: counts are the counted instances`);
-  const img=await get(`${S(studyId)}/documents/${d.id}/image`);assert.equal(img.status,200);assert.equal(img.headers['content-type'],'image/webp');assert.equal(img.body.length,d.bytes,'the photo is served whole');
+  const img=await get(`${S(studyId)}/documents/${d.id}/image`);assert.equal(img.status,200);assert.equal(img.headers['content-type'],'image/webp');assert.equal(img.body.length,servedBytes(d),'the photo is served whole');
  }
  const pdf=study.documents.find(d=>d.kind==='appraisal'),bytes=await get(`${S(studyId)}/documents/${pdf.id}/content`);
  assert.equal(bytes.headers['content-type'],'application/pdf');assert.equal(Buffer.from(bytes.body.slice(0,5)).toString(),'%PDF-');
@@ -357,13 +363,24 @@ test('an Idempotency-Key replays the first answer instead of acting twice',async
  assert.equal((await x.a.call('GET',P)).body.items.filter(o=>o.source==='manual').length,1);
 });
 
+test('a checkout without the five photos serves the synthetic stand-in for each, and a missing report still fails',async()=>{
+ assert.equal(STAND_IN.subarray(0,4).toString(),'RIFF');assert.equal(STAND_IN.subarray(8,12).toString(),'WEBP');
+ const missing=p=>{if(/^assets\/(kitchen|kitchen-detail|living|bedroom|exterior)\.webp$/.test(p)||p==='assets/sample-report.pdf'){const e=new Error('ENOENT: '+p);e.code='ENOENT';throw e}return fetchAsset(p)};
+ const a=A.create({state:'signed',now:()=>Date.parse('2026-11-05T12:00:00Z'),fetchAsset:missing}),id=a.mainStudyId();
+ const photos=(await a.call('GET',S(id))).body.documents.filter(d=>d.kind==='photo');assert.equal(photos.length,5);
+ for(const d of photos){const img=await a.call('GET',`${S(id)}/documents/${d.id}/image`);assert.equal(img.status,200,d.filename);assert.equal(img.headers['content-type'],'image/webp');assert.deepEqual(Buffer.from(img.body),STAND_IN,d.filename+' is the stand-in, whole')}
+ const report=await a.call('GET',`${S(id)}/report`).catch(()=>({status:'threw'}));assert.notEqual(report.status,200,'only photos fall back: a missing report is not papered over');
+ // With the photos present (a local copy), the real file is served, not the stand-in.
+ if(fs.existsSync(path.join(WEB,'assets','kitchen.webp'))){const b=A.create({state:'signed',fetchAsset}),k=(await b.call('GET',S(b.mainStudyId()))).body.documents.find(d=>d.filename==='kitchen.webp');const img=await b.call('GET',`${S(b.mainStudyId())}/documents/${k.id}/image`);assert.equal(img.body.length,k.bytes)}
+});
+
 test('the Response surface: JSON, problem+json, bytes, and the bearer token',async()=>{
  const {a,id}=instance('components');
  let r=await a.fetch(`${A.BASE}/v1/studies/${id}`,{headers:{Authorization:'Bearer t'}});assert.equal(r.status,200);assert.match(r.headers.get('content-type'),/json/);assert.equal((await r.json()).id,id);
  r=await a.fetch(`${A.BASE}/v1/nothing`,{headers:{Authorization:'Bearer t'}});assert.equal(r.status,404);assert.equal(r.headers.get('content-type'),'application/problem+json');
  r=await a.fetch(`${A.BASE}/v1/me`,{});assert.equal(r.status,401);
  const doc=(await a.call('GET',S(id))).body.documents.find(d=>d.kind==='photo');
- r=await a.fetch(`${A.BASE}/v1/studies/${id}/documents/${doc.id}/image`,{headers:{Authorization:'Bearer t'}});assert.equal((await r.blob()).size,doc.bytes);
+ r=await a.fetch(`${A.BASE}/v1/studies/${id}/documents/${doc.id}/image`,{headers:{Authorization:'Bearer t'}});assert.equal((await r.blob()).size,servedBytes(doc));
  // The live client works against it unchanged.
  const client=require('../live/api-client.js').createClient({baseUrl:a.base,fetchImpl:a.fetch,getToken:async()=>'sample-token'});
  assert.equal((await client.listStudies()).items.length,13,'the archived study is listed only on request');
@@ -394,21 +411,37 @@ test('P1: exclude an instance with a reason, then restore it; the counts follow'
 
 test('P2: a unit price override on an asset, and on a component for every asset taken off it',async()=>{
  const x=instance('assets');let s=await study(x);
- const chair=(await x.a.call('GET',S(x.id)+'/assets')).body.items.find(a=>a.label==='chair');
+ const chair=(await x.a.call('GET',S(x.id)+'/assets')).body.items.find(a=>a.label==='chair'),before=chair;
  problem(await x.post(S(x.id)+'/decisions',decision(s,'reject',[{entity_type:'asset',entity_id:chair.id,after:{unit_cost:310,unit_cost_source:'Vendor quote'}}])),422);
+ problem(await x.post(S(x.id)+'/decisions',decision(s,'reject',[{entity_type:'asset',entity_id:chair.id,after:{unit_cost:310.125,unit_cost_source:'Vendor quote'},reason:'Quote'}])),422);
+ problem(await x.post(S(x.id)+'/decisions',decision(s,'reject',[{entity_type:'asset',entity_id:chair.id,after:{unit_cost:'310',unit_cost_source:'Vendor quote'},reason:'Quote'}])),422);
  problem(await x.post(S(x.id)+'/decisions',decision(s,'reject',[{entity_type:'asset',entity_id:chair.id,after:{unit_cost:0,unit_cost_source:'Vendor quote'},reason:'Quote'}])),422);
  await x.post(S(x.id)+'/decisions',decision(s,'reject',[{entity_type:'asset',entity_id:chair.id,after:{unit_cost:310,unit_cost_source:'Vendor quote 2026-10-02'},reason:'Priced from the seller’s invoice.'}]));
  x.advance();
  let a=check('GET','/v1/studies/{study_id}/assets',await x.a.call('GET',S(x.id)+'/assets')).items.find(a=>a.id===chair.id);
  assert.deepEqual([a.cost.unit_cost,a.cost.total],['310.00','1240.00']);
- assert.deepEqual([a.cost.override.unit_cost,a.cost.override.source,a.cost.override.by],[310,'Vendor quote 2026-10-02','sample-user-1']);
+ // The backend's shape: the price a decimal string as entered, with its level, correction and revision.
+ const o=a.cost.override;
+ assert.deepEqual([o.unit_cost,o.source,o.reason,o.by,o.by_name,o.level,o.revision],['310','Vendor quote 2026-10-02','Priced from the seller’s invoice.','sample-user-1','Alex Morgan','asset',s.revision+1],'the first revision it priced');
+ assert.equal(typeof o.correction_id,'string');assert.ok(o.at);
+ const t=a.cost.trail;assert.equal(t.kind,'engineer_price');assert.deepEqual([t.unit_cost,t.total,t.base],['310','1240.00',null]);assert.deepEqual(t.override,o);
+ assert.equal(t.replaced.kind,before.cost.trail.kind,'the table’s own pricing is kept');assert.deepEqual([t.replaced.unit_cost,t.replaced.total],[before.cost.trail.unit_cost,before.cost.trail.total]);
+ assert.match(a.cost.source_row,/^engineer's unit price 310 per EA: Vendor quote 2026-10-02 \(set by Alex Morgan on \d{4}-\d\d-\d\d; reason: Priced from the seller’s invoice\.\); replaces: /);
+ // A price alone changes no classification: the bucket and the classification's reasons stay.
+ assert.deepEqual([a.bucket,a.category],[before.bucket,before.category]);
+ assert.deepEqual(a.review_reasons,before.review_reasons.filter(r=>!/^(cost:|cross:COST_ROW_MISSING|cross:COST_NEEDS_QUANTITY)/.test(r)));
  assert.ok((await x.a.call('GET',S(x.id)+'/assets')).body.items.filter(a=>a.cost.override).length===1,'override only where set');
  const y=instance('components');s=await study(y);
  const stove=(await y.a.call('GET',S(y.id)+'/rooms')).body.items[0].inventory.find(i=>i.label==='stove');
  await y.post(S(y.id)+'/decisions',decision(s,'reject',[{entity_type:'component',entity_id:stove.component_id,after:{unit_cost:7200,unit_cost_source:'Dealer price list'},reason:'Model in the photo.'}]));
  y.advance();s=await study(y);await y.post(S(y.id)+'/decisions',decision(s,'approve'));y.advance();
  a=(await y.a.call('GET',S(y.id)+'/assets')).body.items.find(a=>a.component_id===stove.component_id);
- assert.deepEqual([a.cost.unit_cost,a.cost.override.source],['7200.00','Dealer price list']);
+ assert.deepEqual([a.cost.unit_cost,a.cost.override.source,a.cost.override.unit_cost,a.cost.override.level],['7200.00','Dealer price list','7200','component']);
+ // A price to the cent is kept as entered.
+ const z=instance('assets');s=await study(z);const sink=(await z.a.call('GET',S(z.id)+'/assets')).body.items.find(a=>a.label==='sink');
+ await z.post(S(z.id)+'/decisions',decision(s,'reject',[{entity_type:'asset',entity_id:sink.id,after:{unit_cost:512.4,unit_cost_source:'Quote 118'},reason:'On file.'}]));z.advance();
+ a=check('GET','/v1/studies/{study_id}/assets',await z.a.call('GET',S(z.id)+'/assets')).items.find(a=>a.id===sink.id);
+ assert.deepEqual([a.cost.override.unit_cost,a.cost.unit_cost,a.cost.trail.unit_cost],['512.4','512.40','512.4']);
 });
 
 test('P3: room_create only at the rooms review; never room_delete',async()=>{
@@ -463,7 +496,13 @@ test('the validator itself refuses what openapi.json refuses',()=>{
  assert.match(validate(ref('StudyList'),{items:[],total:-1,next_cursor:null}).join(),/below 0/);
  assert.match(validate(ref('SignIn'),{revision:1,reviewed_sha256:'x',engineer:{name:'A',credentials:'PE'},attest:true,statement_version:1}).join(),/does not match/);
  assert.match(validate(ref('DecisionIn'),{stage:'appraisal_review',revision:1,decision:'approve',extra:1}).join(),/additionalProperties false/);
- assert.match(validate(ref('CostOut'),{unit_cost:null,total:null,source_row:null,location_factor:null,cost_year:null,override:{}}).join(),/^$/,'override on CostOut');
+ const cost={unit_cost:null,total:null,source_row:null,location_factor:null,cost_year:null};
+ if(OPENAPI.components.schemas.CostOut.properties.override){// the contract has the override: its shape is checked
+  assert.match(validate(ref('CostOut'),{...cost,override:{}}).join(),/override: anyOf matched 0/,'an empty override on CostOut');
+  assert.match(validate(ref('CostOverrideOut'),{}).join(),/missing required unit_cost/);
+  assert.match(validate(ref('CostOverrideOut'),{unit_cost:310,source:'q',reason:'r',by:null,by_name:null,at:'t',level:'asset'}).join(),/unit_cost: expected string/,'a number for the price');
+  assert.deepEqual(validate(ref('CostOut'),{...cost,override:{unit_cost:'310',source:'q',reason:'r',by:null,by_name:null,at:'t',level:'asset',correction_id:null,revision:2}}),[]);
+ }else assert.deepEqual(validate(ref('CostOut'),{...cost,override:{}}),[],'override on CostOut, proposed');
 });
 test('deleting the PROPOSED section, as its header says, leaves an API that answers like the real one',async()=>{
  const src=fs.readFileSync(path.join(__dirname,'../live/sample-api.js'),'utf8');

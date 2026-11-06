@@ -245,7 +245,13 @@ in-browser sample API (`index.html?mode=live&api=sample`, `web/live/sample-api.j
   10,000,000, USD per takeoff unit; `null` clears it) and `unit_cost_source` (1-300 chars,
   required with a number); the correction's `reason` is required. A `component` override prices
   every asset taken off that component. The next revision's asset reports `cost.unit_cost` = the
-  override and `cost.override: {"unit_cost", "source", "reason", "by", "by_name", "at"}`.
+  override and `cost.override: {"unit_cost", "source", "reason", "by", "by_name", "at", "level",
+  "correction_id", "revision"}`. Built on the backend branch of the overrides
+  (`docs/api/OVERRIDES.md` there), whose shape the sample API now answers in: `unit_cost` a
+  decimal string as entered (`"512.4"`, like every money value), at most two decimals in the
+  request, `level` `asset` (wins) or `component`, and `cost.trail.kind` `engineer_price` with the
+  table's own pricing kept as `trail.replaced`; a price alone clears only the table's pricing
+  review reasons.
 * **Create a room** (`room_create`). `rooms_review` accepts only `room` and `photo_room`
   corrections (`backEnd/basis/workflow/contracts.py`), so the API cannot create a room. Main's live
   Rooms editor sent `room_create` for New room and `room_delete` for Remove, both refused with 422.

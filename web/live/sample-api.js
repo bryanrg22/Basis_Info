@@ -107,6 +107,7 @@
   {key:'exterior',kind:'photo',filename:'exterior.webp',content_type:'image/webp',bytes:167240,sha256:'1b042095d3e3e5f0c77bf48b36e97dd85670d60b10fd125ad8093f16a059e396',path:'assets/exterior.webp'},
  ];
  const REPORT_PATH='assets/sample-report.pdf';
+ const PHOTO_PATHS=new Set(DOCS.filter(d=>d.kind==='photo').map(d=>d.path)),STAND_IN_PHOTO='assets/sample-photo.webp';
  // Appraisal fields: [key, label, kind, value, page(s), confidence, critical]; regions are the
  // printed value's box on the sample PDF (page fractions, top-left origin; pdftotext -bbox).
  const ROW_Y=[0.3057,0.3676,0.4294,0.4913,0.5532,0.6150];
@@ -1027,9 +1028,13 @@
    route('GET','/v1/cost-indices/runs',ctx=>json(200,{items:[{id:'5a3b0000-0000-4000-8000-0000000000aa',source:'sample',trigger:'manual',actor_type:'system',actor_id:null,actor_name:'Sample loader',status:'succeeded',started_at:iso(ctx.i.t0-DAY*40),finished_at:iso(ctx.i.t0-DAY*40+4000),rows_added:5,years_wanted:[2020,2024,2025,2026],years_added:[2020,2024,2025,2026],failures:[],document_sha256:null,detail:null}]}));
    PROPOSED_ROUTES.forEach(fn=>fn({route,json,withStudy,notFound,conflict,invalid,fieldErr,Problem,E,objectGate,objectOut,liveObjects,iso,clone,TEXT,blank,event,audit}));
   }
+  async function fetchFile(I,path){if(I.fetchAsset)return new Uint8Array(await I.fetchAsset(path));const base=I.assetBase||globalThis.document?.baseURI||globalThis.location?.href;const r=await fetch(new URL(path,base));if(!r.ok)throw new Error(`${path}: ${r.status}`);return new Uint8Array(await r.arrayBuffer())}
+  // The five photos are not in git (web/README.md): a checkout without them serves the
+  // committed synthetic stand-in (tooling/fixtures/make_sample_photo.py) for each, so the
+  // sample works from a clean clone. DOCS keeps the real files' sizes and digests.
   async function asset(I,path){
    if(I.assetCache.has(path))return I.assetCache.get(path);
-   const load=(async()=>{if(I.fetchAsset)return new Uint8Array(await I.fetchAsset(path));const base=I.assetBase||globalThis.document?.baseURI||globalThis.location?.href;const r=await fetch(new URL(path,base));if(!r.ok)throw new Error(`${path}: ${r.status}`);return new Uint8Array(await r.arrayBuffer())})();
+   const load=(async()=>{try{return await fetchFile(I,path)}catch(e){if(!PHOTO_PATHS.has(path))throw e;return fetchFile(I,STAND_IN_PHOTO)}})();
    I.assetCache.set(path,load);load.catch(()=>I.assetCache.delete(path));return load;
   }
  function api(inst){
@@ -1087,7 +1092,8 @@
   *  P1  PATCH .../photos/{doc}/objects/{id} {counted:false, reason} | {counted:true}; every
   *      object carries `exclusion` (null when counted).
   *  P2  unit_cost (+ unit_cost_source, reason) on asset and component corrections; the asset
-  *      then reports cost.unit_cost = the override and cost.override.
+  *      then reports cost.unit_cost = the override and cost.override (the backend's shape:
+  *      unit_cost a decimal string as entered, with level, correction_id and revision).
   *  P3  room_create at rooms_review; photo_room corrections in the same decision may name it.
   *
   * The firm pages (web/FRONTEND_BACKLOG.md section 15):
@@ -1156,28 +1162,43 @@
    event(S,b.counted?'object.restored':'object.excluded',{actor:'engineer',entity_type:'photo_object',entity_id:o.id,detail:{reason:b.reason??null}});
    return json(200,objectOut(S,doc,o));
   })));
-  // P2: a unit price override on asset and component corrections.
-  AFTER_KEYS.component.push('unit_cost','unit_cost_source');AFTER_KEYS.asset.push('unit_cost','unit_cost_source');
+  // P2: a unit price override on asset and component corrections, in the shape the backend
+  // builds it (docs/api/OVERRIDES.md section 3 on the backend branch): the price is a decimal
+  // string as entered, the override names its level, correction and revision, and the
+  // trail is `engineer_price` with the table's own pricing kept as `replaced`.
+  const PRICE_KEYS=['unit_cost','unit_cost_source'];
+  AFTER_KEYS.component.push(...PRICE_KEYS);AFTER_KEYS.asset.push(...PRICE_KEYS);
   const checkPrice=c=>{
    const a=c.after;if(!('unit_cost' in a)&&!('unit_cost_source' in a))return null;
    const e=detail=>({where:'after',detail,type:'correction_value'});
-   if(a.unit_cost!==null&&!(typeof a.unit_cost==='number'&&a.unit_cost>0&&a.unit_cost<=10000000))return e('unit_cost is a number above 0 and at most 10,000,000 (USD per takeoff unit), or null to clear an override.');
+   if(a.unit_cost!==null&&!(typeof a.unit_cost==='number'&&a.unit_cost>0&&a.unit_cost<=10000000&&Math.abs(Math.round(a.unit_cost*100)-a.unit_cost*100)<1e-6))return e('unit_cost is a number above 0 and at most 10,000,000 (USD per takeoff unit, at most two decimals), or null to clear an override.');
    if(a.unit_cost!==null&&(typeof a.unit_cost_source!=='string'||!a.unit_cost_source.trim()||a.unit_cost_source.length>300))return e('unit_cost_source (1 to 300 characters) says where the price comes from.');
    if(a.unit_cost===null&&'unit_cost_source' in a&&a.unit_cost_source!==null)return e('unit_cost_source goes with a price.');
    if(blank(c.reason))return {where:'reason',detail:'A reason is required for a unit price override.',type:'correction_reason'};
    return null;
   };
   COMPONENT_CHECKS.push(checkPrice);ASSET_CHECKS.push(checkPrice);
-  const keepPrice=(store,key,c,ctx,S)=>{if(!('unit_cost' in c.after))return;if(c.after.unit_cost===null){delete store[key];return}store[key]={unit_cost:c.after.unit_cost,source:c.after.unit_cost_source.trim(),reason:c.reason.trim(),by:actorOf(S).id,by_name:actorOf(S).name,at:ctx.at}};
+  const keepPrice=(store,key,level,c,ctx,S)=>{if(!('unit_cost' in c.after))return;if(c.after.unit_cost===null){delete store[key];return}
+   store[key]={unit_cost:String(c.after.unit_cost),source:c.after.unit_cost_source.trim(),reason:c.reason.trim(),by:actorOf(S).id,by_name:actorOf(S).name,at:ctx.at,level,correction_id:ctx.correctionId,revision:ctx.revision}};
+  // A price alone changes no identification and no classification: the rest of the
+  // correction, if any, goes to the base corrector without the price keys.
+  const withoutPrice=c=>{const after={...c.after};for(const k of PRICE_KEYS)delete after[k];return Object.keys(after).length?{...c,after}:null};
   const baseComponent=CORRECTORS.component.apply,baseAsset=CORRECTORS.asset.apply;
-  CORRECTORS.component.apply=(c,S,ctx)=>{baseComponent(c,S,ctx);keepPrice(S.compPrices,c.entity_id,c,ctx,S)};
-  CORRECTORS.asset.apply=(c,S,ctx)=>{baseAsset(c,S,ctx);keepPrice(S.compPrices,'asset:'+c.entity_id,c,ctx,S)};
+  CORRECTORS.component.apply=(c,S,ctx)=>{const rest=withoutPrice(c);if(rest)baseComponent(rest,S,ctx);keepPrice(S.compPrices,c.entity_id,'component',c,{...ctx,revision:S.revision+1},S)};
+  CORRECTORS.asset.apply=(c,S,ctx)=>{const rest=withoutPrice(c);if(rest)baseAsset(rest,S,ctx);keepPrice(S.compPrices,'asset:'+c.entity_id,'asset',c,{...ctx,revision:S.revision+1},S)};
+  // The review reasons about the table's price go; the classification's and quantity's stay.
+  const TABLE_PRICE_REASONS=['cost:YEAR_INDEX_MISSING','cost:YEAR_INDEX_CONVERTED','cost:LOCATION_STATE_MISMATCH','cross:COST_ROW_MISSING','cross:COST_NEEDS_QUANTITY'];
   COST_HOOKS.push((asset,{S,componentId,id,quantity})=>{
    const o=S.compPrices['asset:'+id]||S.compPrices[componentId];if(!o)return;
-   const unit=Math.round(o.unit_cost*100),total=Math.round(unit*quantity);
-   Object.assign(asset.cost,{unit_cost:money(unit),total:money(total),override:{...o}});
-   Object.assign(asset.cost.trail,{kind:'unit_price',unit_cost:money(unit),total:money(total),missing:null,rounding:'cent'});
-   asset.needs_review=false;asset.review_reasons=[];asset.review_codes=[];
+   const unit=Math.round(Number(o.unit_cost)*100),total=Math.round(unit*quantity);// half up to the cent (positive amounts)
+   const t=asset.cost.trail,replaced={kind:t.kind,base:t.base,unit_cost:t.unit_cost,total:t.total,rounding:t.rounding,priced_per:t.priced_per,missing:t.missing};
+   const was=asset.cost.source_row||t.missing||'no cost table row';
+   Object.assign(asset.cost,{unit_cost:money(unit),total:money(total),override:{...o},
+    source_row:`engineer's unit price ${o.unit_cost} per ${asset.takeoff.unit}: ${o.source} (set by ${o.by_name||o.by||'the engineer'} on ${String(o.at).slice(0,10)}; reason: ${o.reason}); replaces: ${was}`});
+   Object.assign(t,{kind:'engineer_price',base:null,unit_cost:o.unit_cost,total:money(total),missing:null,priced_per:null,
+    rounding:"unit_cost = the engineer's price per takeoff unit, as entered (dollars to the cent; no year, location or overhead factor is applied); total = unit_cost x quantity, rounded half up to the cent",override:{...o},replaced});
+   asset.review_reasons=asset.review_reasons.filter(r=>!TABLE_PRICE_REASONS.some(p=>r===p||r.startsWith(p+':')));
+   asset.review_codes=codesFor(asset.review_reasons);asset.needs_review=asset.review_reasons.length>0;
   });
   // P3: room_create at rooms_review.
   CORRECTION_TYPES.rooms_review.push('room_create');
