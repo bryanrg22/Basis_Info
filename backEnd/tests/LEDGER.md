@@ -689,4 +689,11 @@ The full `web/tests/*.test.cjs` suite passed 410 tests.
 | `web/tests/sample-api.test.cjs` | Changed: the firm (14 studies at every stage, 6 people, invitations) validates against openapi.json in all eight states for every study, a draft has no workflow (404), the archived study is listed only on request; `MemberOut.signer` and `StudyOut.summary` are the proposed extras | 30 pass |
 | `web/tests/study-overview.test.cjs`, `firm.test.cjs`, `ui-review.test.cjs`, `profile.test.cjs` | Changed: a finished study's Files page sits under the step bar; roles read Admin / Engineer / Viewer; the New design switch's tests are removed with the switch, and the old live Home, Library and Activity tests with the renderers they tested (`firm-pages.test.cjs` covers those screens now) | pass |
 
-The full `web/tests/*.test.cjs` suite passed 425 tests.
+Code review of the branch (Sol on Codex), each fix with a test that fails on the code before it:
+
+| Test file | Coverage | Result |
+| --- | --- | --- |
+| `web/tests/firm-pages.test.cjs` | Added: onboarding without personal signer details (today's API) still has a way on; a letterhead that could not be read is neither shown as an empty form nor saved over; a signer read that fails (503) is an error, never the engineer of record's details, while a missing route (404) still falls back; the fallback activity keeps to the firm on screen; a study's activity reads every page of its timeline; opening Activity again re-reads the feed once without re-rendering inside the render (it recursed without end and crashed the page) | 13 pass |
+| `web/tests/sample-api.test.cjs` | Added: the proposed directory carries each member's signer details before and after they are read or saved, and a stale signer version is refused (412) | 31 pass |
+
+The full `web/tests/*.test.cjs` suite passed 432 tests.

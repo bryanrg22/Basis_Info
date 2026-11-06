@@ -26,7 +26,7 @@ async function boot({role='engineer',proposed=true,onboarding,fail={},intercept=
   route:(screen,id)=>`#${screen}${id?'/'+id:''}`,guarded:async(name,fn)=>fn(),when:v=>v?String(v).slice(0,10):'—',loading:()=>'<div class="live-state">Loading</div>',failed:e=>`<div role="alert">${e?.title||e?.message}</div>`,render(){},refreshMe:async()=>me};
  // The page reads the time from Date: pin it to the sample's now, as a capture pins the browser clock.
  class FixedDate extends Date{constructor(...a){super(...(a.length?a:[NOW]))}static now(){return NOW}}
- const g={BASIS_CONFIG:{mode:'live'},BasisLive:Live,BasisFirm:F,BasisFirmModel:M,Date:FixedDate,Intl,URLSearchParams,Promise,
+ const g={BASIS_CONFIG:{mode:'live'},BasisLive:Live,BasisFirm:F,BasisFirmModel:M,Date:FixedDate,Intl,setTimeout,URLSearchParams,Promise,
   icon:()=>'<svg></svg>',esc:s=>String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])),toast(){},modal(){return {querySelector:()=>null,remove(){}}},closeBtn:'',
   root:{addEventListener(name,fn){(events[name]||=[]).push(fn)},querySelector:()=>null},document:{addEventListener(){}},state:{screen:'dashboard'},location:{hash:''}};
  g.globalThis=g;vm.createContext(g);vm.runInContext(read('live/firm-pages.js'),g);
@@ -131,4 +131,13 @@ test('a study’s activity reads every page of its timeline',async()=>{
   return {study_id:'x',items:[{seq:9,at:new Date(NOW-1000).toISOString(),event_type:'report.signed',actor_type:'engineer',actor_id:'sample-user-2',stage:'completed',revision:2}],next_cursor:null}}});
  const s={id:'x',property_name:'X',updated_at:'u',org_id:'o'};e.Live.studyActivity(s);await new Promise(r=>setTimeout(r,30));
  assert.equal(pages,2,'both pages are read');assert.match(e.Live.studyActivity(s),/signed revision 2/,'the latest event, on the second page, is shown');
+});
+test('opening Activity again re-reads the feed once, without re-rendering inside the render (it recursed without end)',async()=>{
+ const e=await boot();let renders=0,depth=0,maxDepth=0;
+ e.Live.render=()=>{renders++;depth++;maxDepth=Math.max(maxDepth,depth);if(depth<50)for(const h of e.Live.afterRender)h();depth--};
+ const hooks=()=>{for(const h of e.Live.afterRender)h()};
+ e.g.state.screen='library';hooks();
+ e.g.state.screen='activity';e.Live.state.cache.set('feed:x',{done:true,data:{}});hooks();
+ assert.equal(maxDepth,0,'nothing renders inside the hook');assert.ok(!e.Live.state.cache.has('feed:x'),'the feed is read again');
+ await new Promise(r=>setTimeout(r,5));assert.equal(renders,1,'one render, after the current one');assert.ok(maxDepth<2);
 });

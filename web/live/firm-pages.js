@@ -370,7 +370,9 @@
  Live.signerForm=signerForm;Live.firmAvatar=avatar;Live.firmEntryHtml=entryHtml;Live.firmPill=pill;
  // Home and Activity read the feed again each time they are opened (a decision elsewhere changed it).
  let shown=null;
- Live.afterRender.push(()=>{const now=state.screen;if(now!==shown&&['dashboard','activity'].includes(now)&&shown!==null){for(const k of ['feed:','me-activity','org-activity:'])Live.invalidate(k);Live.render()}shown=now});
+ // The entry is recorded before anything re-renders (a render runs this hook again), and the
+ // re-render waits for the current one to finish.
+ Live.afterRender.push(()=>{const now=state.screen,was=shown;shown=now;if(now!==was&&was!==null&&['dashboard','activity'].includes(now)){for(const k of ['feed:','me-activity','org-activity:'])Live.invalidate(k);setTimeout(()=>Live.render())}});
  const TITLES={dashboard:'Home',library:'Library',activity:'Activity',team:'Team',settings:'Settings'};
  Live.afterRender.push(()=>{if(TITLES[state.screen]&&Live.me?.())document.title='Basis · '+TITLES[state.screen]});
  Live.render();
