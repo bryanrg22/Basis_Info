@@ -22,7 +22,9 @@ async function boot({role='engineer',proposed=true,onboarding}={}){
  const Live={api,state:{cache,studyId:null},screens:{},actions:{},afterRender:[],load,invalidate:p=>{for(const k of [...cache.keys()])if(k.startsWith(p))cache.delete(k)},
   me:()=>me,firm:()=>firm,firmStudies:s=>s,loadDeliveries(){},deliveryPeek:s=>({label:'Signed',tone:'done'}),delivery:s=>({label:'Signed',tone:'done'}),
   route:(screen,id)=>`#${screen}${id?'/'+id:''}`,when:v=>v?String(v).slice(0,10):'—',loading:()=>'<div class="live-state">Loading</div>',failed:e=>`<div role="alert">${e?.title||e?.message}</div>`,render(){},refreshMe:async()=>me};
- const g={BASIS_CONFIG:{mode:'live'},BasisLive:Live,BasisFirm:F,BasisFirmModel:M,Date,Intl,URLSearchParams,Promise,
+ // The page reads the time from Date: pin it to the sample's now, as a capture pins the browser clock.
+ class FixedDate extends Date{constructor(...a){super(...(a.length?a:[NOW]))}static now(){return NOW}}
+ const g={BASIS_CONFIG:{mode:'live'},BasisLive:Live,BasisFirm:F,BasisFirmModel:M,Date:FixedDate,Intl,URLSearchParams,Promise,
   icon:()=>'<svg></svg>',esc:s=>String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])),toast(){},modal(){return {querySelector:()=>null,remove(){}}},closeBtn:'',
   root:{addEventListener(name,fn){(events[name]||=[]).push(fn)},querySelector:()=>null},document:{addEventListener(){}},state:{screen:'dashboard'},location:{hash:''}};
  g.globalThis=g;vm.createContext(g);vm.runInContext(read('live/firm-pages.js'),g);

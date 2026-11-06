@@ -46,8 +46,9 @@
  const PALETTE=['#2f5c46','#3b5878','#7a4527','#5a3d7a','#265d5d','#5f5322'];// dark enough for 4.5:1 on their own 14% tint
  const hue=t=>{let h=0;for(const c of String(t||''))h=(h*31+c.charCodeAt(0))>>>0;return PALETTE[h%PALETTE.length]};
  const avatar=(name,size='')=>name==='Basis'?`<span class="fp-avatar is-basis ${size}" aria-hidden="true"><img src="assets/basis-mark.png" alt=""></span>`:`<span class="fp-avatar ${size}" aria-hidden="true" style="--av:${hue(name)}">${esc(M.initials(name))}</span>`;
- const pill=(label,tone)=>`<span class="fp-pill tone-${tone}">${esc(label)}</span>`;
- const stripOf=(s,d)=>{const seg=M.strip(s,d),cur=seg.findIndex(x=>x.state==='current'),at=cur<0?seg.length:cur+1;return `<span class="fp-strip" role="img" aria-label="${cur<0?`All ${seg.length} steps done`:`Step ${at} of ${seg.length}: ${esc(seg[cur].label)}`}">${seg.map(x=>`<i class="is-${x.state} tone-${x.tone}" title="${esc(x.label)}"></i>`).join('')}</span>`};
+ const KIND=l=>/^sign report|^update the report/i.test(l)?' is-sign':/^failed/i.test(l)?' is-failed':'';
+ const pill=(label,tone)=>`<span class="fp-pill tone-${tone}${KIND(label)}">${esc(label)}</span>`;
+ const stripOf=(s,d)=>{const seg=M.strip(s,d),cur=seg.findIndex(x=>x.state==='current'),at=cur<0?seg.length:cur+1;return `<span class="fp-stagebox"><span class="fp-strip" aria-hidden="true">${seg.map(x=>`<i class="is-${x.state} tone-${x.tone}" title="${esc(x.label)}"></i>`).join('')}</span><small>${cur<0?`All ${seg.length} done`:`${at} of ${seg.length} · ${esc(seg[cur].label)}`}</small></span>`};
  const when=at=>`<time datetime="${esc(at)}" title="${esc(Live.when(at))}">${esc(M.ago(at,now()))}</time>`;
  const href=(s,n)=>Live.route(n.action?n.screen:'processing',s.id);// the step that waits, else the study's page
  const sub=s=>{const m=s.summary;return [M.place(s),m?.client].filter(Boolean).join(' · ')};
@@ -146,7 +147,8 @@
   return hits;
  }
  function chipsHtml(hits){
-  return FILTERS.map(([k,label])=>{const n=hits.filter(x=>inFilter(x.s,k)).length;return `<button type="button" class="fp-chip${P.lib.filter===k?' is-on':''}" data-live="fp-lib-filter" data-value="${k}" aria-pressed="${P.lib.filter===k}">${label}<span>${n}</span></button>`}).join('');
+  const searching=Boolean(P.lib.q.trim());
+  return FILTERS.map(([k,label])=>{const n=hits.filter(x=>inFilter(x.s,k)).length;if(searching&&!n&&k!=='all'&&k!==P.lib.filter)return '';return `<button type="button" class="fp-chip${P.lib.filter===k?' is-on':''}" data-live="fp-lib-filter" data-value="${k}" aria-pressed="${P.lib.filter===k}">${label}<span>${n}</span></button>`}).join('');
  }
  function resultsHtml(hits){
   const q=P.lib.q.trim();
@@ -242,7 +244,7 @@
   if(partial){const seen=new Map();for(const s of studies)if(s.created_by&&!seen.has(s.created_by))seen.set(s.created_by,{user_id:s.created_by,display_name:s.created_by_name,email:s.created_by_email,role:null});if(!seen.has(me.user.id))seen.set(me.user.id,{user_id:me.user.id,display_name:me.user.display_name,email:me.user.email,role:firm.role});list=[...seen.values()]}
   list=list.slice().sort((a,b)=>(a.role==='owner'?0:1)-(b.role==='owner'?0:1)||(a.display_name||a.email||'').localeCompare(b.display_name||b.email||''));
   const admins=list.filter(m=>m.role==='owner').map(m=>m.display_name||m.email);
-  const card=m=>{const name=m.display_name||m.email||'Member',self=m.user_id===me.user.id,open=workOf(m.user_id,studies);return `<li class="fp-colleague">${avatar(name,'is-large')}<div><p class="fp-colleague-name"><strong>${esc(name)}</strong>${self?'<span class="fp-you">you</span>':''}</p><p class="fp-colleague-role">${m.role?esc(ROLE_LABEL(m.role)):'Member'}${m.signer?` · ${esc(M.signerLine(m.signer))}`:''}</p>${m.email?`<a class="fp-colleague-mail" href="mailto:${esc(m.email)}">${esc(m.email)}</a>`:''}<p class="fp-colleague-meta">${open?`${open} open ${open===1?'study':'studies'}`:'No open studies'}${m.last_seen_at?` · active ${esc(activeWhen(m.last_seen_at))}`:''}</p></div></li>`};
+  const card=m=>{const name=m.display_name||m.email||'Member',self=m.user_id===me.user.id,open=workOf(m.user_id,studies);return `<li class="fp-colleague">${avatar(name,'is-large')}<div><p class="fp-colleague-name"><strong>${esc(name)}</strong>${self?'<span class="fp-you">you</span>':''}</p><p class="fp-colleague-role">${m.role?esc(ROLE_LABEL(m.role)):'Member'}${m.signer?` · ${esc(M.signerLine(m.signer))}`:''}</p>${m.email?`<a class="fp-colleague-mail" href="mailto:${esc(m.email)}">${esc(m.email)}</a>`:''}<p class="fp-colleague-meta"><span>${open?`${open} open ${open===1?'study':'studies'}`:'No open studies'}</span>${m.last_seen_at?` · <span>active ${esc(activeWhen(m.last_seen_at))}</span>`:''}</p></div></li>`};
   return `<div class="fp fp-team"><header class="fp-head"><div><h1>Team</h1><p>${list.length} ${list.length===1?'person':'people'} in ${esc(firm.org_name)}</p></div></header>${partial?'<p class="fp-note">Showing the people on the firm’s studies. The full member list is shown to admins.</p>':''}<ul class="fp-colleagues">${list.map(card).join('')}</ul><p class="fp-note">${admins.length?`${esc(admins.join(', '))} ${admins.length===1?'manages':'manage'} invitations and roles. `:''}Ask an admin to invite someone or change a role.</p></div>`;
  }
  Live.actions['fp-inv-tab']=(el,v)=>{P.invTab=v;Live.render()};
@@ -332,12 +334,12 @@
   if(st.error)return '';
   const state=st.data,sig=state.signature,files=new Set(state.files||[]),has=f=>files.has(f)||Boolean(sig&&f==='report.pdf');
   const final=s.status==='completed'?Live.delivery(s):{label:'Archived',tone:'idle'};
-  const dl=(fmt,file,text,primary)=>`<button class="button ${primary?'primary':''}" data-live="report-download" data-value="${fmt}" ${has(file)?'':'disabled'}>${icon('download',15)}${text}</button>`;
+  const dl=(fmt,file,text,primary)=>has(file)?`<button class="button ${primary?'primary':''}" data-live="report-download" data-value="${fmt}">${icon('download',15)}${text}</button>`:'';
   const signedBy=x=>x.signed_by_name||nameOf(x.signed_by)||'An engineer';
   const lines=(rv.error?[]:rv.data.items).filter(x=>x.signature).sort((a,b)=>b.revision-a.revision);
   const lead=sig?`<p class="fp-deliver-lead">${icon('check',16)}<span>Signed by <strong>${esc(sig.engineer?.name||signedBy(sig))}</strong>${sig.engineer?.credentials?', '+esc(sig.engineer.credentials):''}${sig.engineer?.license_number?` · ${esc([sig.engineer.license_state,sig.engineer.license_number].filter(Boolean).join(' '))}`:''} · ${esc(Live.when(sig.signed_at))}</span></p>`:`<p class="fp-deliver-lead is-open">${state.exported&&!state.skipped?`Revision ${s.revision} is not signed yet.`:'No report for this revision yet.'}${s.status==='completed'?` <a href="${Live.route('report',s.id)}">Open Report & sign</a>`:''}</p>`;
   const table=lines.length?`<table class="fp-table fp-signatures"><caption class="sr-only">Who signed each revision</caption><thead><tr><th scope="col">Revision</th><th scope="col">Signed by</th><th scope="col">When</th><th scope="col"><span class="sr-only">Download</span></th></tr></thead><tbody>${lines.map(x=>`<tr><td>${x.revision}${x.current?' <span class="fp-muted">· current</span>':''}</td><td>${esc(x.current&&sig?.engineer?.name?`${sig.engineer.name}${sig.engineer.credentials?', '+sig.engineer.credentials:''}`:signedBy(x.signature))}</td><td>${esc(Live.when(x.signature.signed_at))}</td><td class="fp-actions"><button class="button small quiet" data-live="report-download-revision" data-value="${x.revision}">${icon('download',14)}PDF</button></td></tr>`).join('')}</tbody></table>`:'';
-  return `<section class="panel fp-deliver" aria-labelledby="fp-deliver-title"><header><h2 id="fp-deliver-title">Report and schedule</h2>${pill(final.label,final.tone==='done'?'done':final.tone==='review'?'review':'idle')}</header>${lead}<div class="fp-deliver-row">${dl('pdf','report.pdf',sig?`Signed report · revision ${s.revision}`:'Draft report',true)}${dl('csv','schedule.csv','Schedule CSV')}${dl('xlsx','schedule.xlsx','Schedule XLSX')}</div>${table}</section>`;
+  return `<section class="panel fp-deliver" aria-labelledby="fp-deliver-title"><header><h2 id="fp-deliver-title">Report and schedule</h2>${final.tone==='done'?'':pill(final.label,final.tone==='review'?'review':'idle')}</header>${lead}<div class="fp-deliver-row">${dl('pdf','report.pdf',sig?`Signed report · revision ${s.revision}`:'Draft report',true)}${dl('csv','schedule.csv','Schedule CSV')}${dl('xlsx','schedule.xlsx','Schedule XLSX')}</div>${table}</section>`;
  };
  Live.studyActivity=s=>{
   const t=Live.load('fp-timeline:'+s.id+':'+s.updated_at,()=>api.timeline(s.id,{limit:200}));
