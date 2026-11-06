@@ -455,4 +455,5 @@ Basis has been used in paid pilots on the legacy system:
 - [docs/api/WORKFLOW.md](docs/api/WORKFLOW.md): the workflow route, a failed stage (`failed_stage`, `failure`) and the retry.
 - [docs/api/GATE_DRAFTS_AND_RESUME.md](docs/api/GATE_DRAFTS_AND_RESUME.md): leaving and coming back: gate drafts on the server, resuming an upload, restarting a cancelled study.
 - [docs/api/REVISIONS.md](docs/api/REVISIONS.md): reopening a completed study at a review gate, the revision history and the diff between revisions, restoring an earlier revision as a new one.
+- [docs/api/OVERRIDES.md](docs/api/OVERRIDES.md): the engineer's overrides: a photo object marked Not counted, the engineer's unit price, and `GET /v1/capabilities`.
 - [backEnd/tests/LEDGER.md](backEnd/tests/LEDGER.md): every test file and the invariant it protects.

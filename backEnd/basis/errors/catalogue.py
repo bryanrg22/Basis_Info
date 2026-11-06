@@ -1421,6 +1421,42 @@ ENTRIES: Final[tuple[Entry, ...]] = (
         "Nothing required; delete the box and draw it again to try another outline.",
         "yes",
     ),
+    _e(
+        E.OBJECT_NOT_COUNTED,
+        "refusal",
+        "`PATCH .../objects/{id}` (`counted: false`)",
+        "basis.api.routes.objects",
+        "The instance is an uncounted candidate (a model instance under its class's count "
+        "threshold): it is not counted, so there is nothing to exclude (EVAL_REPORT 90).",
+        "409 `not-counted`.",
+        "Nothing required; to count a candidate, add it (`POST .../objects`, `candidate`).",
+        "no",
+        problem="not-counted",
+    ),
+    _e(
+        E.OBJECT_NOT_EXCLUDED,
+        "refusal",
+        "`PATCH .../objects/{id}` (`counted: true`)",
+        "basis.api.routes.objects",
+        "The instance is an uncounted candidate that was never excluded: restoring counts "
+        "back only what an engineer excluded (EVAL_REPORT 90).",
+        "409 `not-excluded`.",
+        "To count a candidate, add it (`POST .../objects`, `candidate`).",
+        "no",
+        problem="not-excluded",
+    ),
+    _e(
+        E.OBJECT_EXCLUSION_OFF,
+        "refusal",
+        "`PATCH .../objects/{id}`",
+        "basis.api.routes.objects",
+        "Marking a photo object Not counted is turned off on this deployment "
+        "(`OBJECT_EXCLUSION=false`; `GET /v1/capabilities` says `object_exclusion: false`).",
+        "409 `object-exclusion-off`.",
+        "An operator turns the setting on; until then the app does not offer it.",
+        "no",
+        problem="object-exclusion-off",
+    ),
     # ------------------------------------------------------------------ WF
     _e(
         E.WF_HEARTBEAT_TIMEOUT,
@@ -2178,6 +2214,36 @@ ENTRIES: Final[tuple[Entry, ...]] = (
         "measured (EVAL_REPORT 78).",
         "`ValidationError: ... [BASIS-CORRECT-043]`.",
         "Send all three: the measured quantity, its unit and where it was measured.",
+        "no",
+        temporal_type="ValidationError",
+    ),
+    _e(
+        E.CORRECT_UNIT_COST,
+        "error",
+        "corrections",
+        "basis.activities.corrections",
+        "A unit price override on an `asset` or `component` correction is invalid: "
+        "`unit_cost` is dollars to the cent above 0 and at most 10,000,000 per takeoff unit "
+        "(or null to clear an override), `unit_cost_source` (1 to 300 characters) says where "
+        "the price comes from and goes with a number only, and the correction's `reason` is "
+        "required (EVAL_REPORT 90). The decision route refuses the same with a 422.",
+        "`ValidationError: ... [BASIS-CORRECT-044]`; the rejection's corrections are refused.",
+        "Send the price, its source and a reason together.",
+        "no",
+        temporal_type="ValidationError",
+    ),
+    _e(
+        E.CORRECT_UNIT_COST_CONCEALED,
+        "error",
+        "corrections",
+        "basis.activities.corrections",
+        "A unit price override names a concealed row of the structure model (an asset with no "
+        "component): its total is a share of the building's replacement cost new, not a unit "
+        "price, so a unit price cannot set it (EVAL_REPORT 90). The decision route refuses "
+        "the same with a 422.",
+        "`ValidationError: ... [BASIS-CORRECT-045]`; the rejection's corrections are refused.",
+        "Correct the square-foot model instead (`structure_model` through "
+        "`POST .../assets/reprice`).",
         "no",
         temporal_type="ValidationError",
     ),
@@ -3451,6 +3517,46 @@ ENTRIES: Final[tuple[Entry, ...]] = (
         "An owner saves it with `PUT /v1/orgs/{id}/profile`.",
         "after fix",
         problem="not-found",
+    ),
+    _e(
+        E.REPORT_SIGNER_DETAILS_MISSING,
+        "refusal",
+        "`POST .../report/sign`",
+        "basis.api.routes.report",
+        "The signer has saved no signer details (their name, credentials and license) and the "
+        "signing names none, or the deployment requires saved details "
+        "(`REPORT_SIGNER_DETAILS_REQUIRED`). A report is signed with the signer's own details, "
+        "never the firm's.",
+        "409 `conflict` with the code; nothing is signed.",
+        "The signer saves their details once in their account (`PUT /v1/me/signer`), opens "
+        "the preview again (it now names them) and signs.",
+        "after fix",
+        problem="conflict",
+    ),
+    _e(
+        E.REPORT_SIGNER_DETAILS_MISMATCH,
+        "refusal",
+        "`POST .../report/sign`",
+        "basis.api.routes.report",
+        "The signing sent an `engineer` whose name, credentials or license differ from the "
+        "signer's saved details, which are what the report prints.",
+        "409 `conflict` with the code; nothing is signed.",
+        "Sign with the saved details (send them, or leave `engineer` out), or change the saved "
+        "details first (`PUT /v1/me/signer`), open the preview again and sign.",
+        "after fix",
+        problem="conflict",
+    ),
+    _e(
+        E.REPORT_SIGNER_PRECONDITION_FAILED,
+        "refusal",
+        "`PUT /v1/me/signer`",
+        "basis.api.routes.signer",
+        "The `If-Match` entity tag is not the signer details' current one, or `If-Match: *` "
+        "while none are saved.",
+        "412 `precondition-failed`; the response's `ETag` is the current tag. Nothing was written.",
+        "Read the details again, reapply the change, and send the new `ETag` as `If-Match`.",
+        "yes",
+        problem="precondition-failed",
     ),
     # ------------------------------------------------------------------ INF
     _e(

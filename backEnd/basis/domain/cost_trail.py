@@ -18,7 +18,7 @@ Shape (``version`` 1), every Decimal a string exactly as used (``"1.2330"``, nev
 float or a re-rounded value), every date ISO 8601::
 
     {"version": 1,
-     "kind": "unit_price" | "unpriced" | "structure_residual",
+     "kind": "unit_price" | "unpriced" | "structure_residual" | "engineer_price",
      "quantity": {"value", "unit", "formula", "method", "inputs", "assumptions"},
      "base": {"unit_cost", "unit", "table", "row", "tier", "source", "base_year",
               "row_unit", "conversion", "assumption"} | null,
@@ -31,7 +31,13 @@ float or a re-rounded value), every date ISO 8601::
                    "building": {"amount", "source", "formula", "inputs",
                                 "assumptions"} | null} | null,
      "intake_version", "property_class", "cost_year", "location_factor",
-     "unit_cost", "total", "rounding", "priced_per", "missing"}
+     "unit_cost", "total", "rounding", "priced_per", "missing",
+     "override": OVERRIDE (engineer_price; an unpriced row waiting for its quantity),
+     "replaced": REPLACED (engineer_price only)}
+
+    OVERRIDE = {"unit_cost", "source", "reason", "by", "by_name", "at", "level",
+                "correction_id", "revision"}      (basis.domain.price_overrides.record)
+    REPLACED = {"kind", "base", "unit_cost", "total", "rounding", "priced_per", "missing"}
 
     INDEX = {"year", "value", "as_of", "citation", "estimated", "derived",
              "store": STORE | null}
@@ -49,6 +55,16 @@ model (fire alarms, data outlets, ...) is priced from the cost table like any la
 ``unit_price`` or ``unpriced`` with ``structure`` set. ``store`` is null for a value read
 from the released book file (or the store's seed of the book's location table, which is
 the file's table object).
+
+``engineer_price`` (EVAL_REPORT 90): the engineer set the unit price
+(:mod:`basis.domain.price_overrides`). ``unit_cost`` is ``override.unit_cost`` exactly as
+entered and ``total`` is it times the quantity, rounded half up to the cent; no year,
+location or overhead factor is applied (the engineer's price is the price at the study's
+cost year and place). ``year``, ``location``, ``cost_year`` and ``location_factor`` record
+the study's index as an unpriced row does (what the table would have been priced with), and
+``replaced`` is the cost table's own pricing of the same quantity (a ``unit_price`` with its
+base row and amounts, or an ``unpriced`` with why), so the table's value is never lost and
+:func:`check` verifies both. ``base`` is null: no cost row priced it.
 """
 
 from __future__ import annotations
@@ -81,6 +97,15 @@ STRUCTURE_ROUNDING: Final = (
     "new (structure.rcn); unit_cost = total / quantity, rounded half even to the cent "
     "(the total when the quantity is 0); the total is not recomputed from the unit cost"
 )
+ENGINEER_PRICE: Final = "engineer_price"
+ENGINEER_ROUNDING: Final = (
+    "unit_cost = the engineer's price per takeoff unit, as entered (dollars to the cent; no "
+    "year, location or overhead factor is applied); total = unit_cost x quantity, rounded "
+    "half up to the cent"
+)
+# The members of the table's own trail kept as ``replaced`` (the rest are the study's,
+# recorded once on the engineer's trail).
+REPLACED_KEYS: Final = ("kind", "base", "unit_cost", "total", "rounding", "priced_per", "missing")
 YEAR_SETTING: Final = "COST_YEAR setting"
 LOCATION_SETTING: Final = "COST_LOCATION_FACTOR setting"
 
@@ -293,6 +318,42 @@ def priced_trail(
     }
 
 
+def engineer_trail(
+    quantity: dict[str, Any],
+    estimate: CostEstimate,
+    index: CostIndex,
+    *,
+    context: TrailContext,
+    override: Mapping[str, Any],
+    replaced: Mapping[str, Any],
+) -> dict[str, Any]:
+    """The trail of a row the engineer priced (module doc, ``engineer_price``): ``estimate``
+    is the engineer's (:func:`basis.domain.costs.engineer_estimate`), ``override`` the
+    stored override and ``replaced`` the cost table's trail of the same row
+    (:func:`priced_trail`), of which :data:`REPLACED_KEYS` are kept."""
+    return {
+        "version": TRAIL_VERSION,
+        "kind": ENGINEER_PRICE,
+        "quantity": quantity,
+        "base": None,
+        "year": None if index.year is None else year_block(index.year, index.year_source),
+        "location": location_block(index, index.location_factor),
+        "structure": None,
+        "intake_version": context.intake_version,
+        "property_class": context.property_class,
+        "method": None if context.method is None else dict(context.method),
+        "cost_year": index.cost_year,
+        "location_factor": _dec(index.location_factor),
+        "unit_cost": _dec(estimate.unit_cost),
+        "total": _dec(estimate.total),
+        "rounding": ENGINEER_ROUNDING,
+        "priced_per": None,
+        "missing": None,
+        "override": json_safe(dict(override)),
+        "replaced": {key: replaced.get(key) for key in REPLACED_KEYS},
+    }
+
+
 def structure_residual_trail(
     quantity: dict[str, Any],
     *,
@@ -338,7 +399,12 @@ def check(trail: Mapping[str, Any]) -> list[str]:
     ``base x (1 + markup) x year factor x location factor``, rounded half up to the cent, is
     ``unit_cost``,
     and ``unit_cost x quantity`` so rounded is ``total``; the factors are the ones the
-    year and location blocks record. Other kinds are not recomputed (empty)."""
+    year and location blocks record. An ``engineer_price`` trail: ``unit_cost`` is the
+    override's, ``unit_cost x quantity`` so rounded is ``total``, and the table pricing it
+    replaced holds as a ``unit_price`` trail of the same quantity. Other kinds are not
+    recomputed (empty)."""
+    if trail.get("kind") == ENGINEER_PRICE:
+        return _check_engineer(trail)
     if trail.get("kind") != UNIT_PRICE:
         return []
     problems: list[str] = []
@@ -368,7 +434,31 @@ def check(trail: Mapping[str, Any]) -> list[str]:
     return problems
 
 
+def _check_engineer(trail: Mapping[str, Any]) -> list[str]:
+    problems: list[str] = []
+    override = trail.get("override")
+    if not isinstance(override, Mapping) or override.get("unit_cost") is None:
+        return ["an engineer_price trail needs its override"]
+    if Decimal(str(override["unit_cost"])) != Decimal(trail["unit_cost"]):
+        problems.append(f"unit_cost {trail['unit_cost']} is not the override's")
+    total = (Decimal(trail["unit_cost"]) * Decimal(trail["quantity"]["value"])).quantize(
+        CENTS, rounding=ROUND_HALF_UP
+    )
+    if total != Decimal(trail["total"]):
+        problems.append(f"unit_cost x quantity = {total}, not {trail['total']}")
+    replaced = trail.get("replaced")
+    if not isinstance(replaced, Mapping):
+        return [*problems, "an engineer_price trail keeps the pricing it replaced"]
+    if replaced.get("kind") == UNIT_PRICE:
+        table = {**trail, **replaced}
+        problems += [f"replaced: {p}" for p in check(table)]
+    return problems
+
+
 __all__ = [
+    "ENGINEER_PRICE",
+    "ENGINEER_ROUNDING",
+    "REPLACED_KEYS",
     "STRUCTURE_RESIDUAL",
     "STRUCTURE_ROUNDING",
     "TRAIL_VERSION",
@@ -378,6 +468,7 @@ __all__ = [
     "TrailContext",
     "base_block",
     "check",
+    "engineer_trail",
     "index_block",
     "json_safe",
     "location_block",

@@ -58,10 +58,12 @@ from basis.api.users import (
     require_study_access,
     study_access,
 )
+from basis.config import Settings
 from basis.db.enums import OrgRole, StudyStatus
 from basis.db.errors import ConflictError, PreconditionFailedError, StaleStateError
-from basis.db.models import Study, StudyEvent
+from basis.db.models import SignerDetailsRow, Study, StudyEvent
 from basis.db.repositories.report import ReportRepository
+from basis.db.repositories.signer import SignerRepository
 from basis.db.repositories.study import VisibleStudy
 from basis.db.repositories.study_event import StudyEventRepository
 from basis.db.repositories.user import UserRepository
@@ -71,9 +73,11 @@ from basis.evidence.export import sha256_hex
 from basis.report import vendors
 from basis.report.inputs import (
     CERTIFICATION_VERSION,
+    Engineer,
     FirmProfile,
     ReportInputs,
     Signature,
+    SignerDetails,
     StudyAnswers,
     missing_for_final,
 )
@@ -450,6 +454,41 @@ async def _render_pdf(
     return files.files["report.pdf"]
 
 
+@dataclass(frozen=True, slots=True)
+class Signer:
+    """What a signature prints and where it came from: ``version`` is the saved details'
+    version, ``None`` when the details were entered at signing."""
+
+    engineer: Engineer
+    version: int | None
+
+
+def _signer(saved: SignerDetailsRow | None, sent: Engineer | None, *, required: bool) -> Signer:
+    """The details a signing prints (EVAL_REPORT 91). The signer's own saved details always
+    win; an ``engineer`` sent with them must name the same details (the signer attests to what
+    they sent, so printing anything else would print what they did not attest). Without saved
+    details, the ``engineer`` sent is printed as before, unless the deployment requires saved
+    details. Never the firm profile's engineer: that would print one licensee's name and
+    license on another's signature."""
+    if saved is not None:
+        details = saved.details()
+        if sent is not None and not details.matches(sent):
+            raise Conflict(
+                "The name, credentials or license you signed with differ from your saved "
+                "signer details, which are what the report prints. Sign with your saved "
+                "details, or change them first and open the preview again.",
+                code=E.REPORT_SIGNER_DETAILS_MISMATCH,
+            )
+        return Signer(engineer=details.engineer(), version=saved.version)
+    if sent is not None and not required:
+        return Signer(engineer=sent, version=None)
+    raise Conflict(
+        "Save your signer details (your name, credentials and license) in your account "
+        "first: every report you sign prints them. Then open the preview again and sign.",
+        code=E.REPORT_SIGNER_DETAILS_MISSING,
+    )
+
+
 async def _signature_out(session: AsyncSession, row: Any) -> SignatureOut:
     """The signature with the signer's name and email next to ``signed_by``."""
     who = (await UserRepository(session).identities([row.signed_by])).get(row.signed_by)
@@ -482,12 +521,16 @@ async def report_state(
     firm_version = firm.version if firm else 0
     missing = list(missing_for_final(inputs))
     changed: list[Any] | None = None
+    signer_now: SignerDetails | None = None
     if signature is not None:
         missing = [m for m in missing if m != "signature"]
+        saved = await SignerRepository(session).get(signature.signed_by)
+        signer_now = saved.details() if saved else None
         changed = repo.changed_since_signing(
             signature,
             firm_profile_version=firm_version,
             report_answers_version=study.report_answers_version,
+            signer_now=signer_now,
         )
     skipped = report.get("skipped")
     return ReportStateOut(
@@ -501,6 +544,7 @@ async def report_state(
         firm_profile_version=firm_version,
         report_answers_version=study.report_answers_version,
         changed_since_signing=changed,
+        signer=signer_now,
     )
 
 
@@ -510,20 +554,31 @@ async def report_state(
     description=_codes(
         "Viewer role. The report as it would be signed, from the current "
         "revision's export and the stored inputs, without the signature block (a DRAFT until "
-        "signed). `ETag` is the sha256 of the bytes: `POST .../report/sign` takes it as "
-        "`reviewed_sha256`. 409 {REPORT_NOT_SIGNABLE} when the current revision has no report."
+        "signed). It names you as the preparer when you may sign and have saved signer "
+        "details (`PUT /v1/me/signer`), since that is the report you would sign; otherwise the "
+        "firm profile's engineer, or a placeholder. `ETag` is the sha256 of the bytes: "
+        "`POST .../report/sign` takes it as `reviewed_sha256`. 409 {REPORT_NOT_SIGNABLE} when "
+        "the current revision has no report."
     ),
     response_class=Response,
     responses={200: {"description": "The PDF, inline."}, **problems(404, 409)},
 )
 async def report_preview(
     access: Annotated[VisibleStudy, Depends(study_access(OrgRole.VIEWER))],
+    user: CurrentUserDep,
     session: SessionDep,
     storage: StorageDep,
 ) -> Response:
     study = access.study
     export = await _current_export(session, storage, study)
-    inputs = await ReportRepository(session).inputs(study)
+    saved = (
+        await SignerRepository(session).get(user.id)
+        if access.role.rank >= OrgRole.ENGINEER.rank
+        else None
+    )
+    inputs = await ReportRepository(session).inputs(
+        study, preparer=saved.details().engineer() if saved else None
+    )
     pdf = await _render_pdf(session, storage, export, study, inputs)
     name = f"study-{str(study.id)[:8]}-rev-{study.revision}-report-preview.pdf"
     return Response(
@@ -547,8 +602,12 @@ async def report_preview(
         "the preview reviewed. Checks in order, writing nothing unless all pass: the current "
         "revision has a report (409 {REPORT_NOT_SIGNABLE}), the firm profile and the study "
         "answers exist (409 {REPORT_INPUTS_MISSING}), the revision is not signed "
-        "(409 {REPORT_ALREADY_SIGNED}), the preview rendered now has the reviewed sha256 "
-        "(412 {REPORT_CHANGED} with the current `ETag`). Then the final PDF is rendered with "
+        "(409 {REPORT_ALREADY_SIGNED}), the signer has details to sign with "
+        "(409 {REPORT_SIGNER_DETAILS_MISSING}; 409 {REPORT_SIGNER_DETAILS_MISMATCH} when "
+        "`engineer` differs from the signer's saved details), the preview rendered now has the "
+        "reviewed sha256 (412 {REPORT_CHANGED} with the current `ETag`). The report prints the "
+        "signer's saved details (`PUT /v1/me/signer`); without any, the `engineer` sent, "
+        "unless the deployment requires saved details. Then the final PDF is rendered with "
         "the signature and stored, and the signature and the `report.signed` event are "
         "recorded."
     ),
@@ -562,7 +621,9 @@ async def sign_report(
     session: SessionDep,
     storage: StorageDep,
     bucket: BucketDep,
+    request: Request,
 ) -> SignatureOut:
+    settings: Settings = request.app.state.settings
     repo = ReportRepository(session)
     study = await repo.lock_study(access.study.id)
     if body.revision != study.revision:
@@ -571,7 +632,8 @@ async def sign_report(
             code=E.REPORT_NOT_SIGNABLE,
         )
     export = await _current_export(session, storage, study)
-    inputs = await repo.inputs(study)
+    saved = await SignerRepository(session).get(user.id)
+    inputs = await repo.inputs(study, preparer=saved.details().engineer() if saved else None)
     firm = await repo.firm_profile(study.org_id)
     missing = [m for m in missing_for_final(inputs) if m != "signature"]
     if missing:
@@ -584,6 +646,7 @@ async def sign_report(
         raise Conflict(
             f"Revision {study.revision} is already signed.", code=E.REPORT_ALREADY_SIGNED
         )
+    signer = _signer(saved, body.engineer, required=settings.report_signer_details_required)
     preview = await _render_pdf(session, storage, export, study, inputs)
     current = sha256_hex(preview)
     if current != body.reviewed_sha256:
@@ -598,14 +661,15 @@ async def sign_report(
     final_inputs = inputs.model_copy(
         update={
             "signature": Signature(
-                engineer=body.engineer, signed_at=signed_at, signature_id=signature_id
+                engineer=signer.engineer, signed_at=signed_at, signature_id=signature_id
             )
         }
     )
     pdf = await _render_pdf(session, storage, export, study, final_inputs)
     pdf_uri = report_uri(bucket, study.id, study.revision, f"report.signed.{signature_id}.pdf")
     pdf_sha256 = sha256_hex(pdf)
-    engineer = body.engineer.model_dump(mode="json")
+    engineer = signer.engineer.model_dump(mode="json")
+    letterhead = firm.profile.letterhead() if firm else None
     export_sha256 = str((export.event.detail or {}).get("sha256") or sha256_hex(export.json))
     # A unique path per signature: a write whose transaction then fails leaves an orphan,
     # never a different file at a signed path.
@@ -626,6 +690,8 @@ async def sign_report(
             # The inputs' versions under the same lock as the render: what was signed.
             firm_profile_version=firm.version if firm else 0,
             report_answers_version=study.report_answers_version,
+            signer_details_version=signer.version,
+            letterhead=letterhead,
         )
     except ConflictError as exc:  # pragma: no cover - checked above under the same lock
         raise Conflict(str(exc), code=E.REPORT_ALREADY_SIGNED) from exc
@@ -648,6 +714,10 @@ async def sign_report(
             "signer_email": user.user.email,
             "firm_profile_version": row.firm_profile_version,
             "report_answers_version": row.report_answers_version,
+            # "saved": the signer's own saved details; "entered": typed at signing.
+            "signer_details": "saved" if signer.version is not None else "entered",
+            "signer_details_version": signer.version,
+            "letterhead": letterhead,
         },
     )
     return await _signature_out(session, row)

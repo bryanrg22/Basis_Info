@@ -401,18 +401,17 @@
             "schema": {
               "anyOf": [
                 {
-                  "type": "string",
-                  "maxLength": 200,
-                  "pattern": "^[^\\x00]*$"
+                  "type": "string"
                 },
                 {
                   "type": "null"
                 }
               ],
-              "description": "Case-insensitive substring of the property name (trimmed; blank matches everything).",
+              "maxLength": 200,
+              "description": "Search words, each of which must be found (as a substring, case and accents ignored) in the property name, the intake's ZIP or state, the taxpayer, the appraisal's address, city, state, ZIP, county, borrower, owner of record or parcel number, the creator's name or email, or a signer's name or email. Blank matches everything; `%`, `_` and `\\` are literal; at most 10 distinct words (docs/api/STUDY_LIBRARY.md).",
               "title": "Q"
             },
-            "description": "Case-insensitive substring of the property name (trimmed; blank matches everything)."
+            "description": "Search words, each of which must be found (as a substring, case and accents ignored) in the property name, the intake's ZIP or state, the taxpayer, the appraisal's address, city, state, ZIP, county, borrower, owner of record or parcel number, the creator's name or email, or a signer's name or email. Blank matches everything; `%`, `_` and `\\` are literal; at most 10 distinct words (docs/api/STUDY_LIBRARY.md)."
           },
           {
             "name": "status",
@@ -1885,7 +1884,7 @@
           "reviews"
         ],
         "summary": "Approve or reject the current review stage",
-        "description": "Records the decision and queues it for the workflow (202). A stage the study is not at, or a revision that is not its current one, is 409; so is a gate the workflow has not opened yet (`gate-not-open`: the study is at the stage but `processing` or `failed`). Each correction's `entity_type` must be one the stage accepts (appraisal_review: extraction_field, extraction_field_add; rooms_review: room, photo_room; components_review: component, component_remove, room_component, photo; assets_review: asset; a study whose `components_gate` is false has the single rooms_review: room, component, component_remove, room_component, photo) and its `entity_id` must exist in the study at the decided revision (a photo or photo_room: a photo document of the study; a room_component: the room it adds a component to); a `photo_room` `after` is exactly a `room_id` of that revision; a `component` `count` must be a whole number from 1, an `asset`'s measured quantity (EVAL_REPORT 78) is `quantity` (positive), `quantity_unit` (EA, SF, LF, SY) and `quantity_source` (where it was measured) together, and a `room_component` `after` a taxonomy `label` with a `count` (optional `material`, `attachment` from their vocabularies); otherwise 422 with one `errors` entry per offending correction, located at `[\"body\", \"corrections\", <index>, \"entity_type\" | \"entity_id\" | \"after\" | \"reason\"]`. A `component_remove` (an erroneous room inventory component row: `entity_id` a component of the revision, `after` exactly `{}`, `reason` required) leaves the row out of the next revision; refused: the same row removed twice or also corrected (`correction_duplicate`), a row the rejection rebuilds anyway (an inventory row of a room whose photo the same decision flags for re-analysis, or of a merged room, or a flagged photo's row: `correction_rebuilt`), a room's last inventory row (`correction_last_inventory`). It never deletes a photo's detected object (that is `DELETE .../photos/{document_id}/objects/{object_id}`). An `extraction_field_add` (an appraisal field the extraction missed: `entity_id` the extraction, `after` `{key, value_text | value_num | value_date, page, evidence}`, `reason` required) is refused for an unknown key, a value of the wrong type, a page past the PDF (`correction_value`), a key the extraction has (`correction_field_exists`: correct it with `extraction_field`) or a key added twice (`correction_duplicate`); a missing reason is `correction_reason` at `reason`.",
+        "description": "Records the decision and queues it for the workflow (202). A stage the study is not at, or a revision that is not its current one, is 409; so is a gate the workflow has not opened yet (`gate-not-open`: the study is at the stage but `processing` or `failed`). Each correction's `entity_type` must be one the stage accepts (appraisal_review: extraction_field, extraction_field_add; rooms_review: room, photo_room; components_review: component, component_remove, room_component, photo; assets_review: asset; a study whose `components_gate` is false has the single rooms_review: room, component, component_remove, room_component, photo) and its `entity_id` must exist in the study at the decided revision (a photo or photo_room: a photo document of the study; a room_component: the room it adds a component to); a `photo_room` `after` is exactly a `room_id` of that revision; a `component` `count` must be a whole number from 1, an `asset`'s measured quantity (EVAL_REPORT 78) is `quantity` (positive), `quantity_unit` (EA, SF, LF, SY) and `quantity_source` (where it was measured) together, and a `room_component` `after` a taxonomy `label` with a `count` (optional `material`, `attachment` from their vocabularies); an `asset` or `component` correction may carry the engineer's unit price, `unit_cost` (dollars per takeoff unit to the cent, above 0, at most 10,000,000; null clears it) with `unit_cost_source` (1 to 300 characters) and a required `reason`, refused for a concealed row of the structure model and while `GET /v1/capabilities` says `unit_cost_override: false` (docs/api/OVERRIDES.md); otherwise 422 with one `errors` entry per offending correction, located at `[\"body\", \"corrections\", <index>, \"entity_type\" | \"entity_id\" | \"after\" | \"reason\"]`. A `component_remove` (an erroneous room inventory component row: `entity_id` a component of the revision, `after` exactly `{}`, `reason` required) leaves the row out of the next revision; refused: the same row removed twice or also corrected (`correction_duplicate`), a row the rejection rebuilds anyway (an inventory row of a room whose photo the same decision flags for re-analysis, or of a merged room, or a flagged photo's row: `correction_rebuilt`), a room's last inventory row (`correction_last_inventory`). It never deletes a photo's detected object (that is `DELETE .../photos/{document_id}/objects/{object_id}`). An `extraction_field_add` (an appraisal field the extraction missed: `entity_id` the extraction, `after` `{key, value_text | value_num | value_date, page, evidence}`, `reason` required) is refused for an unknown key, a value of the wrong type, a page past the PDF (`correction_value`), a key the extraction has (`correction_field_exists`: correct it with `extraction_field`) or a key added twice (`correction_duplicate`); a missing reason is `correction_reason` at `reason`.",
         "operationId": "record_decision_v1_studies__study_id__decisions_post",
         "security": [
           {
@@ -4484,7 +4483,7 @@
           "report"
         ],
         "summary": "The current revision's report rendered now, unsigned (what the engineer signs)",
-        "description": "Viewer role. The report as it would be signed, from the current revision's export and the stored inputs, without the signature block (a DRAFT until signed). `ETag` is the sha256 of the bytes: `POST .../report/sign` takes it as `reviewed_sha256`. 409 BASIS-REPORT-007 when the current revision has no report.",
+        "description": "Viewer role. The report as it would be signed, from the current revision's export and the stored inputs, without the signature block (a DRAFT until signed). It names you as the preparer when you may sign and have saved signer details (`PUT /v1/me/signer`), since that is the report you would sign; otherwise the firm profile's engineer, or a placeholder. `ETag` is the sha256 of the bytes: `POST .../report/sign` takes it as `reviewed_sha256`. 409 BASIS-REPORT-007 when the current revision has no report.",
         "operationId": "report_preview_v1_studies__study_id__report_preview_get",
         "security": [
           {
@@ -4578,7 +4577,7 @@
           "report"
         ],
         "summary": "Sign the current revision's report (engineer)",
-        "description": "The engineer's affirmative act (STUDY_REPORT_SPEC 11.13): `attest: true`, the certification version shown, the name and credentials attested, and the `ETag` of the preview reviewed. Checks in order, writing nothing unless all pass: the current revision has a report (409 BASIS-REPORT-007), the firm profile and the study answers exist (409 BASIS-REPORT-008), the revision is not signed (409 BASIS-REPORT-009), the preview rendered now has the reviewed sha256 (412 BASIS-REPORT-010 with the current `ETag`). Then the final PDF is rendered with the signature and stored, and the signature and the `report.signed` event are recorded.",
+        "description": "The engineer's affirmative act (STUDY_REPORT_SPEC 11.13): `attest: true`, the certification version shown, the name and credentials attested, and the `ETag` of the preview reviewed. Checks in order, writing nothing unless all pass: the current revision has a report (409 BASIS-REPORT-007), the firm profile and the study answers exist (409 BASIS-REPORT-008), the revision is not signed (409 BASIS-REPORT-009), the signer has details to sign with (409 BASIS-REPORT-014; 409 BASIS-REPORT-015 when `engineer` differs from the signer's saved details), the preview rendered now has the reviewed sha256 (412 BASIS-REPORT-010 with the current `ETag`). The report prints the signer's saved details (`PUT /v1/me/signer`); without any, the `engineer` sent, unless the deployment requires saved details. Then the final PDF is rendered with the signature and stored, and the signature and the `report.signed` event are recorded.",
         "operationId": "sign_report_v1_studies__study_id__report_sign_post",
         "security": [
           {
@@ -7997,6 +7996,177 @@
             }
           }
         }
+      },
+      "patch": {
+        "tags": [
+          "objects"
+        ],
+        "summary": "Mark an object Not counted, or count it again, at the components review",
+        "description": "`{\"counted\": false, \"reason\": \"...\"}` excludes a counted instance (a model detection or an engineer's) from every count: nothing is deleted, the instance keeps `exclusion` (who, when, why) and `counted: false`, and it leaves `counts`, the rooms' `suggested_counts` and the report's photo exhibit. `{\"counted\": true}` counts it again (`reason` optional). Repeating the current state changes nothing (no `Idempotency-Key` is needed). Only while the study waits at `components_review` (`rooms_review` when its `components_gate` is false), on its current revision, once the photo is localized (409 otherwise). 409 `not-counted` for an uncounted candidate (there is nothing to exclude), `not-excluded` to restore a candidate never excluded (add it instead), `object-exclusion-off` when the deployment turned it off (`GET /v1/capabilities`). The exclusion is copied into later revisions with the object (docs/api/OVERRIDES.md).",
+        "operationId": "set_counted_v1_studies__study_id__photos__document_id__objects__object_id__patch",
+        "security": [
+          {
+            "FirebaseIdToken": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "document_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "description": "Photo document id.",
+              "title": "Document Id"
+            },
+            "description": "Photo document id."
+          },
+          {
+            "name": "object_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "description": "Object id.",
+              "title": "Object Id"
+            },
+            "description": "Object id."
+          },
+          {
+            "name": "study_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "description": "Study id.",
+              "title": "Study Id"
+            },
+            "description": "Study id."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "oneOf": [
+                  {
+                    "$ref": "#/components/schemas/ExcludeIn"
+                  },
+                  {
+                    "$ref": "#/components/schemas/CountAgainIn"
+                  }
+                ],
+                "title": "Body"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PhotoObjectOut"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Missing or malformed `Idempotency-Key`.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing, malformed, expired or revoked bearer token.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflicts with the current state (stale stage or revision, duplicate, archived, upload mismatch, or the same `Idempotency-Key` still in flight).",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "The request body is larger than 1 MiB.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation failed (`errors` lists each field), or an `Idempotency-Key` was reused with a different request.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Rate limit exceeded; see `Retry-After`.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "A dependency (the database) is unavailable; see `Retry-After`.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Your role is too low for this action (the study or firm is visible to you); `no-firm`: you are not a member of any firm; `email-unverified`: your sign-in does not verify the invited email.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found, or not visible to you (the two are indistinguishable).",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          }
+        }
       }
     },
     "/v1/studies/{study_id}/start": {
@@ -9100,6 +9270,73 @@
         }
       }
     },
+    "/v1/capabilities": {
+      "get": {
+        "tags": [
+          "me"
+        ],
+        "summary": "The engineer overrides this deployment accepts",
+        "description": "Any signed-in user, with or without a firm. `object_exclusion` (`OBJECT_EXCLUSION`) and `unit_cost_override` (`UNIT_COST_OVERRIDE`) follow their settings; `room_create` is always false. A client that gets anything but a 200 should offer none of them.",
+        "operationId": "get_capabilities_v1_capabilities_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CapabilitiesOut"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing, malformed, expired or revoked bearer token.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation failed (`errors` lists each field), or an `Idempotency-Key` was reused with a different request.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Rate limit exceeded; see `Retry-After`.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "A dependency (the database) is unavailable; see `Retry-After`.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "FirebaseIdToken": []
+          }
+        ]
+      }
+    },
     "/v1/orgs": {
       "post": {
         "tags": [
@@ -10128,6 +10365,208 @@
           },
           "404": {
             "description": "Not found, or not visible to you (the two are indistinguishable).",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/me/signer": {
+      "get": {
+        "tags": [
+          "me"
+        ],
+        "summary": "Your signer details: the name, credentials and license you sign reports with",
+        "description": "`signer` is null until you save them; the `ETag` is `\"0\"` then. Send the `ETag` back as `If-Match` on the `PUT`.",
+        "operationId": "get_signer_v1_me_signer_get",
+        "security": [
+          {
+            "FirebaseIdToken": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SignerDetailsOut"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing, malformed, expired or revoked bearer token.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation failed (`errors` lists each field), or an `Idempotency-Key` was reused with a different request.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Rate limit exceeded; see `Retry-After`.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "A dependency (the database) is unavailable; see `Retry-After`.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "me"
+        ],
+        "summary": "Set or replace your signer details",
+        "description": "The whole document: `name`, `credentials`, and the license as `license_number` with `license_state` (both or neither; the state a US state, DC, GU, MP, PR or VI). Yours only: no role writes another user's details. `If-Match` with the `ETag` of the `GET` writes only while it is current (412 BASIS-REPORT-016 with the current `ETag` otherwise); `*` only over saved details. Every report you sign afterwards prints them; a report you already signed keeps what it printed, and its `GET .../report/state` lists `signer` in `changed_since_signing` while your details differ from it.",
+        "operationId": "put_signer_v1_me_signer_put",
+        "security": [
+          {
+            "FirebaseIdToken": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "If-Match",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "The entity tag from the matching `GET` (`\"3\"`), or `*` (any existing document). Optional.",
+              "title": "If-Match"
+            },
+            "description": "The entity tag from the matching `GET` (`\"3\"`), or `*` (any existing document). Optional."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SignerDetails"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SignerDetailsOut"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Missing or malformed `Idempotency-Key`.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing, malformed, expired or revoked bearer token.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflicts with the current state (stale stage or revision, duplicate, archived, upload mismatch, or the same `Idempotency-Key` still in flight).",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "The request body is larger than 1 MiB.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation failed (`errors` lists each field), or an `Idempotency-Key` was reused with a different request.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Rate limit exceeded; see `Retry-After`.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "A dependency (the database) is unavailable; see `Retry-After`.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "412": {
+            "description": "`precondition-failed`: the `If-Match` entity tag is not the current one (the resource changed since you read it); nothing was written. Read it again and retry with the new `ETag`.",
             "content": {
               "application/problem+json": {
                 "schema": {
@@ -12484,6 +12923,8 @@
               "correction",
               "object_added",
               "object_deleted",
+              "object_excluded",
+              "object_restored",
               "intake",
               "report_answers",
               "document",
@@ -12497,7 +12938,7 @@
               "restored"
             ],
             "title": "Kind",
-            "description": "What the engineer did: a review `decision`, a `correction`, a manual photo object (`object_added`, `object_deleted`), the `intake` or the `report_answers` set, a `document` upload confirmed, the study `started`, a `retry` or `cancel` requested, the study `archived` or `unarchived`, the report signed (`report_signed`), the completed study `reopened` at a gate or a revision `restored` (docs/api/REVISIONS.md)."
+            "description": "What the engineer did: a review `decision`, a `correction`, a manual photo object (`object_added`, `object_deleted`), a photo object marked Not counted or counted again (`object_excluded`, `object_restored`), the `intake` or the `report_answers` set, a `document` upload confirmed, the study `started`, a `retry` or `cancel` requested, the study `archived` or `unarchived`, the report signed (`report_signed`), the completed study `reopened` at a gate or a revision `restored` (docs/api/REVISIONS.md)."
           },
           "at": {
             "type": "string",
@@ -13662,6 +14103,32 @@
           "candidate_id"
         ],
         "title": "CandidateSelection"
+      },
+      "CapabilitiesOut": {
+        "properties": {
+          "object_exclusion": {
+            "type": "boolean",
+            "title": "Object Exclusion",
+            "description": "`PATCH .../photos/{document_id}/objects/{object_id}` marks a detected object Not counted (and counts it again) at the components review (setting `OBJECT_EXCLUSION`)."
+          },
+          "unit_cost_override": {
+            "type": "boolean",
+            "title": "Unit Cost Override",
+            "description": "`asset` and `component` corrections accept `unit_cost` and `unit_cost_source`, the engineer's unit price (setting `UNIT_COST_OVERRIDE`)."
+          },
+          "room_create": {
+            "type": "boolean",
+            "title": "Room Create",
+            "description": "The rooms review accepts a `room_create` correction. Always false: the API has no such correction yet (web/FRONTEND_BACKLOG.md section 14)."
+          }
+        },
+        "type": "object",
+        "required": [
+          "object_exclusion",
+          "unit_cost_override",
+          "room_create"
+        ],
+        "title": "CapabilitiesOut"
       },
       "CauseOut": {
         "properties": {
@@ -16180,6 +16647,17 @@
             "title": "Trail Recorded",
             "description": "Whether the row was priced with a trail (false: a legacy row, `trail` null).",
             "default": false
+          },
+          "override": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/CostOverrideOut"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The engineer's unit price when one is set on the asset or its component (`trail.override`): `unit_cost` above is then this price and `total` it times the quantity, unless the quantity is a missing input (the row stays unpriced until it is measured). The table's price is `trail.replaced`. Null otherwise."
           }
         },
         "type": "object",
@@ -16191,6 +16669,102 @@
           "cost_year"
         ],
         "title": "CostOut"
+      },
+      "CostOverrideOut": {
+        "properties": {
+          "unit_cost": {
+            "type": "string",
+            "title": "Unit Cost",
+            "description": "Dollars per takeoff unit, as entered."
+          },
+          "source": {
+            "type": "string",
+            "title": "Source",
+            "description": "Where the price comes from, as the engineer wrote it."
+          },
+          "reason": {
+            "type": "string",
+            "title": "Reason",
+            "description": "The correction's reason."
+          },
+          "by": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "By",
+            "description": "The engineer who set it."
+          },
+          "by_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "By Name",
+            "description": "Their display name when it was applied."
+          },
+          "at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "At",
+            "description": "When the correction was recorded."
+          },
+          "level": {
+            "type": "string",
+            "enum": [
+              "asset",
+              "component"
+            ],
+            "title": "Level",
+            "description": "Set on this asset (`asset`, wins) or on its component (`component`)."
+          },
+          "correction_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Correction Id",
+            "description": "The correction row it came from."
+          },
+          "revision": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Revision",
+            "description": "The first revision it priced (it carries into later ones)."
+          }
+        },
+        "type": "object",
+        "required": [
+          "unit_cost",
+          "source",
+          "reason",
+          "by",
+          "by_name",
+          "at",
+          "level"
+        ],
+        "title": "CostOverrideOut",
+        "description": "The engineer's unit price for the row (EVAL_REPORT 90, docs/api/OVERRIDES.md)."
       },
       "CostTrailBaseOut": {
         "properties": {
@@ -16672,10 +17246,11 @@
             "enum": [
               "unit_price",
               "unpriced",
-              "structure_residual"
+              "structure_residual",
+              "engineer_price"
             ],
             "title": "Kind",
-            "description": "`unit_price`: base x year factor x location factor x quantity; `unpriced`: no cost row (see `missing`); `structure_residual`: a concealed row whose total is the residual of the building RCN."
+            "description": "`unit_price`: base x year factor x location factor x quantity; `unpriced`: no cost row (see `missing`); `structure_residual`: a concealed row whose total is the residual of the building RCN; `engineer_price`: the engineer's unit price x quantity, no factor applied (`override`; the table's pricing in `replaced`)."
           },
           "quantity": {
             "$ref": "#/components/schemas/CostTrailQuantityOut"
@@ -16839,6 +17414,28 @@
             ],
             "title": "Missing",
             "description": "For `unpriced`: why, as in `source_row`."
+          },
+          "override": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/CostOverrideOut"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The engineer's unit price: what priced an `engineer_price` row, or on an `unpriced` row one waiting for its quantity (a missing input). Null otherwise."
+          },
+          "replaced": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/CostTrailReplacedOut"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "For `engineer_price`: the cost table's own pricing of the same quantity (kept, never lost)."
           }
         },
         "type": "object",
@@ -16925,6 +17522,96 @@
         ],
         "title": "CostTrailQuantityOut",
         "description": "The quantity priced, as measured."
+      },
+      "CostTrailReplacedOut": {
+        "properties": {
+          "kind": {
+            "type": "string",
+            "enum": [
+              "unit_price",
+              "unpriced"
+            ],
+            "title": "Kind",
+            "description": "`unit_price` (the table priced it: `base`, `unit_cost`, `total`) or `unpriced` (`missing` says why)."
+          },
+          "base": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/CostTrailBaseOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "unit_cost": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Unit Cost"
+          },
+          "total": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Total"
+          },
+          "rounding": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rounding"
+          },
+          "priced_per": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Priced Per"
+          },
+          "missing": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Missing"
+          }
+        },
+        "type": "object",
+        "required": [
+          "kind",
+          "base",
+          "unit_cost",
+          "total",
+          "rounding",
+          "priced_per",
+          "missing"
+        ],
+        "title": "CostTrailReplacedOut",
+        "description": "The cost table's own pricing of the row, which the engineer's price replaced."
       },
       "CostTrailStoreRowOut": {
         "properties": {
@@ -17094,6 +17781,36 @@
         ],
         "title": "CostTrailYearOut",
         "description": "The time factor exactly as used."
+      },
+      "CountAgainIn": {
+        "properties": {
+          "counted": {
+            "type": "boolean",
+            "const": true,
+            "title": "Counted",
+            "description": "true: count it again."
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 500
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason",
+            "description": "Why, optional."
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "counted"
+        ],
+        "title": "CountAgainIn",
+        "description": "Count an excluded instance again; a reason is optional (kept on the timeline)."
       },
       "Decision": {
         "type": "string",
@@ -18663,6 +19380,32 @@
         ],
         "title": "EvidencePhotoOut"
       },
+      "ExcludeIn": {
+        "properties": {
+          "counted": {
+            "type": "boolean",
+            "const": false,
+            "title": "Counted",
+            "description": "false: exclude it from every count."
+          },
+          "reason": {
+            "type": "string",
+            "maxLength": 500,
+            "minLength": 1,
+            "pattern": "\\S",
+            "title": "Reason",
+            "description": "Why, 1 to 500 characters and not blank (kept as written, trimmed)."
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "counted",
+          "reason"
+        ],
+        "title": "ExcludeIn",
+        "description": "Mark the instance Not counted: the reason is required."
+      },
       "ExtractionFieldOut": {
         "properties": {
           "id": {
@@ -19280,7 +20023,9 @@
               {
                 "type": "null"
               }
-            ]
+            ],
+            "description": "Deprecated: a report names the engineer who signs it from their own signer details (`PUT /v1/me/signer`). Still accepted and returned so existing clients keep working; printed only as the preparer of an unsigned draft whose reader has no saved details, never on a signed report.",
+            "deprecated": true
           },
           "limiting_conditions": {
             "anyOf": [
@@ -20325,6 +21070,56 @@
         "title": "LastInferenceOut",
         "description": "The latest successful paid call the ledger recorded for this service: evidence of\ninference, separate from the metadata probe that sets ``status``."
       },
+      "Letterhead": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "address": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Address"
+          },
+          "phone": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Phone"
+          },
+          "logo_sha256": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Logo Sha256",
+            "description": "Null when the profile had no logo."
+          }
+        },
+        "type": "object",
+        "required": [
+          "name",
+          "address",
+          "phone",
+          "logo_sha256"
+        ],
+        "title": "Letterhead"
+      },
       "LocalizationOut": {
         "properties": {
           "status": {
@@ -20601,6 +21396,17 @@
               }
             ],
             "title": "Last Seen At"
+          },
+          "signer": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SignerDetails"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The name, credentials and license the member signs reports with, as they saved them (`PUT /v1/me/signer`); null when they have saved none. Read-only here: only the member sets their own."
           }
         },
         "type": "object",
@@ -20735,6 +21541,48 @@
           "reason"
         ],
         "title": "NotProducedOut"
+      },
+      "ObjectExclusionOut": {
+        "properties": {
+          "by": {
+            "type": "string",
+            "format": "uuid",
+            "title": "By",
+            "description": "The engineer who excluded it."
+          },
+          "by_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "By Name",
+            "description": "Their display name now (null when they have none)."
+          },
+          "at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "At",
+            "description": "When it was excluded."
+          },
+          "reason": {
+            "type": "string",
+            "title": "Reason",
+            "description": "Why, as the engineer wrote it (1 to 500 characters)."
+          }
+        },
+        "type": "object",
+        "required": [
+          "by",
+          "by_name",
+          "at",
+          "reason"
+        ],
+        "title": "ObjectExclusionOut",
+        "description": "Who marked a counted instance Not counted, when and why (EVAL_REPORT 90)."
       },
       "OpsDocumentOut": {
         "properties": {
@@ -21320,7 +22168,7 @@
           "counted": {
             "type": "boolean",
             "title": "Counted",
-            "description": "Counted in `counts`: a model instance whose score clears its class's threshold, or any manual instance. Uncounted model instances are candidates."
+            "description": "Counted in `counts`: a model instance whose score clears its class's threshold, or any manual instance, unless an engineer marked it Not counted (`exclusion`). Uncounted model instances without an exclusion are candidates."
           },
           "derived_from": {
             "anyOf": [
@@ -21405,6 +22253,17 @@
             ],
             "title": "Mask Reason",
             "description": "Why a manual instance has no outline (`mask_source` is `none`): nothing matched the box, the call failed or timed out, or no localizer."
+          },
+          "exclusion": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ObjectExclusionOut"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Set while an engineer has marked the instance Not counted (`counted` is then false and it is in no count); null otherwise (EVAL_REPORT 90)."
           }
         },
         "type": "object",
@@ -22502,7 +23361,8 @@
                   "type": "string",
                   "enum": [
                     "firm",
-                    "study"
+                    "study",
+                    "signer"
                   ]
                 },
                 "type": "array"
@@ -22512,7 +23372,18 @@
               }
             ],
             "title": "Changed Since Signing",
-            "description": "Once signed: the inputs written after the signature (`firm`: the firm profile, `study`: the report answers). The signed PDF is unchanged; the stored inputs no longer match it. `[]` when none changed; null while unsigned, or when the signature predates the record of the versions it was signed with."
+            "description": "Once signed: the inputs changed after the signature (`firm`: the firm profile was written, `study`: the report answers were, `signer`: the signer's saved details now differ from the ones the signature printed). The signed PDF is unchanged; the stored inputs no longer match it. `[]` when none changed; null while unsigned, or when the signature predates the record of the versions it was signed with."
+          },
+          "signer": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SignerDetails"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Once signed: the signer's saved details now, to show next to `signature.engineer` (what was signed); null while unsigned or when the signer has saved none."
           }
         },
         "type": "object",
@@ -24125,8 +24996,15 @@
             "description": "The `ETag` of `GET .../report/preview` the engineer reviewed, unquoted."
           },
           "engineer": {
-            "$ref": "#/components/schemas/Engineer",
-            "description": "The name and credentials the signer attests to."
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Engineer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The name, credentials and license the signer attests to. With saved signer details (`PUT /v1/me/signer`) the report prints those: leave this out, or send the same values (anything else is 409 BASIS-REPORT-015). Without saved details it is what the report prints, unless the deployment requires saved details (409 BASIS-REPORT-014)."
           },
           "attest": {
             "type": "boolean",
@@ -24147,7 +25025,6 @@
         "required": [
           "revision",
           "reviewed_sha256",
-          "engineer",
           "attest",
           "statement_version"
         ],
@@ -24248,6 +25125,29 @@
             ],
             "title": "Report Answers Version",
             "description": "The report answers' version the report was signed with (null as above)."
+          },
+          "signer_details_version": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Signer Details Version",
+            "description": "The version of the signer's saved details printed in `engineer`; null when the details were entered at signing (the signer had saved none) or the signature predates saved details."
+          },
+          "letterhead": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Letterhead"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The firm profile's letterhead as signed (name, address, phone, the logo's sha256); null on a signature recorded before it was kept."
           }
         },
         "type": "object",
@@ -24299,6 +25199,165 @@
           "expires_at"
         ],
         "title": "SignedUploadOut"
+      },
+      "SignerDetails": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "maxLength": 500,
+            "minLength": 1,
+            "pattern": "^[^\\x00-\\x1f\\x7f-\\x9f]*[^\\x00-\\x1f\\x7f-\\x9f\\s][^\\x00-\\x1f\\x7f-\\x9f]*$",
+            "title": "Name",
+            "description": "Your name as it is printed on the reports you sign."
+          },
+          "credentials": {
+            "type": "string",
+            "maxLength": 500,
+            "minLength": 1,
+            "pattern": "^[^\\x00-\\x1f\\x7f-\\x9f]*[^\\x00-\\x1f\\x7f-\\x9f\\s][^\\x00-\\x1f\\x7f-\\x9f]*$",
+            "title": "Credentials",
+            "description": "e.g. 'PE', 'PE, CCSP'"
+          },
+          "license_number": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 50,
+                "minLength": 1,
+                "pattern": "^[^\\x00-\\x1f\\x7f-\\x9f]*[^\\x00-\\x1f\\x7f-\\x9f\\s][^\\x00-\\x1f\\x7f-\\x9f]*$"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "License Number",
+            "description": "Your license number, as the licensing board issued it."
+          },
+          "license_state": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "AL",
+                  "AK",
+                  "AZ",
+                  "AR",
+                  "CA",
+                  "CO",
+                  "CT",
+                  "DE",
+                  "FL",
+                  "GA",
+                  "HI",
+                  "ID",
+                  "IL",
+                  "IN",
+                  "IA",
+                  "KS",
+                  "KY",
+                  "LA",
+                  "ME",
+                  "MD",
+                  "MA",
+                  "MI",
+                  "MN",
+                  "MS",
+                  "MO",
+                  "MT",
+                  "NE",
+                  "NV",
+                  "NH",
+                  "NJ",
+                  "NM",
+                  "NY",
+                  "NC",
+                  "ND",
+                  "OH",
+                  "OK",
+                  "OR",
+                  "PA",
+                  "RI",
+                  "SC",
+                  "SD",
+                  "TN",
+                  "TX",
+                  "UT",
+                  "VT",
+                  "VA",
+                  "WA",
+                  "WV",
+                  "WI",
+                  "WY",
+                  "DC",
+                  "GU",
+                  "MP",
+                  "PR",
+                  "VI"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "License State",
+            "description": "The two-letter code of the jurisdiction that issued the license: a US state, DC, GU, MP, PR or VI (the NCEES member boards). Required with `license_number`, and only with it."
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "name",
+          "credentials"
+        ],
+        "title": "SignerDetails",
+        "description": "What one engineer signs with: their own name, credentials and license, saved once by\nthem (``PUT /v1/me/signer``) and printed on every report they sign. A license belongs to\nthe individual licensee (NCEES Model Law 140.10 D: the seal carries the jurisdiction, the\nlicensee's name and the license number), so it is never the firm's to set. The license is\noptional (a cost segregation study need not be prepared by a PE: the ATG's element C.1\nasks for an individual with expertise and experience), but a number comes with its state."
+      },
+      "SignerDetailsOut": {
+        "properties": {
+          "user_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "User Id"
+          },
+          "signer": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SignerDetails"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The name, credentials and license printed on every report you sign; null until you save them."
+          },
+          "version": {
+            "type": "integer",
+            "title": "Version",
+            "description": "0 while none are saved."
+          },
+          "updated_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Updated At",
+            "description": "Null while none are saved."
+          }
+        },
+        "type": "object",
+        "required": [
+          "user_id",
+          "signer",
+          "version",
+          "updated_at"
+        ],
+        "title": "SignerDetailsOut",
+        "description": "Your signer details and their version (also the ``ETag``; 0 while none are saved)."
       },
       "SourceIn": {
         "properties": {

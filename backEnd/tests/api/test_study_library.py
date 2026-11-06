@@ -14,7 +14,7 @@ from typing import Any
 import pytest
 from apitest_support import COMPLETE_INTAKE, Api, Seed, bearer
 from dbtest_support import queued_behind_a_lock
-from sqlalchemy import select, update
+from sqlalchemy import select, text, update
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from basis.db.enums import OrgRole, Stage, StudyStatus
@@ -108,9 +108,134 @@ async def test_q_treats_like_wildcards_as_literal_characters(api: Api) -> None:
     assert (await listing(api, q="_"))["total"] == 1
 
 
-@pytest.mark.parametrize("params", [{"q": "x" * 201}, {"q": "a\x00b"}])
+async def appraisal_fields(
+    sm: async_sessionmaker[AsyncSession], study_id: str, **fields: str
+) -> None:
+    """An appraisal and its extracted subject fields (synthetic), as the extraction writes
+    them; the database's triggers fold them into the study's search document."""
+    async with session_scope(sm) as session:
+        document = await session.scalar(
+            text(
+                "INSERT INTO documents (study_id, kind, filename, content_type, bytes, sha256, "
+                "gcs_uri) VALUES (:s, 'appraisal', 'a.pdf', 'application/pdf', 1, :h, :u) "
+                "RETURNING id"
+            ),
+            {"s": study_id, "h": uuid.uuid4().hex * 2, "u": f"gs://b/{uuid.uuid4()}"},
+        )
+        extraction = await session.scalar(
+            text(
+                "INSERT INTO extractions (study_id, document_id, revision, method, raw) "
+                "VALUES (:s, :d, 1, 'pipeline', '{}') RETURNING id"
+            ),
+            {"s": study_id, "d": document},
+        )
+        for name, value in fields.items():
+            await session.execute(
+                text(
+                    "INSERT INTO extraction_fields (extraction_id, study_id, section, field, "
+                    "value_text, source) VALUES (:e, :s, 'subject', :f, :v, 'test')"
+                ),
+                {"e": extraction, "s": study_id, "f": name, "v": value},
+            )
+
+
+async def test_q_finds_a_study_by_its_address_client_parcel_zip_and_engineer(
+    api: Api, seed: Seed, sessionmaker: async_sessionmaker[AsyncSession]
+) -> None:
+    """EVAL_REPORT 92: each searched value, through the route, and never another firm's."""
+    harbor = await api.create_study("alice", "Harbor Point Lofts", intake=COMPLETE_INTAKE)
+    other = await api.create_study("alice", "Elm House")
+    await appraisal_fields(
+        sessionmaker,
+        harbor["id"],
+        property_address="4417 Quillon Ave",
+        city="Oxnard",
+        county="Ventura",
+        borrower="Inés Varga",
+        owner_of_public_record="Okonkwo Holdings LLC",
+        assessors_parcel="205-118-34",
+        lender_client="Big Bank",  # the appraisal's client: not searched
+    )
+    async with session_scope(sessionmaker) as session:
+        await session.execute(
+            text("UPDATE studies SET report_answers = CAST(:a AS jsonb) WHERE id = :id"),
+            {
+                "id": harbor["id"],
+                "a": '{"taxpayer_name": "Thistlewood Capital LLC", "photographs": '
+                '"engineer_site_visit", "photographed_by": "Site Engineer", '
+                '"photographed_on": "2026-01-15"}',
+            },
+        )
+    bobs = await api.create_study("bob", "Harbor Point Lofts")  # another firm
+    await appraisal_fields(sessionmaker, bobs["id"], property_address="4417 Quillon Ave")
+
+    for q in (
+        "quillon",  # the address
+        "4417 quillon ave",
+        "oxnard",  # the city
+        "ventura",  # the county
+        "12345",  # the intake's ZIP
+        "1234",  # a ZIP prefix
+        "ines varga",  # the borrower, the accent left out
+        "okonkwo",  # the owner of record
+        "thistlewood",  # the taxpayer
+        "118-34",  # part of the parcel number
+        "harbor oxnard",  # two values, every word found
+        "OXNARD point",  # any order, any case
+    ):
+        assert ids((await listing(api, q=q))["items"]) == [harbor["id"]], q
+    assert (await listing(api, q="big bank"))["total"] == 0  # the lender is not searched
+    assert (await listing(api, q="harbor fresno"))["total"] == 0  # every word must match
+    # The creator's name and email match every study they created.
+    assert set(ids((await listing(api, q="alice@example"))["items"])) == {
+        harbor["id"],
+        other["id"],
+    }
+    assert ids((await listing(api, "bob", q="quillon"))["items"]) == [bobs["id"]]
+
+
+async def test_q_matches_the_signer(
+    api: Api, seed: Seed, sessionmaker: async_sessionmaker[AsyncSession]
+) -> None:
+    signed = await api.create_study("alice", "Signed Study")
+    await api.create_study("alice", "Unsigned Study")
+    user = await seed.user("alice")
+    async with session_scope(sessionmaker) as session:
+        await session.execute(
+            text(
+                "INSERT INTO report_signatures (study_id, revision, signed_by, signed_at, "
+                "engineer, statement_version, export_sha256, reviewed_sha256, pdf_uri, "
+                "pdf_sha256) VALUES (:s, 1, :u, now(), CAST(:e AS jsonb), 1, :h, :h, "
+                "'gs://b/r.pdf', :h)"
+            ),
+            {
+                "s": signed["id"],
+                "u": user.id,
+                "e": '{"name": "Bartholomew Quayle", "credentials": "PE"}',
+                "h": "0" * 64,
+            },
+        )
+    assert ids((await listing(api, q="quayle"))["items"]) == [signed["id"]]
+
+
+@pytest.mark.parametrize(
+    "params",
+    [
+        {"q": "x" * 201},
+        {"q": "a\x00b"},
+        {"q": "a b c d e f g h i j k"},  # 11 distinct words (EVAL_REPORT 92)
+    ],
+)
 async def test_q_limits(api: Api, params: dict[str, Any]) -> None:
     assert (await api.get("alice", "/v1/studies", params=params)).status_code == 422
+
+
+async def test_q_counts_distinct_words_against_the_limit(api: Api) -> None:
+    await api.create_study("alice", "Harbor House")
+    ten = " ".join("abcdefghij")
+    assert (await listing(api, q=ten))["total"] == 0  # ten words: allowed
+    assert (await listing(api, q="harbor " * 20))["total"] == 1  # one word, repeated
+    assert (await listing(api, q="Harbor HARBOR harbor house"))["total"] == 1
 
 
 # --------------------------------------------------------------------------- filters

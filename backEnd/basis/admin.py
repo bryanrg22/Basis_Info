@@ -16,6 +16,8 @@ logs it, so forward the sign-in instructions yourself.
         [--allow-duplicate-name]
     python -m basis.admin invite --org-id UUID --email someone@example.com --role engineer
     python -m basis.admin list-firms
+    python -m basis.admin link-account --email someone@example.com --uid NEW_FIREBASE_UID \\
+        [--user-id UUID]
 
 * ``create-firm`` refuses a name another firm already has unless
   ``--allow-duplicate-name``. Re-running it reports the existing state: the firm and
@@ -24,6 +26,12 @@ logs it, so forward the sign-in instructions yourself.
 * ``invite`` issues an invitation (``created_by`` NULL: from Basis, not a member). Re-running
   it with the same role reports the pending invitation.
 * ``list-firms`` prints every firm with its owners, member count and pending invitations.
+* ``link-account`` maps a new sign-in account (Firebase uid) to the existing user with that
+  email, for a person whose account was deleted and created again: they keep their firms
+  and history instead of appearing as a second, firmless user (docs/api/FIRMS.md, "One
+  person, one user"). Check in the Firebase console that the uid belongs to that email and
+  that the person asked for it. Several users with the email: pass ``--user-id``. A uid
+  that is already a user of its own or already linked is refused.
 
 Like the API, it takes the firm's row lock before touching its invitations (the lock
 order every writer of a firm uses). Output is one JSON object per line on stdout; errors
@@ -42,18 +50,19 @@ from collections.abc import Sequence
 from datetime import timedelta
 from typing import Any, Final
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from basis.db.enums import OrgRole
 from basis.db.errors import AlreadyMemberError, InvitationPendingError
-from basis.db.models import Invitation, Org
+from basis.db.models import Invitation, Org, User
 from basis.db.repositories import (
     MAX_FIRM_NAME_LENGTH,
     InvitationRepository,
     InvitationStatus,
     InvitationView,
     OrgRepository,
+    UserRepository,
 )
 from basis.db.repositories.invitation import invitation_status, valid_email
 
@@ -185,6 +194,39 @@ async def invite(
     return {"action": "invited", "firm": _firm(org), "invitation": _invitation(view)}
 
 
+async def link_account(
+    session: AsyncSession, email: str, uid: str, user_id: uuid.UUID | None
+) -> dict[str, Any]:
+    """Link sign-in account ``uid`` to the user whose email is ``email``."""
+    uid = uid.strip()
+    try:
+        address = valid_email(email)
+    except ValueError:
+        address = ""
+    if not address or not uid:
+        raise AdminError("--email must be an email address and --uid a Firebase uid")
+    candidates = list(
+        await session.scalars(
+            select(User)
+            .where(func.lower(func.btrim(User.email)) == address)
+            .order_by(User.created_at)
+        )
+    )
+    if user_id is not None:
+        candidates = [user for user in candidates if user.id == user_id]
+    if not candidates:
+        raise AdminError(
+            f"no user with email {address}" + (f" and id {user_id}" if user_id else "")
+        )
+    if len(candidates) > 1:
+        ids = ", ".join(str(user.id) for user in candidates)
+        raise AdminError(f"several users have {address} ({ids}); pass --user-id")
+    target = candidates[0]
+    if not await UserRepository(session).link_account(uid, target.id, address):
+        raise AdminError(f"uid {uid} is already a user of its own or already linked")
+    return {"action": "linked", "uid": uid, "user_id": str(target.id), "email": address}
+
+
 async def list_firms(session: AsyncSession) -> list[dict[str, Any]]:
     return [
         {
@@ -202,7 +244,8 @@ async def list_firms(session: AsyncSession) -> list[dict[str, Any]]:
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        prog=PROG, description="Create invite-only firms and their first owners."
+        prog=PROG,
+        description="Create invite-only firms and their first owners; link sign-in accounts.",
     )
     commands = parser.add_subparsers(dest="command", required=True)
     create = commands.add_parser("create-firm", help="create a firm and invite its owner")
@@ -214,6 +257,12 @@ def build_parser() -> argparse.ArgumentParser:
     add.add_argument("--email", required=True)
     add.add_argument("--role", required=True, choices=[role.value for role in OrgRole])
     commands.add_parser("list-firms", help="list every firm")
+    link = commands.add_parser(
+        "link-account", help="link a new sign-in account (uid) to an existing user"
+    )
+    link.add_argument("--email", required=True)
+    link.add_argument("--uid", required=True)
+    link.add_argument("--user-id", type=uuid.UUID)
     return parser
 
 
@@ -239,6 +288,8 @@ async def _run(args: argparse.Namespace) -> list[dict[str, Any]]:
                 ]
             if args.command == "invite":
                 return [await invite(session, args.org_id, args.email, OrgRole(args.role), ttl=ttl)]
+            if args.command == "link-account":
+                return [await link_account(session, args.email, args.uid, args.user_id)]
             return await list_firms(session)
     finally:
         await engine.dispose()

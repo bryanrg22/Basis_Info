@@ -720,7 +720,9 @@ async def test_accepting_joins_the_firm(invite_only_api: Api, seed: Seed) -> Non
         "role",
         "joined_at",
         "last_seen_at",
+        "signer",  # EVAL_REPORT 91: what the member signs with, read-only here
     }
+    assert members[1]["signer"] is None  # erin has saved none
 
 
 async def test_accepting_needs_a_verified_email(

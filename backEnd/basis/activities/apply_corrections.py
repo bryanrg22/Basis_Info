@@ -88,6 +88,19 @@ room alive. The photo's localized objects (``photo_objects``) are never touched:
 detected object is the objects route's ``DELETE``, and the room's suggested counts keep
 showing what the photos counted.
 
+A unit price (EVAL_REPORT 90, :mod:`basis.domain.price_overrides`): a ``component``
+correction's ``unit_cost`` (the components review) is stored on the component's copy as
+``raw["unit_cost_override"]``; an ``asset`` correction's (the assets review) on the copy of
+the asset's component as ``raw["asset_unit_cost_override"]``; ``unit_cost: null`` removes
+it. The record is built from the correction row (reviewer, time, reason, id) with the
+reviewer's display name, and the copy is otherwise unchanged (a price is not an
+identification: the label, material, count and confidence stay). Every later copy carries
+it, so ``process_assets`` prices with it in every later revision until it is cleared. Each
+is an ``entity.corrected`` event on the new component (``detail.level``, and the asset for an
+asset's price). Refused before anything is written: a bad price, source or missing reason
+(``CORRECT_UNIT_COST``) and a price on a concealed row of the structure model, which has no
+unit price (``CORRECT_UNIT_COST_CONCEALED``).
+
 An added appraisal field (``extraction_field_add``, :mod:`basis.extraction.added_fields`)
 is validated here (the extraction is of the rejected revision, the key is absent from it,
 the page is within its PDF, no key twice) and applied by ``extract_fields``.
@@ -105,6 +118,8 @@ from __future__ import annotations
 
 import uuid
 from collections.abc import Sequence
+from dataclasses import dataclass
+from datetime import UTC, datetime
 from typing import Any, Final
 
 from sqlalchemy import select
@@ -131,6 +146,7 @@ from basis.activities.corrections import (
     check_fields,
     check_photo_room,
     check_room_component,
+    check_unit_cost,
 )
 from basis.activities.deps import Deps
 from basis.activities.reprice_corrections import (
@@ -141,14 +157,14 @@ from basis.activities.reprice_corrections import (
     parse_structure_model,
 )
 from basis.db.enums import DocumentKind
-from basis.db.models import Component, Correction, Extraction, Room, Study
+from basis.db.models import Component, Correction, Extraction, Room, Study, User
 from basis.db.repositories.asset import AssetRepository
 from basis.db.repositories.document import DocumentRepository
 from basis.db.repositories.extraction import ExtractionRepository
 from basis.db.repositories.photo_object import PhotoObjectRepository
 from basis.db.repositories.room import RoomRepository
 from basis.db.repositories.study_event import StudyEventRepository
-from basis.domain import removals
+from basis.domain import price_overrides, removals
 from basis.domain.rooms import room_field_problems, stored_floor
 from basis.errors.codes import E
 from basis.extraction import added_fields
@@ -266,7 +282,9 @@ class ApplyCorrections:
         async def work(session: AsyncSession) -> ApplyCorrectionsOutput:
             by_type = _group(input.corrections)
             allowed = correction_types(input.stage, components_gate=input.components_gate)
-            await _validate(session, study_id, input.stage, allowed, input.from_revision, by_type)
+            asset_prices = await _validate(
+                session, study_id, input.stage, allowed, input.from_revision, by_type
+            )
             if input.stage != "appraisal_review":
                 await _carry_extractions(session, study_id, input.from_revision, input.to_revision)
             flagged = {parse_uuid(c.entity_id, "entity_id") for c in by_type.get("photo", [])}
@@ -284,6 +302,7 @@ class ApplyCorrections:
                 moves=by_type.get("photo_room", []),
                 recorder=recorder,
                 component_removals=by_type.get(removals.COMPONENT_REMOVE, []),
+                asset_prices=asset_prices,
             )
             # Every removal is applied once validated (a duplicate is refused).
             applied += len(by_type.get(removals.COMPONENT_REMOVE, []))
@@ -306,8 +325,10 @@ async def _validate(
     allowed: frozenset[str],
     from_revision: int,
     by_type: dict[str, list[CorrectionInput]],
-) -> None:
-    """Refuse the whole rejection's corrections before anything is written.
+) -> dict[uuid.UUID, tuple[uuid.UUID, CorrectionInput]]:
+    """Refuse the whole rejection's corrections before anything is written; returns the
+    asset corrections that set or clear a unit price, by the asset's component (the row
+    the price is stored on) with the asset's id.
 
     Room, component and move targets are checked while copying (``_targets``, ``_moves``);
     the targets that later activities apply (``extraction_field``, ``asset``) and the
@@ -330,15 +351,27 @@ async def _validate(
                 f"extraction field {correction.entity_id} is not in the rejected revision",
                 E.CORRECT_FIELD_NOT_IN_REVISION,
             )
+    for correction in by_type.get("component", []):
+        check_unit_cost(correction.after, correction.reason)
     assets = AssetRepository(session)
+    asset_prices: dict[uuid.UUID, tuple[uuid.UUID, CorrectionInput]] = {}
     for correction in by_type.get("asset", []):
         check_asset(correction.after)
+        check_unit_cost(correction.after, correction.reason)
         asset = await assets.get(study_id, parse_uuid(correction.entity_id, "entity_id"))
         if asset is None or asset.revision != from_revision:
             raise validation_error(
                 f"asset {correction.entity_id} is not in the rejected revision",
                 E.CORRECT_ASSET_NOT_IN_REVISION,
             )
+        if price_overrides.has_price(correction.after):
+            if asset.component_id is None:
+                raise validation_error(
+                    f"asset {asset.id} is a concealed row of the structure model: its total "
+                    "is a share of the building's replacement cost, not a unit price",
+                    E.CORRECT_UNIT_COST_CONCEALED,
+                )
+            asset_prices[asset.component_id] = (asset.id, correction)
     _validate_removals(by_type)
     await _validate_field_adds(session, study_id, from_revision, by_type)
     for correction in by_type.get(REPRICE, []) + by_type.get(STRUCTURE_MODEL, []):
@@ -360,6 +393,7 @@ async def _validate(
             raise validation_error(
                 f"photo {correction.entity_id} is not a photo of this study", E.CORRECT_NOT_A_PHOTO
             )
+    return asset_prices
 
 
 def _validate_removals(by_type: dict[str, list[CorrectionInput]]) -> None:
@@ -471,6 +505,7 @@ async def _carry_rooms(
     recorder: _Recorder | None = None,
     component_removals: Sequence[CorrectionInput] = (),
     rebuild_inventories: bool = False,
+    asset_prices: dict[uuid.UUID, tuple[uuid.UUID, CorrectionInput]] | None = None,
 ) -> int:
     """Copy the rooms, assignments, components and objects (module doc). ``skip_photos``
     are re-analyzed: their rows and objects stay behind, and so does their assignment
@@ -481,7 +516,8 @@ async def _carry_rooms(
     row keeps no room alive); their count is not in the return value (the caller adds it).
     ``rebuild_inventories`` leaves every room's inventory rows behind, as if every room had a
     flagged photo: a reopen below the components review (``carry_revision``,
-    docs/api/REVISIONS.md), whose room step rebuilds them from the grouping."""
+    docs/api/REVISIONS.md), whose room step rebuilds them from the grouping.
+    ``asset_prices``: the assets review's unit prices by the old component (module doc)."""
     repo = RoomRepository(session)
     recorder = recorder or _Recorder(session, study_id, from_revision)
     old_rooms = {room.id: room for room in await repo.list_for_revision(study_id, from_revision)}
@@ -494,6 +530,14 @@ async def _carry_rooms(
     component_after = _targets(component_corrections, old_components, COMPONENT_FIELDS, "component")
     for after in component_after.values():
         check_component(after)
+    prices = await _price_changes(
+        session,
+        recorder,
+        to_revision,
+        component_corrections,
+        asset_prices or {},
+        set(old_components),
+    )
     every_row = list(old_components.values())
     removed = _removed_rows(component_removals, old_components)
     for component_id in removed:
@@ -580,6 +624,7 @@ async def _carry_rooms(
             component_after,
             room_id=moved_to,
             recorder=recorder,
+            prices=prices.get(component.id, ()),
         )
     for room_id, after in additions:
         heartbeat("added component")
@@ -843,13 +888,20 @@ async def _copy_component(
     *,
     room_id: uuid.UUID | None = None,
     recorder: _Recorder | None = None,
+    prices: Sequence[_PriceChange] = (),
 ) -> None:
     """Copy ``old`` with its corrections, into its room's copy or, for a moved photo's row,
-    into ``room_id``'s."""
-    changes = component_after.get(old.id, {})
+    into ``room_id``'s. ``prices``: the unit prices set or cleared on it (module doc); a
+    price alone leaves the row's identification as it was."""
+    changes, _ = price_overrides.split(component_after.get(old.id, {}))
     source_room = room_id if room_id is not None else old.room_id
     old_raw = old.raw if isinstance(old.raw, dict) else {}
     raw = {**old_raw, CARRIED_FROM: str(old.id)}
+    for change in prices:
+        if change.record is None:
+            raw.pop(change.key, None)
+        else:
+            raw[change.key] = change.record
     if changes:
         raw["corrected"] = sorted(changes)
     if "count" in changes:
@@ -881,6 +933,96 @@ async def _copy_component(
             after=changes,
             carried_from=old.id,
         )
+    if recorder is not None:
+        for change in prices:
+            previous = old_raw.get(change.key)
+            await recorder.record(
+                "entity.corrected",
+                entity_type="component",
+                entity_id=new.id,
+                corrected=change.corrected,
+                before={change.key: previous if isinstance(previous, dict) else None},
+                after={change.key: change.record},
+                carried_from=old.id,
+                extra={
+                    "level": change.level,
+                    "asset_id": None if change.asset_id is None else str(change.asset_id),
+                },
+            )
+
+
+@dataclass(frozen=True, slots=True)
+class _PriceChange:
+    """A unit price set (``record``) or cleared (None) on a component's copy: the raw key
+    it is stored under, the correction it came from (``corrected``: type and target, for the
+    event) and, for an asset's price, the asset."""
+
+    level: price_overrides.Level
+    key: str
+    record: dict[str, Any] | None
+    corrected: tuple[str, uuid.UUID]
+    asset_id: uuid.UUID | None = None
+
+
+async def _price_changes(
+    session: AsyncSession,
+    recorder: _Recorder,
+    to_revision: int,
+    component_corrections: Sequence[CorrectionInput],
+    asset_prices: dict[uuid.UUID, tuple[uuid.UUID, CorrectionInput]],
+    old_components: set[uuid.UUID],
+) -> dict[uuid.UUID, list[_PriceChange]]:
+    """``{old component id: its price changes}``: each component correction that sets or
+    clears a unit price (the last one of a component wins) and each asset correction's, on
+    its asset's component. The record names the correction row it came from (reviewer, time,
+    reason) and the reviewer's display name now; without a stored row (an activity run
+    with no API in front) the input's reason and the current time stand in."""
+    wanted: dict[tuple[str, uuid.UUID], tuple[uuid.UUID, CorrectionInput, uuid.UUID | None]] = {}
+    for correction in component_corrections:
+        if price_overrides.has_price(correction.after):
+            target = parse_uuid(correction.entity_id, "entity_id")
+            wanted[("component", target)] = (target, correction, None)
+    for component_id, (asset, correction) in asset_prices.items():
+        wanted[("asset", asset)] = (component_id, correction, asset)
+    changes: dict[uuid.UUID, list[_PriceChange]] = {}
+    for (entity_type, entity_id), (component_id, correction, asset_id) in wanted.items():
+        if component_id not in old_components:
+            continue  # a removed row, or one the asset's revision no longer has
+        rows = [
+            row
+            for row in await recorder.corrections(entity_type, entity_id)
+            if isinstance(row.after, dict) and price_overrides.has_price(row.after)
+        ]
+        row = rows[-1] if rows else None
+        after = row.after if row is not None else correction.after
+        reason = (row.reason if row is not None else correction.reason) or ""
+        by = row.reviewer_id if row is not None else None
+        by_name = (
+            None
+            if by is None
+            else await session.scalar(select(User.display_name).where(User.id == by))
+        )
+        level: price_overrides.Level = "asset" if asset_id is not None else "component"
+        record = price_overrides.record(
+            after,
+            reason,
+            level=level,
+            by=by,
+            by_name=by_name,
+            at=row.created_at if row is not None else datetime.now(UTC),
+            correction_id=None if row is None else row.id,
+            revision=to_revision,
+        )
+        changes.setdefault(component_id, []).append(
+            _PriceChange(
+                level=level,
+                key=price_overrides.KEYS[level],
+                record=record,
+                corrected=(entity_type, entity_id),
+                asset_id=asset_id,
+            )
+        )
+    return changes
 
 
 async def _add_component(

@@ -33,8 +33,19 @@
   the decision route (:mod:`basis.domain.removals`), which in turn never touches these
   objects.
 
+* ``PATCH .../objects/{object_id}`` (engineer, at the edit stage only; no
+  ``Idempotency-Key``: it sets a state, so a repeat changes nothing, as ``PATCH
+  /v1/orgs/{id}``; EVAL_REPORT 90, docs/api/OVERRIDES.md): ``{"counted": false, "reason": "..."}``
+  marks a counted instance, the model's or an engineer's, Not counted; ``{"counted":
+  true}`` counts it again. Soft: the row stays (who, when and why on it, ``counted`` false
+  while excluded), so the photo's evidence is never lost and every count leaves it out.
+  An uncounted candidate cannot be excluded (409 ``not-counted``: it counts nothing) or
+  restored (409 ``not-excluded``: add it instead). Repeating the current state changes
+  nothing and records nothing; a new reason on an excluded instance replaces the old one
+  (the event keeps both). ``OBJECT_EXCLUSION=false`` answers 409 ``object-exclusion-off``.
+
 Who and when: ``created_by``/``created_at`` on a manual row, ``deleted_by``/``deleted_at``
-on a deleted one.
+on a deleted one, ``exclusion`` (``by``, ``by_name``, ``at``, ``reason``) on an excluded one.
 
 Transactions of a ``POST``. The SAM 3 call takes seconds (a cold or throttled model up to
 ``OBJECT_PROMPT_TIMEOUT_S``), so it runs with no transaction open and no connection held
@@ -66,7 +77,7 @@ from __future__ import annotations
 
 import asyncio
 import uuid
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from typing import Annotated, Any, Final, Literal
 
@@ -81,10 +92,14 @@ from basis.api.schemas.objects import (
     BoxOut,
     BoxSelection,
     CandidateSelection,
+    CountAgainIn,
+    ExcludeIn,
     LocalizationOut,
     ManualSelectionIn,
     ManualSelectionOut,
     MaskOut,
+    ObjectCountedIn,
+    ObjectExclusionOut,
     PhotoObjectOut,
     PhotoObjectsOut,
     PointSelection,
@@ -100,7 +115,7 @@ from basis.api.users import (
 )
 from basis.config import Settings
 from basis.db.enums import DocumentKind, OrgRole, Stage, StudyStatus
-from basis.db.models import Document, PhotoObject, Study
+from basis.db.models import Document, PhotoObject, Study, User
 from basis.db.repositories import DocumentRepository, VisibleStudy
 from basis.db.repositories.photo_object import NewObject, PhotoObjectRepository, counts
 from basis.db.repositories.study_event import StudyEventRepository
@@ -167,7 +182,36 @@ StorageDep = Annotated[Storage, Depends(get_storage)]
 # --------------------------------------------------------------------------- conversion
 
 
-def object_out(row: PhotoObject) -> PhotoObjectOut:
+def exclusion_out(
+    row: PhotoObject, names: Mapping[uuid.UUID, str | None] | None = None
+) -> ObjectExclusionOut | None:
+    if row.excluded_at is None or row.excluded_by is None or row.exclusion_reason is None:
+        return None
+    return ObjectExclusionOut(
+        by=row.excluded_by,
+        by_name=(names or {}).get(row.excluded_by),
+        at=row.excluded_at,
+        reason=row.exclusion_reason,
+    )
+
+
+async def exclusion_names(
+    session: AsyncSession, rows: Sequence[PhotoObject]
+) -> dict[uuid.UUID, str | None]:
+    """``{user id: display name}`` of whoever excluded any of ``rows`` (one query; empty
+    when none is excluded)."""
+    ids = {row.excluded_by for row in rows if row.excluded_by is not None}
+    if not ids:
+        return {}
+    found = await session.execute(select(User.id, User.display_name).where(User.id.in_(ids)))
+    return {user_id: name for user_id, name in found.all()}
+
+
+def object_out(
+    row: PhotoObject, names: Mapping[uuid.UUID, str | None] | None = None
+) -> PhotoObjectOut:
+    """``names``: the display names of the people who excluded rows
+    (:func:`exclusion_names`); without them ``exclusion.by_name`` is null."""
     return PhotoObjectOut(
         id=row.id,
         document_id=row.document_id,
@@ -187,6 +231,7 @@ def object_out(row: PhotoObject) -> PhotoObjectOut:
         deleted_by=row.deleted_by,
         mask_source=row.mask_source,  # type: ignore[arg-type]
         mask_reason=row.mask_reason,
+        exclusion=exclusion_out(row, names),
     )
 
 
@@ -219,6 +264,9 @@ def as_instance(row: PhotoObject) -> Instance:
 
 
 def stored_of(rows: Sequence[PhotoObject]) -> list[Stored]:
+    """The rows as the selection sees them: an excluded row is not counted (``counted`` is
+    false while it is excluded), so it guards nothing and a box over it may promote it
+    like any candidate."""
     return [Stored(instance=as_instance(row), counted=row.counted) for row in rows]
 
 
@@ -545,12 +593,13 @@ async def list_objects(
     repo = PhotoObjectRepository(session)
     rows = await repo.active(study_id, at, [document_id])
     localization = await repo.localization(document_id, at)
+    names = await exclusion_names(session, rows)
     return PhotoObjectsOut(
         document_id=document_id,
         revision=at,
         localization=LocalizationOut.model_validate(localization) if localization else None,
         counts=counts(rows),
-        items=[object_out(row) for row in rows],
+        items=[object_out(row, names) for row in rows],
     )
 
 
@@ -725,6 +774,7 @@ async def delete_object(
             "Only manual instances can be deleted; model instances stay as found.",
             type_suffix="not-manual",
         )
+    names = await exclusion_names(session, [row])
     deleted = await repo.soft_delete(row, user.id)
     await StudyEventRepository(session).record(
         study_id,
@@ -737,4 +787,116 @@ async def delete_object(
         before=_object_fields(row),
         detail={"document_id": str(document_id)},
     )
-    return object_out(deleted)
+    return object_out(deleted, names)
+
+
+def _exclusion_record(row: PhotoObject) -> dict[str, Any] | None:
+    """An exclusion as the timeline records it (``by`` the user id; no display name)."""
+    if row.excluded_at is None:
+        return None
+    return {
+        "by": _id(row.excluded_by),
+        "at": row.excluded_at.isoformat(),
+        "reason": row.exclusion_reason,
+    }
+
+
+def _reason_of(body: ExcludeIn | CountAgainIn) -> str | None:
+    """The reason as stored: trimmed (the schema requires one, not blank, to exclude)."""
+    return None if body.reason is None else body.reason.strip() or None
+
+
+@writes.patch(
+    "/studies/{study_id}/photos/{document_id}/objects/{object_id}",
+    summary="Mark an object Not counted, or count it again, at the components review",
+    description=(
+        '`{"counted": false, "reason": "..."}` excludes a counted instance (a model '
+        "detection or an engineer's) from every count: nothing is deleted, the instance "
+        "keeps `exclusion` (who, when, why) and `counted: false`, and it leaves `counts`, the "
+        "rooms' `suggested_counts` and the report's photo exhibit. `{\"counted\": true}` "
+        "counts it again (`reason` optional). Repeating the current state changes nothing "
+        "(no `Idempotency-Key` is needed). "
+        "Only while the study waits at `components_review` (`rooms_review` when its "
+        "`components_gate` is false), on its current revision, once the photo is localized "
+        "(409 otherwise). 409 `not-counted` for an uncounted candidate (there is nothing "
+        "to exclude), `not-excluded` to restore a candidate never excluded (add it "
+        "instead), `object-exclusion-off` when the deployment turned it off "
+        "(`GET /v1/capabilities`). The exclusion is copied into later revisions with the "
+        "object (docs/api/OVERRIDES.md)."
+    ),
+    responses=problems(403, 404),
+)
+async def set_counted(
+    body: ObjectCountedIn,
+    request: Request,
+    access: Annotated[VisibleStudy, Depends(study_access(EDIT_ROLE))],
+    document_id: DocumentIdPath,
+    object_id: ObjectIdPath,
+    user: CurrentUserDep,
+    session: SessionDep,
+) -> PhotoObjectOut:
+    reason = _reason_of(body)
+    settings: Settings = request.app.state.settings
+    if not settings.object_exclusion:
+        raise Conflict(
+            "Marking a photo object Not counted is turned off on this deployment.",
+            type_suffix="object-exclusion-off",
+            code=E.OBJECT_EXCLUSION_OFF,
+        )
+    study_id = access.study.id
+    await photo_of(session, study_id, document_id)
+    revision = await editable_revision(session, study_id, document_id)
+    repo = PhotoObjectRepository(session)
+    await localized_rows(repo, study_id, document_id, revision)  # 409 localization-pending
+    row = await repo.get(study_id, object_id)
+    if (
+        row is None
+        or row.document_id != document_id
+        or row.revision != revision
+        or row.deleted_at is not None
+    ):
+        raise NotFound("Object not found.", code=E.OBJECT_NOT_FOUND)
+    before = {"counted": row.counted, "exclusion": _exclusion_record(row)}
+    if not body.counted:
+        assert reason is not None
+        if row.excluded_at is not None and row.exclusion_reason == reason:
+            return object_out(row, await exclusion_names(session, [row]))
+        if row.excluded_at is None and not row.counted:
+            raise Conflict(
+                "The object is an uncounted candidate: it is in no count, so there is "
+                "nothing to exclude.",
+                type_suffix="not-counted",
+                code=E.OBJECT_NOT_COUNTED,
+            )
+        row = await repo.exclude(row, user.id, reason)
+        event = "object.excluded"
+    else:
+        if row.excluded_at is None:
+            if row.counted:
+                return object_out(row)
+            raise Conflict(
+                "The object is an uncounted candidate nobody excluded; add it to count it "
+                "(POST .../objects with the candidate).",
+                type_suffix="not-excluded",
+                code=E.OBJECT_NOT_EXCLUDED,
+            )
+        row = await repo.restore(row)
+        event = "object.restored"
+    await StudyEventRepository(session).record(
+        study_id,
+        event,
+        actor="engineer",
+        actor_id=user.id,
+        revision=revision,
+        entity_type="photo_object",
+        entity_id=row.id,
+        before=before,
+        after={"counted": row.counted, "exclusion": _exclusion_record(row)},
+        detail={
+            "document_id": str(document_id),
+            "label": row.label,
+            "source": row.source,
+            "reason": reason,
+        },
+    )
+    return object_out(row, await exclusion_names(session, [row]))

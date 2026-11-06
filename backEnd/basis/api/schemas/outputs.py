@@ -371,15 +371,51 @@ class CostTrailStructureOut(ResponseModel):
     )
 
 
+class CostOverrideOut(ResponseModel):
+    """The engineer's unit price for the row (EVAL_REPORT 90, docs/api/OVERRIDES.md)."""
+
+    unit_cost: Decimal = Field(description="Dollars per takeoff unit, as entered.")
+    source: str = Field(description="Where the price comes from, as the engineer wrote it.")
+    reason: str = Field(description="The correction's reason.")
+    by: uuid.UUID | None = Field(description="The engineer who set it.")
+    by_name: str | None = Field(description="Their display name when it was applied.")
+    at: datetime = Field(description="When the correction was recorded.")
+    level: Literal["asset", "component"] = Field(
+        description="Set on this asset (`asset`, wins) or on its component (`component`)."
+    )
+    correction_id: uuid.UUID | None = Field(
+        default=None, description="The correction row it came from."
+    )
+    revision: int | None = Field(
+        default=None, description="The first revision it priced (it carries into later ones)."
+    )
+
+
+class CostTrailReplacedOut(ResponseModel):
+    """The cost table's own pricing of the row, which the engineer's price replaced."""
+
+    kind: Literal["unit_price", "unpriced"] = Field(
+        description="`unit_price` (the table priced it: `base`, `unit_cost`, `total`) or "
+        "`unpriced` (`missing` says why)."
+    )
+    base: CostTrailBaseOut | None
+    unit_cost: Decimal | None
+    total: Decimal | None
+    rounding: str | None
+    priced_per: str | None
+    missing: str | None
+
+
 class CostTrailOut(ResponseModel):
     """How the cost row's amounts were reached, recorded once when the row was priced and
     never recomputed (docs/api/COST_INDICES.md, "Per-asset cost trail")."""
 
     version: int = Field(description="The trail's shape version (1).")
-    kind: Literal["unit_price", "unpriced", "structure_residual"] = Field(
+    kind: Literal["unit_price", "unpriced", "structure_residual", "engineer_price"] = Field(
         description="`unit_price`: base x year factor x location factor x quantity; "
         "`unpriced`: no cost row (see `missing`); `structure_residual`: a concealed row whose "
-        "total is the residual of the building RCN."
+        "total is the residual of the building RCN; `engineer_price`: the engineer's unit "
+        "price x quantity, no factor applied (`override`; the table's pricing in `replaced`)."
     )
     quantity: CostTrailQuantityOut
     base: CostTrailBaseOut | None = Field(description="Null when no cost row was used.")
@@ -413,6 +449,16 @@ class CostTrailOut(ResponseModel):
         "takeoff is in another unit."
     )
     missing: str | None = Field(description="For `unpriced`: why, as in `source_row`.")
+    override: CostOverrideOut | None = Field(
+        default=None,
+        description="The engineer's unit price: what priced an `engineer_price` row, or on an "
+        "`unpriced` row one waiting for its quantity (a missing input). Null otherwise.",
+    )
+    replaced: CostTrailReplacedOut | None = Field(
+        default=None,
+        description="For `engineer_price`: the cost table's own pricing of the same quantity "
+        "(kept, never lost).",
+    )
 
 
 class CostOut(ResponseModel):
@@ -433,6 +479,13 @@ class CostOut(ResponseModel):
     trail_recorded: bool = Field(
         default=False,
         description="Whether the row was priced with a trail (false: a legacy row, `trail` null).",
+    )
+    override: CostOverrideOut | None = Field(
+        default=None,
+        description="The engineer's unit price when one is set on the asset or its component "
+        "(`trail.override`): `unit_cost` above is then this price and `total` it times the "
+        "quantity, unless the quantity is a missing input (the row stays unpriced until it "
+        "is measured). The table's price is `trail.replaced`. Null otherwise.",
     )
 
 

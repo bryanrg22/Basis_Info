@@ -52,6 +52,9 @@ Schemathesis setup, and why:
   ``logo_png`` from the profile and ``prior_depreciation`` from the answers, as on the
   intake: a generated tag is rightly 412, a base64 string that is not a PNG or a money
   string that is not a number rightly 422 (``test_report_signing.py``).
+* ``PUT /me/signer`` (EVAL_REPORT 91): ``If-Match`` dropped as above, and a license number
+  without its state (or a state without its number) cleared: the pair is a rule between two
+  fields, which the schema cannot say, so the half is rightly 422 (``test_signer_details.py``).
 * The negative-data check is off for the two ``/activity`` operations: their repeatable
   ``event_type`` is negated into a number that a query string carries as a valid string,
   which the API rightly accepts (seen once in 64 runs; ``test_activity.py`` covers the
@@ -312,6 +315,16 @@ def prepare_case(case: Any, study_ids: dict[str, str]) -> None:
             case.body.pop("logo_png", None)
             if "photographs" in case.body:
                 case.body["prior_depreciation"] = None
+    if case.path.endswith("/me/signer") and case.method.upper() == "PUT":
+        # The signer's details (docs/api/SIGNERS.md): If-Match as on the intake; a license
+        # number comes with its state and only with it, a relation between two fields the
+        # schema cannot say (tests/api/test_signer_details.py covers it).
+        if case.headers:
+            case.headers.pop("If-Match", None)
+        if isinstance(case.body, dict) and (case.body.get("license_number") is None) != (
+            case.body.get("license_state") is None
+        ):
+            case.body["license_number"] = case.body["license_state"] = None
     if case.path.endswith("/assets/reprice") and case.method.upper() == "POST":
         # "At least one member" of the square-foot model is not in the schema.
         if isinstance(case.body, dict) and case.body.get("structure_model") is not None:

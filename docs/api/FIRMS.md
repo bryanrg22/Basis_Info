@@ -34,7 +34,7 @@ Rules, and why:
 | With `FIRM_SELF_SERVE` on, any signed-in user may create a firm; there is no sign-up queue. Off (the default), only the operator does. | Off: Basis onboards each firm by hand for now, so a firm is never created by an engineer who meant to join one. On: the pitch is "here is the link"; abuse is bounded by the per-user mutation rate limit; a firm with no studies costs nothing. |
 | A user may belong to, and own, several firms. | The code allowed it before this change and a consultant does work for two firms. `POST /v1/studies` already requires `org_id` from a member of several (422 `org-required`). This is the product rule; a cap would need a reason. |
 | Firm names are not unique. | Two "Smith Engineering" exist in the world. Refusing a name another firm took would also tell a stranger that firm exists. The operator CLI keeps refusing duplicates by default because an operator cannot tell them apart in `list-firms`. |
-| `PATCH /v1/orgs/{org_id}` (owner only) renames; nothing else about a firm is editable here. | The firm's report profile (address, logo, engineer of record) is `PUT /v1/orgs/{org_id}/profile`, docs/api/REPORT.md. |
+| `PATCH /v1/orgs/{org_id}` (owner only) renames; nothing else about a firm is editable here. | The firm's report profile (address, logo, limiting conditions) is `PUT /v1/orgs/{org_id}/profile`, docs/api/REPORT.md; each engineer's name, credentials and license are their own (`PUT /v1/me/signer`, docs/api/SIGNERS.md). |
 | The operator CLI `python -m basis.admin create-firm` is how firms are made. | It invites the owner instead of adding them, so the owner joins exactly like every other member; the owner invitation is emailed too. |
 
 Both are on the firm's history (`org_events`, `GET /v1/orgs/{org_id}/activity`,
@@ -155,6 +155,11 @@ carried; null when unknown). The report signature (`POST .../report/sign`,
 `GET .../report/state`) carries `signed_by_name` and `signed_by_email` next to `signed_by`;
 the name the engineer attested to stays in `engineer`. One `users` read per response.
 
+`GET /v1/orgs/{org_id}/members` (owners), and the answers of the role change and the removal,
+carry each member's `signer` (the name, credentials and license they sign with; null
+when they saved none). Read-only: only the member writes their own (`PUT /v1/me/signer`,
+docs/api/SIGNERS.md). One signer-details read per response.
+
 ## 6. Settings
 
 | Variable | Default | Read by | Meaning |
@@ -167,10 +172,45 @@ the name the engineer attested to stays in `engineer`. One `users` read per resp
 | `SMTP_STARTTLS` | `true` | relay | Off only for a local test server. |
 | `FIRM_SELF_SERVE` | `false` | API | Whether a signed-in user may create a firm with `POST /v1/orgs` (section 1). Off: Basis sets firms up with `python -m basis.admin create-firm`. |
 | `INVITATION_TTL_DAYS` | `14` | API, CLI | Unchanged: how long an invitation can be accepted (the email states the date). |
+| `AUTH_LINK_VERIFIED_EMAIL` | `false` | API | A first sign-in whose verified email a firm member already has joins that member's user (section 6.1). On in `docker-compose.web.yml` for local stacks. |
 
 The settings are read by every process (one `Settings`), but only the relay sends. A
 misconfigured `smtp` (no host, no from) refuses to start every process, so it is found at
 deploy, not at the first invitation.
+
+### 6.1 One person, one user
+
+A Basis user is keyed by the Firebase uid they first signed in with, and that uid never
+changes on the user (`users.firebase_uid`). When the same person comes back with a **new**
+uid (their Firebase account was deleted and created again, or a local Auth emulator lost its
+accounts on restart), Basis used to create a second user in no firm. A firm that re-invited
+them then listed the same email twice on the members page, once without a name if the new
+sign-in was email-and-password (EVAL_REPORT section 93).
+
+A new uid can now be linked to the existing user (`user_linked_accounts`, migration 0031):
+it then signs in as that user, with their firms, studies and history, and the members page
+keeps one row. Two ways:
+
+* **The operator**, in production:
+  `python -m basis.admin link-account --email <address> --uid <new uid> [--user-id <id>]`.
+  Check in the Firebase console that the uid belongs to that address and that the person
+  asked. A uid that is already a user of its own, or already linked, is refused; several
+  users with the address need `--user-id`.
+* **At sign-in**, with `AUTH_LINK_VERIFIED_EMAIL=true` (local stacks): a first sign-in of a
+  new uid whose email is verified and equal (trimmed, case-insensitive) to the stored email
+  of a user who belongs to a firm is linked to that user (the most recently seen one, if
+  there are several). A user in no firm is never a target, an unverified email never links,
+  and a uid that already has its own user keeps it. Two first sign-ins of the same new uid
+  at once take the uid's advisory lock, so they link once.
+
+Why automatic linking is off in production: a verified email shows who held the address
+when it was verified, not that this is the person who held it before. Auth0's guidance is
+not to link accounts automatically on email for that reason, and the account pre-hijacking
+study (Sudhodanan and Paverd, USENIX Security 2022) shows the attacks that follow from
+merging on an identifier. A reassigned work address (a departed engineer's mailbox given to
+a new hire) would otherwise hand the old member's firms to the new holder. Firebase's
+default "one account per email address" means a second uid for an address only appears
+after the first account was deleted, which is rare and worth an operator's look.
 
 ## 7. Visibility of studies within a firm (not changed)
 

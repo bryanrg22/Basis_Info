@@ -9,6 +9,8 @@
 #   PUT to (LOCAL_UPLOAD_BASE_URL; dev and test only).
 # * Sign-in: the Firebase Auth emulator on the host, in the demo project "demo-basis" (a
 #   demo- project never reaches real Firebase). The API refuses the emulator outside dev.
+#   The emulator forgets its accounts on restart, so a returning firm member's new uid is
+#   linked to their user by verified email (AUTH_LINK_VERIFIED_EMAIL; docs/api/FIRMS.md 6.1).
 # * Rate limits raised for one engineer clicking through a 50-photo study: an upload is two
 #   mutations per file, the rooms page reads each photo and its objects.
 services:
@@ -18,6 +20,7 @@ services:
       LOCAL_UPLOAD_BASE_URL: http://127.0.0.1:8000
       FIREBASE_PROJECT_ID: demo-basis
       FIREBASE_AUTH_EMULATOR_HOST: host.docker.internal:9099
+      AUTH_LINK_VERIFIED_EMAIL: "true"
       RATE_LIMIT_MUTATIONS_PER_MIN: "600"
       RATE_LIMIT_READS_PER_MIN: "3000"
     extra_hosts:

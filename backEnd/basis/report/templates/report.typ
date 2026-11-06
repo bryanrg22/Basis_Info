@@ -169,7 +169,7 @@ Items on which practitioners commonly differ are marked contested in Appendix 1 
 
 // ---------------------------------------------------------------- 7
 = Schedule of property units
-Every item is listed in Appendix 1 with its location, quantity, CSI MasterFormat line of the cost source, replacement cost, allocated cost, class and asset class. Items marked _estimated_ are building systems no photograph shows; their quantities come from the cost source's building model. Items marked _contested_ are positions on which practitioners differ (section 5). Section 1245 property is the 5 and 7-year classes.
+Every item is listed in Appendix 1 with its location, quantity, CSI MasterFormat line of the cost source, replacement cost, allocated cost, class and asset class. Items marked _estimated_ are building systems no photograph shows; their quantities come from the cost source's building model. Items marked _contested_ are positions on which practitioners differ (section 5). #if d.engineer_prices != "0" [Items marked _engineer's price_ (#d.engineer_prices) are priced at the unit price the engineer set, from the source shown, instead of the cost table; the table's price is kept in the cost trail. ]Section 1245 property is the 5 and 7-year classes.
 #if d.awaiting.len() > 0 [
   == Items awaiting a measurement
   The following were identified but not priced, and are not in the totals:
@@ -274,7 +274,7 @@ The building's replacement cost from the cost source's square-foot model, by sys
   th([\#], [Item], [Location], [Quantity], [MasterFormat], [Replacement cost], [Allocated], [Class], [Asset class]),
   ..d.items.map(i => (
     [#i.line],
-    [#i.description#if i.estimated [ #text(fill: muted)[_(estimated)_]]#if i.contested [ #text(fill: rgb("#a4461d"))[_(contested)_]]],
+    [#i.description#if i.estimated [ #text(fill: muted)[_(estimated)_]]#if i.contested [ #text(fill: rgb("#a4461d"))[_(contested)_]]#if i.engineer_price != "" [ #linebreak() #text(6.5pt, fill: muted)[_engineer's price:_ #i.engineer_price]]],
     [#i.location#if i.seen_in != "" [ #linebreak() #text(6.5pt, fill: muted)[seen in #i.seen_in]]],
     [#i.quantity], [#i.masterformat], [#i.rcn], [#i.allocated], [#i.class], [#i.asset_class],
   )).flatten(),
