@@ -64,7 +64,7 @@
  // box. Without it the panel offers only what the API does.
  function liveObjectActions(s){
   const caps=Live.caps||{},rows=[];
-  if(s.exclusion)return caps.objectExclusion?`<div class="vision-action-row vision-edit">${act('restore','Count it again')}</div>`:'';
+  if(s.exclusion)return caps.objectExclusion?`<div class="vision-action-row vision-edit">${act('restore',s.source==='manual'?'Count it again':'Reset to AI')}</div>`:'';
   if(s.source==='manual'&&view.newId===s.id)rows.push(act('confirm','Keep addition','','class="vision-primary"'));
   if(caps.objectExclusion)rows.push(act('retype','Change type'),act('exclude','Not counted'));
   if(s.source==='manual'&&caps.objectExclusion&&replacedBy(s))rows.push(act('reset-type','Reset to AI'));
@@ -75,7 +75,7 @@
  function replacedBy(s){if(s.source!=='manual')return null;const b=s.box;return context.items.find(i=>i.exclusion&&/^Type changed to /.test(i.exclusion.reason||'')&&Math.abs(i.box.x1-b.x1)<.002&&Math.abs(i.box.y1-b.y1)<.002&&Math.abs(i.box.x2-b.x2)<.002&&Math.abs(i.box.y2-b.y2)<.002)||null}
  function exclusionNote(s){
   const x=s.exclusion;if(!x)return '';
-  return `<div class="vision-exclusion"><strong>Not counted <small class="vision-saved">Saved</small></strong><span>by ${esc(x.by_name||'an engineer')}${x.at&&Live?.when?' · '+esc(Live.when(x.at)):''}</span>${x.reason?`<q>${esc(x.reason)}</q>`:''}</div>`;
+  return `<div class="vision-exclusion"><strong>Not counted <small class="vision-saved">Photo evidence saved</small></strong><span>by ${esc(x.by_name||'an engineer')}${x.at&&Live?.when?' · '+esc(Live.when(x.at)):''}</span>${x.reason?`<q>${esc(x.reason)}</q>`:''}</div>`;
  }
  function inspector(){
   const c=context,s=current(),types=[...new Set(counted().map(i=>i.label))].sort(),label=view.focusLabel,objects=sorted(label);
@@ -98,7 +98,7 @@
     const before=V.roomCount(c.room,label)||0,queued=Live.state.corrections[reviewStage()]?.size||0;
     const retype=pending?.after?.label&&pending.after.label!==label?pending.after.label:null,moved=retype?(pending.after.count??row?.count??before):null;
     const raisedNow=Boolean(suggest)&&suggest.suggested>(roomCount||0),lowerNow=!raisedNow&&Boolean(M.lowered({...suggest,inventory_count:roomCount||0},c.items.filter(i=>i.exclusion&&i.label===label).length)),offer=raisedNow||lowerNow;
-    const value=retype?`<span class="vision-room-value"><span><s>${esc(name(label))}</s> → <b>${esc(name(retype))}</b></span><strong>${moved}</strong></span>`:`<span class="vision-room-value"><b>${esc(c.room.name)} inventory</b><strong>${pending&&roomCount!==before?`<s>${before}</s> → ${roomCount??0}`:roomCount??'Not listed'}</strong></span>`;
+    const value=retype?`<span class="vision-room-value"><span><s>${esc(name(label))}</s> → <b>${esc(name(retype))}</b></span><strong>${moved}</strong></span>`:`<span class="vision-room-value"><b>Priced inventory · ${esc(c.room.name)}</b><strong>${pending&&roomCount!==before?`<s>${before}</s> → ${roomCount??0}`:roomCount??'Not listed'}</strong></span>`;
     roomBox=`<section class="vision-room-count is-live" aria-label="Room inventory correction">${s?'':typeTitle}${retype?`<span class="vision-room-title">Room inventory · ${esc(c.room.name)}</span>`:''}${value}${(()=>{const here=objects.length,gone=c.items.filter(i=>i.exclusion&&i.label===label).length;return `<span class="vision-room-photo">On this photo: ${here} counted${gone?` · ${gone} not counted`:''}</span>${!offer&&(gone||c.items.some(i=>i.source==='manual'&&i.label===label))?`<p class="vision-room-hint">Saved on the photo. The priced room total changes only when you correct it.</p>`:''}`})()}${retype?`<p class="vision-room-note">After you send, ${esc(c.room.name)} counts ${esc(name(retype).toLowerCase())} in place of ${esc(name(label).toLowerCase())}. Outlines on the photo keep their detected label.${roomCount?` ${roomCount} ${esc(name(label).toLowerCase())} still counted from other entries.`:''}</p>`:''}${raisedNow?`<p class="vision-room-suggest"><span>Photos now show ${suggest.suggested} · inventory ${roomCount||0}</span>${c.open?act('use-suggested',`Use ${suggest.suggested}`,label,'class="vision-use"'):''}</p>`:''}${lowerNow?`<p class="vision-room-suggest is-lower"><span>Photos now show ${suggest.photo_count} · inventory ${roomCount}</span>${c.open?act('use-photo-count',`Use ${suggest.photo_count}`,label,'class="vision-use"'):''}</p><p class="vision-room-keep">Photos overlap: keep ${roomCount} if another photo shows the rest.</p>`:''}${c.open?`<div class="vision-action-row vision-edit">${act('type','Correct room inventory','','class="vision-primary"')}</div>`:''}${queued?`<p class="vision-queued">${queued} ${queued===1?'correction':'corrections'} waiting · <a href="${Live.route(c.back||'components',c.id)}">Review</a> · <button type="button" class="link-button" data-live="reject" data-value="${reviewStage()}">Send</button></p>`:''}</section>`;
    }else html+=`<div class="vision-room-count"><span>Room inventory<strong>${roomCount??'Not listed'}</strong></span>${c.open?act('count','Edit count',label,'class="vision-edit"'):''}${suggest&&suggest.suggested>(roomCount||0)?`<p>Photos suggest ${suggest.suggested} in this room.</p>`:''}${pending?'<p>Correction pending · send from Room inventory.</p>':''}</div>`;
   }

@@ -399,3 +399,5 @@ body:has(.review-decision) #toast{bottom:118px}
 /* Live, an object selected: the type, then the object's card, then the room inventory. */
 .vision-inspector-body>.vision-type-title{display:flex;flex-direction:row-reverse;justify-content:space-between;align-items:center;gap:12px;padding:4px 20px 10px}
 .vision-inspector-body>.vision-type-title h3{margin:0;min-width:0}
+/* r22: low-confidence marks stay amber on an approved appraisal; flags read as history. */
+#app .appraisal-organized .look-mark,#app .appraisal-organized .look-mark.is-retained{background:#94621e!important;box-shadow:0 0 0 2px #f6e7cc!important}

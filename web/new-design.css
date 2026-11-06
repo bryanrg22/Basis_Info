@@ -164,3 +164,4 @@
 .nd-diff small{font-size:12px;color:#56685e;margin-left:4px}
 .nd-diff dd>span{display:grid;grid-template-columns:52px minmax(0,1fr);align-items:baseline}
 .nd-diff em{margin-right:0}
+.nd-status-flag{color:#7a4a10}

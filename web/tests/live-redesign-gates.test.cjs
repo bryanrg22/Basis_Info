@@ -212,7 +212,7 @@ test('inventory overrides: the AI value struck beside the engineer value, Edited
   ['component_remove:c2',{key:'component_remove:c2',entity_type:'component_remove',entity_id:'c2',before:{label:'light_fixture',count:6},after:{},reason:'Double counted from the mirror'}]]);
  let html=live.componentsScreen();
  assert.match(html,/<s class="live-ai"[^>]*>1<\/s> <span class="live-engineer">3<\/span>/);assert.match(html,/<s class="live-ai"[^>]*>metal<\/s> <span class="live-engineer">brass<\/span>/);
- assert.match(html,/Edited by you/);assert.match(html,/Removed by you/);assert.match(html,/Double counted from the mirror/);assert.match(html,/data-value="component_remove:c2">Undo/);
+ assert.match(html,/Edited by you/);assert.match(html,/Removed by you/);assert.match(html,/Double counted from the mirror/);assert.match(html,/data-value="component_remove:c2">Reset to AI/);
  assert.doesNotMatch(html,/Unit price/,'no price column without unit_cost_override');
  live.caps={unitCostOverride:true};html=live.componentsScreen();assert.match(html,/<th class="num">Unit price<\/th>/);
 });

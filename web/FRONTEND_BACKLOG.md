@@ -258,6 +258,12 @@ in-browser sample API (`index.html?mode=live&api=sample`, `web/live/sample-api.j
   original value struck through on later revisions. Wanted: each corrected row carries its
   model values (`ai: {label, count, material, attachment, unit_cost}`), and a correction that
   restores them.
+* **The letterhead a report was signed with.** "Changed after signing" compares the signed
+  engineer and license with the profile now (`SignatureOut.engineer`), but the signature keeps
+  only `firm_profile_version` for the letterhead, so the app can show today's firm name and
+  address but not the signed ones (it links page 1 of the signed PDF instead). Wanted: the
+  signature (or `GET .../report/state`) carries the signed profile's `name`, `address` and
+  `phone`, or a `GET /v1/orgs/{org_id}/profile?version=<n>` for a past version.
 
 ## Testing
 
