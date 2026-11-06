@@ -44,7 +44,7 @@ revision, once the photo is localized: the same gate as `POST` and `DELETE` on t
 * `counted: false` with a `reason` (1 to 500 characters, not blank; stored trimmed) marks a
   **counted** instance Not counted, a model detection or an engineer's own object alike. The
   row stays (a model detection is the photo's evidence): it gets `excluded_at`,
-  `excluded_by`, `exclusion_reason` and `counted: false` (migration 0031).
+  `excluded_by`, `exclusion_reason` and `counted: false` (migration 0033).
 * `counted: true` counts it again: the exclusion is cleared, `counted` is true. The reason is
   optional and goes on the timeline.
 * The answer (200) is the object as `GET .../objects` lists it.

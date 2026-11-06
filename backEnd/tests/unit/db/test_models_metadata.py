@@ -45,6 +45,7 @@ SPEC_TABLES = {
     "status_set_by status_set_at status_build_sha occurrences first_seen_at last_seen_at "
     "last_build_sha created_at updated_at",
     "users": "id firebase_uid email display_name created_at last_seen_at",
+    "user_linked_accounts": "firebase_uid user_id email linked_by created_at",
     "org_members": "org_id user_id role",
     # v0.9: room_aliases added by migration 0005_room_grouping (EVAL_REPORT section 27).
     # v0.12: components_gate (migration 0009_components_gate).
@@ -111,7 +112,7 @@ SPEC_TABLES = {
     "model_version params image_width image_height predict_seconds cost_usd "
     "carried_from_revision",
     # Manual add (migration 0008_object_prompts): mask_source, mask_reason, prompt_id.
-    # Not counted (migration 0031_object_exclusion): excluded_at, excluded_by, exclusion_reason.
+    # Not counted (migration 0033_object_exclusion): excluded_at, excluded_by, exclusion_reason.
     "photo_objects": "id study_id document_id revision label phrase score x1 y1 x2 y2 mask "
     "area source counted derived_from carried_from created_by deleted_at deleted_by "
     "mask_source mask_reason prompt_id excluded_at excluded_by exclusion_reason",
@@ -139,7 +140,10 @@ SPEC_TABLES = {
     "firm_profiles": "org_id profile version updated_by created_at updated_at",
     "report_signatures": "id study_id revision signed_by signed_at engineer statement_version "
     "export_sha256 reviewed_sha256 pdf_uri pdf_sha256 firm_profile_version "
-    "report_answers_version",
+    "report_answers_version signer_details_version letterhead",
+    # Each engineer's own signer details (migration 0032, EVAL_REPORT 91): one row per user.
+    "signer_details": "user_id name credentials license_number license_state version "
+    "created_at updated_at",
     # The latest heartbeat of each worker and relay process (migration 0021, ops health).
     "service_heartbeats": "id service build_sha state started_at heartbeat_at report",
     # The firm's own history (migration 0022_user_activity_org_events).
@@ -299,6 +303,7 @@ SPEC_UNIQUES = {
 
 SPEC_PRIMARY_KEYS = {
     "org_members": ("org_id", "user_id"),
+    "user_linked_accounts": ("firebase_uid",),
     "document_pages": ("document_id", "page_no"),
     "photo_rooms": ("document_id", "revision"),
     "photo_localizations": ("document_id", "revision"),
@@ -306,6 +311,7 @@ SPEC_PRIMARY_KEYS = {
     "classification_cache": ("org_id", "key"),
     "idempotency_keys": ("key",),
     "firm_profiles": ("org_id",),
+    "signer_details": ("user_id",),
     # Browser error capture (0028): one issue per fingerprint.
     "client_error_issues": ("fingerprint",),
 }
@@ -522,15 +528,17 @@ def test_migration_enum_labels_match_models() -> None:
 def test_migration_trigger_tables_match_models() -> None:
     migration = load_migration()
     # 0020 adds firm_profiles to the updated_at tables; 0024 adds review_drafts; 0028 adds
-    # client_error_issues.
+    # client_error_issues; 0032 adds signer_details.
     report = load_migration(VERSIONS / "0020_report_signing.py")
     drafts = load_migration(VERSIONS / "0024_review_drafts.py")
     issues = load_migration(VERSIONS / "0028_client_errors.py")
+    signers = load_migration(VERSIONS / "0032_signer_details.py")
     assert (
         *migration.UPDATED_AT_TABLES,
         *report.UPDATED_AT_TABLES,
         *drafts.UPDATED_AT_TABLES,
         *issues.UPDATED_AT_TABLES,
+        *signers.UPDATED_AT_TABLES,
     ) == UPDATED_AT_TABLES
     # 0013 adds study_events to the append-only tables (the same forbid_mutation() trigger).
     events = load_migration(VERSIONS / "0013_study_events.py")
@@ -670,8 +678,9 @@ def test_jsonb_columns_store_none_as_sql_null() -> None:
     # years_added / failures / detail; the report (0020): report_signatures.engineer;
     # ops health (0021): service_heartbeats.report; the firm's history (0022):
     # org_events.before/after/detail; gate drafts (0024): review_drafts.document;
-    # alerts (0026): alerts.payload; browser error capture (0028): client_errors.event
-    assert len(jsonb) == 38
+    # alerts (0026): alerts.payload; browser error capture (0028): client_errors.event;
+    # signer details (0032): report_signatures.letterhead
+    assert len(jsonb) == 39
     for name, column in jsonb:
         assert table(name).c[column].type.none_as_null, f"{name}.{column}"
 

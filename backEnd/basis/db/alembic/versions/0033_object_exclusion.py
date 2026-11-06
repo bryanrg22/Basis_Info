@@ -1,8 +1,8 @@
 """A photo object an engineer marked Not counted: ``photo_objects.excluded_at``,
 ``excluded_by`` and ``exclusion_reason`` (EVAL_REPORT 90, docs/api/OVERRIDES.md).
 
-Revision ID: 0031
-Revises: 0030
+Revision ID: 0033
+Revises: 0032
 Create Date: 2026-11-05
 
 Hand-written to match ``basis.db.models`` (``alembic check`` proves it).
@@ -26,8 +26,8 @@ from collections.abc import Sequence
 import sqlalchemy as sa
 from alembic import op
 
-revision: str = "0031"
-down_revision: str | Sequence[str] | None = "0030"
+revision: str = "0033"
+down_revision: str | Sequence[str] | None = "0032"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 

@@ -30,7 +30,7 @@ from typing import Any, Final
 
 import httpx
 from dbtest_support import db_settings, ensure_own_firm
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from sqlalchemy import update
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
@@ -130,10 +130,10 @@ def build_api_app(
 
 
 async def current_user_with_own_firm(
-    principal: CurrentPrincipal, sessionmaker: SessionmakerDep
+    principal: CurrentPrincipal, sessionmaker: SessionmakerDep, request: Request
 ) -> CurrentUser:
     """The real ``get_current_user``, then (in its own transaction) a firm if they have none."""
-    current = await get_current_user(principal, sessionmaker)
+    current = await get_current_user(principal, sessionmaker, request)
     async with session_scope(sessionmaker) as session:
         await ensure_own_firm(session, current.user)
     return current

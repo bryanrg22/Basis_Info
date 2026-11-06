@@ -97,7 +97,8 @@ since; `*` only over an existing document).
 
 | Route | Role | Body |
 |---|---|---|
-| `GET`, `PUT /v1/orgs/{org_id}/profile` | member reads; owner writes | `name`, `address`, `phone`, `logo_png` (base64 PNG, at most 512 KB), `engineer` (`name`, `credentials`, `license_number`, `license_state`), `limiting_conditions`. 404 `BASIS-REPORT-013` until saved; 412 `BASIS-REPORT-011`. |
+| `GET`, `PUT /v1/orgs/{org_id}/profile` | member reads; owner writes | `name`, `address`, `phone`, `logo_png` (base64 PNG, at most 512 KB), `engineer` (**deprecated**: `name`, `credentials`, `license_number`, `license_state`; only a draft's placeholder, see docs/api/SIGNERS.md 4), `limiting_conditions`. 404 `BASIS-REPORT-013` until saved; 412 `BASIS-REPORT-011`. |
+| `GET`, `PUT /v1/me/signer` | each user, their own | the name, credentials and license the user signs with (docs/api/SIGNERS.md). 412 `BASIS-REPORT-016`. |
 | `GET`, `PUT /v1/studies/{id}/report-answers` | viewer reads; engineer writes | `taxpayer_name`, `photographs` (`engineer_site_visit` or `taxpayer_supplied`), `photographed_by`, `photographed_on`, `interviews`, `prior_depreciation`. 412 `BASIS-REPORT-012`; a `study.report_answers_set` timeline event. |
 
 ## Signing
@@ -107,14 +108,20 @@ since; `*` only over an existing document).
    signature.
 2. `GET /v1/studies/{id}/report/preview`: the current revision's report rendered now from its
    export and the stored inputs, unsigned (a DRAFT). Its `ETag` is the sha256 of the bytes;
-   rendering is deterministic, so the same inputs give the same tag.
+   rendering is deterministic, so the same inputs give the same tag. It names its reader as
+   the preparer when the reader may sign and has saved signer details (docs/api/SIGNERS.md 3),
+   so two engineers get different tags.
 3. `POST /v1/studies/{id}/report/sign` (engineer or owner; `Idempotency-Key`):
 
    ```json
    {"revision": 1, "reviewed_sha256": "<the preview's ETag, unquoted>",
-    "engineer": {"name": "A. Engineer", "credentials": "PE", "license_number": "123", "license_state": "NY"},
     "attest": true, "statement_version": 1}
    ```
+
+   The report prints the signer's saved details (`PUT /v1/me/signer`). `engineer`
+   (`{"name", "credentials", "license_number", "license_state"}`) is optional: with saved
+   details it must name them; without, it is printed as before this change, unless
+   `REPORT_SIGNER_DETAILS_REQUIRED` is on (docs/api/SIGNERS.md 3).
 
    Checked in order, nothing written unless all pass:
 
@@ -123,16 +130,20 @@ since; `*` only over an existing document).
    | Archived, not the current revision, not exported, report skipped | 409 `BASIS-REPORT-007` |
    | Firm profile or study answers not saved | 409 `BASIS-REPORT-008` |
    | Already signed | 409 `BASIS-REPORT-009` |
-   | The preview rendered now is not the one reviewed (an input or the export changed) | 412 `BASIS-REPORT-010`, the current preview's `ETag` |
+   | No saved signer details and no `engineer` (or saved details required) | 409 `BASIS-REPORT-014` |
+   | `engineer` differs from the saved signer details | 409 `BASIS-REPORT-015` |
+   | The preview rendered now is not the one reviewed (an input, the signer's details or the export changed) | 412 `BASIS-REPORT-010`, the current preview's `ETag` |
    | `attest` not true, another `statement_version` | 422 |
 
    Then the final PDF (the signature block: time in UTC, signature id, name, credentials,
    license, firm) is stored at `rev-<n>.report.signed.<signature id>.pdf`, and the
    `report_signatures` row (one per revision, never updated) and the `report.signed` event
-   (signer's email, the sha256 of the export, the reviewed preview and the signed PDF) are
-   written in one transaction. The answer is the signature (201).
+   (signer's email, the sha256 of the export, the reviewed preview and the signed PDF, the
+   signer details' source and version, the letterhead) are written in one transaction. The
+   answer is the signature (201), with `signer_details_version` and `letterhead` (the firm
+   profile's name, address, phone and logo sha256 as signed).
 
-A firm profile or answers changed after signing do not change the signed PDF. A new revision
+A firm profile, answers or signer details changed after signing do not change the signed PDF. A new revision
 is signed on its own. What the signature is and is not (ESIGN/UETA elements, no PAdES
 certificate, no PE seal): STUDY_REPORT_SPEC 11.13.
 
@@ -152,7 +163,9 @@ match it:
 | Member | Meaning |
 |---|---|
 | `signature.firm_profile_version`, `signature.report_answers_version` | the versions of the two inputs the signed report was rendered with (also in the `report.signed` event's `detail`) |
-| `changed_since_signing` | `[]`: nothing was written since; `["study"]`: the answers were; `["firm"]`: the profile was; both; `null` while unsigned, or for a signature recorded before the versions were kept (migration 0027): unknown rather than guessed from timestamps |
+| `changed_since_signing` | `[]`: nothing was written since; `["study"]`: the answers were; `["firm"]`: the profile was; `["signer"]`: the signer's saved details now differ from `signature.engineer` (compared by value, docs/api/SIGNERS.md 3); any combination, in that order; `null` while unsigned, or for a signature recorded before the versions were kept (migration 0027): unknown rather than guessed from timestamps |
+| `signer` | the signer's saved details now, to show next to `signature.engineer`; null while unsigned or when the signer saved none |
+| `signature.letterhead` | the letterhead as signed, to show next to the current profile; null before migration 0032 |
 
 A client shows a signed report with `changed_since_signing` non-empty as "signed with earlier
 inputs"; the change reaches a report only through a new revision, signed on its own. The

@@ -122,6 +122,14 @@ class Settings(BaseSettings):
     review_deadline_days: int = Field(default=30, ge=1)
     # How long a firm invitation can be accepted (basis.db.repositories.invitation).
     invitation_ttl_days: int = Field(default=14, ge=1, le=90)
+    # A first sign-in whose verified email a firm member already has joins that member's
+    # user instead of creating a second user (basis.db.repositories.user, docs/api/FIRMS.md
+    # "One person, one user"). Off by default: a verified email shows who held the address
+    # when it was verified, not that it is the same person, so production links a
+    # recreated account through the operator (python -m basis.admin link-account).
+    # Local stacks turn it on (docker-compose.web.yml), where the Auth emulator loses its
+    # accounts on restart. EVAL_REPORT section 93.
+    auth_link_verified_email: bool = False
     # Where the app lives for the people we email (docs/api/FIRMS.md): the invitation says
     # "sign in to Basis at APP_URL". scheme://host[:port][/path], no trailing slash; outside
     # dev and test https (or http://localhost). Unset, the email says "sign in to Basis".
@@ -146,6 +154,13 @@ class Settings(BaseSettings):
     # that predate the intake's ETag) or 428 Precondition Required (true); a stale If-Match
     # is 412 either way (docs/api/STUDY_RESULT.md).
     intake_require_if_match: bool = False
+    # POST .../report/sign by an engineer who has saved no signer details (PUT /v1/me/signer):
+    # signed with the `engineer` the request names, as every signing was before (false, the
+    # default, while the web app still asks for the details at signing), or refused with 409
+    # E.REPORT_SIGNER_DETAILS_MISSING (true: a report is signed only with the signer's own saved
+    # details). Saved details are always used when they exist (EVAL_REPORT 91;
+    # docs/api/SIGNERS.md).
+    report_signer_details_required: bool = False
     study_budget_usd: float = Field(default=25.0, gt=0)
     relay_poll_seconds: float = Field(default=2.0, gt=0)
     gcs_bucket: str | None = None

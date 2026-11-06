@@ -13427,7 +13427,7 @@ nothing was deployed (cost $0). Contract: docs/api/OVERRIDES.md.
   (`UNIT_COST_OVERRIDE`), `room_create` always false. Both settings default true (this section):
   each override keeps the original beside the engineer's, and turning a setting off returns
   its route to the behaviour before (the PATCH answers 409, a price on a correction 422).
-* **Not counted**, `PATCH .../photos/{document_id}/objects/{object_id}` (migration 0031:
+* **Not counted**, `PATCH .../photos/{document_id}/objects/{object_id}` (migration 0033:
   `photo_objects.excluded_at`, `excluded_by`, `exclusion_reason`, with checks that the three
   go together and an excluded row is never counted). Stored as `counted: false` plus the
   exclusion, so every existing reader of counted instances (the per-label counts, the rooms'
@@ -13548,3 +13548,223 @@ the engineer's $850 (trail `engineer_price`, the table's `unpriced` kept as `rep
 A/B of the same reopen and correction on main and on main plus #157, #158 and this branch
 priced the other 339 assets identically (one pre-existing tie-break moved a quantity between
 two rows of the same label; the dollars were equal).
+
+## 91. Each engineer signs with their own name, credentials and license (2026-11-05)
+
+**Question.** The firm profile carried one engineer (name, credentials, license) for the whole
+firm, and the sign request carried whatever name and license the signer typed. Bryan asked that
+each user save their own signer details once and that they be used whenever that user signs,
+with the firm profile keeping the address, logo and limiting conditions. How do the two
+coexist, what happens to a signer with no details and to the firm's engineer field, how does
+"changed after signing" treat an edit, and how does a signature keep what it was signed with?
+
+**Setup.** No model, no paid call, no client data (cost $0). The code that ran before: the
+signed PDF printed the request's `engineer` (`sign_report`); the unsigned preview and the export
+step's draft printed the firm profile's `engineer` (`basis.report.render.view`); the signature
+stored the printed `engineer` (migration 0020). So the firm's engineer never reached a signed
+report, but the preview an engineer reviewed could name someone other than the signed PDF, and
+any engineer could type any name and license.
+
+### 91.1 The standard
+
+| Source (read 2026-11-05) | What it says that bears on the design |
+|---|---|
+| NCEES Model Law, August 2025, 140.10 D (ncees.org/wp-content/uploads/2025/09/Model-Law_August-2025_web.pdf) | Each licensee may obtain a seal; it contains the jurisdiction of licensure, the licensee's name, the license number and the words "professional engineer". The license and the seal are the individual's. |
+| NCEES Model Rules, August 2025, 240.20 (ncees.org/wp-content/uploads/2025/09/Model_Rules_August-2025_web.pdf) | A: the licensee's seal, signature and date go on final reports. C: the title page is sealed by the licensee in responsible charge; several licensees each note what they are responsible for. D: a licensee seals only work under their own responsible charge. E: a revision not done by the original licensee is sealed by the licensee responsible for it. H: a digital signature is unique to the individual, verifiable, under their sole control, and invalidated by any change to the document. |
+| ncees.org/about | The member boards are those of the 50 states, the District of Columbia, Guam, the Northern Mariana Islands, Puerto Rico and the U.S. Virgin Islands: 55 jurisdictions. |
+| IRS Pub 5653 (ATG) chapter 4, element C.1 (as cited in `basis.report.model`); STUDY_REPORT_SPEC 11.1 and 11.13 | A quality study is prepared by "an individual with expertise and experience"; there is no prescribed format; a cost segregation report is not a sealed design document, and Basis's signature is an electronic signature, not a seal. The public sample reports read for section 51 end with a certification signed by the named engineer. |
+
+What follows for Basis: the details printed under a signature are the signer's own (Model Law
+140.10 D, Rules 240.20 D), set by that person and nobody else (240.20 H, "sole control"), and a
+later revision by another engineer carries that engineer's details (240.20 E). The license stays
+optional, because a cost segregation preparer need not be a PE (ATG C.1). When given, it is given
+as a seal gives it: number and jurisdiction together, the jurisdiction one of the 55. State
+boards' own seal rules (a search listed several: name and license number legible) were not
+opened and are not relied on.
+
+### 91.2 The designs compared
+
+| Design | Can a signature print another licensee's details? | Breaks today's web app? | Who sets an engineer's license? | Chosen |
+|---|---|---|---|---|
+| A. As before: the firm's engineer for drafts, typed details at signing | yes: any engineer can type any name and license | no | the owner (firm profile), and anyone at signing | no |
+| B. Per-user details; refuse a signer without them | no | yes: every engineer is refused until the app saves details, and the app has no screen for them yet | the user only | as the setting, not the default |
+| C. Per-user details; fall back to the firm profile's engineer | yes: engineer B's signature would print engineer A's name and license, which 240.20 D forbids. A regression too: the firm's engineer never reached a signed PDF before | no | the owner, for everyone without details | no |
+| D. Per-user details always win; without them the typed details as before, unless `REPORT_SIGNER_DETAILS_REQUIRED` | no once details are saved; without them, exactly today's behaviour | no | the user only (an owner reads them in the members list) | **yes** |
+
+Under D the request cannot override a signer's saved details: an `engineer` that differs is
+refused (409 BASIS-REPORT-015), not ignored. The signer attests to what they sent, so printing
+something else would print what they did not attest. Turning `REPORT_SIGNER_DETAILS_REQUIRED`
+on, once the web app saves details in the account, is design B.
+
+**The firm profile's engineer** is deprecated, not removed. It is still accepted and returned
+(the current app writes it, and with `extra="forbid"` removing it would make every save a 422),
+marked `deprecated` in the OpenAPI document, and used only as an unsigned draft's preparer when
+the reader has no details. It is **not migrated** to a user: an owner typed it, nothing ties it
+to an account (its `email` is optional and unverified), and putting a license on an account its
+holder did not fill in is the misattribution being removed. Past signatures are not copied into
+signer details either. Each attests details for one report, not the signer's standing choice,
+and seeding from them would make a signer's next typed signing a mismatch they never chose.
+
+**The preview names its reader.** The engineer must sign the report they reviewed, and with
+per-user details that report differs per signer. So the preview renders the reader's saved
+details when the reader may sign (engineer or owner), and the signing compares the reviewed hash
+with the same render. A viewer's details are never used. The accepted consequence: two engineers
+get different preview tags, and one cannot sign with the other's (412).
+
+**"Changed after signing".** `changed_since_signing` gains `signer`: the signer's saved details
+now differ from the `engineer` the signature printed. It compares values, not versions, unlike
+`firm` and `study`, which have no stored values to compare. So an edit that is undone, or a first
+save of the very details typed at signing, is not a change, and another engineer's edit never
+marks your signature. `report/state` carries the signer's details now (`signer_details`) beside
+the signed ones (`signature.engineer`), so the app can show signed against now.
+
+**What the signature keeps.** `engineer` as before; `signer_details_version` (null when typed at
+signing); and `letterhead`: the firm profile's name, address, phone and logo sha256 as signed.
+The letterhead answers FRONTEND_BACKLOG 14, "The letterhead a report was signed with". Existing
+signatures read null in both: the values at their signing are not known, though their versions
+still are.
+
+### 91.3 What was built
+
+| Piece | What |
+|---|---|
+| Routes | `GET /v1/me/signer` (200 with `signer_details: null` and `ETag "0"` until saved) and `PUT /v1/me/signer` (the caller's own, `If-Match`, 412 BASIS-REPORT-016); tag `me`, next to `GET /v1/me` |
+| Shapes | `SignerDetails {name, credentials, license_number?, license_state?}`; `SignIn.engineer` optional; `SignatureOut.signer_details_version` and `.letterhead`; `ReportStateOut.signer_details`; `changed_since_signing` may hold `signer`; `MemberOut.signer_details` (members list, role change, removal) |
+| Migration | `0032_signer_details`, revising 0030 (0031 is another branch's; re-chained at merge): table `signer_details` (one row per user, license-pair and two-letter-state checks, `updated_at` trigger); `report_signatures.signer_details_version` and `letterhead` (nullable, nothing backfilled) |
+| Codes | BASIS-REPORT-014 (no details to sign with), 015 (the sent details differ from the saved ones), 016 (`If-Match` on the signer details) |
+| Setting | `REPORT_SIGNER_DETAILS_REQUIRED`, default false |
+| Fixed on the way | a typed license number without a state printed "License 123 (None)"; it now prints "License 123" |
+| Docs | docs/api/SIGNERS.md (new), REPORT.md, FIRMS.md, ERROR_CODES.md, openapi.json |
+
+### 91.4 Results
+
+| Gate | Result |
+|---|---|
+| `tests/unit/report/test_signer_details.py` | 80 passed |
+| `tests/api/test_signer_details.py` (integration) | 34 passed |
+| The existing signing tests (`tests/api/test_report_signing.py`), unchanged | all pass, before and after the change |
+| Mutations: the mismatch check, the viewer rule, the value comparison, the setting, the user's row lock | each made at least one test fail; without the row lock, the second of two concurrent first saves became a 500 instead of a 412 |
+| The contract test (Schemathesis) | its first run failed on `PUT /me/signer`: the schema allowed any two capitals while the API took only the 55, so a schema-valid body was refused. `license_state` is now an enum in the schema; the license pair (a rule between two fields) is cleared in valid-data cases. Then it passed |
+| Unit suite (`not integration and not slow`) | 5394 passed, 10 skipped |
+| Integration: contract, signer details, signing, firms, health, migrations | 342 passed (84 subtests) |
+| Integration: revisions, tenancy, study report, auth, timeline, firm logging | 134 passed, 1 skipped (run before the enum change, which touches only `SignerDetails`) |
+| Web tests (`node --test web/tests/*.test.cjs`) | 353 passed |
+| `ruff check`, `ruff format --check`, `mypy basis`, catalogue, OpenAPI and rule-fingerprint checks, client-data guard | all clean |
+
+**Verdict.** Design D. A report is signed with the signer's own saved details whenever they
+exist, and the request cannot substitute others. The firm's engineer is a deprecated draft
+placeholder that never signs. Nothing changes for an engineer who has not saved details, until
+the deployment requires them.
+
+**Verified.** Through the API against Postgres:
+- every signing case above: saved; saved and the same details sent; saved and different details
+  sent; typed only; nothing; required;
+- the preview for each reader;
+- two engineers signing two revisions, each signed PDF naming its own signer and license;
+- `signer` in `changed_since_signing` appearing and clearing by value, and only for the signer's
+  own edit;
+- an edit between the preview and the signing, refused;
+- two concurrent first saves writing one;
+- the migration up, its constraints, and down to 0030 exactly;
+- the existing signing tests, unchanged.
+
+**Not verified.**
+- The web app. It still pre-fills the sign dialog from the firm profile's engineer and has no
+  screen for `/v1/me/signer`; the frontend is Bryan's, and what it needs is in
+  docs/api/SIGNERS.md. Until the app pre-fills from `/v1/me/signer`, an engineer who saves
+  details and then signs from today's app with different typed values gets 409 BASIS-REPORT-015,
+  by design.
+- A live study. None was run; the change does not touch any stage's output.
+- State board rules beyond the NCEES model texts were not read.
+
+**Open.**
+1. An engineer licensed in several jurisdictions has one saved license. A list, with the license
+   chosen by the property's state, would follow Model Rules 240.20 more closely.
+2. Licenses are self-declared. No lookup against a state board's public roster is built.
+3. Edits to signer details are logged (field names and versions), but their earlier values are
+   not kept. The signatures keep what each one printed.
+4. Turn `REPORT_SIGNER_DETAILS_REQUIRED` on once the app saves details in the account, then
+   remove the firm profile's `engineer` from the app's form.
+
+### 91.5 Matched to the web app (2026-11-06)
+
+Driving the web app of #155 and #160 against this API on a copy of the demo database showed
+that the app reads the details under `signer` (`GET /v1/me/signer` and each member of
+`GET /v1/orgs/{org_id}/members`), as its sample API proposes (P5, P6), while this branch
+answered `signer_details`. The save worked but the app could not see it: Settings read "Not
+set" and Report & sign refused to sign with "Add your signer details in Settings first". The
+field is now `signer` in those answers and in `GET .../report/state`; the `report.signed`
+event's `signer_details: saved | entered` is unchanged (recorded history). The app allows a
+license number of up to 50 characters, so the API now does too (it allowed 40).
+
+## 93. One person, one user: why the Team page listed an email twice (2026-11-06)
+
+Bryan's members page on the local demo stack listed Bryan's address twice, once with
+his name and once without. Asked why, and to fix it.
+
+### 93.1 What the data said
+
+On the demo database (`basis_demo`, a copy of the live-run stack's database) three `users`
+rows had that email, each with its own Firebase uid: the original one (signed in with Google
+on the emulator, so it has a display name), and two created on 2026-10-27 and 2026-10-30 by
+email-and-password sign-ins, which carry no name. Users are keyed by uid, and the local Auth
+emulator forgets its accounts when it restarts, so each restart gave the same person a new
+uid and Basis a new user. The nameless row was a member of the firm, but no invitation, no
+`invitation.accepted` event and no `POST /v1/orgs` explains it: its two memberships (the firm
+and another one) were written at the same microsecond, 2026-10-27 00:38:03.050839, with no
+history. No route adds a member without one of those, so the rows were inserted by hand
+(most likely by a session restoring access after an emulator restart). The row owned no
+study, review or correction. Its two memberships were removed from the demo database
+(2026-11-06); the members page now lists Bryan once.
+
+### 93.2 The defect underneath
+
+The hand-written rows are the immediate cause, but the product has the gap that made them
+tempting: a person back with a new uid for the same address becomes a second user with no
+firm. In production that happens only when a Firebase account is deleted and created again
+(Firebase's default is one account per email address, Google Firebase help 9134820, so a
+second uid for an address needs the first one gone); on every local stack it happens at each
+emulator restart. A firm that re-invites the person then lists them twice.
+
+### 93.3 The standard
+
+* Auth0's account-linking guidance: link only verified emails, and do not link
+  automatically on email alone; have the person authenticate with both accounts, because a
+  verified email shows who held the address when it was verified, not that it is the same
+  person now (auth0.com/docs, "User account linking" and "Verified email usage").
+* Sudhodanan and Paverd, "Pre-hijacked accounts", USENIX Security 2022: 35 of 75 services
+  were open to attacks that merge accounts on an identifier before the victim arrives.
+* Basis's own rule (migration 0001, BUILD_PLAN section 6.5): a user's uid never changes
+  (`forbid_firebase_uid_change()`), so the fix cannot rewrite `users.firebase_uid`.
+
+### 93.4 What was built
+
+* `user_linked_accounts` (migration 0031): extra uids of an existing user, with who linked
+  them (`sign_in` or `operator`), the address and when. Lookups by uid check the user's own
+  uid, then this table.
+* `python -m basis.admin link-account --email --uid [--user-id]`: the production path. The
+  operator checks in the Firebase console that the uid is that address's account.
+* `AUTH_LINK_VERIFIED_EMAIL` (default false; true in `docker-compose.web.yml`): at sign-in, a
+  new uid whose email is verified and equal (trimmed, case-insensitive) to the stored email of
+  a user who belongs to a firm is linked to that user, the most recently seen one if several.
+  Only a firm member qualifies, because membership is reached only through a verified email
+  (an accepted invitation or `POST /v1/orgs`); a firmless user with the address is never a
+  target. A uid with its own user keeps it. The first sign-in takes a transaction-scoped
+  advisory lock on the uid, so concurrent first requests link once.
+
+Why the automatic path is off in production: the reassigned-address case (a departed
+engineer's mailbox given to a new hire) would hand the old member's firms to the new holder,
+which is exactly what Auth0 warns against. Locally the emulator is the only identity
+provider and the person at the keyboard is the developer, so the convenience is safe there.
+
+### 93.5 Tests
+
+| File | What it covers | Result |
+|---|---|---|
+| `tests/integration/db/test_linked_accounts.py` | Setting on: a new verified uid joins the member (case and spaces ignored), memberships shared, both uids resolve, `users.firebase_uid` unchanged; later sign-ins of the linked uid refresh the member; setting off, unverified, or both: a new user as before (the regression check); a firmless user is never a target; another email is not linked; a uid with its own user is never relinked; two members with the email: the one seen last; three concurrent first sign-ins of one new uid (barrier, held transactions): one link, no error; operator link and every refusal | 13 pass |
+| `tests/api/test_linked_accounts_api.py` | End to end through `GET /v1/me` and the members list, setting on and off: on, the new account is the same user, lists the firm, can act as its owner, and the members list has one row; off, a new firmless user and 404 on the firm; an unverified new account is never linked | 4 pass |
+| `tests/integration/db/test_migrations.py` | Head 0031; `0031` creates the table with its checks (linked_by, primary key, user foreign key) and downgrades to 0030 exactly | pass |
+
+Verified: the sign-in and members paths above, on Postgres, with the setting on and off.
+Not verified: the operator path against a real (non-emulator) Firebase project; nothing is
+deployed.

@@ -4484,7 +4484,7 @@
           "report"
         ],
         "summary": "The current revision's report rendered now, unsigned (what the engineer signs)",
-        "description": "Viewer role. The report as it would be signed, from the current revision's export and the stored inputs, without the signature block (a DRAFT until signed). `ETag` is the sha256 of the bytes: `POST .../report/sign` takes it as `reviewed_sha256`. 409 BASIS-REPORT-007 when the current revision has no report.",
+        "description": "Viewer role. The report as it would be signed, from the current revision's export and the stored inputs, without the signature block (a DRAFT until signed). It names you as the preparer when you may sign and have saved signer details (`PUT /v1/me/signer`), since that is the report you would sign; otherwise the firm profile's engineer, or a placeholder. `ETag` is the sha256 of the bytes: `POST .../report/sign` takes it as `reviewed_sha256`. 409 BASIS-REPORT-007 when the current revision has no report.",
         "operationId": "report_preview_v1_studies__study_id__report_preview_get",
         "security": [
           {
@@ -4578,7 +4578,7 @@
           "report"
         ],
         "summary": "Sign the current revision's report (engineer)",
-        "description": "The engineer's affirmative act (STUDY_REPORT_SPEC 11.13): `attest: true`, the certification version shown, the name and credentials attested, and the `ETag` of the preview reviewed. Checks in order, writing nothing unless all pass: the current revision has a report (409 BASIS-REPORT-007), the firm profile and the study answers exist (409 BASIS-REPORT-008), the revision is not signed (409 BASIS-REPORT-009), the preview rendered now has the reviewed sha256 (412 BASIS-REPORT-010 with the current `ETag`). Then the final PDF is rendered with the signature and stored, and the signature and the `report.signed` event are recorded.",
+        "description": "The engineer's affirmative act (STUDY_REPORT_SPEC 11.13): `attest: true`, the certification version shown, the name and credentials attested, and the `ETag` of the preview reviewed. Checks in order, writing nothing unless all pass: the current revision has a report (409 BASIS-REPORT-007), the firm profile and the study answers exist (409 BASIS-REPORT-008), the revision is not signed (409 BASIS-REPORT-009), the signer has details to sign with (409 BASIS-REPORT-014; 409 BASIS-REPORT-015 when `engineer` differs from the signer's saved details), the preview rendered now has the reviewed sha256 (412 BASIS-REPORT-010 with the current `ETag`). The report prints the signer's saved details (`PUT /v1/me/signer`); without any, the `engineer` sent, unless the deployment requires saved details. Then the final PDF is rendered with the signature and stored, and the signature and the `report.signed` event are recorded.",
         "operationId": "sign_report_v1_studies__study_id__report_sign_post",
         "security": [
           {
@@ -10366,6 +10366,208 @@
           },
           "404": {
             "description": "Not found, or not visible to you (the two are indistinguishable).",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/me/signer": {
+      "get": {
+        "tags": [
+          "me"
+        ],
+        "summary": "Your signer details: the name, credentials and license you sign reports with",
+        "description": "`signer` is null until you save them; the `ETag` is `\"0\"` then. Send the `ETag` back as `If-Match` on the `PUT`.",
+        "operationId": "get_signer_v1_me_signer_get",
+        "security": [
+          {
+            "FirebaseIdToken": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SignerDetailsOut"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing, malformed, expired or revoked bearer token.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation failed (`errors` lists each field), or an `Idempotency-Key` was reused with a different request.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Rate limit exceeded; see `Retry-After`.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "A dependency (the database) is unavailable; see `Retry-After`.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "me"
+        ],
+        "summary": "Set or replace your signer details",
+        "description": "The whole document: `name`, `credentials`, and the license as `license_number` with `license_state` (both or neither; the state a US state, DC, GU, MP, PR or VI). Yours only: no role writes another user's details. `If-Match` with the `ETag` of the `GET` writes only while it is current (412 BASIS-REPORT-016 with the current `ETag` otherwise); `*` only over saved details. Every report you sign afterwards prints them; a report you already signed keeps what it printed, and its `GET .../report/state` lists `signer` in `changed_since_signing` while your details differ from it.",
+        "operationId": "put_signer_v1_me_signer_put",
+        "security": [
+          {
+            "FirebaseIdToken": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "If-Match",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "The entity tag from the matching `GET` (`\"3\"`), or `*` (any existing document). Optional.",
+              "title": "If-Match"
+            },
+            "description": "The entity tag from the matching `GET` (`\"3\"`), or `*` (any existing document). Optional."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SignerDetails"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SignerDetailsOut"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Missing or malformed `Idempotency-Key`.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing, malformed, expired or revoked bearer token.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflicts with the current state (stale stage or revision, duplicate, archived, upload mismatch, or the same `Idempotency-Key` still in flight).",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "The request body is larger than 1 MiB.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation failed (`errors` lists each field), or an `Idempotency-Key` was reused with a different request.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Rate limit exceeded; see `Retry-After`.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "A dependency (the database) is unavailable; see `Retry-After`.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "412": {
+            "description": "`precondition-failed`: the `If-Match` entity tag is not the current one (the resource changed since you read it); nothing was written. Read it again and retry with the new `ETag`.",
             "content": {
               "application/problem+json": {
                 "schema": {
@@ -19822,7 +20024,9 @@
               {
                 "type": "null"
               }
-            ]
+            ],
+            "description": "Deprecated: a report names the engineer who signs it from their own signer details (`PUT /v1/me/signer`). Still accepted and returned so existing clients keep working; printed only as the preparer of an unsigned draft whose reader has no saved details, never on a signed report.",
+            "deprecated": true
           },
           "limiting_conditions": {
             "anyOf": [
@@ -20867,6 +21071,56 @@
         "title": "LastInferenceOut",
         "description": "The latest successful paid call the ledger recorded for this service: evidence of\ninference, separate from the metadata probe that sets ``status``."
       },
+      "Letterhead": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "address": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Address"
+          },
+          "phone": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Phone"
+          },
+          "logo_sha256": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Logo Sha256",
+            "description": "Null when the profile had no logo."
+          }
+        },
+        "type": "object",
+        "required": [
+          "name",
+          "address",
+          "phone",
+          "logo_sha256"
+        ],
+        "title": "Letterhead"
+      },
       "LocalizationOut": {
         "properties": {
           "status": {
@@ -21143,6 +21397,17 @@
               }
             ],
             "title": "Last Seen At"
+          },
+          "signer": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SignerDetails"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The name, credentials and license the member signs reports with, as they saved them (`PUT /v1/me/signer`); null when they have saved none. Read-only here: only the member sets their own."
           }
         },
         "type": "object",
@@ -23097,7 +23362,8 @@
                   "type": "string",
                   "enum": [
                     "firm",
-                    "study"
+                    "study",
+                    "signer"
                   ]
                 },
                 "type": "array"
@@ -23107,7 +23373,18 @@
               }
             ],
             "title": "Changed Since Signing",
-            "description": "Once signed: the inputs written after the signature (`firm`: the firm profile, `study`: the report answers). The signed PDF is unchanged; the stored inputs no longer match it. `[]` when none changed; null while unsigned, or when the signature predates the record of the versions it was signed with."
+            "description": "Once signed: the inputs changed after the signature (`firm`: the firm profile was written, `study`: the report answers were, `signer`: the signer's saved details now differ from the ones the signature printed). The signed PDF is unchanged; the stored inputs no longer match it. `[]` when none changed; null while unsigned, or when the signature predates the record of the versions it was signed with."
+          },
+          "signer": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SignerDetails"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Once signed: the signer's saved details now, to show next to `signature.engineer` (what was signed); null while unsigned or when the signer has saved none."
           }
         },
         "type": "object",
@@ -24720,8 +24997,15 @@
             "description": "The `ETag` of `GET .../report/preview` the engineer reviewed, unquoted."
           },
           "engineer": {
-            "$ref": "#/components/schemas/Engineer",
-            "description": "The name and credentials the signer attests to."
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Engineer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The name, credentials and license the signer attests to. With saved signer details (`PUT /v1/me/signer`) the report prints those: leave this out, or send the same values (anything else is 409 BASIS-REPORT-015). Without saved details it is what the report prints, unless the deployment requires saved details (409 BASIS-REPORT-014)."
           },
           "attest": {
             "type": "boolean",
@@ -24742,7 +25026,6 @@
         "required": [
           "revision",
           "reviewed_sha256",
-          "engineer",
           "attest",
           "statement_version"
         ],
@@ -24843,6 +25126,29 @@
             ],
             "title": "Report Answers Version",
             "description": "The report answers' version the report was signed with (null as above)."
+          },
+          "signer_details_version": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Signer Details Version",
+            "description": "The version of the signer's saved details printed in `engineer`; null when the details were entered at signing (the signer had saved none) or the signature predates saved details."
+          },
+          "letterhead": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Letterhead"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The firm profile's letterhead as signed (name, address, phone, the logo's sha256); null on a signature recorded before it was kept."
           }
         },
         "type": "object",
@@ -24894,6 +25200,165 @@
           "expires_at"
         ],
         "title": "SignedUploadOut"
+      },
+      "SignerDetails": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "maxLength": 500,
+            "minLength": 1,
+            "pattern": "^[^\\x00-\\x1f\\x7f-\\x9f]*[^\\x00-\\x1f\\x7f-\\x9f\\s][^\\x00-\\x1f\\x7f-\\x9f]*$",
+            "title": "Name",
+            "description": "Your name as it is printed on the reports you sign."
+          },
+          "credentials": {
+            "type": "string",
+            "maxLength": 500,
+            "minLength": 1,
+            "pattern": "^[^\\x00-\\x1f\\x7f-\\x9f]*[^\\x00-\\x1f\\x7f-\\x9f\\s][^\\x00-\\x1f\\x7f-\\x9f]*$",
+            "title": "Credentials",
+            "description": "e.g. 'PE', 'PE, CCSP'"
+          },
+          "license_number": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 50,
+                "minLength": 1,
+                "pattern": "^[^\\x00-\\x1f\\x7f-\\x9f]*[^\\x00-\\x1f\\x7f-\\x9f\\s][^\\x00-\\x1f\\x7f-\\x9f]*$"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "License Number",
+            "description": "Your license number, as the licensing board issued it."
+          },
+          "license_state": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "AL",
+                  "AK",
+                  "AZ",
+                  "AR",
+                  "CA",
+                  "CO",
+                  "CT",
+                  "DE",
+                  "FL",
+                  "GA",
+                  "HI",
+                  "ID",
+                  "IL",
+                  "IN",
+                  "IA",
+                  "KS",
+                  "KY",
+                  "LA",
+                  "ME",
+                  "MD",
+                  "MA",
+                  "MI",
+                  "MN",
+                  "MS",
+                  "MO",
+                  "MT",
+                  "NE",
+                  "NV",
+                  "NH",
+                  "NJ",
+                  "NM",
+                  "NY",
+                  "NC",
+                  "ND",
+                  "OH",
+                  "OK",
+                  "OR",
+                  "PA",
+                  "RI",
+                  "SC",
+                  "SD",
+                  "TN",
+                  "TX",
+                  "UT",
+                  "VT",
+                  "VA",
+                  "WA",
+                  "WV",
+                  "WI",
+                  "WY",
+                  "DC",
+                  "GU",
+                  "MP",
+                  "PR",
+                  "VI"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "License State",
+            "description": "The two-letter code of the jurisdiction that issued the license: a US state, DC, GU, MP, PR or VI (the NCEES member boards). Required with `license_number`, and only with it."
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "name",
+          "credentials"
+        ],
+        "title": "SignerDetails",
+        "description": "What one engineer signs with: their own name, credentials and license, saved once by\nthem (``PUT /v1/me/signer``) and printed on every report they sign. A license belongs to\nthe individual licensee (NCEES Model Law 140.10 D: the seal carries the jurisdiction, the\nlicensee's name and the license number), so it is never the firm's to set. The license is\noptional (a cost segregation study need not be prepared by a PE: the ATG's element C.1\nasks for an individual with expertise and experience), but a number comes with its state."
+      },
+      "SignerDetailsOut": {
+        "properties": {
+          "user_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "User Id"
+          },
+          "signer": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SignerDetails"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The name, credentials and license printed on every report you sign; null until you save them."
+          },
+          "version": {
+            "type": "integer",
+            "title": "Version",
+            "description": "0 while none are saved."
+          },
+          "updated_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Updated At",
+            "description": "Null while none are saved."
+          }
+        },
+        "type": "object",
+        "required": [
+          "user_id",
+          "signer",
+          "version",
+          "updated_at"
+        ],
+        "title": "SignerDetailsOut",
+        "description": "Your signer details and their version (also the ``ETag``; 0 while none are saved)."
       },
       "SourceIn": {
         "properties": {

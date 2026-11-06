@@ -218,7 +218,7 @@ class PhotoObjectRepository:
         return row
 
     async def exclude(self, row: PhotoObject, user_id: uuid.UUID, reason: str) -> PhotoObject:
-        """Mark a counted row Not counted (migration 0031): who, when and why, and
+        """Mark a counted row Not counted (migration 0033): who, when and why, and
         ``counted`` false while it stays excluded. A row already excluded takes the new
         reason, person and time (the event keeps the old ones)."""
         row.counted = False
