@@ -2,8 +2,8 @@
  *
  *   #dashboard  Home: what needs me (an admin: what needs anyone), what Basis is working on,
  *               what was signed, and the firm's latest activity; an admin's first-run checklist.
- *   #library    every study of the firm, searched by name, address, client, taxpayer, file
- *               number, parcel number, county, borrower and engineer; why each result matched.
+ *   #library    every study of the firm; server search (#161), with matched fields highlighted.
+ *               The sample also proposes summary identity fields and a firm file number.
  *   #activity   who did what, on which study and step, grouped by day, each entry a link there.
  *   #team       admins: members, roles, removal, invitations; engineers: their colleagues.
  *   #settings   your firm and role (read-only), your signer details; an admin's letterhead.
@@ -62,7 +62,7 @@
  const stripOf=(s,d)=>{const seg=M.strip(s,d),cur=seg.findIndex(x=>x.state==='current'),at=cur<0?seg.length:cur+1;return `<span class="fp-stagebox"><span class="fp-strip" aria-hidden="true">${seg.map(x=>`<i class="is-${x.state} tone-${x.tone}" title="${esc(x.label)}"></i>`).join('')}</span><small>${cur<0?`All ${seg.length} done`:`${at} of ${seg.length} · ${esc(seg[cur].label.replace('Report & sign','Report'))}`}</small></span>`};
  const when=at=>`<time datetime="${esc(at)}" title="${esc(Live.when(at))}">${esc(M.ago(at,now()))}</time>`;
  const href=(s,n)=>Live.route(n.action?n.screen:'processing',s.id);// the step that waits, else the study's page
- Live.actions['fp-reload']=()=>{for(const k of ['studies-all','members:','feed:','me-activity','org-activity:','invitations:','me-signer','firm-profile:'])Live.invalidate(k);Live.render()};
+ Live.actions['fp-reload']=()=>{cancelSearch();for(const k of ['studies-all','members:','feed:','me-activity','org-activity:','invitations:','studies-search:','me-signer','firm-profile:'])Live.invalidate(k);Live.render()};
 
  /* ---------- Home ---------- */
  function studyRow(r,{owner=false}={}){
@@ -159,22 +159,75 @@
   }
   return true;
  }
- function libraryRows(all){
-  const q=P.lib.q.trim();
-  const hits=all.map(s=>({s,m:M.match(s,q)})).filter(x=>x.m&&(!P.lib.engineer||x.s.created_by===P.lib.engineer));
-  return hits;
+ // Search is answered by the API, including fields StudyOut does not expose. Cache keys
+ // use an opaque sequence: a client name/address in a query must never enter load-error logs.
+ let searchTimer=null,searchSerial=0,activeSearch=null,previousSearch=null,lastSearchAnnouncement='';
+ const searchActive=ctx=>activeSearch===ctx&&!ctx.stopped&&state.screen==='library'&&Live.firm()?.org_id===ctx.org&&P.lib.q.trim()===ctx.q;
+ async function searchStudies(ctx){
+  // listAll's general-purpose 50-page cap would silently hide matches in a large library.
+  const items=[],seen=new Set();let cursor=null;
+  do{
+   if(!searchActive(ctx))return [];
+   const page=await api.request('GET','/v1/studies',{query:{q:ctx.q,include_archived:true,limit:100,cursor}});
+   if(!searchActive(ctx))return [];// don't crawl another page of an abandoned search
+   if(!page||!Array.isArray(page.items))throw new Error('Search results could not be read completely. Try again.');
+   items.push(...page.items);cursor=page.next_cursor;
+   if(cursor){if(seen.has(cursor))throw new Error('Search results could not be read completely. Try again.');seen.add(cursor)}
+  }while(cursor);
+  return items;
+ }
+ const matchRows=(rows,q)=>rows.filter(s=>!P.lib.engineer||s.created_by===P.lib.engineer).map(s=>({s,m:M.match(s,q)||{field:null,value:null}}));
+ function libraryMatches(all){
+  const q=P.lib.q.trim(),org=Live.firm().org_id,problem=M.searchProblem(q);
+  if(problem)return {hits:[],problem};
+  const pending=()=>({hits:previousSearch?.org===org?matchRows(previousSearch.rows,previousSearch.q):[],q:previousSearch?.org===org?previousSearch.q:'',pending:true});
+  if(searchTimer!==null)return pending();
+  let rows=all;
+  if(q){
+   if(!activeSearch||activeSearch.q!==q||activeSearch.org!==org||!L.cache.has(activeSearch.key)){
+    if(activeSearch)activeSearch.stopped=true;
+    activeSearch={q,org,key:'studies-search:'+org+':'+(++searchSerial),stopped:false};
+   }
+   const ctx=activeSearch,e=Live.load(ctx.key,()=>searchStudies(ctx));
+   if(!e.done)return pending();
+   if(e.error){const queryError=e.error.status===422&&e.error.errors?.find(x=>Array.isArray(x.loc)&&x.loc.at(-1)==='q');
+    if(queryError)return {hits:[],problem:queryError.type==='string_too_long'?'Use 200 characters or fewer to search.':'Use 10 distinct words or fewer to search.'};
+    return {hits:[],error:e.error}}
+   rows=Live.firmStudies(e.data);Live.loadDeliveries(rows);
+  }
+  previousSearch={org,rows,q};
+  // match() annotates fields we can display; it never discards a server match.
+  return {hits:matchRows(rows,q),q};
+ }
+ function searchBody(search){
+  if(search.problem)return `<p class="fp-empty">${esc(search.problem)}</p>`;
+  if(search.pending)return `<p class="fp-note">Searching studies…${search.hits.length?' Previous results are shown below.':''}</p>${search.hits.length?resultsHtml(search.hits,search.q):''}`;
+  if(search.error)return Live.failed(search.error,'fp-lib-retry');
+  return resultsHtml(search.hits);
+ }
+ function searchStatus(search){return search.problem||(search.pending?'Searching studies…':search.error?'Search could not be completed. Try again.':statusText(search.hits))}
+ function announceSearch(search){
+  const message=searchStatus(search);if(lastSearchAnnouncement===message)return;lastSearchAnnouncement=message;
+  const sr=document.getElementById?.('sr-status');if(!sr)return;sr.textContent='';
+  setTimeout(()=>{if(state.screen==='library'&&lastSearchAnnouncement===message)sr.textContent=message},60);
+ }
+ function cancelSearch(){if(searchTimer!==null)clearTimeout(searchTimer);searchTimer=null;if(activeSearch)activeSearch.stopped=true;activeSearch=null}
+ function changeQuery(value){
+  const same=value.trim()===P.lib.q.trim();P.lib.q=value;
+  if(!same){cancelSearch();Live.invalidate('studies-search:');
+   if(value.trim()&&!M.searchProblem(value.trim()))searchTimer=setTimeout(()=>{searchTimer=null;if(state.screen==='library')paintLibrary()},250)}
+  paintLibrary();
  }
  function chipsHtml(hits){
   const searching=Boolean(P.lib.q.trim());
   return FILTERS.map(([k,label])=>{const n=hits.filter(x=>inFilter(x.s,k)).length;if(searching&&!n&&k!=='all'&&k!==P.lib.filter)return '';return `<button type="button" class="fp-chip${P.lib.filter===k?' is-on':''}" data-live="fp-lib-filter" data-value="${k}" aria-pressed="${P.lib.filter===k}">${label}<span>${n}</span></button>`}).join('');
  }
- function resultsHtml(hits){
-  const q=P.lib.q.trim();
+ function resultsHtml(hits,q=P.lib.q.trim()){
   const rows=hits.filter(x=>inFilter(x.s,P.lib.filter)).sort((a,b)=>P.lib.sort==='name'?a.s.property_name.localeCompare(b.s.property_name):P.lib.sort==='created'?String(b.s.created_at).localeCompare(String(a.s.created_at)):String(b.s.updated_at).localeCompare(String(a.s.updated_at)));
   // Nothing under this filter, but the search matches elsewhere: say where, with the way there.
   if(!rows.length&&q&&hits.length){const where=FILTERS.filter(([k])=>k!==P.lib.filter&&k!=='all').map(([k,l])=>[k,l,hits.filter(x=>inFilter(x.s,k)).length]).filter(x=>x[2]);
    if(where.length)return `<div class="fp-lib-empty">${icon('search',26)}<h2>No ${P.lib.filter==='all'?'active':esc((FILTERS.find(f=>f[0]===P.lib.filter)||FILTERS[0])[1].toLowerCase())} study matches “${esc(q)}”</h2><p>${where.map(([,l,n])=>`${n} in ${esc(l)}`).join(' · ')}</p><div class="fp-chips">${where.map(([k,l,n])=>`<button class="button small" data-live="fp-lib-filter" data-value="${k}">Show ${esc(l.toLowerCase())} (${n})</button>`).join('')}</div></div>`}
-  if(!rows.length)return `<div class="fp-lib-empty">${icon('search',26)}<h2>${q?`No study matches “${esc(q)}”`:'No studies here yet'}</h2><p>${q?'Search looks at the property name, address, client, taxpayer, file number, parcel number, county, borrower and engineer.':'Studies appear here when an engineer starts one.'}</p>${q||P.lib.filter!=='all'||P.lib.engineer?'<button class="button small" data-live="fp-lib-clear">Clear search and filters</button>':''}</div>`;
+  if(!rows.length)return `<div class="fp-lib-empty">${icon('search',26)}<h2>${q?`No study matches “${esc(q)}”`:'No studies here yet'}</h2><p>${q?'Search looks at the property name, address, city, state, county, ZIP, taxpayer, borrower, owner of record, parcel number, engineer and signer.':'Studies appear here when an engineer starts one.'}</p>${q||P.lib.filter!=='all'||P.lib.engineer?'<button class="button small" data-live="fp-lib-clear">Clear search and filters</button>':''}</div>`;
   // Why it matched, when the field is not already a column or the line under the name.
   const matched=(x)=>x.m.field&&!['Property','Address','File number','Client','Engineer'].includes(x.m.field)?`<span class="fp-match"><em>${esc(x.m.field)}</em> ${M.highlight(x.m.value,q)}</span>`:'';
   return `<table class="fp-lib-table"><caption class="sr-only">Studies</caption><colgroup><col class="c-study"><col class="c-client"><col class="c-eng"><col class="c-stage"><col class="c-when"></colgroup><thead><tr><th scope="col">Study</th><th scope="col">Client</th><th scope="col">Engineer</th><th scope="col">Stage</th><th scope="col" class="fp-num">Updated</th></tr></thead><tbody>${rows.map(x=>{const s=x.s,n=M.next(s,deliveryOf(s)),m=s.summary;return `<tr data-href="${href(s,n)}"><td><a class="fp-lib-name" href="${href(s,n)}">${M.highlight(s.property_name,q)}</a>${M.place(s)?`<span class="fp-lib-sub">${M.highlight(M.place(s),q)}</span>`:''}${m?.file_number?`<span class="fp-file">${M.highlight(m.file_number,q)}</span>`:''}${matched(x)}</td><td>${m?.client?M.highlight(m.client,q):'<span class="fp-muted">—</span>'}</td><td><span class="fp-person">${avatar(s.created_by_name||'?','is-small')}${M.highlight(s.created_by_name||'Unknown',q)}</span></td><td><span class="fp-stage">${stripOf(s,deliveryOf(s))}${pill(n.label,n.tone)}</span></td><td class="fp-num">${when(s.updated_at)}</td></tr>`}).join('')}</tbody></table>`;
@@ -184,27 +237,28 @@
   const e=studiesEntry();if(!e.done)return Live.loading('Loading the library…');if(e.error)return Live.failed(e.error,'fp-reload');
   const all=Live.firmStudies(e.data);Live.loadDeliveries(all);
   const engineers=[...new Map(all.filter(s=>s.created_by).map(s=>[s.created_by,s.created_by_name||s.created_by_email||'Unknown'])).entries()].sort((a,b)=>a[1].localeCompare(b[1]));
-  const hits=libraryRows(all),proposed=all.some(s=>'summary' in s);
-  const placeholder=proposed?'Search address, client, file number, engineer, parcel…':'Search by property name or engineer…';
+  const search=libraryMatches(all),hits=search.hits;
+  const placeholder='Search address, taxpayer, parcel, ZIP, engineer…';
   return `<div class="fp fp-library"><header class="fp-head"><div><h1>Library</h1><p>${all.filter(s=>s.status!=='archived').length} studies in ${esc(firm.org_name)}</p></div>${F.canCreate(firm)?`<a class="button primary" href="#upload">${icon('plus',16)}Start a study</a>`:''}</header>
-<div class="fp-search" role="search"><label class="fp-search-box">${icon('search',20)}<span class="sr-only">Search studies</span><input id="fp-search" type="search" value="${esc(P.lib.q)}" placeholder="${placeholder}" autocomplete="off" spellcheck="false" aria-describedby="fp-search-help"><button type="button" class="fp-search-clear" data-live="fp-lib-clear-q" aria-label="Clear the search" ${P.lib.q?'':'hidden'}>${icon('x',16)}</button><kbd aria-hidden="true">/</kbd></label><p id="fp-search-help" class="sr-only">Matches every word against the property, address, client, taxpayer, file number, parcel number, county, borrower and engineer.</p></div>
-<div class="fp-lib-bar"><div class="fp-chips" id="fp-chips" role="group" aria-label="Filter by status">${chipsHtml(hits)}</div><div class="fp-lib-controls"><label><span class="sr-only">Engineer</span><select id="fp-engineer" class="fp-select" data-native="true"><option value="">Every engineer</option>${engineers.map(([id,n])=>`<option value="${esc(id)}" ${P.lib.engineer===id?'selected':''}>${esc(n)}</option>`).join('')}</select></label><label><span class="sr-only">Sort</span><select id="fp-sort" class="fp-select" data-native="true"><option value="updated" ${P.lib.sort==='updated'?'selected':''}>Last updated</option><option value="created" ${P.lib.sort==='created'?'selected':''}>Newest</option><option value="name" ${P.lib.sort==='name'?'selected':''}>Name A–Z</option></select></label></div></div>
-<p class="sr-only" id="fp-lib-status" role="status">${esc(statusText(hits))}</p><section class="fp-card fp-lib" id="fp-results">${resultsHtml(hits)}</section></div>`;
+<div class="fp-search" role="search"><label class="fp-search-box">${icon('search',20)}<span class="sr-only">Search studies</span><input id="fp-search" type="search" value="${esc(P.lib.q)}" placeholder="${placeholder}" autocomplete="off" spellcheck="false" aria-describedby="fp-search-help"><button type="button" class="fp-search-clear" data-live="fp-lib-clear-q" aria-label="Clear the search" ${P.lib.q?'':'hidden'}>${icon('x',16)}</button><kbd aria-hidden="true">/</kbd></label><p id="fp-search-help" class="sr-only">Searches every word across the property name, address, city, state, county, ZIP, taxpayer, borrower, owner of record, parcel number, engineer and signer. Use up to 10 distinct words and 200 characters.</p></div>
+<div class="fp-lib-bar"><div class="fp-chips" id="fp-chips" role="group" aria-label="Filter by status">${search.error||search.problem?'':chipsHtml(hits)}</div><div class="fp-lib-controls"><label><span class="sr-only">Engineer</span><select id="fp-engineer" class="fp-select" data-native="true"><option value="">Every engineer</option>${engineers.map(([id,n])=>`<option value="${esc(id)}" ${P.lib.engineer===id?'selected':''}>${esc(n)}</option>`).join('')}</select></label><label><span class="sr-only">Sort</span><select id="fp-sort" class="fp-select" data-native="true"><option value="updated" ${P.lib.sort==='updated'?'selected':''}>Last updated</option><option value="created" ${P.lib.sort==='created'?'selected':''}>Newest</option><option value="name" ${P.lib.sort==='name'?'selected':''}>Name A–Z</option></select></label></div></div>
+<p class="sr-only" id="fp-lib-status">${esc(searchStatus(search))}</p><section class="fp-card fp-lib" id="fp-results" aria-busy="${Boolean(search.pending)}">${searchBody(search)}</section></div>`;
  }
  // What a screen reader hears as the results change: a count, not the whole table again.
  function statusText(hits){const n=hits.filter(x=>inFilter(x.s,P.lib.filter)).length,q=P.lib.q.trim();return q?`${n} ${n===1?'study matches':'studies match'} “${q}”`:`${n} ${n===1?'study':'studies'}`}
  function paintLibrary(){
-  const all=Live.firmStudies(L.cache.get('studies-all')?.data||[]),hits=libraryRows(all);
+  const all=Live.firmStudies(L.cache.get('studies-all')?.data||[]),search=libraryMatches(all),hits=search.hits;
   const chips=root.querySelector('#fp-chips'),results=root.querySelector('#fp-results'),status=root.querySelector('#fp-lib-status');
-  if(chips)chips.innerHTML=chipsHtml(hits);if(results)results.innerHTML=resultsHtml(hits);if(status)status.textContent=statusText(hits);
+  if(chips)chips.innerHTML=search.error||search.problem?'':chipsHtml(hits);if(results){results.innerHTML=searchBody(search);results.setAttribute('aria-busy',String(Boolean(search.pending)))}if(status)status.textContent=searchStatus(search);announceSearch(search);
  }
  Live.actions['fp-jump']=(el,id)=>{const h=root.querySelector('#'+id);if(!h)return;h.closest('section')?.scrollIntoView({block:'start',behavior:matchMedia('(prefers-reduced-motion: reduce)').matches?'auto':'smooth'});h.setAttribute('tabindex','-1');h.focus({preventScroll:true})};
  Live.actions['fp-lib-filter']=(el,v)=>{P.lib.filter=v||'all';if(state.screen!=='library'){location.hash='#library';return}Live.render()};
- Live.actions['fp-lib-clear']=()=>{P.lib={...P.lib,q:'',filter:'all',engineer:''};Live.render();root.querySelector('#fp-search')?.focus()};
- root.addEventListener('input',e=>{if(e.target.id==='fp-search'){P.lib.q=e.target.value;root.querySelector('.fp-search-clear')?.toggleAttribute('hidden',!P.lib.q);paintLibrary()}},true);
- Live.actions['fp-lib-clear-q']=()=>{P.lib.q='';const box=root.querySelector('#fp-search');if(box){box.value='';box.focus()}root.querySelector('.fp-search-clear')?.setAttribute('hidden','');paintLibrary()};
+ Live.actions['fp-lib-retry']=()=>{cancelSearch();Live.invalidate('studies-search:');Live.render()};
+ Live.actions['fp-lib-clear']=()=>{cancelSearch();P.lib={...P.lib,q:'',filter:'all',engineer:''};Live.render();root.querySelector('#fp-search')?.focus()};
+ root.addEventListener('input',e=>{if(e.target.id==='fp-search'){changeQuery(e.target.value);root.querySelector('.fp-search-clear')?.toggleAttribute('hidden',!P.lib.q)}},true);
+ Live.actions['fp-lib-clear-q']=()=>{changeQuery('');const box=root.querySelector('#fp-search');if(box){box.value='';box.focus()}root.querySelector('.fp-search-clear')?.setAttribute('hidden','')};
  root.addEventListener('change',e=>{if(e.target.id==='fp-engineer'){P.lib.engineer=e.target.value;paintLibrary()}else if(e.target.id==='fp-sort'){P.lib.sort=e.target.value;paintLibrary()}else if(e.target.id==='fp-act-person'){P.act.who=e.target.value||'everyone';Live.render()}},true);
- root.addEventListener('keydown',e=>{if(e.target.id==='fp-search'&&e.key==='Escape'&&P.lib.q){P.lib.q='';e.target.value='';paintLibrary()}},true);
+ root.addEventListener('keydown',e=>{if(e.target.id==='fp-search'&&e.key==='Escape'&&P.lib.q){changeQuery('');e.target.value=''}},true);
  // "/" focuses the search, as in most search-first tools (not while typing in a field).
  document.addEventListener('keydown',e=>{if(e.key!=='/'||e.metaKey||e.ctrlKey||e.altKey||state.screen!=='library')return;const t=e.target;if(t.closest?.('input,textarea,select,[contenteditable]'))return;const box=root.querySelector('#fp-search');if(box){e.preventDefault();box.focus();box.select()}});
  // A whole result row opens its study (the name stays the link for the keyboard and screen readers).
@@ -287,7 +341,7 @@
   // The form for the details Basis keeps (P6). Without them, nothing is kept: the engineer types
   // their details in the sign dialog, so there is no form here (a read-only one would be a dead end).
   const s=sig.signer||{};
-  return `<form class="fp-signer-form" data-fp-form="signer" novalidate><div class="fp-grid-2">${input('fp-signer-name','Name as signed',s.name,'autocomplete="name" maxlength="200"')}${input('fp-signer-cred','Credentials',s.credentials,'maxlength="100" placeholder="PE"')}${input('fp-signer-license','License number',s.license_number,'maxlength="50"')}<div class="fp-field"><label for="fp-signer-state">License state</label>${sel('fp-signer-state',s.license_state,[['','Choose a state'],...M.STATES.map(x=>[x,x])])}</div></div><div class="fp-form-actions">${onboarding?'<button type="button" class="button quiet" data-live="fp-signer-later">Later</button>':''}<button type="submit" class="button primary">${onboarding?'Save and continue':'Save signer details'}</button></div></form>`;
+  return `<form class="fp-signer-form" data-fp-form="signer" novalidate><div class="fp-grid-2">${input('fp-signer-name','Name as signed',s.name,'autocomplete="name" maxlength="200"')}${input('fp-signer-cred','Credentials',s.credentials,'maxlength="100" placeholder="PE"')}${input('fp-signer-license','License number',s.license_number,'maxlength="50"')}<div class="fp-field"><label for="fp-signer-state">License jurisdiction</label>${sel('fp-signer-state',s.license_state,[['','Choose a jurisdiction'],...M.STATES.map(x=>[x,x])])}</div></div><div class="fp-form-actions">${onboarding?'<button type="button" class="button quiet" data-live="fp-signer-later">Later</button>':''}<button type="submit" class="button primary">${onboarding?'Save and continue':'Save signer details'}</button></div></form>`;
  }
  function settingsPage(){
   const me=Live.me(),firm=Live.firm();if(!me||!firm)return Live.loading();
@@ -307,7 +361,7 @@
    :`You enter your name, credentials and license when you sign a report; Basis does not keep them for you yet.${admin?' The engineer of record printed with the letterhead is edited under Firm letterhead.':''}`;
   const signer=!signs(firm)?'':sig.error?`<section class="fp-card fp-settings-card" aria-labelledby="fp-signer-title"><header><h2 id="fp-signer-title">Signer details</h2></header>${Live.failed(sig.error,'fp-reload')}</section>`:`<section class="fp-card fp-settings-card" aria-labelledby="fp-signer-title"><header><h2 id="fp-signer-title">Signer details</h2>${head}</header><p class="fp-card-lead">${lead}</p>${sig.own?signerForm(sig):''}${next}</section>`;
   const letter=p?[p.name,p.address,p.phone].filter(Boolean):[];
-  const firmCard=admin&&prof.error?`<section class="fp-card fp-settings-card" aria-labelledby="fp-firm-title"><header><h2 id="fp-firm-title">Firm letterhead</h2></header>${Live.failed(prof.error,'fp-reload')}<p class="fp-card-lead">The letterhead could not be read, so it cannot be edited until it loads.</p></section>`:admin?`<section class="fp-card fp-settings-card" aria-labelledby="fp-firm-title"><header><h2 id="fp-firm-title">Firm letterhead</h2>${p?'':pill('Not added','review')}</header><p class="fp-card-lead">Printed at the top of every report of ${esc(firm.org_name)}. Only admins edit it.</p><form data-fp-form="letterhead" novalidate><div class="fp-grid-2">${input('fp-firm-name','Firm name',p?.name||firm.org_name,'maxlength="200"')}${input('fp-firm-phone','Phone',p?.phone,'maxlength="100" autocomplete="tel"')}</div>${input('fp-firm-address','Address',p?.address,'maxlength="500" autocomplete="street-address"')}${sig.own?'':`<h3 class="fp-sub">Engineer of record</h3><div class="fp-grid-2">${input('fp-eng-name','Name',p?.engineer?.name,'maxlength="200"')}${input('fp-eng-cred','Credentials',p?.engineer?.credentials,'maxlength="100"')}${input('fp-eng-license','License number',p?.engineer?.license_number,'maxlength="50"')}<div class="fp-field"><label for="fp-eng-state">License state</label>${sel('fp-eng-state',p?.engineer?.license_state,[['','Choose a state'],...M.STATES.map(x=>[x,x])])}</div></div>`}<div class="fp-form-actions"><button type="submit" class="button primary">Save letterhead</button></div></form></section>`
+  const firmCard=admin&&prof.error?`<section class="fp-card fp-settings-card" aria-labelledby="fp-firm-title"><header><h2 id="fp-firm-title">Firm letterhead</h2></header>${Live.failed(prof.error,'fp-reload')}<p class="fp-card-lead">The letterhead could not be read, so it cannot be edited until it loads.</p></section>`:admin?`<section class="fp-card fp-settings-card" aria-labelledby="fp-firm-title"><header><h2 id="fp-firm-title">Firm letterhead</h2>${p?'':pill('Not added','review')}</header><p class="fp-card-lead">Printed at the top of every report of ${esc(firm.org_name)}. Only admins edit it.</p><form data-fp-form="letterhead" novalidate><div class="fp-grid-2">${input('fp-firm-name','Firm name',p?.name||firm.org_name,'maxlength="200"')}${input('fp-firm-phone','Phone',p?.phone,'maxlength="100" autocomplete="tel"')}</div>${input('fp-firm-address','Address',p?.address,'maxlength="500" autocomplete="street-address"')}${sig.own?'':`<h3 class="fp-sub">Engineer of record</h3><div class="fp-grid-2">${input('fp-eng-name','Name',p?.engineer?.name,'maxlength="200"')}${input('fp-eng-cred','Credentials',p?.engineer?.credentials,'maxlength="100"')}${input('fp-eng-license','License number',p?.engineer?.license_number,'maxlength="50"')}<div class="fp-field"><label for="fp-eng-state">License jurisdiction</label>${sel('fp-eng-state',p?.engineer?.license_state,[['','Choose a jurisdiction'],...M.STATES.map(x=>[x,x])])}</div></div>`}<div class="fp-form-actions"><button type="submit" class="button primary">Save letterhead</button></div></form></section>`
    :`<section class="fp-card fp-settings-card" aria-labelledby="fp-firm-title"><header><h2 id="fp-firm-title">Firm letterhead</h2></header><p class="fp-card-lead">Printed at the top of every report. An admin edits it.</p>${letter.length?`<address class="fp-letterhead">${letter.map(esc).join('<br>')}</address>`:'<p class="fp-empty">Not added yet.</p>'}</section>`;
   const links=admin?`<nav class="fp-settings-links" aria-label="Firm administration"><a href="#team">${icon('users',16)}Team and invitations</a><a href="#cost-indices">${icon('file',16)}Cost indices</a></nav>`:'';
   return `<div class="fp fp-settings"><header class="fp-head"><div><h1>Settings</h1><p>Your details and ${admin?'your firm’s':'your firm'}</p></div></header><div class="fp-settings-grid"><div class="fp-col">${signer}${firmCard}</div><div class="fp-col">${identity}${links}</div></div></div>`;
@@ -389,7 +443,7 @@
  Object.assign(Live.screens,{dashboard:homePage,library:libraryPage,activity:activityPage,team:teamPage,settings:settingsPage});
  Live.signerForm=signerForm;
  // A visit ends when another screen renders (freshFeed then reads the feed again on the next one).
- Live.afterRender.push(()=>{lastShown=state.screen});
+ Live.afterRender.push(()=>{lastShown=state.screen;if(state.screen!=='library'||!Live.firm()){cancelSearch();lastSearchAnnouncement=''}else if(L.cache.get('studies-all')?.done&&!L.cache.get('studies-all')?.error)announceSearch(libraryMatches(Live.firmStudies(L.cache.get('studies-all').data)))});
  // A background re-render (a load answering) rebuilds the page from server values: keep what the
  // user typed in a form, and the focused field with its caret (the Library's search box), so
  // typing is never lost. A save that reloads after a conflict sets P.dropDrafts to show the reload.

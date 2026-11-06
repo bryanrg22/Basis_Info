@@ -131,9 +131,9 @@ test('signer details: name and credentials required, a license number with its s
  assert.deepEqual(M.signerBody({name:' Jordan Lee ',credentials:'PE',license_number:'PE-77120',license_state:'ca'}),{body:{name:'Jordan Lee',credentials:'PE',license_number:'PE-77120',license_state:'CA'},problems:[]});
  assert.deepEqual(M.signerBody({name:'A',credentials:'EIT'}).problems,[],'no license is allowed');
  assert.equal(M.signerBody({name:'',credentials:''}).problems.length,2);
- assert.match(M.signerBody({name:'A',credentials:'PE',license_number:'1'}).problems.join(),/state/);
+ assert.match(M.signerBody({name:'A',credentials:'PE',license_number:'1'}).problems.join(),/jurisdiction/);
  assert.match(M.signerBody({name:'A',credentials:'PE',license_state:'CA'}).problems.join(),/license number/);
- assert.match(M.signerBody({name:'A',credentials:'PE',license_number:'1',license_state:'XX'}).problems.join(),/state/);
+ assert.match(M.signerBody({name:'A',credentials:'PE',license_number:'1',license_state:'XX'}).problems.join(),/jurisdiction/);
  assert.equal(M.signerLine({credentials:'PE',license_state:'CA',license_number:'PE-1'}),'PE · CA PE-1');
 });
 
@@ -178,4 +178,11 @@ test('the real report events: study details saved, and an export that wrote no r
  assert.doesNotMatch(written.verb,/could not/);
  const sample=fs.readFileSync(path.join(__dirname,'../live/sample-api.js'),'utf8');
  assert.doesNotMatch(sample,/report_answers\.saved/,'the sample emits the backend’s event name');
+});
+
+
+test('the search length limit counts Unicode code points and word limits stay on the server',()=>{
+ assert.equal(M.searchProblem('x'.repeat(200)),null);assert.match(M.searchProblem('x'.repeat(201)),/200/);
+ assert.equal(M.searchProblem('😀'.repeat(200)),null);assert.match(M.searchProblem('😀'.repeat(201)),/200/);
+ assert.equal(M.searchProblem('Straße STRASSE a b c d e f g h i'),null,'the server casefolds Straße and STRASSE as one word');
 });

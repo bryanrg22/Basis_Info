@@ -15,31 +15,35 @@ function sampleModule(proposed=true){
 // fail: {"<path regex>": status} answers those GETs with that status (a transient 503, a missing 404).
 // intercept(path, query, init): a body answers 200; a Response is returned as it is.
 // team: also run live/live-team.js (the join page); report: also run live/live-report.js (signing).
-async function boot({role='engineer',proposed=true,onboarding,fail={},intercept=null,team=false,report=false}={}){
+async function boot({role='engineer',proposed=true,onboarding,fail={},intercept=null,team=false,report=false,renderLoads=false}={}){
  const A=sampleModule(proposed),sample=A.create({now:()=>NOW,role,onboarding,fetchAsset});
- const fetchImpl=async(url,init={})=>{const u=new URL(String(url)),path=u.pathname;if(intercept){const body=intercept(path,u.searchParams,init);if(body instanceof Response)return body;if(body)return new Response(JSON.stringify(body),{status:200,headers:{'content-type':'application/json'}})}for(const [re,status] of Object.entries(fail))if(new RegExp(re).test(path)&&(!init.method||init.method==='GET'))return new Response(JSON.stringify({type:'https://basis.invalid/problems/unavailable',title:'Unavailable',status,detail:'Injected by the test.'}),{status,headers:{'content-type':'application/problem+json'}});return sample.fetch(url,init)};
+ const requests=[],searchTimers=new Map();let timerSeq=0;
+ const fetchImpl=async(url,init={})=>{const u=new URL(String(url)),path=u.pathname;requests.push({path,query:new URLSearchParams(u.searchParams),method:init.method||'GET'});if(intercept){const body=await intercept(path,u.searchParams,init);if(body instanceof Response)return body;if(body)return new Response(JSON.stringify(body),{status:200,headers:{'content-type':'application/json'}})}for(const [re,status] of Object.entries(fail))if(new RegExp(re).test(path)&&(!init.method||init.method==='GET'))return new Response(JSON.stringify({type:'https://basis.invalid/problems/unavailable',title:'Unavailable',status,detail:'Injected by the test.'}),{status,headers:{'content-type':'application/problem+json'}});return sample.fetch(url,init)};
  const api=require('../live/api-client.js').createClient({baseUrl:sample.base,fetchImpl,getToken:async()=>'sample-token'});
  api.invitations=org=>api.request('GET',`/v1/orgs/${org}/invitations`);api.timeline=(id,q)=>api.request('GET',`/v1/studies/${id}/timeline`,{query:q});
- const cache=new Map(),events={},me=await api.request('GET','/v1/me');
+ const sr={textContent:''};const cache=new Map(),events={},me=await api.request('GET','/v1/me');
  const F=require('../live/firm.js'),M=require('../live/firm-model.js'),firm=F.currentFirm(me,null);
- const load=(key,fn)=>{if(cache.has(key))return cache.get(key);const e={done:false};cache.set(key,e);e.promise=Promise.resolve().then(fn).then(d=>{e.data=d;e.done=true},err=>{e.error=err;e.done=true});return e};
+ const load=(key,fn)=>{if(cache.has(key))return cache.get(key);const e={done:false};cache.set(key,e);e.promise=Promise.resolve().then(fn).then(d=>{e.data=d;e.done=true;if(renderLoads)Live.render()},err=>{e.error=err;e.done=true;if(renderLoads)Live.render()});return e};
  const Live={api,state:{cache,studyId:null},screens:{},actions:{},afterRender:[],load,invalidate:p=>{for(const k of [...cache.keys()])if(k.startsWith(p))cache.delete(k)},
   me:()=>me,firm:()=>firm,firmStudies:s=>s,loadDeliveries(){},deliveryPeek:s=>({label:'Signed',tone:'done'}),delivery:s=>({label:'Signed',tone:'done'}),
   route:(screen,id)=>`#${screen}${id?'/'+id:''}`,guarded:async(name,fn)=>fn(),when:v=>v?String(v).slice(0,10):'—',loading:()=>'<div class="live-state">Loading</div>',failed:e=>`<div role="alert">${e?.title||e?.message}</div>`,render(){},refreshMe:async()=>me};
  // The page reads the time from Date: pin it to the sample's now, as a capture pins the browser clock.
  class FixedDate extends Date{constructor(...a){super(...(a.length?a:[NOW]))}static now(){return NOW}}
- const g={BASIS_CONFIG:{mode:'live'},BasisLive:Live,BasisFirm:F,BasisFirmModel:M,Date:FixedDate,Intl,setTimeout,URLSearchParams,Promise,
+ const g={BASIS_CONFIG:{mode:'live'},BasisLive:Live,BasisFirm:F,BasisFirmModel:M,Date:FixedDate,Intl,setTimeout:(fn,ms)=>{if(ms===250){const id=++timerSeq;searchTimers.set(id,fn);return id}return setTimeout(fn,ms)},clearTimeout:id=>searchTimers.delete(id),URLSearchParams,Promise,
   icon:()=>'<svg></svg>',esc:s=>String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])),toasts:[],toast(t){g.toasts.push(t)},modals:[],closeBtn:'',
   // A dialog: its HTML is kept; its inputs answer with the value the HTML gives them, or a value the test set.
   modal(title,html){const typed={},m={title,html,typed,removed:false,go:{},querySelector(sel){if(sel==='#live-sign-attest')return {checked:true};if(sel==='#live-sign-go')return m.go;const id=sel.slice(1),v=new RegExp(`id="${id}" value="([^"]*)"`).exec(html);return v||id in typed?{value:id in typed?typed[id]:v[1].replace(/&#39;/g,"'").replace(/&quot;/g,'"').replace(/&amp;/g,'&')}:null},remove(){m.removed=true}};g.modals.push(m);return m},
-  root:{addEventListener(name,fn){(events[name]||=[]).push(fn)},querySelector:()=>null},document:{addEventListener(){}},state:{screen:'dashboard'},location:{hash:''}};
+  root:{addEventListener(name,fn){(events[name]||=[]).push(fn)},querySelector:()=>null},document:{addEventListener(){},getElementById:id=>id==='sr-status'?sr:null},state:{screen:'dashboard'},location:{hash:''}};
  g.globalThis=g;vm.createContext(g);
  if(team){g.REVIEW={screens:[]};g.logo=()=>'<a class="logo"></a>';g.heading=(t,d)=>`<h1>${t}</h1><p>${d}</p>`;g.localStorage={getItem:()=>null,setItem(){}};Live.state.user={uid:'u',email:me.user.email};cache.set('me',{done:true,data:me});vm.runInContext(read('live/live-team.js'),g)}
  vm.runInContext(read('live/firm-pages.js'),g);
  if(report){g.BasisReport=require('../live/report.js');Live.withStudy=fn=>'';Live.steps=()=>'';Live.errorText=e=>e?.message||'';vm.runInContext(read('live/live-report.js'),g)}
+ Live.render=()=>{if(renderLoads){for(const fn of Live.beforeRender||[])fn();Live.screens[g.state.screen]?.();for(const fn of Live.afterRender)fn()}};
  // Render until every load the page starts has answered.
- async function page(name){let html;for(let i=0;i<12;i++){g.state.screen=name;html=Live.screens[name]();const open=[...cache.values()].filter(e=>!e.done);if(!open.length&&!/live-state/.test(html))break;await Promise.all(open.map(e=>e.promise))}return html}
- return {Live,page,events,g,me,M,sample,api};
+ async function page(name){let html;for(let i=0;i<12;i++){g.state.screen=name;html=Live.screens[name]();for(const fn of Live.afterRender)fn();const open=[...cache.entries()].filter(([key,e])=>!e.done&&(name==='library'||!key.startsWith('studies-search:'))).map(([,e])=>e);if(!open.length&&!/live-state/.test(html))break;await Promise.all(open.map(e=>e.promise))}return html}
+ const flushSearch=async()=>{const callbacks=[...searchTimers.values()];searchTimers.clear();callbacks.forEach(fn=>fn());await Promise.resolve()};
+ const typeQuery=value=>{for(const fn of events.input||[])fn({target:{id:'fp-search',value}})};
+ return {Live,page,events,g,me,M,sample,api,requests,flushSearch,typeQuery,sr};
 }
 const ids=/\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}/;
 const visible=html=>html.replace(/<[^>]+>/g,' ');
@@ -58,12 +62,12 @@ test('Home: an engineer sees their own waiting studies and the firm’s activity
 
 test('Library: a client’s name finds its study and says the field; the archive is its own filter',async()=>{
  const e=await boot(),lib=await e.page('library');
- assert.match(lib,/Search address, client, file number/);
+ assert.match(lib,/Search address, taxpayer, parcel, ZIP, engineer/);
  assert.ok(!/Pinecrest Bungalow/.test(lib.split('fp-lib-table')[1]),'archived studies are not in All');
- for(const fn of e.events.input)fn({target:{id:'fp-search',value:'Harbor Property Partners'}});
+ for(const fn of e.events.input)fn({target:{id:'fp-search',value:'Harbor Property Partners'}});await e.flushSearch();
  const hit=await e.page('library'),rows=hit.split('<tbody>')[1];
  assert.equal((rows.match(/<tr /g)||[]).length,1);assert.match(rows,/<mark>Harbor<\/mark> House<\/a>/);assert.match(rows,/<td><mark>Harbor<\/mark> <mark>Property<\/mark> <mark>Partners<\/mark><\/td>/,"the client column marks the words");
- for(const fn of e.events.input)fn({target:{id:'fp-search',value:'Pinecrest'}});
+ for(const fn of e.events.input)fn({target:{id:'fp-search',value:'Pinecrest'}});await e.flushSearch();
  const none=await e.page('library');assert.match(none,/No active study matches “Pinecrest”/);assert.match(none,/1 in Archived/);assert.match(none,/data-value="archived">Show archived \(1\)/);
  e.Live.actions['fp-lib-filter'](null,'archived');e.g.state.screen='library';
  assert.match(await e.page('library'),/Pinecrest<\/mark> Bungalow/);
@@ -101,7 +105,7 @@ test('the admin of a new firm gets the setup checklist; nothing else is invented
 
 test('against today’s API (no PROPOSED section) each page falls back and says so',async()=>{
  const e=await boot({proposed:false});
- assert.match(await e.page('library'),/Search by property name or engineer/);
+ assert.match(await e.page('library'),/Search address, taxpayer, parcel, ZIP, engineer/);
  const act=await e.page('activity');assert.match(act,/Your own reviews, uploads and signatures/);assert.doesNotMatch(act,/<strong>Priya Shah<\/strong>/);
  const team=await e.page('team');assert.match(team,/Showing the people on the firm’s studies/);
  const s=await e.page('settings');assert.match(s,/You enter your name, credentials and license when you sign a report/);assert.doesNotMatch(s,/data-fp-form="signer"|readonly/,'no form that cannot be saved');
@@ -201,7 +205,7 @@ test('a Resend that revoked the old invitation and failed to send says both',asy
 });
 test('the Library announces a count, not its table',async()=>{
  const e=await boot(),lib=await e.page('library');
- assert.match(lib,/<p class="sr-only" id="fp-lib-status" role="status">\d+ studies<\/p>/);assert.doesNotMatch(lib,/id="fp-results" aria-live/);
+ assert.match(lib,/<p class="sr-only" id="fp-lib-status">\d+ studies<\/p>/);assert.doesNotMatch(lib,/id="fp-results" aria-live/);
 });
 test('Home with deliveries that are not signed: Sign report and Update the report wait, before reviews',async()=>{
  const e=await boot({role:'admin'});const by={'Linden Avenue Townhomes':{label:'Needs signature',tone:'review'},'Redwood Commons':{label:'Update required',tone:'review'}};
@@ -228,4 +232,159 @@ test('the no-firm screen offers no way to create a firm, for every role; it says
   const r=await e.sample.fetch(e.sample.base+'/v1/orgs',{method:'POST',headers:{'content-type':'application/json',authorization:'Bearer sample-token','idempotency-key':'k1'},body:JSON.stringify({name:'Harbor Cost Engineering'})});
   assert.notEqual(r.status,201,'the sample creates no firm');
  }
+});
+
+
+// Real API compatibility: search must work without the proposed StudyOut.summary.
+test('Library sends a debounced q, keeps server-only matches, and follows every search page',async()=>{
+ const e=await boot({proposed:false,intercept:(p,q)=>{
+  if(p!=='/v1/studies'||!q.has('q'))return;
+  assert.equal(q.get('q'),'Riverside Taxpayer');assert.equal(q.get('include_archived'),'true');
+  return {items:[{id:q.has('cursor')?'second':'first',property_name:q.has('cursor')?'Second House':'First House',status:'draft',current_stage:'uploading',org_id:'org',created_by:'u',created_by_name:'Engineer',updated_at:'2026-11-05',created_at:'2026-11-01'}],total:2,next_cursor:q.has('cursor')?null:'page-two'};
+ }});
+ await e.page('library');e.typeQuery('Riverside');e.typeQuery('Riverside Taxpayer');
+ assert.match(await e.page('library'),/Searching studies/);
+ assert.equal(e.requests.filter(r=>r.query.has('q')).length,0,'typing sends nothing until the debounce fires');
+ await e.flushSearch();const html=await e.page('library');
+ assert.match(html,/First House/);assert.match(html,/Second House/);assert.match(html,/2 studies match/);
+ const sent=e.requests.filter(r=>r.query.has('q'));assert.equal(sent.length,2);assert.equal(sent[1].query.get('cursor'),'page-two');
+ e.Live.actions['fp-lib-clear-q']();const all=await e.page('library');assert.match(all,/Harbor House/);assert.doesNotMatch(all,/First House/);
+});
+
+test('Library ignores a late answer to an earlier query, and clearing cancels the debounce',async()=>{
+ let finishOld;
+ const old=new Promise(r=>{finishOld=r});
+ const e=await boot({intercept:(p,q)=>p==='/v1/studies'&&q.get('q')==='older'?old:undefined});
+ await e.page('library');e.typeQuery('older');await e.flushSearch();
+ assert.equal(e.requests.filter(r=>r.query.get('q')==='older').length,1);
+ e.typeQuery('Maple');await e.flushSearch();assert.match(await e.page('library'),/Maple<\/mark> Row Lodge/);
+ finishOld({items:[],next_cursor:null});await old;await new Promise(r=>setImmediate(r));
+ assert.match(await e.page('library'),/Maple<\/mark> Row Lodge/,'an old empty response cannot erase the new match');
+ e.typeQuery('cancelled');e.Live.actions['fp-lib-clear-q']();await e.flushSearch();
+ assert.equal(e.requests.filter(r=>r.query.get('q')==='cancelled').length,0);
+ assert.match(await e.page('library'),/Harbor House/);
+});
+
+test('Library reports query limits and request errors instead of claiming there are no matches; retry works',async()=>{
+ let failed=true;
+ const e=await boot({intercept:(p,q)=>{
+  if(p==='/v1/studies'&&q.has('q')&&failed)return new Response(JSON.stringify({title:'Search unavailable',status:503}),{status:503,headers:{'content-type':'application/problem+json'}});
+ }});
+ await e.page('library');
+ for(const [q,message] of [['x'.repeat(201),/200 characters/]]){
+  e.typeQuery(q);await e.flushSearch();assert.match(await e.page('library'),message);
+ }
+ assert.equal(e.requests.filter(r=>r.query.has('q')).length,0,'out-of-bounds queries are not sent');
+ e.typeQuery('Harbor');await e.flushSearch();const error=await e.page('library');assert.match(error,/Search unavailable/);assert.doesNotMatch(error,/No study matches/);
+ failed=false;e.Live.actions['fp-lib-retry']();assert.match(await e.page('library'),/Harbor<\/mark> House/);
+ e.typeQuery('  ');assert.match(await e.page('library'),/Maple Row Lodge/,'blank restores the unfiltered list');
+});
+
+test('Settings offers all four NCEES territories, and each can be saved and read back',async()=>{
+ const e=await boot(),html=await e.page('settings');
+ for(const license_state of ['GU','MP','PR','VI']){
+  assert.match(html,new RegExp(`<option value="${license_state}"`));
+  const {body,problems}=e.M.signerBody({name:'Jordan Lee',credentials:'PE',license_number:'123',license_state});assert.deepEqual(problems,[]);
+  await e.api.request('PUT','/v1/me/signer',{body});const saved=await e.api.request('GET','/v1/me/signer');assert.equal(saved.signer.license_state,license_state);
+ }
+});
+
+test('missing firm feed and owner-only members keep Activity and Team usable for both roles',async()=>{
+ for(const role of ['admin','engineer']){
+  const e=await boot({role,fail:{'/feed$':404,...(role==='engineer'?{'/members$':403}:{})}});
+  const act=await e.page('activity');assert.match(act,/Your own reviews, uploads and signatures/);assert.doesNotMatch(act,/role="alert"/);
+  assert.ok(e.requests.some(r=>r.path==='/v1/me/activity'));
+  if(role==='admin')assert.ok(e.requests.some(r=>r.path.endsWith('/activity')&&r.path.includes('/orgs/')));
+  const team=await e.page('team');assert.match(team,role==='admin'?/Invite people/:/Showing the people on the firm’s studies/);
+  if(role==='engineer'){assert.doesNotMatch(team,/invite-member|data-live-role|remove-member/);assert.ok(!e.requests.some(r=>r.path.endsWith('/invitations')))}
+ }
+});
+
+
+test('Library applies engineer, status and sort controls to server matches, including the archive',async()=>{
+ const e=await boot();await e.page('library');
+ e.typeQuery('CA');await e.flushSearch();let html=await e.page('library');assert.match(html,/13 studies match/);
+ for(const fn of e.events.change)fn({target:{id:'fp-sort',value:'name'}});
+ html=await e.page('library');assert.ok(html.indexOf('Bayview Duplex')<html.indexOf('Harbor House'));
+ const all=(await e.api.listAll('/v1/studies',{include_archived:true},{limit:100})).items,priya=all.find(s=>s.created_by_name==='Priya Shah').created_by;
+ for(const fn of e.events.change)fn({target:{id:'fp-engineer',value:priya}});
+ html=await e.page('library');assert.match(html,/Juniper Flats/);assert.doesNotMatch(html.split('<tbody>')[1],/Harbor House/);
+ e.Live.actions['fp-lib-clear']();e.typeQuery('Pinecrest');await e.flushSearch();
+ assert.match(await e.page('library'),/No active study matches/);e.Live.actions['fp-lib-filter'](null,'archived');assert.match(await e.page('library'),/Pinecrest<\/mark> Bungalow/);
+ for(const fn of e.events.keydown)fn({target:{id:'fp-search',value:'Pinecrest'},key:'Escape'});
+ assert.match(await e.page('library'),/Pinecrest Bungalow/,'Escape clears the query and keeps the archive filter');
+});
+
+
+test('Library reads all 51 pages of matches, including matches past the general helper cap',async()=>{
+ const e=await boot({intercept:(p,q)=>{
+  if(p!=='/v1/studies'||!q.has('q'))return;
+  const page=Number(q.get('cursor')||0),items=Array.from({length:100},(_,i)=>({id:`${page}-${i}`,property_name:`Property ${page*100+i}`,status:'draft',current_stage:'uploading',created_at:'2026-11-01',updated_at:'2026-11-05'}));
+  return {items,total:5100,next_cursor:page<50?String(page+1):null};
+ }});
+ await e.page('library');e.typeQuery('Large library');await e.flushSearch();const html=await e.page('library');
+ assert.equal(e.requests.filter(r=>r.query.has('q')).length,51);assert.match(html,/5100 studies match/);assert.match(html,/Property 5099/);
+});
+
+test('Library rejects a cycling cursor rather than showing an incomplete result count',async()=>{
+ const e=await boot({intercept:(p,q)=>p==='/v1/studies'&&q.has('q')?{items:[],next_cursor:'same-cursor'}:undefined});
+ await e.page('library');e.typeQuery('Cycle');await e.flushSearch();const html=await e.page('library');
+ assert.equal(e.requests.filter(r=>r.query.has('q')).length,2);assert.match(html,/could not be read completely/);assert.doesNotMatch(html,/No study matches|0 studies match/);
+});
+
+test('Library sends casefold-sensitive word counts to the server and displays its 422 limit error',async()=>{
+ const valid='Straße STRASSE a b c d e f g h i';
+ const e=await boot({intercept:(p,q)=>{
+  if(p!=='/v1/studies'||!q.has('q'))return;
+  if(q.get('q')===valid)return {items:[],next_cursor:null};
+  return new Response(JSON.stringify({status:422,title:'Unprocessable Content',detail:'The request did not pass validation; see errors.',code:'BASIS-API-013',errors:[{loc:['query','q'],type:'value_error',detail:'Value error, q has more than 10 distinct words'}]}),{status:422,headers:{'content-type':'application/problem+json'}});
+ }});
+ await e.page('library');e.typeQuery(valid);await e.flushSearch();assert.match(await e.page('library'),/No study matches/);
+ assert.equal(e.requests.filter(r=>r.query.get('q')===valid).length,1,'valid backend query was sent');
+ e.typeQuery('a b c d e f g h i j k');await e.flushSearch();const html=await e.page('library');assert.match(html,/Use 10 distinct words or fewer/);assert.doesNotMatch(html,/No study matches|fp-lib-retry|role="alert"/);
+});
+
+
+test('search stops paging after a new query, navigation, or a firm switch',async()=>{
+ for(const change of ['query','navigation','firm']){
+  let release;const held=new Promise(r=>{release=r});
+  const e=await boot({intercept:(p,q)=>p==='/v1/studies'&&q.get('q')==='abandoned'?held:undefined});
+  await e.page('library');e.typeQuery('abandoned');await e.flushSearch();
+  if(change==='query'){e.typeQuery('Maple');await e.flushSearch();await e.page('library')}
+  if(change==='navigation')await e.page('settings');
+  if(change==='firm'){const old=e.Live.firm();e.Live.firm=()=>({...old,org_id:'other-firm'})}
+  release({items:[],next_cursor:'page-2'});await held;await new Promise(r=>setImmediate(r));
+  assert.equal(e.requests.filter(r=>r.query.get('q')==='abandoned').length,1,change+' stops after the outstanding page');
+  e.Live.firm=()=>null;assert.doesNotThrow(()=>{for(const fn of e.Live.afterRender)fn()},'a lost membership is handled before announcing');
+ }
+});
+
+test('pending search keeps previous rows and chips; whitespace alone does not refetch',async()=>{
+ const e=await boot();await e.page('library');e.typeQuery('Maple');
+ const waiting=await e.page('library');assert.match(waiting,/Searching studies/);assert.match(waiting,/Previous results/);assert.match(waiting,/Maple Row Lodge/);assert.match(waiting,/data-value="all"/);assert.match(waiting,/aria-busy="true"/);
+ await e.flushSearch();await e.page('library');const n=e.requests.filter(r=>r.query.has('q')).length;
+ e.typeQuery('Maple ');await e.flushSearch();const done=await e.page('library');
+ assert.equal(e.requests.filter(r=>r.query.has('q')).length,n);assert.doesNotMatch(done,/Searching studies/);assert.match(done,/Maple<\/mark> Row Lodge/);
+});
+
+test('search errors never put typed client data in a load key, including malformed and cycling pages',async()=>{
+ for(const kind of ['malformed','cycle']){
+  const e=await boot({intercept:(p,q)=>p==='/v1/studies'&&q.has('q')?(kind==='cycle'?{items:[],next_cursor:'same'}:new Response('',{status:200})):undefined});
+  await e.page('library');e.typeQuery('Confidential Taxpayer 123 Street');await e.flushSearch();assert.match(await e.page('library'),/could not be read completely/);
+  const keys=[...e.Live.state.cache.keys()];assert.ok(keys.some(k=>k.startsWith('studies-search:')));assert.ok(keys.every(k=>!k.includes('Confidential')&&!k.includes('Taxpayer')&&!k.includes('Street')));
+ }
+});
+
+test('server matches stay within the selected firm for a member of two firms',async()=>{
+ const e=await boot({intercept:(p,q)=>p==='/v1/studies'&&q.has('q')?{items:[{id:'one',org_id:'firm-one',property_name:'First firm match',status:'draft',current_stage:'uploading',updated_at:'2026-11-05'},{id:'two',org_id:'firm-two',property_name:'Second firm match',status:'draft',current_stage:'uploading',updated_at:'2026-11-05'}],next_cursor:null}:undefined});
+ const firm=e.Live.firm();let selected='firm-one';e.Live.firm=()=>({...firm,org_id:selected});e.Live.firmStudies=rows=>rows.filter(s=>s.org_id===selected);
+ await e.page('library');e.typeQuery('opaque');await e.flushSearch();const first=await e.page('library');assert.match(first,/First firm match/);assert.doesNotMatch(first,/Second firm match/);
+ selected='firm-two';const second=await e.page('library');assert.match(second,/Second firm match/);assert.doesNotMatch(second,/First firm match/);
+});
+
+test('search completion announces through the persistent status node after full load re-renders',async()=>{
+ const e=await boot({renderLoads:true});await e.page('library');const persistent=e.sr;
+ e.typeQuery('Maple');await e.flushSearch();await e.page('library');await new Promise(r=>setTimeout(r,80));
+ assert.equal(e.sr,persistent);assert.equal(e.sr.textContent,'1 study matches “Maple”');
+ const html=await e.page('library');assert.doesNotMatch(html,/<[^>]+id="fp-lib-status"[^>]+role=/);
 });

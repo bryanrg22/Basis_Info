@@ -60,9 +60,9 @@ Lee); `&onboarding=invited`, `nofirm` or `new-firm` for the first-run states.
   is processing, what was signed, and the firm's latest activity. An admin's new firm gets a setup
   checklist (letterhead, signer details, invitations, first study); a newly joined engineer a
   welcome card.
-* **Library**: every study of the firm. One search box (press /) matches every word against the
-  property, address, client, taxpayer, file number, parcel number, county, borrower and engineer,
-  marks the words and says which field matched; status chips with counts, an engineer filter,
+* **Library**: every study of the firm. One search box (press /) sends every word to server search
+  (property, address, city/state/county/ZIP, taxpayer, borrower, owner of record, parcel, creator
+  and signer with backend #161). It marks the returned fields and says which field matched; status chips with counts, an engineer filter,
   three sorts; a row opens the study where it waits.
 * **A study's page** (Study progress): its address, client and file number, its status, the report
   and schedule downloads, who signed each revision (with that revision's PDF), its own activity,
@@ -648,3 +648,14 @@ client. A host without evaluation data says so; nothing about runs is bundled in
 synthetic responses for healthy, partial failure, stale, missing endpoint, denied and
 unreachable states. Its 390px toggle checks the narrow layout. Details and verification
 are in `../docs/developer-health/QA.md`.
+
+
+**Merge gate: backend #161 must ship before #160.** Real API compatibility follow-up:
+Library search sends debounced `q` to
+`GET /v1/studies` and keeps server results even without proposed `StudyOut.summary`.
+It follows cursor pages, handles query limits and errors, and preserves the status,
+engineer, sort and archive controls. Settings accepts the 55 NCEES jurisdictions,
+including GU, MP, PR and VI. The unavailable firm feed (404) falls back to your own
+activity plus firm events for admins; owner-only member reads (403) give engineers
+the partial colleague list, with an explicit note. Broader search requires backend
+PR #161; personal signer details require #158. Neither backend is implemented here.

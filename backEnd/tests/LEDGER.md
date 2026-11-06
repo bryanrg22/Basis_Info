@@ -665,7 +665,7 @@ upload slow tests 142 passed.
 | `web/tests/review-organization.test.cjs` | The selected appraisal field carries its own Correct value action; the footer keeps only the next-section control | 20 pass |
 | `web/tests/live-redesign-gates.test.cjs` | The photo viewer's add control is found by its visible "Draw missing object" label where the step is open, and absent on read-only and photo-only views; an edited inventory row shows the AI value struck through beside the engineer value with "Edited by you", a removed row stays struck through with its reason and Undo, and the unit price column and dialog fields appear only when the API offers unit_cost_override; the row dialog carries type, count stepper, material, attachment, reason, Remove row and (with unsent edits) Reset to AI | 23 pass |
 | `web/tests/room-placement.test.cjs` | A room emptied by moves sends only its photo moves (the API has no room delete); merging sends one `room` `merge_into` correction, follows chains, keeps a photo moved on after its merge, and refuses a missing or self target | 12 pass |
-| `web/tests/sample-api.test.cjs` | The in-browser sample API: every GET the live screens use, in all eight states and for all three studies, validates against its 200 schema in docs/api/openapi.json (only the proposed `exclusion` and `cost.override` fields are allowed extras); decisions, reopen, objects with the duplicate guard, signing, answers and profile follow the documented statuses and problem types; the proposed capabilities, object exclusion, unit price override and room creation; inactive without ?api=sample; no client-data strings (by digest) | 28 pass |
+| `web/tests/sample-api.test.cjs` | The in-browser sample API: every GET the live screens use, in all eight states and for all three studies, validates against its 200 schema in docs/api/openapi.json (only the proposed `exclusion` and `cost.override` fields are allowed extras); decisions, reopen, objects with the duplicate guard, signing, answers and profile follow the documented statuses and problem types; the proposed capabilities, object exclusion, unit price override and room creation; inactive without ?api=sample; no client-data strings (by digest) | 31 pass |
 
 Code review of the branch (Sol on Codex, Opus on the Claude provider), each fix with a test that fails on the code before it:
 
@@ -722,3 +722,21 @@ Firms are set up by Basis, not self-serve (`POST /v1/orgs` off by default; `pyth
 | `web/tests/firm-pages.test.cjs` | Added: the no-firm screen, for an admin, an engineer and a viewer sign-in, says to ask the firm's admin for an invitation or contact Basis, offers only Check for an invitation and Use another account, and has no form or create control; a create-firm form submitted anyway sends nothing, and the sample API creates no firm (fails on the code before the change) | 22 pass |
 
 The full `web/tests/*.test.cjs` suite passed 443 tests.
+
+
+### Firm pages real API compatibility follow-up (2026-11-06, PR #160)
+
+| Test file | What was verified | Result |
+|---|---|---|
+| `web/tests/firm-pages.test.cjs` | Added fourteen compatibility checks: debounced server `q` without `StudyOut.summary`, cursor pages retaining `q`, server-only matches, stale responses, clear/cancel, query limits, search error/retry, engineer/status/sort/archive controls, all four NCEES territories saved/read, and feed-404/member-403 fallbacks for admin and engineer; 51 pages (5,100 matches) read fully; cycling cursor refused without claiming zero results; Unicode casefold-sensitive queries left to server validation; a real generic query 422 becomes an actionable message without retry; generation cancellation on query/navigation/firm change; previous rows and chips retained while busy; whitespace changes skip refetch; error cache keys omit typed queries; multi-firm filtering; announcements through the persistent status node after full load re-renders. Existing client-name and archive checks now wait for the deterministic debounce clock. | 36 pass |
+| `web/tests/firm-model.test.cjs` | Added Unicode code-point length validation (200 characters); distinct-word validation stays on the backend, whose casefold differs from JavaScript lowercasing; jurisdictions include GU, MP, PR and VI. | 15 pass |
+
+
+Compatibility verification: 458 web tests pass in a tracked-files-only copy, with none of the
+five untracked room photos. The 51 focused tests pass on the changed source; the same tests
+against the pre-fix firm-pages/model source give 34 pass and 17 fail (some are changed copy
+assertions, not 17 independent behavioral bugs). All 32 sample API tests
+also pass with each available backend contract (engineer-overrides #159, signer-details #158,
+library-search #161). Synthetic browser build b12: 95 captures/flow steps with zero axe,
+clipped-text, broken-word, overlap, page-overflow, broken-image, JavaScript-error or flow-dead-end
+issues. No real backend study was written to; no backend executable code changed, and backend gates were not run for this follow-up.

@@ -28,6 +28,11 @@
    ['Borrower',m.borrower],['Engineer',study?.created_by_name],['Engineer email',study?.created_by_email],
   ].filter(([,v])=>v!=null&&String(v).trim()).map(([field,value])=>({field,value:String(value)}));
  }
+ // Pydantic counts Unicode code points, not JavaScript UTF-16 units. Distinct-word
+ // validation stays on the server: its Unicode casefold differs from toLowerCase().
+ function searchProblem(query){
+  return Array.from(query).length>200?'Use 200 characters or fewer to search.':null;
+ }
  // A query matches when every word appears in some field (any order, case and accents ignored).
  // Returns the field to show beside the result: the first holding the whole query, else the first
  // holding its first word; null when nothing matches.
@@ -194,16 +199,16 @@
  const initials=t=>String(t||'').replace(/@.*/,'').split(/[^a-z0-9]+/i).filter(Boolean).slice(0,2).map(w=>w[0].toUpperCase()).join('')||'?';
  // Signer details as one line: "PE · CA PE-77120".
  const signerLine=s=>s?[s.credentials,[s.license_state,s.license_number].filter(Boolean).join(' ')].filter(Boolean).join(' · '):'';
- const STATES=['AL','AK','AZ','AR','CA','CO','CT','DE','DC','FL','GA','HI','ID','IL','IN','IA','KS','KY','LA','ME','MD','MA','MI','MN','MS','MO','MT','NE','NV','NH','NJ','NM','NY','NC','ND','OH','OK','OR','PA','RI','SC','SD','TN','TX','UT','VT','VA','WA','WV','WI','WY'];
+ const STATES=['AL','AK','AZ','AR','CA','CO','CT','DE','DC','FL','GA','GU','HI','ID','IL','IN','IA','KS','KY','LA','ME','MD','MA','MI','MN','MS','MO','MP','MT','NE','NV','NH','NJ','NM','NY','NC','ND','OH','OK','OR','PA','PR','RI','SC','SD','TN','TX','UT','VT','VA','VI','WA','WV','WI','WY'];
  // A signer form's values as the body of PUT /v1/me/signer, with the problems to show.
  function signerBody(form){
   const t=v=>String(v??'').trim(),body={name:t(form.name),credentials:t(form.credentials),license_number:t(form.license_number)||null,license_state:t(form.license_state).toUpperCase()||null},problems=[];
   if(!body.name)problems.push('Enter the name you sign with.');
   if(!body.credentials)problems.push('Enter your credentials, for example PE.');
-  if(body.license_state&&!STATES.includes(body.license_state))problems.push('Choose the state that issued your license.');
-  if(Boolean(body.license_number)!==Boolean(body.license_state))problems.push(body.license_number?'Choose the state that issued your license.':'Enter the license number for that state.');
+  if(body.license_state&&!STATES.includes(body.license_state))problems.push('Choose the jurisdiction that issued your license.');
+  if(Boolean(body.license_number)!==Boolean(body.license_state))problems.push(body.license_number?'Choose the jurisdiction that issued your license.':'Enter the license number for that jurisdiction.');
   return {body,problems};
  }
- const api={fields,match,highlight,place,strip,next,home,STEPS,studyEntry,firmEntry,feed,byDay,ago,greeting,initials,signerLine,signerBody,STATES,ROLE_NAME};
+ const api={fields,searchProblem,match,highlight,place,strip,next,home,STEPS,studyEntry,firmEntry,feed,byDay,ago,greeting,initials,signerLine,signerBody,STATES,ROLE_NAME};
  if(typeof module==='object'&&module.exports)module.exports=api;else scope.BasisFirmModel=api;
 })(typeof globalThis==='object'?globalThis:this);

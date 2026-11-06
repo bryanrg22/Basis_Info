@@ -280,6 +280,11 @@ in-browser sample API (`index.html?mode=live&api=sample`, `web/live/sample-api.j
 
 ## 15. Firm pages: what the app needs from the API (November 2026)
 
+**Merge gate for PR #160: backend #161 must ship first.** This frontend delegates search to
+`q` and promises #161's fields; an older property-name-only API cannot satisfy that contract.
+#161 does not require this frontend. After it ships, update the sample's base search contract
+and remove the P4 search proposal; retain the still-proposed summary/file-number additions.
+
 Home, Library, Activity, Team, Settings, Report & sign and onboarding are built for an admin and an
 engineer against the in-browser sample API (`index.html?mode=live&api=sample&role=admin|engineer`,
 `&onboarding=invited|nofirm|new-firm`; `web/live/sample-api.js`, its `PROPOSED` section, P4 to P7).
@@ -295,11 +300,22 @@ proposed routes from the sample once the backend has them.
   firm file number (one optional line on the study, settable at Start a study and afterwards; the
   app's Start a study already shows a Client field it cannot send). `GET /v1/studies?q=` matches
   every word, case- and accent-insensitive, against the property name, each of those fields and the
-  creator's name and email (today `q` is a substring of the property name only, STUDY_LIBRARY.md
-  section 1). The app reads the whole list and matches in the browser
-  (`web/live/firm-model.js` `match`), showing which field matched; with `q` on the server the same
-  rule is one `ILIKE` per word over a generated search column. Without `summary` the Library
-  searches the name and the engineer and its placeholder says so.
+  creator's name and email. Backend PR #161 implements server search over the property name,
+  intake state/ZIP, taxpayer, appraisal address/county/borrower/owner/parcel, creator and signer
+  (all words, case/accent-insensitive; 200 characters, 10 distinct words). It does not add
+  `summary`, a file number, or lender/client search. **The Library now sends `q` to the server**
+  after a 250 ms debounce and follows every cursor page (no 5,000-row cutoff), with
+  `include_archived=true` so the Archived filter still finds matches. Status, engineer and sort controls apply to those server
+  results. A match is never discarded for lacking a local field; `match` only annotates the
+  returned fields. Pending and error states do not claim zero matches; changing or clearing a
+  query cannot show an older response. The frontend checks the 200-code-point limit; the
+  server validates distinct words using its Unicode casefold; a query-field 422 is shown as an
+  actionable limit message without a retry button. Abandoned searches stop before another page
+  request, and cache keys use opaque sequences so a typed name/address never enters load-error
+  log context. Pending searches preserve previous rows/chips with an explicit busy notice;
+  whitespace-only changes do not refetch. Counts are announced through the persistent status
+  node outside the app. Until `summary` exists, the extra
+  identity columns are still unavailable. The broader file/client examples remain sample-only.
 * **P5. The member directory for every member.** `GET /v1/orgs/{org_id}/members` answers every
   member, read-only below owner (today owners only, `OwnedOrg`), and each member carries `signer`
   (P6's details, or `null`). The engineer's Team page lists colleagues with their role, signer
@@ -308,15 +324,17 @@ proposed routes from the sample once the backend has them.
 * **P6. Each engineer's signer details.** `GET /v1/me/signer` → `{"signer": {"name",
   "credentials", "license_number", "license_state"} | null, "version", "updated_at"}` with
   `ETag: "<version>"`; `PUT /v1/me/signer` with `If-Match` (412 with the current ETag when it
-  changed; a new code, `BASIS-FIRM-011` in the sample). Name and credentials 1 to 200 / 100
-  characters; the license number up to 50 and its two-letter state go together. Settings edits it;
+  changed; a new code, `BASIS-FIRM-011` in the sample). The form currently limits name and
+  credentials to 200 / 100 characters; the license number up to 50 and its two-letter jurisdiction go together (50 states,
+  DC, GU, MP, PR, VI). Backend PR #158 implements the `signer` envelope above, adds `user_id`,
+  accepts up to 500 characters for name/credentials and uses its report conflict codes. Settings
+  edits it;
   onboarding asks for it once after an invitation is accepted; Report & sign shows it read-only
   ("Signing as … Edit in Settings") and signs with it: the app sends it as `engineer` in
-  `POST .../report/sign`, so the sign route itself needs no change (it could default `engineer` to
-  the stored details and refuse 409 when there are none). The preview renders the firm profile's
-  engineer of record today; the signer's details should replace it in the preview and the signed
-  PDF's signature block. Without P6 nothing is stored per person: the sign dialog asks for the
-  signer's details each time, prefilled with their name (and with the firm profile's engineer of
+  `POST .../report/sign`, which matches #158's `SignIn.engineer` field (the personal profile envelope
+  and report state use `signer`). #158 also renders the saved signer in the preview and uses their
+  saved details when signing; the sample PDF remains static. Without P6 nothing is stored per
+  person: the sign dialog asks for the signer's details each time, prefilled with their name (and with the firm profile's engineer of
   record only when its email is theirs), and Settings says so instead of showing a form.
 * **P7. The firm's activity for every member.** `GET /v1/orgs/{org_id}/feed?since&until&actor_id&
   study_id&limit&cursor` → `{org_id, items, since, until, next_cursor}`: the `study_events` of every

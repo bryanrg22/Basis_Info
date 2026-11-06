@@ -1112,7 +1112,10 @@
   PROPOSED_ROUTES.push(({route,json})=>route('GET','/v1/capabilities',()=>json(200,{object_exclusion:true,unit_cost_override:true,room_create:true})));
   // P4: what identifies each study, and a search that reaches it.
   STUDY_OUT.push((out,S)=>{const m=S.meta;out.summary=m?{address:m.address,city:m.city,state:m.state,zip:m.zip,county:m.county,parcel_number:m.apn,client:m.client,borrower:m.borrower,taxpayer:S.answers?.taxpayer_name||m.taxpayer,file_number:m.file}:null});
-  STUDY_MATCH.push((S,q)=>{const m=S.meta;if(!m)return false;return [m.address,`${m.address}, ${m.city}, ${m.state} ${m.zip}`,m.city,m.county,m.apn,m.client,m.borrower,m.taxpayer,S.answers?.taxpayer_name,m.file,S.owner.name,S.owner.email].some(v=>v&&String(v).toLowerCase().includes(q))});
+  STUDY_MATCH.push((S,q)=>{const m=S.meta;if(!m)return false;
+   const fold=v=>String(v??'').toLowerCase().normalize('NFKD').replace(/[̀-ͯ]/g,'');
+   const values=[S.name,m.address,m.city,m.state,m.zip,m.county,m.apn,m.client,m.borrower,m.taxpayer,S.answers?.taxpayer_name,m.file,S.owner.name,S.owner.email].map(fold);
+   return fold(q).split(/\s+/).every(w=>values.some(v=>v.includes(w)))});
   // P5: every member reads the member list; each member carries their signer details.
   MEMBER_READERS.push('engineer','viewer');
   MEMBER_OUT.push((out,p,I)=>{const r=I.signers?.[p.id],s=r?r.signer:p.signer;out.signer=s?{...s}:null});
