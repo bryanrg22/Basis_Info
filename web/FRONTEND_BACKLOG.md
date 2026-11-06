@@ -64,8 +64,8 @@ of truth. Items are in the order they matter for a first firm.
 
 ## 4. Firm onboarding
 
-- **Firms are set up by Basis, not self-serve.** `POST /v1/orgs` is being turned off by default
-  on the backend; firms are created with `python -m basis.admin create-firm`, which also invites
+- **Firms are set up by Basis, not self-serve.** `POST /v1/orgs` is off by default on the backend
+  (**landed in #162**, `FIRM_SELF_SERVE`; 403 `firm-self-serve-off`, `BASIS-FIRM-011`); firms are created with `python -m basis.admin create-firm`, which also invites
   their first owner. The "not a member" screen offers no way to create a firm: it says to ask the
   firm's admin for an invitation, or to contact Basis to set up a new firm, with "Check for an
   invitation" and "Use another account" (`web/live/live-team.js`). The sample API has no
@@ -193,12 +193,13 @@ not use. Nothing here is built in the app; each needs the backend first or is a 
   Components" and friends) is built on the read-only review pages and on Report & sign.
 - **Change type or exclude a found object on a photo; remove a component.** Superseded by section
   14: removing an inventory row is the supported `component_remove` correction (reason required),
-  now offered as Remove row; excluding and retyping a model detection is the proposed
-  `object_exclusion`.
+  now offered as Remove row; excluding and retyping a model detection is `object_exclusion`
+  (**landed in #159**).
 - **Unpriced-asset guidance.** `BASIS-CHECK-012`'s fix text (the generated error catalogue)
-  says "Price it by hand, or add the row to the cost table", but an asset correction cannot set
-  a price; the catalogue text should name the cost-table route only, until an override exists.
-- **Unit cost.** Proposed in section 14 (`unit_cost_override`).
+  says "Price it by hand, or add the row to the cost table". Pricing by hand exists since #159
+  (an engineer's unit price on the asset or its component), so the text now matches; the app's
+  Assets page should point an unpriced row at that price field.
+- **Unit cost.** **Landed in #159**; section 14 (`unit_cost_override`).
 - **Which result checks the engineer has dealt with.** `GET .../result` reports each worksheet
   and structure check as `ok`, `warning`, `error` or `not_checked`, with no acknowledged or
   resolved state. Results therefore shows every warning as "to review", even on an approved
@@ -208,7 +209,10 @@ not use. Nothing here is built in the app; each needs the backend first or is a 
   answers versions the signature used, not their values, and `profile.set` firm activity names
   the changed fields only (owner only). After a change, Report & sign shows "signed with version
   1 · now version 2" and links to the signed PDF's first page. Showing the signed and current
-  value of each changed field needs the signed inputs kept with the signature.
+  value of each changed field needs the signed inputs kept with the signature. **Partly landed
+  in #158**: the signature now keeps the letterhead it printed (`letterhead`: name, address,
+  phone, logo sha256) and the signer details' version, and `report/state` carries the signer's
+  details now (`signer`); the report answers' signed values are still versions only.
 - **Delivery state in the study list.** Home and Library read `GET .../report/state` once per
   finished study (six at a time) to tell Update required, Needs signature and Signed apart;
   until a study's answer arrives it reads Checking… and counts as neither Report to sign nor
@@ -224,11 +228,19 @@ in-browser sample API (`index.html?mode=live&api=sample`, `web/live/sample-api.j
 `PROPOSED` section) and appear in live mode only when the API says it offers them. Delete the
 `PROPOSED` section once the backend has these.
 
-* **Capabilities.** `GET /v1/capabilities` (any member) answers
+**Landed 2026-11-06:** capabilities, Not counted and the unit price in #159 (`docs/api/OVERRIDES.md`;
+PATCH is allowed from the browser since #159); each engineer's signer details and the signed
+letterhead in #158 (`docs/api/SIGNERS.md`). Not built: create a room, the report narrative, Reset
+to AI after sending. The sample's P0 to P2 can go once the app reads the real routes; keep P3.
+
+* **Capabilities** (**landed in #159**: `object_exclusion` and `unit_cost_override` true by
+  default, settings `OBJECT_EXCLUSION` and `UNIT_COST_OVERRIDE`; `room_create` always false).
+  `GET /v1/capabilities` (any member) answers
   `{"object_exclusion": bool, "unit_cost_override": bool, "room_create": bool}`. The app asks once
   per session, outside the error capture; anything but a 200 means none, so today's API (404)
   shows exactly what it showed before.
-* **Not counted on a photo object** (`object_exclusion`).
+* **Not counted on a photo object** (`object_exclusion`; **landed in #159**: 409 on an uncounted
+  candidate; the 422 path of a bad body names the variant, e.g. `["body","not_counted","reason"]`).
   `PATCH /v1/studies/{study_id}/photos/{document_id}/objects/{object_id}` with
   `{"counted": false, "reason": "<1-500 chars>"}`; `{"counted": true}` counts it again. Engineer
   role, at the edit stage only (409 otherwise), model and engineer-added instances alike; nothing
@@ -240,7 +252,7 @@ in-browser sample API (`index.html?mode=live&api=sample`, `web/live/sample-api.j
   (reason "Type changed to <label>: <why>") and adds an engineer object with the new label at the
   same box (`POST .../objects`, box + label, SAM 3 outlines it, the duplicate guard applies). So the
   backend needs this one new concept, not a relabel endpoint.
-* **Unit price override** (`unit_cost_override`). Two correction fields on `asset` and
+* **Unit price override** (`unit_cost_override`; **landed in #159**). Two correction fields on `asset` and
   `component` corrections (decision route, a `reject`): `unit_cost` (number > 0, at most
   10,000,000, USD per takeoff unit; `null` clears it) and `unit_cost_source` (1-300 chars,
   required with a number); the correction's `reason` is required. A `component` override prices
@@ -252,7 +264,7 @@ in-browser sample API (`index.html?mode=live&api=sample`, `web/live/sample-api.j
   request, `level` `asset` (wins) or `component`, and `cost.trail.kind` `engineer_price` with the
   table's own pricing kept as `trail.replaced`; a price alone clears only the table's pricing
   review reasons.
-* **Create a room** (`room_create`). `rooms_review` accepts only `room` and `photo_room`
+* **Create a room** (`room_create`; **not built**, the capability is false). `rooms_review` accepts only `room` and `photo_room`
   corrections (`backEnd/basis/workflow/contracts.py`), so the API cannot create a room. Main's live
   Rooms editor sent `room_create` for New room and `room_delete` for Remove, both refused with 422.
   Fixed in the app: Remove is now Merge (`room` `{"merge_into": <id>}`, supported) and New room
@@ -266,12 +278,13 @@ in-browser sample API (`index.html?mode=live&api=sample`, `web/live/sample-api.j
   (a `GET .../report/narrative` with section id, the generated text and its version), a write
   that records the engineer's text with a reason against the next revision, and the export to
   render the engineer's text where it exists. The report must say the section was edited.
-* **Reset to AI after sending.** The app's Reset to AI drops a row's unsent corrections. After a
+* **Reset to AI after sending** (**not built**). The app's Reset to AI drops a row's unsent corrections. After a
   correction is applied the rows do not say what the AI found, so the app cannot show the AI's
   original value struck through on later revisions. Wanted: each corrected row carries its
   model values (`ai: {label, count, material, attachment, unit_cost}`), and a correction that
   restores them.
-* **The letterhead a report was signed with.** "Changed after signing" compares the signed
+* **The letterhead a report was signed with** (**landed in #158**: `SignatureOut.letterhead`
+  `{name, address, phone, logo_sha256}` as signed, and `signer_details_version`). "Changed after signing" compares the signed
   engineer and license with the profile now (`SignatureOut.engineer`), but the signature keeps
   only `firm_profile_version` for the letterhead, so the app can show today's firm name and
   address but not the signed ones (it links page 1 of the signed PDF instead). Wanted: the
@@ -280,7 +293,7 @@ in-browser sample API (`index.html?mode=live&api=sample`, `web/live/sample-api.j
 
 ## 15. Firm pages: what the app needs from the API (November 2026)
 
-**Merge gate for PR #160: backend #161 must ship first.** This frontend delegates search to
+**Merge gate for PR #160: backend #161 must ship first** (done: #161 merged before #160, 2026-11-06). This frontend delegates search to
 `q` and promises #161's fields; an older property-name-only API cannot satisfy that contract.
 #161 does not require this frontend. After it ships, update the sample's base search contract
 and remove the P4 search proposal; retain the still-proposed summary/file-number additions.
@@ -291,7 +304,8 @@ engineer against the in-browser sample API (`index.html?mode=live&api=sample&rol
 Against today's API each page shows what exists and says what it cannot (noted per item). Delete the
 proposed routes from the sample once the backend has them.
 
-* **P4. What identifies a study, and search over it.** `StudyOut` (list and detail) carries
+* **P4. What identifies a study, and search over it.** (Search **landed in #161**; `summary` and
+  the file number are **not built**.) `StudyOut` (list and detail) carries
   `summary: {address, city, state, zip, county, parcel_number, client, borrower, taxpayer,
   file_number}` or `null`: the appraisal's subject address, county and assessor's parcel number
   (`subject.property_address`, `subject.city`, `subject.state`, `subject.zip`, `subject.county`,
@@ -316,12 +330,15 @@ proposed routes from the sample once the backend has them.
   whitespace-only changes do not refetch. Counts are announced through the persistent status
   node outside the app. Until `summary` exists, the extra
   identity columns are still unavailable. The broader file/client examples remain sample-only.
-* **P5. The member directory for every member.** `GET /v1/orgs/{org_id}/members` answers every
+* **P5. The member directory for every member.** (Each member's `signer` **landed in #158**; the
+  list is still owners only, so the directory for engineers and viewers is **not built**.) `GET /v1/orgs/{org_id}/members` answers every
   member, read-only below owner (today owners only, `OwnedOrg`), and each member carries `signer`
   (P6's details, or `null`). The engineer's Team page lists colleagues with their role, signer
   credentials and open studies; today it falls back to the people the firm's studies name, and
   says the full list is shown to admins. Activity and Home resolve actor names from it.
-* **P6. Each engineer's signer details.** `GET /v1/me/signer` → `{"signer": {"name",
+* **P6. Each engineer's signer details.** (**Landed in #158**. A stale tag is 412
+  `BASIS-REPORT-016`, not the sample's `BASIS-FIRM-011`, which the API now uses for
+  `firm-self-serve-off` (#162); the sample should answer `BASIS-REPORT-016`.) `GET /v1/me/signer` → `{"signer": {"name",
   "credentials", "license_number", "license_state"} | null, "version", "updated_at"}` with
   `ETag: "<version>"`; `PUT /v1/me/signer` with `If-Match` (412 with the current ETag when it
   changed; a new code, `BASIS-FIRM-011` in the sample). The form currently limits name and
@@ -336,7 +353,8 @@ proposed routes from the sample once the backend has them.
   saved details when signing; the sample PDF remains static. Without P6 nothing is stored per
   person: the sign dialog asks for the signer's details each time, prefilled with their name (and with the firm profile's engineer of
   record only when its email is theirs), and Settings says so instead of showing a form.
-* **P7. The firm's activity for every member.** `GET /v1/orgs/{org_id}/feed?since&until&actor_id&
+* **P7. The firm's activity for every member.** (**Not built**; the app's fallback to
+  `/v1/me/activity` and the firm's own events works against the real API.) `GET /v1/orgs/{org_id}/feed?since&until&actor_id&
   study_id&limit&cursor` → `{org_id, items, since, until, next_cursor}`: the `study_events` of every
   study of the firm, newest first, each item an `ActivityItemOut` plus `actor_name` and
   `property_address`, default window 30 days, 200 a page. Today `/v1/me/activity` is the caller's
