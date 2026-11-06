@@ -51,8 +51,6 @@
  const stripOf=(s,d)=>{const seg=M.strip(s,d),cur=seg.findIndex(x=>x.state==='current'),at=cur<0?seg.length:cur+1;return `<span class="fp-stagebox"><span class="fp-strip" aria-hidden="true">${seg.map(x=>`<i class="is-${x.state} tone-${x.tone}" title="${esc(x.label)}"></i>`).join('')}</span><small>${cur<0?`All ${seg.length} done`:`${at} of ${seg.length} · ${esc(seg[cur].label.replace('Report & sign','Report'))}`}</small></span>`};
  const when=at=>`<time datetime="${esc(at)}" title="${esc(Live.when(at))}">${esc(M.ago(at,now()))}</time>`;
  const href=(s,n)=>Live.route(n.action?n.screen:'processing',s.id);// the step that waits, else the study's page
- const sub=s=>{const m=s.summary;return [M.place(s),m?.client].filter(Boolean).join(' · ')};
- const loadingOr=(entries,fn)=>{const bad=entries.find(e=>e.error);if(entries.some(e=>!e.done))return Live.loading();if(bad)return Live.failed(bad.error,'fp-reload');return fn()};
  Live.actions['fp-reload']=()=>{for(const k of ['studies-all','members:','feed:','me-activity','org-activity:','invitations:','me-signer','firm-profile:'])Live.invalidate(k);Live.render()};
 
  /* ---------- Home ---------- */
@@ -296,14 +294,14 @@
  }
  async function saveLetterhead(form){
   const firm=Live.firm(),v=id=>form.querySelector(id)?.value||'',e=profileEntry(firm.org_id),cur=e.error?null:e.data;
-  const R=globalThis.BasisReport,sig=Live.mySigner();
+  const sig=Live.mySigner();
   const eng=sig.own?cur?.profile?.engineer||null:{name:v('#fp-eng-name'),credentials:v('#fp-eng-cred'),license_number:v('#fp-eng-license'),license_state:v('#fp-eng-state')};
   const name=v('#fp-firm-name').trim();if(!name){toast('Enter the firm’s name.');return}
   const body={...(cur?.profile||{}),name,address:v('#fp-firm-address').trim()||null,phone:v('#fp-firm-phone').trim()||null,engineer:eng&&eng.name?{name:String(eng.name).trim(),credentials:String(eng.credentials||'').trim(),license_number:String(eng.license_number||'').trim()||null,license_state:String(eng.license_state||'').trim().toUpperCase()||null,...(eng.email?{email:eng.email}:{})}:null};
   if(body.engineer&&!body.engineer.credentials){toast('Enter the engineer of record’s credentials.');return}
   try{await api.request('PUT',`/v1/orgs/${encodeURIComponent(firm.org_id)}/profile`,{body,headers:cur?{'If-Match':`"${cur.version}"`}:{}})}
   catch(err){if(err.status===412){Live.invalidate('firm-profile:');toast('The letterhead changed since you opened it. It was reloaded; apply your change again.');Live.render();return}throw err}
-  Live.invalidate('firm-profile:');Live.invalidate('report-');Live.invalidate('org-activity:');toast('Letterhead saved. It is printed on reports written from now on.');Live.render();void R;
+  Live.invalidate('firm-profile:');Live.invalidate('report-');Live.invalidate('org-activity:');toast('Letterhead saved. It is printed on reports written from now on.');Live.render();
  }
  root.addEventListener('submit',e=>{
   const f=e.target.closest?.('form[data-fp-form]');if(!f)return;e.preventDefault();e.stopImmediatePropagation();
