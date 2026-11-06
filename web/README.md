@@ -18,6 +18,38 @@ Recovery and current verification limits are recorded in
 implementation notes; their backend-gap statements must be checked against the
 current server.
 
+## UI review: status, reopening and the New design (November 2026)
+
+* **Status reads at a glance.** `live/gates.js` gives every step a `tone` (done, review,
+  danger, progress, idle); the step bar and Study progress color the status labels with it
+  (`ui-polish.css`). A finished study's delivery state (Signed, Update required, Needs
+  signature) comes from its report state (`Live.delivery`) on Home, Library and the header.
+  The study-status strip is one compact row, and Report & sign does not repeat it above its
+  own panel.
+* **Change an approved step.** On a completed study every read-only review page offers
+  "Change <step>" (`live/gate-reopen.js`): `POST .../reopen` with `dry_run` first, a
+  confirmation that lists the steps that reopen and what is redone, then the reopen
+  (docs/api/REVISIONS.md). In-progress studies have no such route (the API reopens completed
+  studies only; `FRONTEND_BACKLOG.md` section 13).
+* **Photo objects in live mode** offer what the API does: the viewer's room-inventory box
+  corrects a type's label and count (Change type, Edit count, with the count's before and
+  after and the corrections waiting); an object an engineer added can be deleted. The
+  proposed per-object operations stay in mock mode.
+* **Asset corrections** take a measured quantity with its unit and where it was measured
+  (`quantity`, `quantity_unit`, `quantity_source`, EVAL_REPORT 78), beside category, class,
+  period and IRS section. Dialogs fit the viewport with their actions always visible.
+* **Find a room** (`live/room-filter.js`): Rooms and Components with six or more rooms get a
+  search box that hides non-matching room cards; drafts and drag and drop are untouched.
+* **Reopening forwards**: after Change <step> or Start a new revision, Study progress opens
+  the reopened review as soon as it is ready.
+* **New design** (Settings > New design, off by default, `design-flag.js`, saved in this
+  browser): `live/new-design.js` and `new-design.css` replace the Assets, Results and Report
+  & sign pages while the switch is on, with the same data, corrections and decisions. Assets is
+  one schedule grouped by recovery class or room with Edit on every row; Results leads with the
+  reconciliation verdict, the allocation by class and the checks to review; Report & sign shows
+  the report PDF inline beside one status and its next step. With the switch off nothing
+  changes.
+
 ## UAD 3.6 frontend integration (PR #75)
 
 The live intake accepts an appraisal PDF (legacy or UAD), a UAD ZIP, or MISMO XML
@@ -194,7 +226,9 @@ The mock screens show five sample room photos (`assets/bedroom.webp`, `exterior.
 `kitchen.webp`, `kitchen-detail.webp`, `living.webp`). They are not in git (listing-style
 images of unknown license); copy them into `web/assets/` from the design review folder
 (`design-review/assets/`). Without them the mock shows empty image frames; live mode does
-not use them.
+not use them. The sample API (`?api=sample`) serves a committed synthetic stand-in
+(`assets/sample-photo.webp`, drawn by `tooling/fixtures/make_sample_photo.py`) for each
+missing photo, so sample mode and `node --test web/tests/*.test.cjs` work from a clean clone.
 
 ## Live mode, locally
 

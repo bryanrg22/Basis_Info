@@ -38,3 +38,10 @@ test('component summaries handle empty inventories and invalid quantities withou
  assert.deepEqual(componentSummary({}),{count:0,types:[]});
  assert.deepEqual(componentSummary({inventory:[{label:'invalid',count:-3},{label:'invalid',count:Infinity},{label:'invalid',count:'no'},{label:'window',count:'2'},{count:1}]}),{count:3,types:[{label:'window',count:2},{label:'other',count:1}]});
 });
+test('a row removed and pending send leaves the room summary; Reset to AI brings it back',()=>{
+ const room={id:'r1',inventory:[{component_id:'a',label:'light_fixture',count:2},{component_id:'b',label:'chair',count:4}]};
+ const pending=new Map([['component_remove:a',{entity_type:'component_remove',entity_id:'a',after:{}}]]);
+ const s=componentSummary(room,pending);
+ assert.equal(s.count,4);assert.deepEqual(s.types,[{label:'chair',count:4}]);
+ pending.delete('component_remove:a');assert.equal(componentSummary(room,pending).count,6);
+});

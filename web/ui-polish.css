@@ -1,0 +1,434 @@
+/* Shared polish (UI review, November 2026). Loaded last: status that reads at a glance, one
+ * compact study-status strip, readable contrast, and layout fixes that apply to every screen.
+ * Brand green, Inter and the glass sidebar are unchanged. */
+/* Secondary text tokens a step darker everywhere (13px secondary text needs 6:1 to read well). */
+:root{--ui-muted:#475a50;--muted:#4c5f56;--product-muted:#4d5f49;--product-secondary:#4a5d4d;--desk-muted:#4f6352;--vr-muted:#475a50}
+:root{--st-done:#1f6a43;--st-done-bg:#e3f1e8;--st-review:#8a4a00;--st-review-bg:#fdeed6;--st-danger:#a3271b;--st-danger-bg:#fde6e2;--st-progress:#245d8f;--st-progress-bg:#e3eef8;--st-idle:#56685e}
+
+/* Step bar: the status under each step is a colored label, not faint gray text. */
+#app .workspace:not([data-screen="viewer"]) .study-navigation .step small{display:inline-flex;align-items:center;gap:5px;width:max-content;font-weight:600;letter-spacing:0;color:var(--st-idle)}
+#app .workspace:not([data-screen="viewer"]) .study-navigation .step small::before{content:"";width:7px;height:7px;border-radius:50%;background:currentColor;flex:none}
+#app .workspace:not([data-screen="viewer"]) .study-navigation .step-tone-idle small::before{background:transparent;box-shadow:inset 0 0 0 1.5px currentColor}
+#app .workspace:not([data-screen="viewer"]) .study-navigation .step-tone-done small{color:var(--st-done);font-weight:500}
+#app .workspace:not([data-screen="viewer"]) .study-navigation .step-tone-review small{color:var(--st-review)}
+#app .workspace:not([data-screen="viewer"]) .study-navigation .step-tone-danger small{color:var(--st-danger)}
+#app .workspace:not([data-screen="viewer"]) .study-navigation .step-tone-progress small{color:var(--st-progress)}
+#app .workspace:not([data-screen="viewer"]) .study-navigation .step-tone-review .step-marker{background:var(--st-review);border-color:var(--st-review);color:#fff}
+#app .workspace:not([data-screen="viewer"]) .study-navigation .step-tone-done .step-marker{background:var(--st-done-bg);border-color:#b9d9c5;color:var(--st-done)}
+#app .workspace:not([data-screen="viewer"]) .study-navigation [aria-disabled="true"]{opacity:1}
+#app .workspace:not([data-screen="viewer"]) .study-navigation [aria-disabled="true"] strong{color:#4d6157}
+
+/* The study-status strip: one compact row above the steps. */
+#app .workspace .content section.study-status{padding:12px 16px;gap:12px;margin:0 0 14px;border-radius:12px}
+#app .workspace .content section.study-status h2{font-size:15px;font-weight:650;letter-spacing:-.01em}
+#app .workspace .content section.study-status p{font-size:13px;line-height:1.45;margin:2px 0 0}
+#app .workspace .content section.study-status .study-status-symbol{width:32px;height:32px}
+#app .workspace .content section.study-status .study-status-action{min-height:36px;padding:7px 12px;font-size:13px}
+#app .workspace .content section.study-status .study-access{padding:2px 7px;font-size:11.5px;border-radius:999px}
+
+/* Reopen an approved step: the plan the API returned, before anything is written. */
+.reopen-plan p{margin:0 0 14px}
+.reopen-plan dl{display:grid;gap:12px;margin:0;padding:14px 16px;border:1px solid #d5dfd8;border-radius:12px;background:#f6f9f7}
+.reopen-plan dt{font-size:12px;font-weight:600;color:#3f5247;margin:0 0 4px}
+.reopen-plan dd{margin:0;font-size:14px;color:#213b30}
+.reopen-step{display:inline-flex;align-items:center;margin:0 6px 4px 0;padding:3px 10px;border-radius:999px;background:var(--st-review-bg);color:var(--st-review);font-weight:600;font-size:13px}
+
+/* Contrast: the local toolbar's quiet button and the faint helper grays. */
+.reviewbar .button.quiet,.reviewbar button.quiet{color:#e0e9e3!important;background:transparent;border-color:#6f8c7e}
+
+/* Rooms: the photo toggle sits in the room header; no empty row when a room is open. */
+#app .placement-heading{display:flex;flex-wrap:wrap;align-items:flex-start;gap:10px 12px}
+#app .placement-heading .placement-title{flex:1 1 100%;min-width:0}
+#app .placement-tools{display:flex;flex-wrap:wrap;gap:8px;justify-content:flex-start}
+#app .workspace[data-screen="rooms"] .placement-toggle{margin-left:0}
+#app .placement-room.is-expanded .placement-preview{display:none}
+
+/* Component inventory: action buttons never wrap letter by letter. */
+#app .workspace .button,#app .workspace .button.small{white-space:nowrap}
+/* At phone width a long label wraps instead of running past the clipped main column. */
+@media (max-width:600px){#app .workspace .button,#app .workspace .button.small{white-space:normal}}
+#app .workspace table td.text-right{white-space:nowrap;width:1%}
+
+/* Settings: section labels readable; the New design switch. */
+.settings-sections>span{color:#56685e;font-size:11px;font-weight:600}
+.design-switch-row{display:flex;align-items:center;justify-content:space-between;gap:16px;padding:16px 0;border-top:1px solid #e1e9e3;margin-top:8px}
+.design-switch-row strong{display:block;font-size:14px;color:#213b30}.design-switch-row span{font-size:13px;color:#56685e}
+.design-switch{position:relative;width:46px;height:26px;border-radius:999px;border:0;background:#b9c7bf;cursor:pointer;flex:none;padding:0}
+.design-switch span{position:absolute;top:3px;left:3px;width:20px;height:20px;border-radius:50%;background:#fff;box-shadow:0 1px 3px #0003;transition:transform .15s}
+.design-switch[aria-checked="true"]{background:#2f6b4a}.design-switch[aria-checked="true"] span{transform:translateX(20px)}
+.design-switch:focus-visible{outline:2px solid #3c6b54;outline-offset:3px}
+@media(prefers-reduced-motion:reduce){.design-switch span{transition:none}}
+
+/* Study progress: the same status tones on its step bar and its step list. */
+#app .hub-progress-step small,#app .hub-step-status{display:inline-flex;align-items:center;gap:5px;font-size:12.5px;font-weight:600;color:var(--st-idle)}
+#app .hub-progress-step small::before,#app .hub-step-status::before{content:"";width:7px;height:7px;border-radius:50%;background:currentColor;flex:none}
+#app .step-tone-idle .hub-progress-step small::before,#app .step-tone-idle .hub-step-status::before{background:transparent;box-shadow:inset 0 0 0 1.5px currentColor}
+#app .step-tone-done .hub-progress-step small,#app .step-tone-done .hub-step-status{color:var(--st-done);font-weight:500}
+#app .step-tone-review .hub-progress-step small,#app .step-tone-review .hub-step-status{color:var(--st-review)}
+#app .step-tone-danger .hub-progress-step small,#app .step-tone-danger .hub-step-status{color:var(--st-danger)}
+#app .step-tone-progress .hub-progress-step small,#app .step-tone-progress .hub-step-status{color:var(--st-progress)}
+#app .hub-step-status{justify-content:flex-end;font-size:12.5px}
+
+/* Study lists: status chips that read at a glance (Needs review is the engineer's move). */
+#app .desk-status{font-size:12px;font-weight:600;padding:4px 9px;border-radius:999px;color:#3f5247;background:#edf2ee;border:1px solid #d8e1db}
+#app .desk-status.completed{color:var(--st-done);background:var(--st-done-bg);border-color:#bcdcc8}
+#app .desk-status.waiting_review{color:var(--st-review);background:var(--st-review-bg);border-color:#efd3a3}
+#app .desk-status.processing{color:var(--st-progress);background:var(--st-progress-bg);border-color:#c6dbee}
+#app .desk-status:is(.failed,.stalled){color:var(--st-danger);background:var(--st-danger-bg);border-color:#f2c3bb}
+
+/* Contrast: small labels that read below 4.5:1, kept in the green family. */
+#app .tiny-avatar{color:#3f5c45}
+#app .main .study-desk .review-waiting,#app .review-waiting{color:#3f5a35}
+#app kbd{color:#4f5f49;border-color:#c9d3c2}
+#app .appraisal-table-head>span{color:#4c5e43}
+#app .error-guidance code{color:#4b5d52}
+#app .draft{color:#56614f}
+#app .desk-footer,#app .desk-footer>span{color:#4f6255}
+#app .main .profile-account-details span,#app .profile-account-details>span{color:#4f6447}
+#app .main .activity-avatar,#app .activity-avatar{color:#3f5c30}
+#app .main .activity-day{color:#4d6440!important}
+/* A flag kept on an approved review reads as information, not as work left to do. */
+#app .field-row small.is-retained{color:#4f6258!important;background:#eef2ef!important;border-color:#d8e1db!important}
+
+/* An opened room takes the full row, so its photos and inventory table have room to read. */
+#app .component-room-card:has(> .component-room-summary [data-live="toggle-room"][aria-expanded="true"]),#app .component-room-card:has([data-live="toggle-room"][aria-expanded="true"]),#app .placement-room.is-expanded{grid-column:1/-1}
+#app .placement-room{padding:16px 18px}
+/* Long cited sources wrap inside their column instead of pushing the table sideways. */
+#app .result-table td{white-space:normal;overflow-wrap:anywhere}
+
+/* Legibility: step names, table headers and room metadata a size up and darker. */
+#app .workspace:not([data-screen="viewer"]) .study-navigation strong{font-size:13px}
+#app .workspace:not([data-screen="viewer"]) :is(.tablewrap,.live-inventory) th{font-size:12px;font-weight:600;color:#3f5247}
+#app .component-room-meta,#app .component-room-meta span{font-size:13px;color:#4f6258}
+#app .placement-title p{font-size:13px;color:#4f6258}
+#app .main .study-desk .desk-last-editor{color:#4f6447}
+
+/* Asset correction: the measured quantity, its unit and where it was measured, together. */
+.live-asset-quantity{border:1px solid #d5dfd8;border-radius:12px;padding:10px 14px 14px;margin:12px 0 0;display:grid;grid-template-columns:110px 96px minmax(0,1fr);gap:10px 12px;align-items:end}
+.live-asset-quantity legend{font-size:13px;font-weight:600;color:#213b30;padding:0 4px}
+
+/* Summary counts on Rooms and Components: one compact line, so the rooms come first. */
+#app .placement-stats,#app .workspace[data-screen="components"] .study-summary,#app .workspace[data-screen="rooms"] .study-summary{display:inline-flex;gap:24px;padding:8px 16px;margin:0 0 12px;min-height:0}
+#app .placement-stats>div,#app .workspace[data-screen="components"] .study-summary>div,#app .workspace[data-screen="rooms"] .study-summary>div{display:flex;align-items:baseline;gap:8px;padding:0;border:0;min-width:0}
+#app .placement-stats dd,#app .workspace[data-screen="components"] .study-summary dd,#app .workspace[data-screen="rooms"] .study-summary dd{order:-1;font-size:20px;margin:0}
+#app .placement-stats dt,#app .workspace[data-screen="components"] .study-summary dt,#app .workspace[data-screen="rooms"] .study-summary dt{font-size:13px;color:#4f6258}
+
+/* Photo viewer: say what a found object's correction changes, and keep queued corrections in sight. */
+.placement-change-list span{color:#4f6258}
+
+/* Secondary text: 13px and the darker token, in the work area. */
+#app .main .small,#app .main .muted,#app .main .footnote{color:var(--ui-muted)}
+#app .workspace .content p.small,#app .workspace .content span.small{font-size:13px}
+
+/* Dialogs fit the viewport: the form scrolls, its actions stay in view. */
+#app .modal-backdrop .modal:not(.pdf-modal){max-height:calc(100vh - 48px);overflow:auto;overscroll-behavior:contain}
+#app .modal-backdrop .modal:not(.pdf-modal)>.actions{position:sticky;bottom:-28px;margin:16px -28px -28px;padding:14px 28px 28px;background:#fff;border-top:1px solid #e1e9e3;z-index:1}
+/* Asset correction: the classification fields side by side. */
+#app .modal .field:has(#live-asset-bucket),#app .modal .field:has(#live-asset-period),#app .modal .field:has(#live-asset-irs){display:inline-grid;width:calc(33.3% - 8px);margin-right:8px;vertical-align:top}
+.vision-room-count.is-live{display:grid}
+.vision-room-count.is-live>span{display:grid;gap:2px;font-size:12.5px;color:#475a50}
+.vision-room-count.is-live strong{font-size:20px;color:#213b30}.vision-room-count.is-live s{color:#556a5e;font-weight:500}
+
+/* Find a room (live/room-filter.js). */
+#app .room-filter{display:flex;align-items:center;gap:12px;margin:0 0 14px}
+#app .room-filter .review-search{flex:0 1 420px}
+#app .room-filter [role=status]{font-size:13px;color:#475a50}
+#app .room-sections>.room-section[hidden]{display:none}
+/* An opened components room: photo cards stay about 220px high (aspect kept), so the inventory follows right under them. */
+#app .component-room-card .room-section-body:not([hidden]){display:grid;grid-template-columns:minmax(240px,34%) minmax(0,1fr);column-gap:20px;align-items:start}
+#app .main .component-room-card .room-section-body>.room-photo-grid{grid-column:1;grid-row:1/span 6;grid-template-columns:1fr}
+#app .component-room-card .room-section-body>:not(.room-photo-grid){grid-column:2;min-width:0}
+@media(max-width:900px){#app .component-room-card .room-section-body:not([hidden]){display:block}}
+/* An approved asset's flag explanation reads as history, not as an open warning. */
+#app .asset-review-warning.is-retained{background:#f4f7f5!important;border-color:#cfdad3!important;color:#34473d!important}
+#app .asset-review-warning.is-retained h3{color:#213b30!important}
+
+/* A review page's own access, next to its title. */
+#app .gate-access{display:flex;align-items:center;gap:10px;margin:14px 0 10px}
+#app .gate-access .study-access{display:inline-flex;align-items:center;gap:6px;padding:4px 10px;border-radius:999px;background:#edf2ee;color:#34473d;font-size:12.5px;font-weight:600;border:1px solid #d5dfd8}
+/* An opened components room shows its photos once (large), not again as thumbnails above. */
+#app .component-room-card:has(.component-room-toggle[aria-expanded="true"]) .room-summary-previews{display:none}
+/* The critical-field count filters to the key fields. */
+#app button.review-heading-progress{border:1px solid transparent;background:transparent;font:inherit;color:inherit;cursor:pointer;border-radius:10px;padding:4px 8px;text-align:right}
+#app button.review-heading-progress:hover{border-color:#c7d9cd;background:#f2f7f3}
+#app button.review-heading-progress:focus-visible{outline:2px solid #3c6b54;outline-offset:2px}
+#app .link-button{border:0;background:none;padding:0;font:inherit;color:#2f6b4a;font-weight:600;text-decoration:underline;cursor:pointer}
+/* Request corrections lists exactly what it sends. */
+.live-send-list{list-style:none;margin:0 0 14px;padding:0;max-height:220px;overflow:auto;border:1px solid #e1e9e3;border-radius:10px}
+.live-send-list li{padding:8px 12px;border-top:1px solid #edf2ee;font-size:13px}
+.live-send-list li:first-child{border-top:0}.live-send-list span{color:#475a50}
+/* Table headings and settings navigation a step more legible; nav labels on one line. */
+#app .settings-sections :is(button,a){white-space:nowrap}
+#app .workspace:not([data-screen="viewer"]) .component-room-card .live-inventory :is(td,th){padding:11px 10px}
+#app .workspace:not([data-screen="viewer"]) .component-room-card .live-inventory td.text-right{width:84px;min-width:84px;padding-right:8px}
+#app .workspace:not([data-screen="viewer"]) .component-room-card .live-inventory th:last-child{width:92px}
+/* Table text a size up (12px read small in long review sessions). */
+#app .workspace:not([data-screen="viewer"]) :is(.tablewrap,.live-inventory) table{font-size:13px}
+#app .main .component-room-preview span,#app .main .room-summary-previews+* span{font-size:12.5px}
+
+/* Photo viewer: the room inventory box stays in view while the object list scrolls. */
+.vision-inspector-body .vision-room-count.is-live{background:#fff;align-self:stretch;grid-template-columns:minmax(0,1fr)}
+/* Step statuses at 14px semibold; actionable ones carry a filled mark. */
+#app .workspace:not([data-screen="viewer"]) .study-navigation .step small,#app .hub-progress-step small,#app .hub-step-status{font-size:14px;font-weight:600}
+#app .workspace:not([data-screen="viewer"]) .study-navigation .step-tone-review small::before,#app .step-tone-review .hub-progress-step small::before,#app .step-tone-review .hub-step-status::before{width:9px;height:9px;box-shadow:0 0 0 2px #fdeed6}
+/* Rooms: less space before the records. */
+#app .placement-page-heading{margin-bottom:8px}
+#app .placement-overview{padding-bottom:10px;margin-bottom:12px}
+.live-scope{font-size:13px;color:#34473d;background:#f4f7f5;border:1px solid #dfe7e2;border-radius:8px;padding:8px 10px}
+/* An opened room's photos at a deliberate size, several to a row. */
+#app .placement-room.is-expanded .placement-gallery{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,280px));gap:12px}
+
+/* Study progress: the corrections just sent, while the stage reruns. */
+#app .hub-sent{border:1px solid #c6dbee;background:#eef5fb;border-radius:14px;padding:14px 18px;margin:0 0 14px}
+#app .workspace .content .hub-sent h2{font-size:15px;margin:0 0 8px;color:#1d3d5c}
+#app .hub-sent ul{list-style:none;margin:0;padding:0;display:grid;gap:4px}
+#app .hub-sent li{display:flex;gap:12px;justify-content:space-between;font-size:13.5px}
+#app .hub-sent li span{color:#34473d;text-align:right}
+#app .hub-sent p{margin:8px 0 0}
+/* An opened components room: its heading, counts and Hide button on one compact header row. */
+#app .component-room-card:has(.component-room-toggle[aria-expanded="true"]) .component-room-summary{display:grid;grid-template-columns:minmax(0,1fr) auto;column-gap:16px;align-items:start}
+#app .component-room-card:has(.component-room-toggle[aria-expanded="true"]) .component-room-summary>.component-room-preview{grid-column:2;grid-row:1;margin:0}
+#app .component-room-card:has(.component-room-toggle[aria-expanded="true"]) .component-room-summary>:not(.component-room-preview){grid-column:1}
+#app .component-room-card:has(.component-room-toggle[aria-expanded="true"]) .component-room-summary>.component-room-counts{margin-top:4px}
+/* Rooms: a room with one or two photos stays in its column when opened. */
+#app .placement-room.is-expanded:not(:has(.placement-gallery > :nth-child(3))){grid-column:auto}
+
+/* Asset detail: the values under review first; the asset list names each room. */
+#app .asset-facts{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:0;margin:12px 0 4px;border:1px solid #d5dfd8;border-radius:12px;background:#fff}
+#app .asset-facts div{padding:10px 14px;min-width:0}#app .asset-facts div+div{border-left:1px solid #e1e9e3}
+#app .asset-facts dt{font-size:12.5px;color:#475a50}#app .asset-facts dd{margin:2px 0 0;font-size:16px;font-weight:650;color:#213b30;font-variant-numeric:tabular-nums;overflow-wrap:anywhere}
+#app .asset-nav .asset-nav-name{display:grid;min-width:0}#app .asset-nav .asset-nav-name small{font-size:12px;color:#475a50;font-weight:400}
+#app details.asset-review-warning>summary{cursor:pointer;list-style:revert}#app details.asset-review-warning>summary h3{display:inline;margin:0}
+/* Photo viewer: the detections list says it is this photo's, apart from the room inventory. */
+.vision-list-label{margin:12px 0 4px;padding:0 16px;font-size:13px;font-weight:600;color:#475a50}
+/* Supporting labels and table headings at 14px. */
+#app .workspace:not([data-screen="viewer"]) :is(.tablewrap,.live-inventory) th,#app .result-table thead th,.nd-schedule thead th{font-size:14px;font-weight:600}
+#app .result-facts dt,#app .result-summary dt,#app .profile-settings-pane label+span,#app .settings-section-heading p{font-size:14px}
+@media(max-width:1100px){#app .asset-facts{grid-template-columns:repeat(3,minmax(0,1fr))}}
+/* A long citation: two lines and an explicit control for the rest. */
+#app .citation-preview>summary{list-style:none;cursor:pointer}#app .citation-preview>summary::-webkit-details-marker{display:none}
+#app .citation-preview>summary span{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+#app .citation-preview>summary b{display:inline-block;margin-top:4px;font-size:13px;color:#2f6b4a}
+#app .citation-preview[open]>summary span{display:none}#app .citation-preview[open]>summary b{display:none}
+
+/* Room cards: photos large enough to recognize (about 120x90). */
+#app .workspace .room-summary-thumb,#app .workspace .room-summary-previews .live-photo-missing{width:120px;height:90px}
+#app .placement-thumb,#app .placement-thumb .room-summary-thumb{width:120px;height:90px}
+/* The asset dialog's limits, after the form. */
+.live-asset-limits{margin:12px 0 0;font-size:12.5px;color:#475a50}
+/* Review pages leave room above the decision footer for their last rows. */
+#app .workspace:not([data-screen="appraisal"]) .content:has(.review-decision){padding-bottom:120px}
+/* Inventory beside the photos: the count column holds its "Use N" suggestion. */
+#app .workspace:not([data-screen="viewer"]) .component-room-card .live-inventory th:nth-child(2){width:26%}
+#app .component-room-card .live-suggest-count{display:flex;flex-wrap:wrap;align-items:center;gap:4px 8px}
+/* Building cost calculation: one step per row, its citation under it. */
+#app .calc-steps{table-layout:fixed;width:100%}
+#app .calc-steps col.calc-op-col{width:40px}
+#app .calc-steps td.calc-op{text-align:center}
+#app .calc-steps td.calc-op{font-size:17px;font-weight:600;color:#2f6b4a;vertical-align:top}
+#app .calc-steps td{font-size:14px;line-height:1.5;color:var(--ui-ink,#1f3328);overflow-wrap:anywhere}
+#app .calc-steps td small{display:block;margin-top:4px;font-size:13px;line-height:1.45;color:#475a50}
+#app .calc-steps tr.calc-total td{border-top:2px solid #bcd0c2;font-size:15px}
+/* Room inventory box: the room, then the type and its total on one line, actions side by side. */
+.vision-room-count.is-live>.vision-room-title{font-size:13px;font-weight:600;color:#475a50}
+.vision-room-count.is-live>.vision-room-value{gap:8px;flex-wrap:wrap;font-size:15px;color:#213b30}
+.vision-room-count.is-live>.vision-room-value b{font-weight:600}
+.vision-room-count.is-live>.vision-room-value strong{margin-left:auto;font-size:20px}
+.vision-room-count.is-live>.vision-room-note{margin:0;font-size:13px;line-height:1.45;color:#34473d}
+.vision-room-count.is-live>.vision-action-row{display:grid;grid-template-columns:1fr;gap:8px;margin-top:4px}
+.vision-room-count.is-live>.vision-action-row button{width:100%;justify-content:center}
+/* Collapsed room photos open that photo. */
+#app .room-summary-link{display:block;border-radius:7px;line-height:0}
+#app .room-summary-link:hover .room-summary-thumb{outline:2px solid #2f6b4a;outline-offset:1px}
+#app .room-summary-link:focus-visible{outline:2px solid #1f6b45;outline-offset:2px}
+/* Asset photo evidence: the file on one line, what it shows on the next. */
+#app .live-evidence-caption{display:grid;gap:2px;margin-top:6px;font-size:13px;line-height:1.4;color:#34473d}
+#app .live-evidence-caption .live-evidence-file{font-weight:600;color:var(--ui-ink,#1f3328);overflow-wrap:anywhere}
+/* Settings: supporting text at the shared secondary size and ink. */
+#app .main .profile-field-row p,#app .main .profile-photo-controls #profile-photo-help,#app .main .profile-account-details span,#app .main .profile-local-note{font-size:14px;line-height:1.5;color:var(--ui-muted,#475a50)}
+#app .main .profile-field-row p{max-width:240px}
+#app .main .profile-account-details strong{font-size:14px;color:var(--ui-ink,#1f3328)}
+#app .calc-steps thead{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%);white-space:nowrap}
+#app .live-evidence-caption>a{justify-self:start}
+/* Asset flags: one row per reason, its fix under it, the code last. */
+#app .flag-list{list-style:none;margin:8px 0 0;padding:0;display:grid;gap:10px}
+#app .flag-row{display:grid;gap:4px;padding:10px 12px;border-radius:8px;background:#fff;border:1px solid #e6dcc6}
+#app .asset-review-warning.is-retained .flag-row{border-color:#d9e2dc}
+#app .workspace .content .flag-row p{margin:0;font-size:14px;line-height:1.5;color:#213b30}
+#app .workspace .content .flag-row .flag-fix{font-size:13.5px;color:#34473d}
+#app .flag-row .flag-fix::before{content:"Fix: ";font-weight:600}
+#app .flag-row code{justify-self:start;font-size:12px;color:#475a50;background:#f1f5f2;border-radius:4px;padding:1px 6px}
+/* Appraisal: the selected field carries its Correct action under its value. */
+#app .appraisal-organized .field-cell{display:grid;grid-template-columns:minmax(0,1fr);min-width:0}
+#app .appraisal-organized .field-cell>*{grid-column:1!important}
+#app .appraisal-organized .property-facts>.field-cell{grid-column:span 3}
+#app .appraisal-organized .property-facts>.field-cell.property-location{grid-column:span 2}
+#app .appraisal-organized .property-facts>.field-cell.property-address{grid-column:1/-1}
+#app .appraisal-organized .field-cell>.field-row.selected{border-bottom-left-radius:0;border-bottom-right-radius:0}
+#app .appraisal-organized .field-correct{display:flex;align-items:center;gap:6px;justify-content:flex-start;width:100%;min-height:36px;padding:6px 12px;border:0;border-top:1px solid #c5d9cb;border-radius:0 0 10px 10px;background:#dfeee3;font:600 13px/1.3 inherit;color:#1f5a3c;cursor:pointer;box-shadow:inset 1px 0 0 #90b39b,inset -1px 0 0 #90b39b,inset 0 -1px 0 #90b39b}
+#app .appraisal-organized .field-correct:hover{background:#d3e8d9}
+#app .appraisal-organized .field-correct:focus-visible{outline:2px solid #1f6b45;outline-offset:-2px}
+#app .main .profile-field-row{padding:16px 0;align-items:center}
+#app .main .profile-field-row p{margin-top:2px}
+/* Rooms and Components: as many 400px+ cards per row as fit (3 at 1440, 2 at 1280). */
+#app .main .room-sections{grid-template-columns:repeat(auto-fill,minmax(400px,1fr))}
+/* Narrow desktops: the step status keeps a clear inset inside the active step's box. */
+@media (max-width:1366px){#app .workspace:not([data-screen="viewer"]) .study-navigation .step{padding-right:10px}#app .workspace:not([data-screen="viewer"]) .study-navigation .step small{font-size:12px;gap:4px}}
+/* Appraisal: unselected fields mark "needs a look" with a small amber marker; the section header is its legend. */
+#app .appraisal-organized .look-mark{display:inline-block;width:8px;height:8px;margin:0 0 1px 8px;vertical-align:middle;border-radius:50%;background:#94621e;box-shadow:0 0 0 2px #f6e7cc}
+#app .appraisal-organized .look-mark.is-retained{background:#4f6458;box-shadow:0 0 0 2px #dfe7e2}
+#app .appraisal-organized .look-legend{display:inline-flex;align-items:center;gap:5px}
+#app .appraisal-organized .look-dot{display:inline-block;width:7px;height:7px;border-radius:50%;background:#94621e;box-shadow:0 0 0 2px #f6e7cc}
+#app .appraisal-organized .look-legend.is-retained .look-dot{background:#4f6458;box-shadow:0 0 0 2px #dfe7e2}
+/* Viewer: the type heading sits inside the sticky room inventory box; the add action is labelled. */
+.vision-room-count.is-live>.vision-type-title{margin:0 0 4px}
+.vision-room-count.is-live>.vision-room-value{width:100%;display:grid!important;grid-template-columns:minmax(0,1fr) auto;align-items:baseline}
+.vision-inspector header .vision-add-object{display:inline-flex;align-items:center;gap:6px;width:auto;padding:0 12px;font-size:13px;font-weight:600;white-space:nowrap}
+/* Results tables: a row header reads like its row (the global th rule is for column headers). */
+#app .result-table tbody th{font-size:14px;font-weight:600;color:var(--ui-ink,#213b30);background:transparent}
+/* Asset correction dialog: compact fields, quantity on one row, the next route before the limits. */
+#app .modal:has(#live-asset-category) .field input,#app .modal:has(#live-asset-category) .field select[data-native="true"],#app .modal:has(#live-asset-category) .field>.product-select{min-height:40px;padding-block:8px}
+.modal:has(#live-asset-category) .live-asset-quantity .field{margin:0}
+.modal:has(#live-asset-category) #live-asset-reason{min-height:60px}
+.live-asset-route{margin:12px 0 0;font-size:13.5px;color:#213b30}
+/* Results tables of figures: numbers right-aligned under right-aligned headings. */
+#app .result-table.is-numeric td,#app .result-table.is-numeric thead th:not(:first-child){text-align:right}
+/* With corrections waiting, the decision bar's send action leads. */
+#app .review-decision .button.is-pending{background:#94621e;border-color:#94621e;color:#fff}
+#app .review-decision .button.is-pending:hover{background:#7d5218}
+/* Team: table text at the shared sizes, cells centred on their row. */
+#app .workspace[data-screen="team"] .main td{vertical-align:middle}
+#app .workspace[data-screen="team"] .main td b{font-size:14px}
+#app .workspace[data-screen="team"] .main td small{font-size:13px;color:var(--ui-muted,#475a50)}
+#app .workspace[data-screen="team"] .main td .badge{font-size:12.5px}
+#app .workspace[data-screen="team"] .main td .button.small{font-size:13px}
+#app .workspace[data-screen="team"] .main td .product-select-value{font-size:13.5px}
+#app .live-team-policy p{font-size:13.5px;line-height:1.5;color:#34473d}
+/* Engineer overrides on a photo: a Not counted object keeps its row and box, struck through, with who and why. */
+.vision-exclusion{display:grid;gap:2px;margin:6px 0 4px;padding:8px 10px;border-radius:8px;background:#fff6e6;border:1px solid #ecd3a4}
+.vision-exclusion strong{font-size:13px;color:#7a4100}
+.vision-exclusion span{font-size:13px;color:#5b4a2f}
+.vision-exclusion q{font-size:13px;color:#34473d;quotes:"“" "”"}
+.vision-detail.is-excluded h3{text-decoration:line-through;text-decoration-color:#94621e}
+.vision-instance.is-excluded{background:#fffaf1;border-style:dashed}
+.vision-instance.is-excluded s{text-decoration-color:#94621e}
+.vision-instance.is-excluded small{color:#7a4100}
+/* Engineer overrides on an inventory row: the AI's value struck through beside the engineer's. */
+#app .live-ai{color:#556a5e;text-decoration-color:#94621e}
+#app .live-engineer{font-weight:600;color:#213b30}
+#app .live-edited-chip{display:inline-block;margin-left:8px;padding:1px 7px;border-radius:999px;background:#e3eef8;color:#245d8f;font-size:12px;font-weight:600;vertical-align:1px}
+#app .live-edited-chip.is-removed{background:#fbe6e1;color:#8b3a2b}
+#app .live-row-edited td{background:#f7fbff}
+#app .live-row-removed td{background:#fdf5f3;color:#5b4a46}
+#app .live-row-reason{display:block;margin-top:2px;font-size:12.5px;color:#5b4a46}
+.modal .live-ai-hint{margin-left:6px;font-size:12px;font-weight:500;color:#556a5e}
+.modal .live-stepper{display:grid;grid-template-columns:40px minmax(0,1fr) 40px;gap:6px}
+.modal .live-stepper .button{min-height:40px;padding:0;justify-content:center;font-size:18px}
+.modal .live-stepper input{text-align:center}
+.modal .live-field-pair{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:12px}
+.modal .live-field-help{display:block;margin-top:4px;font-size:12.5px;color:#475a50}
+.modal .actions .live-modal-left{display:flex;gap:8px;margin-right:auto}
+#app .cost-override{display:grid;gap:2px;margin:10px 0;padding:10px 12px;border-radius:8px;background:#eef4fb;border:1px solid #c9dbee}
+#app .cost-override strong{font-size:13.5px;color:#1f4f7a}#app .cost-override span{font-size:13.5px;color:#213b30}#app .cost-override q{font-size:13px;color:#34473d}
+/* The viewer's header: the title and count on one line, Draw missing object below them. */
+.vision-inspector>header:has(.vision-add-object){flex-wrap:wrap}
+.vision-inspector>header:has(.vision-add-object)>div{flex:1 1 100%}
+.vision-inspector header .vision-add-object{flex:0 0 auto}
+/* Inventory headings stay on one line; the room table scrolls before a word breaks. */
+#app .live-inventory td small.live-row-reason{max-width:28ch}
+#app .workspace:not([data-screen="viewer"]) .live-inventory th{white-space:nowrap}
+#app .workspace:not([data-screen="viewer"]) .component-room-card .live-inventory table:has(th.num) th:first-child{width:24%}
+#app .workspace:not([data-screen="viewer"]) .component-room-card .live-inventory table:has(th.num) th:nth-child(2){width:15%}
+#app .workspace:not([data-screen="viewer"]) .component-room-card .live-inventory table:has(th.num) :is(th:nth-child(3),th:nth-child(4)){width:15%}
+#app .workspace:not([data-screen="viewer"]) .component-room-card .live-inventory table:has(th.num) td:nth-child(5) :is(.live-engineer,.live-ai){white-space:nowrap}
+#app .workspace:not([data-screen="viewer"]) .live-inventory table:has(th.num) :is(td,th){padding-inline:8px;overflow-wrap:break-word}
+/* With the unit price column, a narrow desktop narrows the photo column so the inventory keeps its width. */
+@media (max-width:1366px){#app .component-room-card .room-section-body:not([hidden]):has(.live-inventory th.num){grid-template-columns:200px minmax(0,1fr)}}
+/* In an inventory cell the AI's value sits above the engineer's. */
+#app .live-inventory td .live-ai{display:block;font-size:12.5px;line-height:1.3}
+/* Collapsed room cards: photos on one row, Show components always on its own row below them. */
+#app .component-room-card:not(:has(.component-room-toggle[aria-expanded="true"])) .component-room-preview{flex-direction:column;align-items:flex-start;gap:12px}
+/* Appraisal: a corrected field shows the AI's value struck through above yours. */
+#app .appraisal-organized .field-row>strong .live-ai{display:block;font-size:13px;font-weight:500}
+#app .appraisal-organized .field-row>strong .live-edited-chip{margin-left:0;margin-top:4px;justify-self:start}
+#app .appraisal-organized .field-row>strong .field-reason{display:block;margin-top:4px;font-size:13px;font-weight:500;color:#34473d}
+/* Low confidence reads amber whether or not the step is approved. */
+#app .appraisal-organized .look-mark.is-retained,#app .appraisal-organized .look-legend.is-retained .look-dot{background:#94621e;box-shadow:0 0 0 2px #f6e7cc}
+/* Viewer: what the photo shows next to what the room prices, and what a photo edit changes. */
+.vision-room-count.is-live>.vision-room-photo{font-size:13px;color:#34473d}
+.vision-room-count.is-live>.vision-room-hint{margin:0;padding:6px 8px;border-radius:6px;background:#eef4fb;font-size:12.5px;line-height:1.4;color:#1f4f7a}
+.vision-exclusion .vision-saved{margin-left:6px;padding:0 6px;border-radius:999px;background:#e5f1e9;color:#1f5a3c;font-size:11.5px;font-weight:600}
+body:has(.review-decision) #toast{bottom:118px}
+.vision-room-count.is-live>.vision-room-suggest{display:flex;align-items:center;justify-content:space-between;gap:8px;margin:0;padding:6px 8px;border-radius:6px;background:#fff6e6;font-size:13px;color:#5b4a2f}
+.vision-room-count.is-live>.vision-room-suggest .vision-use{min-height:30px;padding:2px 10px;font-weight:600}
+/* r20: the viewer panel fits a selected object without scrolling its top away */
+.vision-inspector:has(.vision-type-title) .vision-inspector-footer{display:none}
+.vision-inspector>header:has(.vision-add-object){padding:14px 16px 12px;row-gap:8px}
+.vision-inspector-body:has(.vision-type-title){padding-top:4px}
+.vision-room-count.is-live>.vision-type-title{padding:0}
+.vision-room-count.is-live>.vision-type-title h3{margin-top:2px}
+.vision-room-count.is-live{gap:6px}
+/* r20: a collapsed room card is a compact row: its first photo, then its types and Show components beside it. */
+#app .component-room-card:not(:has(.component-room-toggle[aria-expanded="true"])) .component-room-summary{grid-template-columns:auto minmax(0,1fr);column-gap:18px;row-gap:12px}
+#app .component-room-card:not(:has(.component-room-toggle[aria-expanded="true"])) .component-room-summary>:is(.component-room-heading,.component-room-counts){grid-column:1/-1}
+#app .component-room-card:not(:has(.component-room-toggle[aria-expanded="true"])) .component-room-preview{display:contents}
+#app .component-room-card:not(:has(.component-room-toggle[aria-expanded="true"])) .room-summary-previews{grid-column:1;grid-row:3/span 2;flex-direction:column;align-items:flex-start;gap:6px;align-self:start}
+#app .component-room-card:not(:has(.component-room-toggle[aria-expanded="true"])) .component-room-summary>.room-summary-categories{grid-column:2;grid-row:3;flex-direction:column;align-items:flex-start;align-self:start;gap:6px}
+#app .component-room-card:not(:has(.component-room-toggle[aria-expanded="true"])) .room-category-more{margin-left:0;padding:0 2px}
+#app .workspace:not([data-screen="viewer"]) .component-room-card:not(:has(.component-room-toggle[aria-expanded="true"])) .component-room-toggle{grid-column:2;grid-row:4;margin-left:0;justify-self:start;align-self:end}
+#app .component-room-card:not(:has(.component-room-toggle[aria-expanded="true"])) .room-preview-more{padding-left:0}
+#app .live-inventory .live-row-actions{display:inline-flex;flex-direction:column;align-items:stretch;gap:6px}
+#app .live-inventory .live-row-actions .button{justify-content:center;white-space:nowrap}
+#app .workspace:not([data-screen="viewer"]) .component-room-card .live-inventory td.text-right:has(.button.quiet){width:108px;min-width:108px}
+.modal .live-ai-hint{white-space:nowrap}
+.vision-room-count.is-live>.vision-type-title{display:flex;flex-direction:row-reverse;justify-content:space-between;align-items:center;gap:12px}
+.vision-room-count.is-live>.vision-type-title h3{margin:0;min-width:0}
+.modal .field:has(#vision-retype-reason),.modal .field:has(#vision-exclude-reason){margin-top:14px}
+/* r21: completed steps recede so the one decision left leads; the selected step keeps its weight. */
+#app .workspace:not([data-screen="viewer"]) .study-navigation .step.step-tone-done:not(.is-selected) small,#app .step-tone-done .hub-progress-step small,#app .step-tone-done .hub-step-status{font-weight:500}
+#app .workspace:not([data-screen="viewer"]) .study-navigation .step.step-tone-done:not(.is-selected) strong{color:#34473d}
+.vision-room-count.is-live>.vision-room-suggest .vision-use{white-space:nowrap;flex:none}
+.vision-room-count.is-live>.vision-room-suggest>span{min-width:0}
+/* Live, an object selected: the type, then the object's card, then the room inventory. */
+.vision-inspector-body>.vision-type-title{display:flex;flex-direction:row-reverse;justify-content:space-between;align-items:center;gap:12px;padding:4px 20px 10px}
+.vision-inspector-body>.vision-type-title h3{margin:0;min-width:0}
+/* r22: low-confidence marks stay amber on an approved appraisal; flags read as history. */
+#app .appraisal-organized .look-mark,#app .appraisal-organized .look-mark.is-retained{background:#94621e!important;box-shadow:0 0 0 2px #f6e7cc!important}
+/* r23: the viewer footer says what is saved and what waits, with Review & send. */
+.vision-inspector .vision-inspector-footer:has(.vision-pending){display:flex!important;align-items:center;justify-content:space-between;gap:12px;padding:12px 16px}
+.vision-inspector-footer .vision-pending{margin:0;display:grid;gap:2px;min-width:0}
+.vision-inspector-footer .vision-pending b{font-size:13.5px;font-weight:600;color:#213b30}
+.vision-inspector-footer .vision-pending span{font-size:12.5px;line-height:1.35;color:#475a50}
+.vision-inspector-footer:has(.vision-pending) .button{flex:none;white-space:nowrap}
+.vision-inspector-footer:has(.vision-pending b:not(:only-child)) {background:#fbfcfb}
+/* r23: an added correction flashes the decision bar instead of a toast over the rows. */
+@keyframes decision-flash{0%{box-shadow:0 0 0 0 rgba(148,98,30,.55)}100%{box-shadow:0 0 0 10px rgba(148,98,30,0)}}
+#app .review-decision.is-flash{animation:decision-flash .9s ease-out 1}
+@media (prefers-reduced-motion:reduce){#app .review-decision.is-flash{animation:none;outline:2px solid #94621e}}
+/* Rows clear the sticky decision bar at the end of the page. */
+#app .workspace:not([data-screen="appraisal"]):has(.review-decision) .content{padding-bottom:140px}
+/* r23: each correction to send: what, then one change per line, then the reason. */
+.live-send-list li{display:grid;justify-content:stretch;gap:2px}
+.live-send-list li strong{font-size:13.5px;color:#213b30}
+.live-send-list span{text-align:left;font-variant-numeric:tabular-nums}
+.live-send-list em{font-style:normal;color:#56685e;font-size:12.5px}
+/* r24: an object selected, the photo-vs-priced difference sits above its card. */
+.vision-inspector-body>.vision-compare{margin:0 16px 12px;padding:10px 12px;border:1px solid #efd9b0;border-radius:10px;background:#fffaf1;gap:6px}
+.vision-inspector-body>.vision-compare>.vision-room-suggest{background:transparent;padding:0}
+/* r24: the step bar: names lead (14/600), states 13; a completed step's check needs no second dot. */
+#app .workspace:not([data-screen="viewer"]) .study-navigation .step strong{font-size:14px;font-weight:600}
+#app .workspace:not([data-screen="viewer"]) .study-navigation .step small{font-size:13px}
+#app .workspace:not([data-screen="viewer"]) .study-navigation .step.step-tone-done small::before{display:none}
+#app .workspace:not([data-screen="viewer"]) .study-navigation .step.step-tone-done:not(.is-selected) strong{font-weight:600}
+
+/* r26: each delivery state its own pill: Update required solid amber, signature work blue, missing details neutral; every pill leads with a dot. */
+#app .desk-status{display:inline-flex;align-items:center;gap:6px}
+#app .desk-status:not(:has(>span))::before{content:"";width:7px;height:7px;border-radius:50%;background:currentColor;flex:none}
+#app .desk-status.is-update{color:#fff;background:#8a4b00;border-color:#8a4b00}
+#app .desk-status.is-details{color:#3f5247;background:#fff;border-color:#b8c6bd}
+/* r26: one card for the photo-vs-priced difference: Use N or Keep M. */
+.vision-room-suggest .vision-suggest-actions{display:inline-flex;gap:6px;flex:none}
+.vision-room-count.is-live .vision-use.is-keep{background:#fff;border-color:#d6c3a1;color:#5b4a2f;font-weight:500}
+
+/* Library: finished studies whose report status has not loaded yet are named, not miscounted. */
+#app .library-checking{flex-basis:100%;font-size:12.5px;color:#475a50}

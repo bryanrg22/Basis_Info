@@ -113,6 +113,8 @@
    photoObjects:(id,doc,revision)=>request('GET',`${study(id)}/photos/${encodeURIComponent(doc)}/objects`,{query:{revision}}),
    addObject:(id,doc,body,key)=>request('POST',`${study(id)}/photos/${encodeURIComponent(doc)}/objects`,{body,key}),
    deleteObject:(id,doc,objectId,key)=>request('DELETE',`${study(id)}/photos/${encodeURIComponent(doc)}/objects/${encodeURIComponent(objectId)}`,{key}),
+   // Proposed (web/FRONTEND_BACKLOG.md 14): mark an instance Not counted, or count it again. Called only when GET /v1/capabilities offers object_exclusion.
+   setObjectCounted:(id,doc,objectId,body)=>request('PATCH',`${study(id)}/photos/${encodeURIComponent(doc)}/objects/${encodeURIComponent(objectId)}`,{body}),
    decide:(id,body,key)=>request('POST',`${study(id)}/decisions`,{body,key}),
   };
  }

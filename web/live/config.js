@@ -3,6 +3,7 @@
  *   index.html                          mock data, no network
  *   index.html?mode=live                the API at apiBase, Firebase Auth emulator
  *   index.html?mode=live&api=http://127.0.0.1:8000
+ *   index.html?mode=live&api=sample     the in-browser sample API (live/sample-api.js)
  *
  * The query string survives hash navigation, so the mode holds while you move between
  * screens. Edit the defaults below for a deployed environment (web/README.md).
@@ -32,6 +33,8 @@
   if(q.get('mode')==='live'||q.get('mode')==='mock')out.mode=q.get('mode');
   if(q.get('signin')==='redirect'||q.get('signin')==='popup')out.signInFlow=q.get('signin');
   const api=q.get('api');if(api&&/^https?:\/\/[^\s]+$/.test(api))out.apiBase=api.replace(/\/+$/,'');
+  // The in-browser sample API (live/sample-api.js): synthetic data, no backend, no sign-in.
+  if(api==='sample')out.apiBase='sample';
   return out;
  }
  function resolve(search,overrides={}){

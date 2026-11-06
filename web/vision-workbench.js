@@ -7,7 +7,7 @@
   const reviewStage=()=>Live?Live.gates.editStage(Live.state.study):'rooms_review';
  const name=l=>String(l||'').replace(/_/g,' ').replace(/^./,c=>c.toUpperCase());
  let context=null,cleanup=()=>{},mounted=null;
- const view={doc:null,focusLabel:null,selectedId:null,hide:false,zoom:1,x:0,y:0,tool:null,addLabel:null,draft:null,points:[],busy:false,overlap:[],newId:null,notice:'',error:false,hand:false,candidates:null};
+ const view={doc:null,focusLabel:null,selectedId:null,hide:false,zoom:1,x:0,y:0,tool:null,addLabel:null,draft:null,points:[],busy:false,overlap:[],newId:null,notice:'',error:false,hand:false,candidates:null,kept:new Set()};
  const fixture={items:new Map(),counts:new Map(),reviewed:new Set()};
  function sampleItems(doc){
   if(fixture.items.has(doc))return fixture.items.get(doc);
@@ -50,11 +50,42 @@
   <div class="vision-body"><section class="vision-photo" aria-label="${c.photoOnly?'Photo':'Photo and outlines'}"><div class="vision-toolbar"><div class="vision-tools">${c.photoOnly?'':act('all','All types','','aria-pressed="'+(!view.focusLabel)+'"')+act('outlines',view.hide?'Show outlines':'Hide outlines','','aria-pressed="'+!view.hide+'"')}${act('hand','Pan','','aria-pressed="'+view.hand+'"')}</div><div class="vision-zoom">${act('out','−','','aria-label="Zoom out"')}<output id="vision-zoom">100%</output>${act('in','+','','aria-label="Zoom in"')}${act('fit','Fit','','aria-label="Fit photo"')}</div></div>
   <div class="vision-canvas" tabindex="0" aria-label="Photo canvas. ${c.photoOnly?'':'Click objects to select. Repeat click or press the right bracket key while the canvas is focused to cycle overlapping objects. '}Pinch or use plus and minus to zoom. Scroll to pan when zoomed."><div class="vision-image">${photo(p,p.filename,'vision-source')}${c.photoOnly?'':'<div class="vision-pin-layer"></div><svg class="vision-drawing" viewBox="0 0 1000 1000" preserveAspectRatio="none" aria-hidden="true"></svg>'}</div><div class="vision-canvas-note" role="status" aria-live="polite"></div></div>
   ${c.photoOnly?'':'<div class="vision-feedback" role="status" aria-live="polite"></div>'}<footer class="vision-filmstrip"><nav aria-label="Photos in this room">${c.photos.map((p,i)=>act('photo',photo(p,'')+`<span>${i+1}</span>`,p.document_id,`aria-label="Photo ${i+1}: ${esc(p.filename)}" aria-current="${i===c.at?'true':'false'}" title="${esc(p.filename)}"`)).join('')}</nav><span>${c.photos.length} ${c.photos.length===1?'photo':'photos'}</span>${Live?`<button type="button" data-live="download-doc" data-value="${esc(c.doc)}" aria-label="Download original photo">${icon('download',16)}</button>`:`<a href="assets/${p.asset}.webp" download aria-label="Download original photo">${icon('download',16)}</a>`}</footer></section>
-  ${c.photoOnly?'':`<aside class="vision-inspector" aria-label="Components inspector"><header><div><h2>Components</h2><p>${c.items.filter(i=>i.counted).length} objects in this photo</p></div>${c.open&&!c.loading&&!c.error?act('add',icon('plus',16),'','class="vision-edit" aria-label="Add a component"'):''}</header><div class="vision-inspector-scroll" tabindex="0" aria-label="Component list"><div class="vision-inspector-body"></div></div><footer class="vision-inspector-footer">${Live?`<a href="${Live.route(c.back||'rooms',c.id)}">Room inventory ${icon('arrow',14)}</a>`:act('rooms','Room inventory '+icon('arrow',14))}<span>Counts used for pricing live at room level.</span></footer></aside>`}</div></section>`;
+  ${c.photoOnly?'':`<aside class="vision-inspector" aria-label="Components inspector"><header><div><h2>Components</h2><p>${c.items.filter(i=>i.counted).length} objects in this photo</p></div>${c.open&&!c.loading&&!c.error?act('add',icon('plus',16)+'Draw missing object','','class="vision-edit vision-add-object"'):''}</header><div class="vision-inspector-scroll" tabindex="0" aria-label="Component list"><div class="vision-inspector-body"></div></div><footer class="vision-inspector-footer">${Live?`<a href="${Live.route(c.back||'rooms',c.id)}">Room inventory ${icon('arrow',14)}</a>`:act('rooms','Room inventory '+icon('arrow',14))}<span>Counts used for pricing live at room level.</span></footer></aside>`}</div></section>`;
  }
  function current(){return context.items.find(i=>i.id===view.selectedId)}
  function counted(){return context.items.filter(i=>i.counted)}
  function sorted(label){return counted().filter(i=>!label||i.label===label).sort((a,b)=>a.box.x1-b.box.x1||a.box.y1-b.box.y1||a.id.localeCompare(b.id))}
+ // Live mode offers only what the API does. A found object's priced count is corrected through
+ // the room inventory (a component correction, sent with Review & send). Live: an engineer-added object can be deleted. With object_exclusion (GET /v1/capabilities,
+ // proposed) any object can be marked Not counted or given another type; neither erases the AI's
+ // box. Without it the panel offers only what the API does.
+ /* Live: what is saved and what waits, always in view under the panel. Photo changes (Not counted,
+  * a drawn object) are saved at once; inventory corrections wait for Review & send. */
+ function liveFooter(){
+  const c=context,stage=reviewStage(),n=Live.state.corrections[stage]?.size||0;
+  if(!c.open)return `<a href="${Live.route(c.back||'components',c.id)}">Room inventory ${icon('arrow',14)}</a><span>Counts used for pricing live at room level.</span>`;
+  return n?`<p class="vision-pending"><b>${n} ${n===1?'correction':'corrections'} pending</b><span>Photo changes are already saved.</span></p><button type="button" class="button small primary" data-live="reject" data-value="${stage}">Review &amp; send</button>`:`<p class="vision-pending"><b>No inventory corrections pending</b><span>Photo changes save at once; inventory corrections wait for Review &amp; send.</span></p>`;
+ }
+ function liveObjectActions(s){
+  const caps=Live.caps||{},rows=[];
+  if(s.exclusion)return caps.objectExclusion?`<div class="vision-action-row vision-edit">${act('restore',s.source==='manual'?'Count it again':'Reset to AI')}</div>`:'';
+  if(s.source==='manual'&&view.newId===s.id)rows.push(act('confirm','Keep addition','','class="vision-primary"'));
+  if(caps.objectExclusion)rows.push(act('retype','Change type'),act('exclude','Not counted'));
+  if(s.source==='manual'&&caps.objectExclusion&&replacedBy(s))rows.push(act('reset-type','Reset to AI'));
+  if(s.source==='manual')rows.push(act('delete','Delete','','class="vision-danger"'));
+  return rows.length?`<div class="vision-action-row vision-edit">${rows.join('')}</div>`:'';
+ }
+ // The AI detection a Change type replaced: excluded as "Type changed to …" at the same box.
+ // "Keep N" holds for this study, revision, room and type, and for the detections excluded when it
+ // was chosen: excluding another one asks again.
+ function keptKey(label){const c=context;return `${c.id}:${c.revision}:${c.room?.id}:${label}:${c.items.filter(i=>i.exclusion&&i.label===label).length}`}
+ // The object a Change type drew in place of this AI detection (the inverse of replacedBy).
+ function replacementOf(s){if(!s||s.source==='manual'||!/^Type changed to /.test(s.exclusion?.reason||''))return null;return context.items.find(i=>i.source==='manual'&&replacedBy(i)?.id===s.id)||null}
+ function replacedBy(s){if(s.source!=='manual')return null;const b=s.box;return context.items.find(i=>i.exclusion&&/^Type changed to /.test(i.exclusion.reason||'')&&Math.abs(i.box.x1-b.x1)<.002&&Math.abs(i.box.y1-b.y1)<.002&&Math.abs(i.box.x2-b.x2)<.002&&Math.abs(i.box.y2-b.y2)<.002)||null}
+ function exclusionNote(s){
+  const x=s.exclusion;if(!x)return '';
+  return `<div class="vision-exclusion"><strong>Not counted <small class="vision-saved">Photo evidence saved</small></strong><span>by ${esc(x.by_name||'an engineer')}${x.at&&Live?.when?' · '+esc(Live.when(x.at)):''}</span>${x.reason?`<q>${esc(x.reason)}</q>`:''}</div>`;
+ }
  function inspector(){
   const c=context,s=current(),types=[...new Set(counted().map(i=>i.label))].sort(),label=view.focusLabel,objects=sorted(label);
   if(c.loading)return '<p class="vision-empty">Loading components…</p>';
@@ -62,18 +93,32 @@
   let html='';
   if(view.tool){
    const d=view.draft,candidate=view.candidates?c.items.find(i=>i.id===view.candidates.ids[view.candidates.at]):null;
-   html+=`<section class="vision-add"><h3>${d?'Check your selection':'Add an object'}</h3><label>Component type<select id="vision-add-label" aria-label="Component type" ${view.busy?'disabled':''}>${[...new Set([...labels,...types])].sort().map(l=>`<option value="${l}" ${l===view.addLabel?'selected':''}>${esc(name(l))}</option>`).join('')}</select></label><p>${view.busy?'Adding the object and finding its outline…':d?'Your selection stays on the photo until you add it.':view.tool==='polygon'?'Click around its edge, then finish the shape.':view.tool==='candidate'?'Click an object to preview what was found.':'Draw a box around one object.'}</p>${candidate?`<p>${view.candidates.at+1} of ${view.candidates.ids.length} under your selection. ${candidate.counted?'Already counted.':'Not counted yet.'}</p><div class="vision-action-row">${act('candidate-prev','Previous')}${act('candidate-next','Next')}${act('candidate-use','Use this object','','class="vision-primary"')}</div>`:''}<div class="vision-action-row">${d?act('commit',Live?'Find outline & add':'Add object','','class="vision-primary" '+(view.busy?'disabled':'')):view.tool==='polygon'?act('finish','Finish shape','','class="vision-primary" '+(view.points.length<3?'disabled':'')):''}${act('cancel','Cancel','',''+(view.busy?'disabled':''))}</div>${!view.busy?`<div class="vision-action-row">${act('box-tool','Draw box')}${act('polygon-tool','Draw shape')}${act('candidate-tool','Pick a found object')}</div>`:''}${Live?'<p class="vision-fine">Adding saves the object immediately. You can remove your addition afterward.</p>':'<p class="vision-fine">Design preview · changes stay in this tab.</p>'}</section>`;
+   html+=`<section class="vision-add"><h3>${d?'Check your selection':'Draw a missing object'}</h3><label>Component type<select id="vision-add-label" aria-label="Component type" ${view.busy?'disabled':''}>${(()=>{const here=[...new Set([...(c.room?.inventory||[]).map(i=>i.label),...types])].sort(),rest=[...new Set(labels)].filter(l=>!here.includes(l)).sort(),opt=l=>`<option value="${l}" ${l===view.addLabel?'selected':''}>${esc(name(l))}</option>`;return here.length?`<optgroup label="In this room">${here.map(opt).join('')}</optgroup><optgroup label="Other types">${rest.map(opt).join('')}</optgroup>`:[...new Set([...labels,...types])].sort().map(opt).join('')})()}</select></label>${(t=>t?`<p>${t}</p>`:'')(view.busy?'Adding the object and finding its outline…':d?'Your selection stays on the photo until you add it.':view.tool==='polygon'?'Click around its edge, then finish the shape.':view.tool==='candidate'?'Click an object to preview what was found.':'')}${candidate?`<p>${view.candidates.at+1} of ${view.candidates.ids.length} under your selection. ${candidate.counted?'Already counted.':'Not counted yet.'}</p><div class="vision-action-row">${act('candidate-prev','Previous')}${act('candidate-next','Next')}${act('candidate-use','Use this object','','class="vision-primary"')}</div>`:''}<div class="vision-action-row">${d?act('commit',Live?'Find outline & add':'Add object','','class="vision-primary" '+(view.busy?'disabled':'')):view.tool==='polygon'?act('finish','Finish shape','','class="vision-primary" '+(view.points.length<3?'disabled':'')):''}${act('cancel','Cancel','',''+(view.busy?'disabled':''))}</div>${!view.busy?`<div class="vision-action-row">${act('box-tool','Draw box')}${Live?'':act('polygon-tool','Draw shape')}${act('candidate-tool','Pick a found object')}</div>`:''}${Live?'<p class="vision-fine">Adding saves the object immediately. You can remove your addition afterward.</p>':'<p class="vision-fine">Design preview · changes stay in this tab.</p>'}</section>`;
    return html;
   }
+  let roomBox='';
   if(label){
-   html+=`<div class="vision-type-title">${act('all',icon('back',14)+'All types')}<h3>${esc(name(label))}</h3><span>${objects.length} in photo</span></div>`;
-   const row=(c.room.inventory||[]).find(i=>i.label===label&&!i.added),pending=Live?.state.corrections[reviewStage()]?.get('component:'+row?.component_id)||Live?.state.corrections[reviewStage()]?.get(`room_component:${c.room.id}:${label}`),suggest=(c.room.suggested_counts||[]).find(i=>i.label===label),roomCount=Live?(V.roomCount(c.room,label,Live.state.corrections[reviewStage()])||undefined):fixture.counts.get(c.room.id+':'+label)??row?.count;
-   html+=`<div class="vision-room-count"><span>Room inventory<strong>${roomCount??'Not listed'}</strong></span>${c.open?act('count','Edit count',label,'class="vision-edit"'):''}${suggest&&suggest.suggested>(roomCount||0)?`<p>Photos suggest ${suggest.suggested} in this room.</p>`:''}${pending?'<p>Correction pending · send from Room inventory.</p>':''}</div>`;
+   const typeTitle=`<div class="vision-type-title">${act('all',icon('back',14)+'All types')}<h3>${esc(name(label))}</h3>${Live?'':`<span>${objects.length} in photo</span>`}</div>`;
+   // Live: the heading rides in the sticky room inventory box, so scrolling to an object never hides it.
+   if(!Live||s)html+=typeTitle;
+   const rows=(c.room.inventory||[]).filter(i=>i.label===label),row=rows.find(i=>!i.added)||rows[0],pending=Live?.state.corrections[reviewStage()]?.get('component:'+row?.component_id)||Live?.state.corrections[reviewStage()]?.get(`room_component:${c.room.id}:${label}`),suggest=(c.room.suggested_counts||[]).find(i=>i.label===label),roomCount=Live?(V.roomCount(c.room,label,Live.state.corrections[reviewStage()])||undefined):fixture.counts.get(c.room.id+':'+label)??row?.count;
+   if(Live){
+    // Live: the room inventory is what a correction changes; it says so, with before and after.
+    const before=V.roomCount(c.room,label)||0,queued=Live.state.corrections[reviewStage()]?.size||0;
+    const retype=pending?.after?.label&&pending.after.label!==label?pending.after.label:null,moved=retype?(pending.after.count??row?.count??before):null;
+    const raisedNow=Boolean(suggest)&&suggest.suggested>(roomCount||0),lowerNow=!raisedNow&&!view.kept.has(keptKey(label))&&Boolean(M.lowerRow(c.room,label,suggest))&&Boolean(M.lowered({...suggest,inventory_count:roomCount||0},c.items.filter(i=>i.exclusion&&i.label===label).length)),offer=raisedNow||lowerNow;
+    const suggestHtml=`${raisedNow?`<p class="vision-room-suggest"><span>Photos now show ${suggest.suggested} · inventory ${roomCount||0}</span>${c.open?act('use-suggested',`Use ${suggest.suggested}`,label,'class="vision-use"'):''}</p>`:''}${lowerNow?`<p class="vision-room-suggest is-lower"><span>Photos now show ${suggest.photo_count} · inventory ${roomCount}</span>${c.open?`<span class="vision-suggest-actions">${act('use-photo-count',`Use ${suggest.photo_count}`,label,'class="vision-use"')}${act('keep-count',`Keep ${roomCount}`,label,`class="vision-use is-keep" title="Photos overlap: keep ${roomCount} if another photo shows the rest"`)}</span>`:''}</p>`:''}`;
+    // An object selected: the photo-vs-priced difference and its Use N sit above the object's card.
+    if(s&&offer)html+=`<div class="vision-compare vision-room-count is-live">${suggestHtml}</div>`;
+    const value=retype?`<span class="vision-room-value"><span><s>${esc(name(label))}</s> → <b>${esc(name(retype))}</b></span><strong>${moved}</strong></span>`:`<span class="vision-room-value"><b>Priced inventory · ${esc(c.room.name)}</b><strong>${pending&&roomCount!==before?`<s>${before}</s> → ${roomCount??0}`:roomCount??'Not listed'}</strong></span>`;
+    roomBox=`<section class="vision-room-count is-live" aria-label="Room inventory correction">${s?'':typeTitle}${retype?`<span class="vision-room-title">Room inventory · ${esc(c.room.name)}</span>`:''}${value}${(()=>{const here=objects.length,gone=c.items.filter(i=>i.exclusion&&i.label===label).length;return `<span class="vision-room-photo">On this photo: ${here} counted${gone?` · ${gone} not counted`:''}</span>${!offer&&(gone||c.items.some(i=>i.source==='manual'&&i.label===label))?`<p class="vision-room-hint">Saved on the photo. The priced room total changes only when you correct it.</p>`:''}`})()}${retype?`<p class="vision-room-note">After you send, ${esc(c.room.name)} counts ${esc(name(retype).toLowerCase())} in place of ${esc(name(label).toLowerCase())}. Outlines on the photo keep their detected label.${roomCount?` ${roomCount} ${esc(name(label).toLowerCase())} still counted from other entries.`:''}</p>`:''}${s?'':suggestHtml}${c.open?`<div class="vision-action-row vision-edit">${act('type','Correct room inventory','','class="vision-primary"')}</div>`:''}</section>`;
+   }else html+=`<div class="vision-room-count"><span>Room inventory<strong>${roomCount??'Not listed'}</strong></span>${c.open?act('count','Edit count',label,'class="vision-edit"'):''}${suggest&&suggest.suggested>(roomCount||0)?`<p>Photos suggest ${suggest.suggested} in this room.</p>`:''}${pending?'<p>Correction pending · send from Room inventory.</p>':''}</div>`;
   }
   if(s){const index=objects.findIndex(i=>i.id===s.id)+1;
-   html+=`<section class="vision-detail"><div><span>Selected object ${index}</span>${act('clear','×','','aria-label="Deselect object"')}</div><h3>${esc(name(s.label))}</h3><p>${s.source==='manual'?'Added by an engineer':'Found in photo'} · ${s.polygon?'Hand-drawn shape':s.mask?'Object outline':'Box outline'}${s.review?' · '+(s.review==='confirm'?'Confirmed':'Marked wrong'):''}</p>${s.score!==null&&s.score<.65?'<p>Needs a look</p>':''}${view.newId===s.id?'<p class="vision-receipt">Added to this photo. Check its outline.</p>':''}${c.open?`<div class="vision-action-row vision-edit">${act('confirm',view.newId===s.id?'Keep addition':'Confirm','','class="vision-primary"')}${act('wrong','Mark wrong')}${act('type','Change type')}${act('delete','Delete','','class="vision-danger"')}</div><details class="vision-fix vision-edit"><summary>Fix the outline</summary><p>Adjust an edge, separate objects, or remove an extra outline.</p><div class="vision-action-row">${act('refine','Refine')}${act('split','Split')}${act('merge','Merge')}${act('keep-box','Keep my box')}</div></details>`:''}</section>`;
+   html+=`<section class="vision-detail ${s.exclusion?'is-excluded':''}"><div><span>${index?`Selected object ${index}`:'Selected object'}</span>${act('clear','×','','aria-label="Deselect object"')}</div><h3>${Live&&replacedBy(s)?`<s class="live-ai">${esc(name(replacedBy(s).label))}</s> `:''}${esc(name(s.label))}</h3>${exclusionNote(s)}<p>${s.source==='manual'?'Added by an engineer':'Found in photo'} · ${s.polygon?'Hand-drawn shape':s.mask?'Object outline':'Box outline'}${s.review?' · '+(s.review==='confirm'?'Confirmed':'Marked wrong'):''}</p>${s.score!==null&&s.score<.65?'<p>Needs a look</p>':''}${view.newId===s.id?'<p class="vision-receipt">Added to this photo. Check its outline.</p>':''}${c.open?(Live?liveObjectActions(s):`<div class="vision-action-row vision-edit">${act('confirm',view.newId===s.id?'Keep addition':'Confirm','','class="vision-primary"')}${act('wrong','Mark wrong')}${act('type','Change type')}${act('delete','Delete','','class="vision-danger"')}</div><details class="vision-fix vision-edit"><summary>Fix the outline</summary><p>Adjust an edge, separate objects, or remove an extra outline.</p><div class="vision-action-row">${act('refine','Refine')}${act('split','Split')}${act('merge','Merge')}${act('keep-box','Keep my box')}</div></details>`):''}</section>`;
   }
-  if(label){html+=`<div class="vision-object-list" role="group" aria-label="${esc(name(label))} objects">${objects.map((i,n)=>act('select',`<span class="vision-number">${n+1}</span><span>${esc(name(i.label))} ${n+1}<small>${i.source==='manual'?'Added':'Found in photo'}</small></span>${i.id===view.selectedId?icon('check',14):''}`,i.id,`class="vision-instance ${i.id===view.selectedId?'is-selected':''}" aria-pressed="${i.id===view.selectedId}"`)).join('')}</div>${c.open?act('add',icon('plus',14)+'Add '+esc(name(label).toLowerCase()),label,'class="vision-add-type vision-edit"'):''}`}
+  html+=roomBox;
+  if(label){const gone=c.items.filter(i=>i.exclusion&&i.label===label);html+=`${Live?`<p class="vision-list-label">Photo detections · this photo only</p>`:''}<div class="vision-object-list" role="group" aria-label="${esc(name(label))} objects">${objects.map((i,n)=>act('select',`<span class="vision-number">${n+1}</span><span>${esc(name(i.label))} ${n+1}<small>${i.source==='manual'?'Added':'Found in photo'}</small></span>${i.id===view.selectedId?icon('check',14):''}`,i.id,`class="vision-instance ${i.id===view.selectedId?'is-selected':''}" aria-pressed="${i.id===view.selectedId}"`)).join('')}${gone.map(i=>act('select',`<span class="vision-number" aria-hidden="true">–</span><span><s>${esc(name(i.label))}</s><small>Not counted · ${esc(i.exclusion.by_name||'an engineer')}</small></span>${i.id===view.selectedId?icon('check',14):''}`,i.id,`class="vision-instance is-excluded ${i.id===view.selectedId?'is-selected':''}" aria-pressed="${i.id===view.selectedId}"`)).join('')}</div>${c.open?act('add',icon('plus',14)+'Add '+esc(name(label).toLowerCase()),label,'class="vision-add-type vision-edit"'):''}`}
   else html+=`<div class="vision-type-list" role="group" aria-label="Component types">${types.map(l=>act('type-select',`<span>${esc(name(l))}</span><strong>${sorted(l).length}</strong>${icon('chevron',14)}`,l,'class="vision-type" aria-pressed="false"')).join('')||'<p class="vision-empty">No components found in this photo.</p>'}</div>`;
   if(c.open&&!Live)html+='<p class="vision-fine">Illustrative boxes · not analysis results.</p>';
   return html;
@@ -124,7 +169,7 @@
    }
    const active=document.activeElement,action=active?.dataset.vision,value=active?.dataset.value,scroll=scroller.scrollTop;
    el.querySelector('.vision-inspector header p').textContent=counted().length+' objects in this photo';
-   el.querySelector('.vision-inspector-body').innerHTML=inspector();scroller.scrollTop=scroll;
+   el.querySelector('.vision-inspector-body').innerHTML=inspector();scroller.scrollTop=scroll;if(Live){const f=el.querySelector('.vision-inspector-footer');if(f)f.innerHTML=liveFooter()}
    el.querySelector('[data-vision="all"]').setAttribute('aria-pressed',String(!view.focusLabel));
    el.querySelector('[data-vision="outlines"]').textContent=view.hide?'Show outlines':'Hide outlines';
    el.querySelector('[data-vision="outlines"]').setAttribute('aria-pressed',String(!view.hide));el.querySelector('[data-vision="hand"]').setAttribute('aria-pressed',String(view.hand));
@@ -136,7 +181,9 @@
    if(keepFocus&&action&&!active.isConnected){const target=[...el.querySelectorAll('[data-vision]')].find(b=>b.dataset.vision===action&&b.dataset.value===value);(target||canvas).focus({preventScroll:true})}
   }
   function selection(item){Object.assign(view,V.select(view,item),{tool:null,draft:null,points:[],candidates:null,notice:'',error:false});paint();
-   const row=el.querySelector('.vision-instance.is-selected');if(row){const a=row.getBoundingClientRect(),b=scroller.getBoundingClientRect();if(a.bottom>b.bottom)scroller.scrollTop+=a.bottom-b.bottom+8;else if(a.top<b.top)scroller.scrollTop-=b.top-a.top+8;}
+   // Keep the selected object's card in view (its who-and-why included); fall back to its row.
+   const row=el.querySelector('.vision-detail')||el.querySelector('.vision-instance.is-selected');if(row){const a=row.getBoundingClientRect(),b=scroller.getBoundingClientRect();if(a.top<b.top)scroller.scrollTop-=b.top-a.top+8;else if(a.bottom>b.bottom){if(Live&&row.classList.contains('vision-detail'))scroller.scrollTop=0;// live: the type, the count difference and the card lead the panel
+    else scroller.scrollTop+=row.classList.contains('vision-detail')?a.top-b.top-8:Math.min(a.bottom-b.bottom+8,a.top-b.top-8);}}
   }
   function pickPoint(ev){const r=image.getBoundingClientRect();return {x:(ev.clientX-r.left)/r.width,y:(ev.clientY-r.top)/r.height}}
   function pick(ev){
@@ -188,15 +235,53 @@
    const m=modal(s.source==='manual'?'Remove this added object?':'Remove this object?','<p>It will no longer count in this photo. Check the room inventory afterward.</p>',`${closeBtn}<button class="button danger" id="vision-remove">Remove object</button>`);
    m.querySelector('#vision-remove').onclick=async()=>{m.remove();view.busy=true;try{if(Live){await Live.api.deleteObject(c.id,c.doc,s.id);await refresh()}else c.items.splice(c.items.indexOf(s),1);selection(null);view.notice='Object removed.'}catch(e){view.notice=Live?Live.errorText(e):e.message;view.error=true}finally{view.busy=false;paint()}};
   }
+  // Proposed object_exclusion (web/FRONTEND_BACKLOG.md 14). Not counted keeps the AI's box as
+  // evidence; Change type is Not counted on the AI's box plus an engineer object of the new type
+  // at the same box, so the backend needs one new concept, not two.
+  const caps=()=>Boolean(Live?.caps?.objectExclusion);
+  const ordinal=s=>sorted(s.label).findIndex(i=>i.id===s.id)+1;
+  const fail=async e=>{view.error=true;view.notice=e.status===409?'The review changed. Refreshing the study…':Live.errorText?Live.errorText(e):e.message;if(e.status===409){await Live.reloadStudy();Live.render()}};
+  async function setCounted(s,body){await Live.api.setObjectCounted(c.id,c.doc,s.id,body);await refresh()}
+  function exclude(){
+   const s=current();if(!s||!caps()||!c.open||view.busy)return;const n=ordinal(s);
+   const m=modal(`Mark ${esc(name(s.label))} ${n} not counted`,`<p>It leaves this room’s count. The AI’s outline stays on the photo, crossed out, with your name and reason.</p><div class="field"><label for="vision-exclude-reason">Reason</label><textarea id="vision-exclude-reason" rows="2" maxlength="500" placeholder="e.g. A reflection in the window, not a second fixture"></textarea></div>`,`${closeBtn}<button class="button primary" id="vision-exclude-save">Mark not counted</button>`);
+   m.querySelector('#vision-exclude-save').onclick=async()=>{const reason=m.querySelector('#vision-exclude-reason').value.trim();if(!reason){toast('Say why it should not count.');m.querySelector('#vision-exclude-reason').focus();return}
+    m.remove();view.busy=true;view.error=false;paint();
+    try{await setCounted(s,{counted:false,reason});selection(c.items.find(i=>i.id===s.id)||null);view.notice=''}catch(e){await fail(e)}finally{view.busy=false;paint()}};
+  }
+  async function resetType(){
+   const s=current(),ai=s&&replacedBy(s);if(!ai||!caps()||!c.open||view.busy)return;view.busy=true;view.error=false;paint();
+   try{await Live.api.deleteObject(c.id,c.doc,s.id,BasisApi.newKey());await Live.api.setObjectCounted(c.id,c.doc,ai.id,{counted:true});await refresh();selection(c.items.find(i=>i.id===ai.id)||null);view.notice=`Back to the AI’s ${name(ai.label).toLowerCase()}.`}catch(e){await fail(e)}finally{view.busy=false;paint()}
+  }
+  async function restore(){
+   const s=current();if(!s?.exclusion||!caps()||!c.open||view.busy)return;view.busy=true;view.error=false;paint();
+   // Reset on a retyped AI detection undoes the whole Change type: the object drawn in its place
+   // goes too, or the same thing would count twice (once per type).
+   const drawn=replacementOf(s);
+   try{if(drawn)await Live.api.deleteObject(c.id,c.doc,drawn.id,BasisApi.newKey());await setCounted(s,{counted:true});selection(c.items.find(i=>i.id===s.id)||null);view.notice=drawn?`Back to the AI’s ${name(s.label).toLowerCase()}.`:`${name(s.label)} counts again.`}catch(e){await fail(e)}finally{view.busy=false;paint()}
+  }
+  function retype(){
+   const s=current();if(!s||!caps()||!c.open||view.busy)return;const n=ordinal(s),options=[...new Set([...labels,...counted().map(i=>i.label)])].filter(l=>l!==s.label).sort();
+   const m=modal(`Change the type of ${esc(name(s.label))} ${n}`,`<p>The AI’s ${esc(name(s.label).toLowerCase())} outline stays, crossed out as not counted, and an object of the new type is drawn at the same box.</p><div class="field"><label for="vision-retype-label">New type</label><select id="vision-retype-label"><option value="">Choose the right type</option>${options.map(l=>`<option value="${esc(l)}">${esc(name(l))}</option>`).join('')}</select></div><div class="field"><label for="vision-retype-reason">Reason</label><textarea id="vision-retype-reason" rows="2" maxlength="400" placeholder="e.g. Built-in shelving, not loose furniture"></textarea></div>`,`${closeBtn}<button class="button primary" id="vision-retype-save">Change type</button>`);
+   m.querySelector('#vision-retype-save').onclick=async()=>{const label=m.querySelector('#vision-retype-label').value,reason=m.querySelector('#vision-retype-reason').value.trim();if(!label){toast('Choose the right type.');m.querySelector('#vision-retype-label').focus();return}if(!reason){toast('Say why the type is wrong.');m.querySelector('#vision-retype-reason').focus();return}
+    m.remove();view.busy=true;view.error=false;view.notice='Changing the type and finding the new outline…';paint();let excluded=false;
+    try{
+     await Live.api.setObjectCounted(c.id,c.doc,s.id,{counted:false,reason:`Type changed to ${name(label).toLowerCase()}: ${reason}`});excluded=true;
+     const r=await Live.api.addObject(c.id,c.doc,{kind:'box',label,box:s.box},BasisApi.newKey());await refresh();
+     const added=c.items.find(i=>i.id===(r.object?.id||r.duplicate_of));Object.assign(view,V.select(view,added||null));
+     view.notice=r.created===false?`${name(label)} was already counted there; the AI’s ${name(s.label).toLowerCase()} is not counted.`:`Now a ${name(label).toLowerCase()}. The AI’s ${name(s.label).toLowerCase()} outline stays, not counted.`;
+    }catch(e){if(excluded){view.error=true;view.notice=`The AI’s ${name(s.label).toLowerCase()} is not counted, but the new object could not be added. Use Draw missing object.`;try{await refresh()}catch{}}else await fail(e)}
+    finally{view.busy=false;paint()}};
+  }
   function unavailable(title,text){modal(esc(title),`<p>${esc(text)}</p><p class="vision-unavailable">Not available in live mode yet. This action did not change the study.</p>`,closeBtn)}
+  function liveType(){
+   const label=current()?.label||view.focusLabel;if(!label)return;const rows=(c.room.inventory||[]).filter(i=>i.label===label),row=rows.find(i=>!i.added)||rows[0];
+   if(row)Live.actions['edit-component']({dataset:{room:c.room.id}},row.component_id);
+   else Live.actions['add-room-component']({dataset:{label,count:String(sorted(label).length)}},c.room.id);
+  }
   function countEdit(){
-   const label=view.focusLabel;if(!label)return;const row=(c.room.inventory||[]).find(i=>i.label===label&&!i.added);
-   if(Live){
-    if(!row){Live.actions['add-room-component']({dataset:{label,count:String(sorted(label).length)}},c.room.id);return}
-    const pending=Live.state.corrections[reviewStage()]||=new Map(),total=V.roomCount(c.room,label,pending),prior=pending.get('component:'+row.component_id),original=prior?.after.count??row.count,others=total-original;
-    const m=modal('Room inventory count',`<p>The total number of ${esc(name(label).toLowerCase())} used for pricing in ${esc(c.room.name)}.</p><div class="field"><label for="vision-room-total">Count in this room</label><input id="vision-room-total" type="number" min="${others+1}" max="10000" value="${total}"></div>${others?`<p class="vision-fine">${others} already belong to other inventory entries. This adjusts the first entry; use Room inventory to edit those entries separately.</p>`:''}<div class="field"><label for="vision-count-reason">Reason (optional)</label><input id="vision-count-reason" maxlength="500"></div>`,`${closeBtn}<button class="button primary" id="vision-total-save">Add count correction</button>`);
-    m.querySelector('#vision-total-save').onclick=()=>{const n=M.validCount(m.querySelector('#vision-room-total').value),count=n===null?null:M.validCount(n-others);if(count===null){toast(`Enter a whole number from ${others+1} to 10,000, or edit the inventory entries separately.`);return}const correction=M.countCorrection(c.room,row,count,prior,name);correction.reason=m.querySelector('#vision-count-reason').value.trim()||prior?.reason||null;pending.set(correction.key,correction);m.remove();view.notice='Count correction ready. Send it with Request corrections in Room inventory.';paint()};return;
-   }
+   const label=view.focusLabel;if(!label)return;const rows=(c.room.inventory||[]).filter(i=>i.label===label),row=rows.find(i=>!i.added)||rows[0];
+   // Live mode corrects the room inventory through one dialog (Correct room inventory); this is the mock preview.
    const m=modal('Room inventory count',`<p>This is the count used for pricing across the room.</p><label class="field">Count<input id="vision-count" type="number" min="1" max="10000" value="${fixture.counts.get(c.room.id+':'+label)??row?.count??sorted(label).length}"></label>`,`${closeBtn}<button class="button primary" id="vision-save-count">Save count</button>`);
    m.querySelector('#vision-save-count').onclick=()=>{const n=M.validCount(m.querySelector('input').value);if(n===null){toast('Enter a whole number from 1 to 10,000.');return}fixture.counts.set(c.room.id+':'+label,n);m.remove();paint()};
   }
@@ -227,14 +312,19 @@
    if(a==='photo'){changePhoto(value);return}if(a==='next'||a==='previous'){const p=c.photos[c.at+(a==='next'?1:-1)];if(p)changePhoto(p.document_id);return}
    if(a==='rooms'){if(Live)Live.go(c.back||'rooms',c.id);else navigate('rooms');return}if(a==='retry'){Live.invalidate(`objects:${c.id}`);Live.render();return}
    if(!c.open)return;
-   if(a==='add'){Object.assign(view,{tool:'box',candidates:null,addLabel:value||view.focusLabel||labels[0],mutationKey:null,draft:null,points:[],notice:'',error:false,hand:false,candidates:null});paint();return}
+   if(a==='add'){Object.assign(view,{tool:'box',candidates:null,addLabel:value||view.focusLabel||(c.room?.inventory||[]).map(i=>i.label).sort()[0]||labels[0],mutationKey:null,draft:null,points:[],notice:'',error:false,hand:false,candidates:null});paint();return}
    if(a==='cancel'){Object.assign(view,{tool:null,draft:null,points:[],candidates:null,replacing:null,mutationKey:null});paint();return}
    if(a==='box-tool'||a==='polygon-tool'||a==='candidate-tool'){if(a==='polygon-tool'&&Live){unavailable('Draw a shape','Saving a hand-drawn shape needs polygon or mask input in the object API. Draw a box to add an object today.');return}view.tool=a==='box-tool'?'box':a==='polygon-tool'?'polygon':'candidate';view.draft=null;view.points=[];view.candidates=null;view.mutationKey=null;paint();return}
    if(a==='candidate-prev'||a==='candidate-next'){const p=view.candidates;if(p){p.at=M.cycle(p.at,p.ids.length,a==='candidate-next'?1:-1);paint()}return}
    if(a==='candidate-use'&&view.candidates){submit({kind:'candidate',candidate_id:view.candidates.ids[view.candidates.at]});return}
    if(a==='finish'){if(view.points.length<3)return;const points=view.points,box={x1:Math.min(...points.map(p=>p.x)),y1:Math.min(...points.map(p=>p.y)),x2:Math.max(...points.map(p=>p.x)),y2:Math.max(...points.map(p=>p.y))};view.draft={box,polygon:[...points,points[0]]};paint();return}
    if(a==='commit'&&view.draft){if(view.replacing&&!Live){const s=c.items.find(i=>i.id===view.replacing);s.polygon=view.draft.polygon;s.box=view.draft.box;view.replacing=null;selection(s);return}submit({kind:'box',label:view.addLabel,box:view.draft.box});return}
-   if(a==='delete'){remove();return}if(a==='count'){countEdit();return}if(['confirm','wrong','type','refine','split','merge','keep-box'].includes(a))fix(a);
+   if(a==='delete'){remove();return}if(a==='count'){countEdit();return}
+   if(Live&&a==='keep-count'){view.kept.add(keptKey(value));paint();return}
+   if(Live&&a==='use-photo-count'){const row=M.lowerRow(c.room,value,(c.room.suggested_counts||[]).find(i=>i.label===value));if(row)Live.actions['use-photo-count']({dataset:{room:c.room.id}},row.component_id);return}
+   if(Live&&a==='use-suggested'){const rows=(c.room.inventory||[]).filter(i=>i.label===value),row=rows.find(i=>!i.added)||rows[0],sg=(c.room.suggested_counts||[]).find(i=>i.label===value);if(row)Live.actions['use-suggested']({dataset:{room:c.room.id}},row.component_id);else if(sg)Live.actions['add-room-component']({dataset:{label:value,count:String(sg.suggested)}},c.room.id);return}
+   if(Live&&a==='exclude'){exclude();return}if(Live&&a==='retype'){retype();return}if(Live&&a==='restore'){restore();return}if(Live&&a==='reset-type'){resetType();return}
+   if(Live&&a==='type'){liveType();return}if(['confirm','wrong','type','refine','split','merge','keep-box'].includes(a))fix(a);
   }
   function down(e){
    if(e.target.closest('button')||view.busy||e.button!==0)return;

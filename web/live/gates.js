@@ -33,14 +33,14 @@
   if(report.skipped)return pending('Report not ready','Resolve the findings in Results before the report can be prepared.','Blocked');
   if(!report.exported)return pending('Report not ready','Reviews are approved. The current report has not been generated.','Not ready');
   if(sig){
-   if(sig.study_id!==study.id||sig.revision!==study.revision||!Array.isArray(report.changed_since_signing))return pending('Signature needs verification','A signed report exists, but its match to the current study could not be verified. Review the report before delivery.','Verify signature');
-   if(report.changed_since_signing.length)return pending('Report needs updating','Details changed after signing. The previous signed PDF is preserved; an updated revision must be reviewed and signed before delivery.','Update required');
+   if(sig.study_id!==study.id||sig.revision!==study.revision||!Array.isArray(report.changed_since_signing))return pending('Signature needs verification','A signed report exists but could not be matched to this study. Check it before delivery.','Verify signature');
+   if(report.changed_since_signing.length)return pending('Report needs updating','Details changed after signing. Sign an updated revision before delivery; the signed PDF is kept.','Update required');
    if(!Array.isArray(report.missing_for_final)||report.missing_for_final.length)return pending('Report details need review','The current report has incomplete details. Review them before delivery.','Needs details');
    return {complete:true,tone:'complete',title:'Study completed',detail:`Revision ${study.revision} is approved and signed. The report matches the current details and is ready to deliver.`,status:'Signed'};
   }
   if(!Array.isArray(report.missing_for_final))return pending('Completion not verified','The report checklist could not be verified. Retry in Report & sign.','Check status');
-  if(report.missing_for_final.some(key=>key!=='signature'))return pending('Report details needed','Reviews are approved. Complete the report details, preview the report, and sign to finish the study.','Needs details');
-  return pending('Awaiting signature','Reviews are approved. Preview and sign the report to complete this study.','Needs signature');
+  if(report.missing_for_final.some(key=>key!=='signature'))return pending('Report details needed','Reviews are approved. Add the report details, then sign.','Needs details');
+  return pending('Awaiting signature','Reviews are approved. Sign the report to finish the study.','Needs signature');
  }
  // Results can be ready while the final Report & sign step is still open.
  function steps(study,reportEntry){
@@ -60,7 +60,9 @@
    const status=report?completion(study,reportEntry).status:complete?'Completed':!isCurrent?'Not started':study.status==='waiting_review'?'Needs review':['failed','stalled'].includes(study.status)?'Needs attention':study.status==='archived'?'Archived':study.current_stage==='uploading'?'Add files':'In progress';
    const destination=report?'report':i===0?(complete?'files':'processing'):isCurrent&&study.status!=='waiting_review'?'processing':step.screen;
    const viewing=selected?step.label===selected:view==='processing'?isCurrent:step.screen===view;
-   return {...step,selected:viewing,status,destination,available:complete||isCurrent||viewing};
+   // How the status reads at a glance: done, needs the engineer, needs attention, running, not yet.
+   const tone=report?completion(study,reportEntry).tone==='complete'?'done':step.state==='active'||completion(study,reportEntry).tone==='attention'?'review':'idle':complete?'done':!isCurrent?'idle':status==='Needs review'||status==='Add files'?'review':status==='Needs attention'?'danger':status==='Archived'?'idle':'progress';
+   return {...step,selected:viewing,status,tone,destination,available:complete||isCurrent||viewing};
   });
  }
  function reviewContext(study,view,reportEntry){
@@ -68,7 +70,7 @@
   const readOnly=Boolean(stage)&&!(study.status==='waiting_review'&&study.current_stage===stage);
   if(study.status==='completed'){
    const final=completion(study,reportEntry);
-   return {...final,readOnly,action:view==='report'?null:'report',actionLabel:final.complete?'View signed report':'Report & sign'};
+   return {...final,readOnly,action:view==='report'?null:'report',actionLabel:final.complete?'View signed report':({'Needs signature':`Review and sign revision ${study.revision}`,'Update required':'Update the report','Needs details':'Add report details'})[final.status]||'Report & sign'};
   }
   if(study.status==='archived')return {tone:'neutral',title:'Study archived',readOnly,detail:'This study is archived. Recorded steps remain available to view.',action:view==='processing'?null:'processing'};
   if(!readOnly)return null;

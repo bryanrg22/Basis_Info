@@ -23,7 +23,7 @@ test('every code the backend writes reads as a sentence, never as the code',()=>
  assert.equal(seen.size,WRITTEN.length);
 });
 test('the reasons seen on the real study read as intended',()=>{
- assert.equal(R.explain('cross:COST_ROW_MISSING').text,'No cost table row matches it, so its cost needs a manual estimate.');
+ assert.equal(R.explain('cross:COST_ROW_MISSING').text,'No cost table row matches it, so it has no cost yet.');
  assert.equal(R.explain('cross:COST_NEEDS_QUANTITY').text,'The cost table prices it by area or length, but the takeoff only counts it, so it has no cost yet. Measure it to price it.');
  assert.equal(R.explain('rule_contested:light_fixture').text,'Basis classified it by its rule for “light fixture”, but the reference documents do not settle that treatment. Confirm the classification.');
  assert.match(R.explain('provider_error:ProviderBadResponse').text,/^The classification model call failed \(ProviderBadResponse\)\. The asset was put in the building class/);
@@ -49,7 +49,7 @@ test('model text the API split on "; " is joined back, and codes after it stay c
  assert.equal(all[1].code,api.slice(1,3).join('; '));
  assert.equal(all[2].code,'cross:COST_ROW_MISSING');
  // free text with no model: item before it is not swallowed
- assert.deepEqual(R.explainAll(['cross:COST_ROW_MISSING','free text here']).map(r=>r.text),['No cost table row matches it, so its cost needs a manual estimate.','Free text here']);
+ assert.deepEqual(R.explainAll(['cross:COST_ROW_MISSING','free text here']).map(r=>r.text),['No cost table row matches it, so it has no cost yet.','Free text here']);
 });
 test('model text cut at 300 characters ends with an ellipsis; complete text does not',()=>{
  const cut=('model:'+'The room name conflicts with a porch label and the IRS guidance retrieved is from the retail industry table '.repeat(4)).slice(0,300);
