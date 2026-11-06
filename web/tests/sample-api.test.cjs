@@ -8,7 +8,7 @@ const fetchAsset=p=>fs.readFileSync(path.join(WEB,p));
 
 /* ---------- a small JSON-schema validator (the subset openapi.json uses) ---------- */
 // Proposed fields are the only extras allowed, and only where the contract puts them.
-const PROPOSED_EXTRAS=new Set(['PhotoObjectOut.exclusion','CostOut.override']);
+const PROPOSED_EXTRAS=new Set(['PhotoObjectOut.exclusion','CostOut.override','StudyOut.summary','StudyDetail.summary','MemberOut.signer']);
 function validate(schema,value,where='$',owner=null,errors=[]){
  if(schema.$ref){const name=schema.$ref.split('/').pop();return validate(OPENAPI.components.schemas[name],value,where,name,errors)}
  if(schema.allOf)for(const s of schema.allOf)validate(s,value,where,owner,errors);
@@ -77,6 +77,7 @@ async function readAll(a,studyId,label){
  check('GET','/v1/orgs/{org_id}/invitations',await get(`/v1/orgs/${org}/invitations`));
  check('GET','/v1/studies',await get('/v1/studies'));
  const study=check('GET',T,await get(S(studyId)));
+ if(study.status==='draft'){problem(await get(S(studyId)+'/workflow'),404);return {study}}// not started: no workflow, nothing produced
  check('GET',T+'/workflow',await get(S(studyId)+'/workflow'));
  const fields=check('GET',T+'/fields',await get(S(studyId)+'/fields?revision='+study.revision));
  const rooms=check('GET',T+'/rooms',await get(S(studyId)+'/rooms?revision='+study.revision));
@@ -142,7 +143,10 @@ test('each state seeds the main study where the contract says',async()=>{
   if(state==='update-required')assert.deepEqual(r.changed_since_signing,['firm']);
  }
  const {a}=instance('components'),list=a.studies();
- assert.equal(list.length,3);assert.deepEqual(list.slice(1).map(s=>s.status),['completed','waiting_review']);
+ // The firm: 14 studies at every stage besides Harbor House's.
+ assert.equal(list.length,14);
+ assert.deepEqual([...new Set(list.slice(1).map(s=>s.status))].sort(),['archived','completed','draft','failed','processing','waiting_review']);
+ assert.deepEqual([...new Set(list.filter(s=>s.status==='waiting_review').map(s=>s.stage))].sort(),['appraisal_review','assets_review','components_review','rooms_review']);
  assert.equal(A.create().state,'components','components is the default');
 });
 
@@ -362,7 +366,7 @@ test('the Response surface: JSON, problem+json, bytes, and the bearer token',asy
  r=await a.fetch(`${A.BASE}/v1/studies/${id}/documents/${doc.id}/image`,{headers:{Authorization:'Bearer t'}});assert.equal((await r.blob()).size,doc.bytes);
  // The live client works against it unchanged.
  const client=require('../live/api-client.js').createClient({baseUrl:a.base,fetchImpl:a.fetch,getToken:async()=>'sample-token'});
- assert.equal((await client.listStudies()).items.length,3);
+ assert.equal((await client.listStudies()).items.length,13,'the archived study is listed only on request');
  await assert.rejects(client.decide(id,{stage:'appraisal_review',revision:1,decision:'approve',corrections:[]}),e=>e.status===409&&e.kind==='stale-state');
 });
 
