@@ -154,10 +154,45 @@ the name the engineer attested to stays in `engineer`. One `users` read per resp
 | `SMTP_USERNAME`, `SMTP_PASSWORD` | unset | relay | Credentials when the server wants them. The password is a secret (never in `repr`, never logged). |
 | `SMTP_STARTTLS` | `true` | relay | Off only for a local test server. |
 | `INVITATION_TTL_DAYS` | `14` | API, CLI | Unchanged: how long an invitation can be accepted (the email states the date). |
+| `AUTH_LINK_VERIFIED_EMAIL` | `false` | API | A first sign-in whose verified email a firm member already has joins that member's user (section 6.1). On in `docker-compose.web.yml` for local stacks. |
 
 The settings are read by every process (one `Settings`), but only the relay sends. A
 misconfigured `smtp` (no host, no from) refuses to start every process, so it is found at
 deploy, not at the first invitation.
+
+### 6.1 One person, one user
+
+A Basis user is keyed by the Firebase uid they first signed in with, and that uid never
+changes on the user (`users.firebase_uid`). When the same person comes back with a **new**
+uid (their Firebase account was deleted and created again, or a local Auth emulator lost its
+accounts on restart), Basis used to create a second user in no firm. A firm that re-invited
+them then listed the same email twice on the members page, once without a name if the new
+sign-in was email-and-password (EVAL_REPORT section 93).
+
+A new uid can now be linked to the existing user (`user_linked_accounts`, migration 0031):
+it then signs in as that user, with their firms, studies and history, and the members page
+keeps one row. Two ways:
+
+* **The operator**, in production:
+  `python -m basis.admin link-account --email <address> --uid <new uid> [--user-id <id>]`.
+  Check in the Firebase console that the uid belongs to that address and that the person
+  asked. A uid that is already a user of its own, or already linked, is refused; several
+  users with the address need `--user-id`.
+* **At sign-in**, with `AUTH_LINK_VERIFIED_EMAIL=true` (local stacks): a first sign-in of a
+  new uid whose email is verified and equal (trimmed, case-insensitive) to the stored email
+  of a user who belongs to a firm is linked to that user (the most recently seen one, if
+  there are several). A user in no firm is never a target, an unverified email never links,
+  and a uid that already has its own user keeps it. Two first sign-ins of the same new uid
+  at once take the uid's advisory lock, so they link once.
+
+Why automatic linking is off in production: a verified email shows who held the address
+when it was verified, not that this is the person who held it before. Auth0's guidance is
+not to link accounts automatically on email for that reason, and the account pre-hijacking
+study (Sudhodanan and Paverd, USENIX Security 2022) shows the attacks that follow from
+merging on an identifier. A reassigned work address (a departed engineer's mailbox given to
+a new hire) would otherwise hand the old member's firms to the new holder. Firebase's
+default "one account per email address" means a second uid for an address only appears
+after the first account was deleted, which is rare and worth an operator's look.
 
 ## 7. Visibility of studies within a firm (not changed)
 

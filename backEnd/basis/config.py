@@ -122,6 +122,14 @@ class Settings(BaseSettings):
     review_deadline_days: int = Field(default=30, ge=1)
     # How long a firm invitation can be accepted (basis.db.repositories.invitation).
     invitation_ttl_days: int = Field(default=14, ge=1, le=90)
+    # A first sign-in whose verified email a firm member already has joins that member's
+    # user instead of creating a second user (basis.db.repositories.user, docs/api/FIRMS.md
+    # "One person, one user"). Off by default: a verified email shows who held the address
+    # when it was verified, not that it is the same person, so production links a
+    # recreated account through the operator (python -m basis.admin link-account).
+    # Local stacks turn it on (docker-compose.web.yml), where the Auth emulator loses its
+    # accounts on restart. EVAL_REPORT section 93.
+    auth_link_verified_email: bool = False
     # Where the app lives for the people we email (docs/api/FIRMS.md): the invitation says
     # "sign in to Basis at APP_URL". scheme://host[:port][/path], no trailing slash; outside
     # dev and test https (or http://localhost). Unset, the email says "sign in to Basis".
