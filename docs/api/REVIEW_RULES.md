@@ -5,7 +5,7 @@ developer who changes the code behind the review. It says, gate by gate, which i
 marks **needs review**, why, at what threshold, what the engineer checks and can change, what
 approving does, and what is kept or done again when the engineer goes back.
 
-Every statement was checked against the code on `main` at 3b4eed8 (2026-11-05). The "Where in
+Every statement was checked against the code on `main` at 3b4eed8 (2026-11-05); sections 3, 6.2 and 7.2 were brought up to date for the engineer overrides (#159, merged 2026-11-06). The "Where in
 the code" column names the place a developer can read to confirm it (paths are under
 `backEnd/basis/`). When the code changes, this page changes with it.
 
@@ -45,8 +45,8 @@ the code" column names the place a developer can read to confirm it (paths are u
 |---|---|---|---|---|
 | Appraisal | The fields read from the appraisal, above all the nine critical ones (section 4.1) | Correct a field's value; add a field the reading missed | the rooms gate (it opens when the photos are done) | `workflow/contracts.py` `CORRECTION_TYPES`; `db/repositories/review.py` `DECISION_TRANSITIONS` |
 | Rooms | How the photos are grouped into rooms: names, types, floors, which photo is in which room | Rename a room or change its type or floor; merge two rooms; move a photo to another room | building each room's inventory, then the components gate | same |
-| Components | Each room's components and counts, and the photos Basis was unsure of | Correct a component (label, material, attachment, count); remove a wrong row; add a component to a room; send a photo to be analyzed again | classifying, measuring and pricing the assets, then the assets gate | same |
-| Assets | Each asset's class, recovery period, quantity and cost, and the study result | Correct an asset (category, bucket, recovery period, IRS section, measured quantity); reprice with the current inputs; set the building model | learning the firm's conventions, then the export (report and schedule) and `completed` | same |
+| Components | Each room's components and counts, and the photos Basis was unsure of | Correct a component (label, material, attachment, count); remove a wrong row; add a component to a room; send a photo to be analyzed again; mark a found object Not counted; set a unit price on a component | classifying, measuring and pricing the assets, then the assets gate | same |
+| Assets | Each asset's class, recovery period, quantity and cost, and the study result | Correct an asset (category, bucket, recovery period, IRS section, measured quantity, unit price); reprice with the current inputs; set the building model | learning the firm's conventions, then the export (report and schedule) and `completed` | same |
 
 A study started before the components gate existed (patch `components-gate-v1`) has one
 rooms gate that takes both the grouping and the component changes
@@ -243,6 +243,14 @@ The photo outlines (SAM 3) never flag anything; a failed outline is logged and i
   failed.
 * While the gate is open, the engineer can also draw or tap objects on a photo, and delete
   their own; those apply at once, not through the decision (`api/routes/objects.py`).
+* **Mark a found object Not counted** (`PATCH .../photos/{document_id}/objects/{object_id}`,
+  a reason of 1 to 500 characters): the object stays on the photo as evidence, struck through,
+  with who, when and why, and it leaves the room's counts. Counting it again undoes it. It
+  applies at once, like drawing an object (`db/repositories/photo_object.py` `exclude`,
+  `restore`; docs/api/OVERRIDES.md).
+* **Set a unit price on a component** (`unit_cost` with `unit_cost_source`, and a reason, on a
+  `component` correction): every asset taken off that component is priced at it
+  (`domain/price_overrides.py`).
 
 (`activities/corrections.py`; `domain/counts.py` `MAX_COUNT`; `domain/removals.py`;
 `api/routes/decisions.py`.)
@@ -331,6 +339,13 @@ unit unusual for its bucket, a cost that includes a year or location adjustment
   together). The corrected asset is rebuilt with the engineer's values, no model call, and
   goes through the class checks and the measuring and pricing checks again, so it can still be
   flagged.
+* **Set a unit price** (`unit_cost` up to 10,000,000 USD per takeoff unit with
+  `unit_cost_source`, and a reason, on an `asset` correction; it wins over a component's
+  price): the asset is priced at it, with no year, location or overhead factor; the cost
+  table's own price is kept beside it as `replaced`; the table's pricing flags go, the
+  classification's and the quantity's stay. A price never stands in for a missing quantity:
+  that row stays unpriced and its blocker stands (`domain/price_overrides.py`,
+  `activities/process_assets.py`; docs/api/OVERRIDES.md).
 * **Reprice** (`POST .../assets/reprice`): rebuild the prices with the current intake and cost
   indexes, keeping every classification.
 * **Set the building model** (`structure_model`): the building type or class the square-foot
