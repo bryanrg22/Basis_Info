@@ -1591,6 +1591,8 @@ async def amain(args: argparse.Namespace, run: record.EvalRun) -> list[dict[str,
         out = []
         for size in args.sizes:
             out.append(await run_size(admin_dsn, size, SIZES[size], args, run))
+            # Each size as it finishes, so a later size that fails loses nothing measured.
+            (args.out / "comparison.json").write_text(json.dumps(out, indent=2, default=str))
         return out
     finally:
         if container is not None:
