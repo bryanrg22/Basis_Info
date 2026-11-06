@@ -64,9 +64,12 @@ of truth. Items are in the order they matter for a first firm.
 
 ## 4. Firm onboarding
 
-- **Create a firm** (`POST /v1/orgs`, any verified sign-in) and **rename**
-  (`PATCH /v1/orgs/{id}`, owner): the "not a member" screen should offer "Create your
-  firm" instead of only "wait for an invitation". `docs/api/FIRMS.md`.
+- **Firms are set up by Basis, not self-serve.** `POST /v1/orgs` is being turned off by default
+  on the backend; firms are created with `python -m basis.admin create-firm`, which also invites
+  their first owner. The "not a member" screen offers no way to create a firm: it says to ask the
+  firm's admin for an invitation, or to contact Basis to set up a new firm, with "Check for an
+  invitation" and "Use another account" (`web/live/live-team.js`). The sample API has no
+  `POST /v1/orgs`. **Rename** (`PATCH /v1/orgs/{id}`, owner) is unchanged; see section 15.
 - **Invitations are emailed** now; the list shows `emailed_at` and the last error. Show
   it on the Team page.
 - **Firm profile form:** add `limiting_conditions` (editable list) and the engineer's
@@ -275,9 +278,89 @@ in-browser sample API (`index.html?mode=live&api=sample`, `web/live/sample-api.j
   signature (or `GET .../report/state`) carries the signed profile's `name`, `address` and
   `phone`, or a `GET /v1/orgs/{org_id}/profile?version=<n>` for a past version.
 
+## 15. Firm pages: what the app needs from the API (November 2026)
+
+**Merge gate for PR #160: backend #161 must ship first.** This frontend delegates search to
+`q` and promises #161's fields; an older property-name-only API cannot satisfy that contract.
+#161 does not require this frontend. After it ships, update the sample's base search contract
+and remove the P4 search proposal; retain the still-proposed summary/file-number additions.
+
+Home, Library, Activity, Team, Settings, Report & sign and onboarding are built for an admin and an
+engineer against the in-browser sample API (`index.html?mode=live&api=sample&role=admin|engineer`,
+`&onboarding=invited|nofirm|new-firm`; `web/live/sample-api.js`, its `PROPOSED` section, P4 to P7).
+Against today's API each page shows what exists and says what it cannot (noted per item). Delete the
+proposed routes from the sample once the backend has them.
+
+* **P4. What identifies a study, and search over it.** `StudyOut` (list and detail) carries
+  `summary: {address, city, state, zip, county, parcel_number, client, borrower, taxpayer,
+  file_number}` or `null`: the appraisal's subject address, county and assessor's parcel number
+  (`subject.property_address`, `subject.city`, `subject.state`, `subject.zip`, `subject.county`,
+  `subject.assessors_parcel`, UAD36_INTAKE / `uad36_map.py`), its lender/client and borrower
+  (`subject.lender_client`, `subject.borrower`), the taxpayer from the report answers, and a new
+  firm file number (one optional line on the study, settable at Start a study and afterwards; the
+  app's Start a study already shows a Client field it cannot send). `GET /v1/studies?q=` matches
+  every word, case- and accent-insensitive, against the property name, each of those fields and the
+  creator's name and email. Backend PR #161 implements server search over the property name,
+  intake state/ZIP, taxpayer, appraisal address/county/borrower/owner/parcel, creator and signer
+  (all words, case/accent-insensitive; 200 characters, 10 distinct words). It does not add
+  `summary`, a file number, or lender/client search. **The Library now sends `q` to the server**
+  after a 250 ms debounce and follows every cursor page (no 5,000-row cutoff), with
+  `include_archived=true` so the Archived filter still finds matches. Status, engineer and sort controls apply to those server
+  results. A match is never discarded for lacking a local field; `match` only annotates the
+  returned fields. Pending and error states do not claim zero matches; changing or clearing a
+  query cannot show an older response. The frontend checks the 200-code-point limit; the
+  server validates distinct words using its Unicode casefold; a query-field 422 is shown as an
+  actionable limit message without a retry button. Abandoned searches stop before another page
+  request, and cache keys use opaque sequences so a typed name/address never enters load-error
+  log context. Pending searches preserve previous rows/chips with an explicit busy notice;
+  whitespace-only changes do not refetch. Counts are announced through the persistent status
+  node outside the app. Until `summary` exists, the extra
+  identity columns are still unavailable. The broader file/client examples remain sample-only.
+* **P5. The member directory for every member.** `GET /v1/orgs/{org_id}/members` answers every
+  member, read-only below owner (today owners only, `OwnedOrg`), and each member carries `signer`
+  (P6's details, or `null`). The engineer's Team page lists colleagues with their role, signer
+  credentials and open studies; today it falls back to the people the firm's studies name, and
+  says the full list is shown to admins. Activity and Home resolve actor names from it.
+* **P6. Each engineer's signer details.** `GET /v1/me/signer` → `{"signer": {"name",
+  "credentials", "license_number", "license_state"} | null, "version", "updated_at"}` with
+  `ETag: "<version>"`; `PUT /v1/me/signer` with `If-Match` (412 with the current ETag when it
+  changed; a new code, `BASIS-FIRM-011` in the sample). The form currently limits name and
+  credentials to 200 / 100 characters; the license number up to 50 and its two-letter jurisdiction go together (50 states,
+  DC, GU, MP, PR, VI). Backend PR #158 implements the `signer` envelope above, adds `user_id`,
+  accepts up to 500 characters for name/credentials and uses its report conflict codes. Settings
+  edits it;
+  onboarding asks for it once after an invitation is accepted; Report & sign shows it read-only
+  ("Signing as … Edit in Settings") and signs with it: the app sends it as `engineer` in
+  `POST .../report/sign`, which matches #158's `SignIn.engineer` field (the personal profile envelope
+  and report state use `signer`). #158 also renders the saved signer in the preview and uses their
+  saved details when signing; the sample PDF remains static. Without P6 nothing is stored per
+  person: the sign dialog asks for the signer's details each time, prefilled with their name (and with the firm profile's engineer of
+  record only when its email is theirs), and Settings says so instead of showing a form.
+* **P7. The firm's activity for every member.** `GET /v1/orgs/{org_id}/feed?since&until&actor_id&
+  study_id&limit&cursor` → `{org_id, items, since, until, next_cursor}`: the `study_events` of every
+  study of the firm, newest first, each item an `ActivityItemOut` plus `actor_name` and
+  `property_address`, default window 30 days, 200 a page. Today `/v1/me/activity` is the caller's
+  own events and `/v1/orgs/{id}/activity` is owners only and about the firm, not its studies; the
+  app falls back to "Your activity" and an admin also gets the firm events. The app shows decisions,
+  gate openings, signatures, the report written, uploads (a creation, its uploads and its start read
+  as one entry), reopenings, archive and retries; it leaves out activities, stage moves and the
+  corrections a decision already counts (`firm-model.js` `studyEntry`).
+* **Delivery state on the study list** (section 13): Home, the Library and the study page read
+  `GET .../report/state` once per finished study, six at a time; 14 studies is fine, a firm's year
+  is not.
+* **Invitations: resend.** An invitation is emailed once (FIRMS.md 3.1); the Team page's Resend
+  revokes and invites again, which is a new invitation row. A `POST .../invitations/{id}/resend`
+  that re-queues the email on the same row would keep one row per person.
+* **A firm's own name in Settings**: `PATCH /v1/orgs/{org_id}` exists; the letterhead form saves the
+  report profile (`PUT .../profile`), whose `name` is printed on reports. Renaming the firm itself
+  is not on the page yet.
+
 ## Testing
 
-No automated test loads any live screen (`web/tests/*.test.cjs` cover the helper
-modules only; `live-smoke.mjs` walks the API without rendering). A screen-level harness
-(jsdom or Playwright against the local stack, `web/README.md` "Live mode, locally") is
-the gap to close alongside the forms above.
+`web/tests/firm-pages.test.cjs` renders the firm pages (Home, Library, Activity, Team,
+Settings), the join page and the sign dialog in a VM, on the sample API through the real API
+client, for each role and against the sample with its PROPOSED section removed (today's API).
+Those tests do not run a browser: what a render does to the DOM (typed values kept, focus,
+layout) is checked by the Playwright captures. The other live screens are covered by their
+helper modules' tests only; a browser harness against the local stack (`web/README.md`
+"Live mode, locally") is still the gap for them.

@@ -25,18 +25,6 @@ test('draft, failed, stalled and archived studies never expose a current review 
   assert.equal(steps.find(s=>s.state==='active').canOpen,false);
  }
 });
-test('Home prioritizes actionable studies and preserves recent order without mutating input',()=>{
- const rows=['completed','archived','draft','processing','waiting_review','stalled','failed'].map((status,i)=>({...study(status),id:status,updated_at:`2026-10-2${i}T12:00:00Z`}));
- const before=JSON.stringify(rows),view=H.home(rows);
- assert.deepEqual(view.attention.map(s=>s.id),['failed','stalled','waiting_review','draft']);
- assert.deepEqual(view.processing.map(s=>s.id),['processing']);assert.equal(view.completed,1);assert.equal(view.recent.length,4);
- assert.equal(JSON.stringify(rows),before);assert.deepEqual(H.home([]),{attention:[],processing:[],recent:[],completed:0});
-});
-test('Activity uses only record timestamps and avoids duplicate creation/update events',()=>{
- const a=study(),b={...study(),id:'b',updated_at:a.created_at};
- const events=H.activity([a,b]);assert.equal(events.length,3);assert.equal(events[0].kind,'updated');
- assert(events.every(e=>e.kind==='created'||e.kind==='updated'));assert.deepEqual(H.activity([]),[]);
-});
 test('creator attribution matches IDs and never substitutes the viewer for another person',()=>{
  const s=study(),me={user:{id:'creator',display_name:'Creator',email:'creator@example.test'}};
  assert.deepEqual(H.creator(s,me),{name:'Creator',email:'creator@example.test'});
@@ -50,14 +38,6 @@ function boot(rows=[]){
  vm.createContext(globals);vm.runInContext(fs.readFileSync(path.join(__dirname,'../live/live-app.js'),'utf8'),globals);
  const live=globals.BasisLive;live.me=()=>({memberships:[{org_id:'firm',role:'engineer'}]});live.state.cache.set('studies',{done:true,data:rows});return {ctx:globals,live,events};
 }
-test('every Home, Library and Activity study entry opens progress, with distinct Home and Library controls',()=>{
- const {ctx}=boot([study(),{...study('waiting_review','rooms_review'),id:'review'}]);
- for(const html of [ctx.dashboard(),ctx.studyLibrary(),ctx.activity()]){
-  const entries=[...html.matchAll(/href="#([^"/]+)\/(study|review)"/g)];assert(entries.length);assert(entries.every(m=>m[1]==='processing'));
- }
- assert.doesNotMatch(ctx.dashboard(),/live-study-search|<table/);assert.match(ctx.studyLibrary(),/live-study-search/);
- assert.doesNotMatch(ctx.activity(),/Harbor House|Mock|Alex Morgan/);
-});
 test('progress renders a compact status bar and detailed list, preserving actions and gate access',()=>{
  const {ctx,live}=boot();
  for(const [status,stage,action] of [['completed','completed','Report & sign'],['waiting_review','rooms_review','Review rooms'],['processing','components_processing','Cancel study'],['failed','assets_processing','Retry processing'],['draft','uploading','Start the study'],['archived','rooms_review','This study is archived']]){
@@ -95,10 +75,11 @@ test('completed status is above navigation and read-only is scoped to review pag
  live.reportStateEntry=()=>({done:true,data:{study_id:s.id,revision:3,exported:true,skipped:null,missing_for_final:[],signature:{study_id:s.id,revision:3},changed_since_signing:[]}});
  for(const screen of ['appraisal','rooms','components','assets','asset-detail','complete','files','structure','intake']){
   ctx.state.screen=screen;const html=live.steps(s);
-  // Review pages carry the finished state in the step bar and header; progress, results and records keep the strip.
-  const review=['appraisal','rooms','components','assets','asset-detail'].includes(screen);
-  assert.equal((html.match(/Study completed/g)||[]).length,review?0:1);
-  if(!review)assert(html.indexOf('Study completed')<html.indexOf('<nav'));
+  // Review pages carry the finished state in the step bar and header, and Files sits under the step bar;
+  // progress, results and records keep the strip.
+  const review=['appraisal','rooms','components','assets','asset-detail'].includes(screen),plain=review||screen==='files';
+  assert.equal((html.match(/Study completed/g)||[]).length,plain?0:1);
+  if(!plain)assert(html.indexOf('Study completed')<html.indexOf('<nav'));
   assert.equal(/read-only<\/span>/i.test(html),['appraisal','rooms','components','assets','asset-detail'].includes(screen));
  }
  live.state.studyId=s.id;live.state.cache.set('study:'+s.id,{done:true,data:s});

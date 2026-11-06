@@ -13,7 +13,7 @@ const servedBytes=d=>fs.existsSync(path.join(WEB,'assets',d.filename))?d.bytes:S
 // Proposed fields are the only extras allowed, and only where the contract puts them.
 // The backend branch of the overrides (docs/api/OVERRIDES.md there) adds these to the
 // contract; once it is in openapi.json the schema itself checks them and these are inert.
-const PROPOSED_EXTRAS=new Set(['PhotoObjectOut.exclusion','CostOut.override','CostTrailOut.override','CostTrailOut.replaced']);
+const PROPOSED_EXTRAS=new Set(['PhotoObjectOut.exclusion','CostOut.override','CostTrailOut.override','CostTrailOut.replaced','StudyOut.summary','StudyDetail.summary','MemberOut.signer']);
 const PROPOSED_VALUES=new Map([['CostTrailOut.kind',['engineer_price']]]);
 function validate(schema,value,where='$',owner=null,errors=[]){
  if(schema.$ref){const name=schema.$ref.split('/').pop();return validate(OPENAPI.components.schemas[name],value,where,name,errors)}
@@ -83,6 +83,7 @@ async function readAll(a,studyId,label){
  check('GET','/v1/orgs/{org_id}/invitations',await get(`/v1/orgs/${org}/invitations`));
  check('GET','/v1/studies',await get('/v1/studies'));
  const study=check('GET',T,await get(S(studyId)));
+ if(study.status==='draft'){problem(await get(S(studyId)+'/workflow'),404);return {study}}// not started: no workflow, nothing produced
  check('GET',T+'/workflow',await get(S(studyId)+'/workflow'));
  const fields=check('GET',T+'/fields',await get(S(studyId)+'/fields?revision='+study.revision));
  const rooms=check('GET',T+'/rooms',await get(S(studyId)+'/rooms?revision='+study.revision));
@@ -148,7 +149,10 @@ test('each state seeds the main study where the contract says',async()=>{
   if(state==='update-required')assert.deepEqual(r.changed_since_signing,['firm']);
  }
  const {a}=instance('components'),list=a.studies();
- assert.equal(list.length,3);assert.deepEqual(list.slice(1).map(s=>s.status),['completed','waiting_review']);
+ // The firm: 14 studies at every stage besides Harbor House's.
+ assert.equal(list.length,14);
+ assert.deepEqual([...new Set(list.slice(1).map(s=>s.status))].sort(),['archived','completed','draft','failed','processing','waiting_review']);
+ assert.deepEqual([...new Set(list.filter(s=>s.status==='waiting_review').map(s=>s.stage))].sort(),['appraisal_review','assets_review','components_review','rooms_review']);
  assert.equal(A.create().state,'components','components is the default');
 });
 
@@ -379,7 +383,7 @@ test('the Response surface: JSON, problem+json, bytes, and the bearer token',asy
  r=await a.fetch(`${A.BASE}/v1/studies/${id}/documents/${doc.id}/image`,{headers:{Authorization:'Bearer t'}});assert.equal((await r.blob()).size,servedBytes(doc));
  // The live client works against it unchanged.
  const client=require('../live/api-client.js').createClient({baseUrl:a.base,fetchImpl:a.fetch,getToken:async()=>'sample-token'});
- assert.equal((await client.listStudies()).items.length,3);
+ assert.equal((await client.listStudies()).items.length,13,'the archived study is listed only on request');
  await assert.rejects(client.decide(id,{stage:'appraisal_review',revision:1,decision:'approve',corrections:[]}),e=>e.status===409&&e.kind==='stale-state');
 });
 
@@ -527,4 +531,14 @@ test('If-Match on the report answers reads as the real API does: * needs existin
  // Absent answers: * does not hold.
  const y=instance('components'),Q=S(y.id)+'/report-answers',none=(await y.a.call('GET',Q)).body;
  if(!none.report_answers){problem(await y.a.call('PUT',Q,{body:{taxpayer_name:'T',photographs:'taxpayer_supplied',photographed_by:'T',photographed_on:'2026-10-01'},headers:{'If-Match':'*'}}),412)}
+});
+
+test('the proposed directory carries each member’s signer details, before and after they are read or saved (P5, P6)',async()=>{
+ const a=A.create({now:()=>Date.parse('2026-11-05T22:30:00Z'),role:'engineer',fetchAsset}),org=(await a.call('GET','/v1/me')).body.memberships[0].org_id;
+ const jordan=async()=>(await a.call('GET',`/v1/orgs/${org}/members`)).body.items.find(m=>m.user_id==='sample-user-2').signer;
+ assert.deepEqual(await jordan(),{name:'Jordan Lee',credentials:'PE',license_number:'PE-77120',license_state:'CA'});
+ const r=(await a.call('GET','/v1/me/signer'));assert.equal(r.status,200);assert.deepEqual(await jordan(),r.body.signer,'reading Settings leaves the directory’s shape alone');
+ const put=await a.call('PUT','/v1/me/signer',{body:{name:'Jordan Lee',credentials:'PE',license_number:'PE-90001',license_state:'NV'},headers:{'If-Match':`"${r.body.version}"`}});assert.equal(put.status,200);
+ assert.deepEqual(await jordan(),{name:'Jordan Lee',credentials:'PE',license_number:'PE-90001',license_state:'NV'});
+ assert.equal((await a.call('PUT','/v1/me/signer',{body:{name:'J',credentials:'PE'},headers:{'If-Match':'"1"'}})).status,412,'a stale version is refused');
 });

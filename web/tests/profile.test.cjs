@@ -45,20 +45,3 @@ test('unreadable images and excessive dimensions report errors and release tempo
  assert.equal(large.calls.revoked.length,1);
 });
 
-test('the New design switch in Settings registers on the app root and flips the preference',()=>{
- // app.js declares `const root`; in a page that is a global lexical binding, not globalThis.root.
- const handlers=[],toasts=[],sets=[];let on=false,renders=0;
- const context=vm.createContext({TEAM_MEMBERS:[],state:{},REVIEW:{screens:[['settings','Settings']]},localStorage:{getItem:()=>null},esc:String,
-  render:()=>{renders++},toast:m=>toasts.push(m),document:{getElementById:()=>null}});
- context.globalThis=context;
- context.BasisDesign={enabled:()=>on,set:v=>{sets.push(v);on=v;return v}};
- vm.runInContext("const root={addEventListener:(type,fn)=>globalThis.__handlers.push([type,fn]),querySelector:()=>null};",Object.assign(context,{__handlers:handlers}));
- vm.runInContext(fs.readFileSync(path.join(__dirname,'../profile-settings.js'),'utf8'),context);
- const click=handlers.filter(([type])=>type==='click');
- assert.equal(click.length,1,'one click handler on the app root');
- const before=renders;
- click[0][1]({target:{closest:sel=>sel.includes('toggle-design')?{}:null}});
- assert.deepEqual(sets,[true]);assert.equal(renders,before+1);assert.match(toasts[0],/New design on/);
- click[0][1]({target:{closest:()=>null}});
- assert.deepEqual(sets,[true],'other clicks leave the preference alone');
-});

@@ -722,7 +722,7 @@ upload slow tests 142 passed.
 | `web/tests/review-organization.test.cjs` | The selected appraisal field carries its own Correct value action; the footer keeps only the next-section control | 20 pass |
 | `web/tests/live-redesign-gates.test.cjs` | The photo viewer's add control is found by its visible "Draw missing object" label where the step is open, and absent on read-only and photo-only views; an edited inventory row shows the AI value struck through beside the engineer value with "Edited by you", a removed row stays struck through with its reason and Undo, and the unit price column and dialog fields appear only when the API offers unit_cost_override; the row dialog carries type, count stepper, material, attachment, reason, Remove row and (with unsent edits) Reset to AI | 23 pass |
 | `web/tests/room-placement.test.cjs` | A room emptied by moves sends only its photo moves (the API has no room delete); merging sends one `room` `merge_into` correction, follows chains, keeps a photo moved on after its merge, and refuses a missing or self target | 12 pass |
-| `web/tests/sample-api.test.cjs` | The in-browser sample API: every GET the live screens use, in all eight states and for all three studies, validates against its 200 schema in docs/api/openapi.json (only the proposed `exclusion` and `cost.override` fields are allowed extras); decisions, reopen, objects with the duplicate guard, signing, answers and profile follow the documented statuses and problem types; the proposed capabilities, object exclusion, unit price override and room creation; inactive without ?api=sample; no client-data strings (by digest) | 28 pass |
+| `web/tests/sample-api.test.cjs` | The in-browser sample API: every GET the live screens use, in all eight states and for all three studies, validates against its 200 schema in docs/api/openapi.json (only the proposed `exclusion` and `cost.override` fields are allowed extras); decisions, reopen, objects with the duplicate guard, signing, answers and profile follow the documented statuses and problem types; the proposed capabilities, object exclusion, unit price override and room creation; inactive without ?api=sample; no client-data strings (by digest) | 31 pass |
 
 Code review of the branch (Sol on Codex, Opus on the Claude provider), each fix with a test that fails on the code before it:
 
@@ -742,3 +742,58 @@ Driving the branch against the real API (main with the signer, overrides and tea
 | `web/tests/sample-api.test.cjs` | Changed: P2 answers in the backend's override shape (the price a decimal string as entered, `level`, `correction_id`, `revision`; trail `engineer_price` with the table's pricing kept as `replaced`; the `source_row` text; a price alone keeps the bucket and the classification's reasons and clears only the table's pricing reasons; more than two decimals or a string price is refused); the validator checks `cost.override` against the contract once the contract has it. Added: a checkout without the five untracked photos serves the committed synthetic stand-in for each, whole, and a missing report still fails. Passes against main's `openapi.json` and each backend branch's (overrides, signer details, team duplicate, library search), and in a clean clone without the photos (9 of 410 failed there before) | 31 pass |
 
 The full `web/tests/*.test.cjs` suite passed 411 tests.
+
+### The firm pages: Home, Library, Activity, Team, Settings, onboarding (web/, November 2026)
+
+| Test file | Coverage | Result |
+| --- | --- | --- |
+| `web/tests/firm-model.test.cjs` | Search matches every word against the property, address, client, taxpayer, file and parcel numbers, county, borrower and engineer (accents and case ignored) and reports the field that holds the whole query; the seven-step strip and each study's next action per state (Checking… until a report state loads, never Signed); Home's queues (an engineer's own, failures and signatures first; an admin's every waiting study; archived left out); events read as sentences with their step, bookkeeping left out, a creation with its uploads as one entry, firm events by name; Today/Yesterday grouping; signer details validation; the same rules over the sample firm (a client's name finds Harbor House, every study is found by its file number, a colleague acted yesterday) | 13 pass |
+| `web/tests/firm-pages.test.cjs` | The pages as rendered on the sample API through the real client, for an admin and an engineer: Home's queues and links to the waiting step, no id shown as text; Library search by client with marked words, the archive as its own filter, and a no-match that names the filter holding the match; Activity's day groups and linked sentences, Me filter; Team managed by the admin and read-only for the engineer; Settings with signer details and no New design switch; the new firm's checklist; with the PROPOSED section deleted (today's API) each page falls back and says so | 7 pass |
+| `web/tests/sample-api.test.cjs` | Changed: the firm (14 studies at every stage, 6 people, invitations) validates against openapi.json in all eight states for every study, a draft has no workflow (404), the archived study is listed only on request; `MemberOut.signer` and `StudyOut.summary` are the proposed extras | 30 pass |
+| `web/tests/study-overview.test.cjs`, `firm.test.cjs`, `ui-review.test.cjs`, `profile.test.cjs` | Changed: a finished study's Files page sits under the step bar; roles read Admin / Engineer / Viewer; the New design switch's tests are removed with the switch, and the old live Home, Library and Activity tests with the renderers they tested (`firm-pages.test.cjs` covers those screens now) | pass |
+
+Code review of the branch (Sol on Codex), each fix with a test that fails on the code before it:
+
+| Test file | Coverage | Result |
+| --- | --- | --- |
+| `web/tests/firm-pages.test.cjs` | Added: onboarding without personal signer details (today's API) still has a way on; a letterhead that could not be read is neither shown as an empty form nor saved over; a signer read that fails (503) is an error, never the engineer of record's details, while a missing route (404) still falls back; the fallback activity keeps to the firm on screen; a study's activity reads every page of its timeline; opening Activity again re-reads the feed once without re-rendering inside the render (it recursed without end and crashed the page) | 13 pass |
+| `web/tests/sample-api.test.cjs` | Added: the proposed directory carries each member's signer details before and after they are read or saved, and a stale signer version is refused (412) | 31 pass |
+
+Code review of the branch (Opus on Claude), each fix with a test that fails on the code before it:
+
+| Test file | Coverage | Result |
+| --- | --- | --- |
+| `web/tests/firm-pages.test.cjs` | Added: signing on today's API asks for the engineer's own details, prefilled with their name, and never sends the engineer of record's for someone else (the admin, whose email it is, gets it prefilled); signing while the signer details load waits instead of moving to Settings; the fallback reads the study's firm profile; a viewer is never asked for signer details; Settings reads the report state only of the studies its to-sign list can show; a Resend that revoked and then failed says both; the Library announces a count, not its table; Home with deliveries that are not signed puts Sign report and Update the report before reviews; Home and Activity read the feed once per visit (it was read twice). Changed: onboarding on today's API has no read-only form, it says the details are typed when signing (the join page itself is rendered, with live-team.js) | 21 pass |
+| `web/tests/firm-model.test.cjs` | Added: the backend's own events (`study.report_answers_set`, `export.written` with `detail.report.skipped`) and the sample emits them; an archived study's strip keeps where it stopped in a neutral tone; the length-change fallback of highlighting is exercised with a ligature; the day labels themselves, and another year's date says its year | 14 pass |
+
+The browser checks of the same fixes (`.ui-climb/scripts/verify-opus.mjs`, Playwright on the sample):
+Settings keeps a typed value, its focus and caret across a re-render; the Library's search box keeps
+focus and the next key lands at the caret; the sign dialog against today's API (signer route 404)
+has fields, prefilled with the engineer's name or the admin's own license; the developer page's
+sample mode says its health is synthetic. 12 of 12 pass.
+
+Firms are set up by Basis, not self-serve (`POST /v1/orgs` off by default; `python -m basis.admin create-firm`):
+
+| Test file | Coverage | Result |
+| --- | --- | --- |
+| `web/tests/firm-pages.test.cjs` | Added: the no-firm screen, for an admin, an engineer and a viewer sign-in, says to ask the firm's admin for an invitation or contact Basis, offers only Check for an invitation and Use another account, and has no form or create control; a create-firm form submitted anyway sends nothing, and the sample API creates no firm (fails on the code before the change) | 22 pass |
+
+The full `web/tests/*.test.cjs` suite passed 443 tests.
+
+
+### Firm pages real API compatibility follow-up (2026-11-06, PR #160)
+
+| Test file | What was verified | Result |
+|---|---|---|
+| `web/tests/firm-pages.test.cjs` | Added fourteen compatibility checks: debounced server `q` without `StudyOut.summary`, cursor pages retaining `q`, server-only matches, stale responses, clear/cancel, query limits, search error/retry, engineer/status/sort/archive controls, all four NCEES territories saved/read, and feed-404/member-403 fallbacks for admin and engineer; 51 pages (5,100 matches) read fully; cycling cursor refused without claiming zero results; Unicode casefold-sensitive queries left to server validation; a real generic query 422 becomes an actionable message without retry; generation cancellation on query/navigation/firm change; previous rows and chips retained while busy; whitespace changes skip refetch; error cache keys omit typed queries; multi-firm filtering; announcements through the persistent status node after full load re-renders. Existing client-name and archive checks now wait for the deterministic debounce clock. | 36 pass |
+| `web/tests/firm-model.test.cjs` | Added Unicode code-point length validation (200 characters); distinct-word validation stays on the backend, whose casefold differs from JavaScript lowercasing; jurisdictions include GU, MP, PR and VI. | 15 pass |
+
+
+Compatibility verification: 458 web tests pass in a tracked-files-only copy, with none of the
+five untracked room photos. The 51 focused tests pass on the changed source; the same tests
+against the pre-fix firm-pages/model source give 34 pass and 17 fail (some are changed copy
+assertions, not 17 independent behavioral bugs). All 32 sample API tests
+also pass with each available backend contract (engineer-overrides #159, signer-details #158,
+library-search #161). Synthetic browser build b12: 95 captures/flow steps with zero axe,
+clipped-text, broken-word, overlap, page-overflow, broken-image, JavaScript-error or flow-dead-end
+issues. No real backend study was written to; no backend executable code changed, and backend gates were not run for this follow-up.

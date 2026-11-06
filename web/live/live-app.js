@@ -150,6 +150,7 @@
  }
  const baseRender=render;
  render=function(){
+  for(const fn of Live.beforeRender||[])fn();// what a re-render must keep (live/firm-pages.js: typed values, focus)
   parseHash();
   if(!L.authReady){root.innerHTML=liveBar()+`<main class="live-splash">${Live.loading('Connecting to sign-in…')}${L.authError?Live.failed({title:'Sign-in is unavailable',message:L.authError}):''}</main>`;return}
   if(!L.user&&!PUBLIC.has(state.screen)){L.returnTo=location.hash||'#dashboard';state.screen='login'}
@@ -185,7 +186,7 @@
   hydrateImages();
   Live.afterRender.forEach(fn=>fn());
  }
- Live.afterRender=[];
+ Live.afterRender=[];Live.beforeRender=[];
  function liveBar(){
   const host=(()=>{try{return new URL(C.apiBase).host}catch{return C.apiBase}})();
   const mock=new URL(location.href);mock.searchParams.delete('mode');
@@ -212,50 +213,7 @@
 
  /* ---------- studies: the dashboard and the library ---------- */
  function studiesEntry(force=false){return load('studies',()=>api.listStudies().then(p=>p.items),{force})}
- // "Report to sign": finished studies whose report needs the engineer, among those whose report state is loaded.
- const reportDue=s=>s.status==='completed'&&Live.deliveryPeek(s).tone==='review';
- // Finished: delivered. A study whose report state has not loaded (or failed) is in neither count.
- const delivered=s=>s.status==='completed'&&Live.deliveryPeek(s).tone==='done';
- const FILTERS={'All studies':()=>true,'Needs review':s=>['waiting_review','stalled','failed'].includes(s.status),'Report to sign':reportDue,'Processing':s=>s.status==='processing','Finished':delivered,'Drafts':s=>s.status==='draft'};
- function studiesTable(rows){
-  return `<div class="collection-table-wrap"><table class="collection-table"><caption class="sr-only">Studies</caption><thead><tr><th scope="col">Study</th><th scope="col">Status</th><th scope="col">Revision</th><th scope="col">Updated</th><th scope="col"><span class="sr-only">Open</span></th></tr></thead><tbody>${rows.map((s,i)=>`<tr><td class="collection-study-cell"><a class="collection-entry" href="${Live.route('processing',s.id)}"><span><strong>${esc(s.property_name)}</strong>${s.status==='completed'&&!s.failure_reason?'':`<span class="collection-address">${esc(STAGE[s.current_stage]||s.current_stage)}${s.failure_reason?' · '+esc(s.failure_reason):''}</span>`}</span></a></td><td class="collection-state-cell">${s.status==='completed'?(d=>`<span class="desk-status ${Live.deliveryClass(d)}">${esc(d.label)}</span>`)(Live.deliveryPeek(s)):deskStatus(s)}</td><td class="num">${s.revision}</td><td class="collection-date-cell"><time datetime="${esc(s.updated_at)}">${Live.when(s.updated_at)}</time></td><td class="collection-open-cell"><a class="collection-open" href="${Live.route('processing',s.id)}" aria-label="Open ${esc(s.property_name)}"><span>Open study</span>${icon('arrow',17)}</a></td></tr>`).join('')||`<tr><td colspan="5"><div class="collection-empty">${icon('search',28)}<h2>${L.studies?.length?'No matching studies':'No studies yet'}</h2><p>${L.studies?.length?'Try another name or status.':'Start a study to upload an appraisal and property photos.'}</p>${L.studies?.length?'':`<a class="button primary" href="#upload">${icon('plus',15)}Start a study</a>`}</div></td></tr>`}</tbody></table></div>`;
- }
- function studiesView(title,subtitle){
-  const e=studiesEntry();if(!e.done)return Live.loading('Loading your studies…');
-  // Removed from the firm meanwhile: re-read /v1/me (the gate then explains) and the list.
-  if(e.error?.kind==='no-firm'){Live.invalidate('studies');Live.refreshMe?.();return Live.loading('Checking your firm…')}
-  if(e.error)return Live.failed(e.error,'reload-studies');
-  L.studies=Live.firmStudies?Live.firmStudies(e.data):e.data;Live.loadDeliveries(L.studies);const q=L.studiesQuery.trim().toLowerCase();
-  const matched=L.studies.filter(s=>!q||s.property_name.toLowerCase().includes(q));
-  const rows=matched.filter(FILTERS[L.studiesFilter]).sort((a,b)=>L.studiesSort==='name'?a.property_name.localeCompare(b.property_name):L.studiesSort==='oldest'?a.updated_at.localeCompare(b.updated_at):b.updated_at.localeCompare(a.updated_at));
-  return `<div class="collection-desk live-studies"><header class="collection-header"><div><h1>${title}</h1>${subtitle?`<p>${subtitle}</p>`:''}</div><a class="collection-create" href="#upload">${icon('plus',17)}Start a study</a></header><div class="collection-search-area"><label class="collection-search-field">${icon('search',21)}<input id="live-study-search" aria-label="Search studies" placeholder="Search by property name…" value="${esc(L.studiesQuery)}"></label></div><section class="collection-panel" aria-label="Studies"><div class="collection-toolbar"><div class="collection-status-filters" aria-label="Filter studies by status">${Object.keys(FILTERS).map(f=>`<button type="button" data-live="studies-filter" data-value="${f}" aria-pressed="${L.studiesFilter===f}">${f}<span>${matched.filter(FILTERS[f]).length}</span></button>`).join('')}${(n=>n?`<span class="library-checking">Report status for ${n} ${n===1?'study':'studies'} still loading; they are not in Report to sign or Finished yet.</span>`:'')(matched.filter(s=>s.status==='completed'&&Live.deliveryPeek(s).tone==='pending').length)}</div><label class="library-sort"><span class="sr-only">Sort studies</span><select id="live-study-sort" aria-label="Sort studies">${[['updated','Last updated'],['oldest','Oldest first'],['name','Property A–Z']].map(([v,l])=>`<option value="${v}" ${L.studiesSort===v?'selected':''}>${l}</option>`).join('')}</select></label></div><div id="live-study-results">${studiesTable(rows)}</div></section></div>`;
- }
- function withStudies(fn){
-  const e=studiesEntry();if(!e.done)return Live.loading('Loading your studies…');
-  if(e.error?.kind==='no-firm'){Live.invalidate('studies');Live.refreshMe?.();return Live.loading('Checking your firm…')}
-  if(e.error)return Live.failed(e.error,'reload-studies');
-  L.studies=Live.firmStudies?Live.firmStudies(e.data):e.data;return fn(L.studies);
- }
- function homeStudy(s){
-  // A finished study that still needs the engineer (update required, signature) opens on Report & sign.
-  const d=s.status==='completed'?Live.delivery(s):null;
-  if(d?.tone==='review')return `<a class="home-study" href="${Live.route('report',s.id)}"><div><strong>${esc(s.property_name)}</strong><span>Report & sign</span></div><span><span class="desk-status ${Live.deliveryClass(d)}">${esc(d.label)}</span></span>${icon('chevron',16)}</a>`;
-  return `<a class="home-study" href="${Live.route('processing',s.id)}"><div><strong>${esc(s.property_name)}</strong><span>${esc(s.status==='draft'?'Finish uploading documents':STAGE[s.current_stage]||s.current_stage)}</span></div><span>${statusBadge(s.status)}</span>${icon('chevron',16)}</a>`;
- }
- dashboard=()=>withStudies(studies=>{
-  const h=BasisStudyOverview.home(studies);
-  // Finished studies whose report needs the engineer join the attention queue. Every finished
-  // study's report state is read (six at a time, once per revision); until one loads, that study
-  // counts as neither waiting nor finished.
-  Live.loadDeliveries(studies);
-  for(const s of studies.filter(x=>x.status==='completed').sort((a,b)=>String(b.updated_at).localeCompare(String(a.updated_at))))if(Live.deliveryPeek(s).tone==='review'&&!h.attention.includes(s))h.attention.push(s);
-  return `<div class="home-desk">${heading('Home','',`<a class="button primary" href="#upload">${icon('plus',16)}Start a study</a>`)}<dl class="study-summary" aria-label="Study overview"><div><dt>Need attention</dt><dd>${h.attention.length}</dd></div><div><dt>In progress</dt><dd>${h.processing.length}</dd></div><div><dt>Finished</dt><dd>${studies.filter(x=>x.status==='completed'&&!h.attention.includes(x)&&Live.deliveryPeek(x).tone==='done').length}</dd></div></dl><div class="home-columns"><section class="panel home-attention"><div class="panel-head"><h2>Needs your attention</h2><span class="small">${h.attention.length} ${h.attention.length===1?'study':'studies'}</span></div>${h.attention.map(homeStudy).join('')||`<div class="home-empty"><h3>${studies.length?'No reviews waiting':'Your first study starts here'}</h3><p>${studies.length?'Approved studies may still need report details or a signature.':'Upload an appraisal and property photos to get started.'}</p>${studies.length?'':'<a class="button" href="#upload">Start a study</a>'}</div>`}${h.processing.length?`<div class="panel-head"><h2>In progress</h2></div>${h.processing.map(homeStudy).join('')}`:''}</section><section class="home-recent"><div class="row between"><h2>Recently updated</h2><a class="screen-link" href="#library">View library ${icon('arrow',14)}</a></div>${h.recent.map(s=>`<a class="home-recent-study" href="${Live.route('processing',s.id)}"><strong>${esc(s.property_name)}</strong><span>${esc(s.status==='completed'?Live.delivery(s).label:STATUS[s.status]||s.status)} · ${Live.when(s.updated_at)}</span></a>`).join('')||'<p class="small">Your studies will appear here.</p>'}</section></div></div>`;
- });
- activity=()=>withStudies(studies=>{
-  const events=BasisStudyOverview.activity(studies);
-  return `${heading('Activity','Study creation and the latest saved update for each study.')}<section class="panel study-activity" aria-label="Study updates">${events.map(event=>`<article class="study-update"><span class="study-update-icon">${icon(event.kind==='created'?'plus':'clock',18)}</span><div><p>${event.kind==='created'?'Study created':'Study updated'}</p><a href="${Live.route('processing',event.study.id)}">${esc(event.study.property_name)}</a>${event.kind==='updated'?`<span class="small">Current status: ${esc(STATUS[event.study.status]||event.study.status)}</span>`:''}</div><time datetime="${esc(event.at)}">${Live.when(event.at)}</time></article>`).join('')||'<div class="home-empty"><h3>No study activity yet</h3><p>Updates will appear here as your team works on studies.</p></div>'}</section>`;
- });
- studyLibrary=()=>studiesView('Library','');
+ // Home, the Library and Activity are live/firm-pages.js (Live.screens); their rules are live/firm-model.js.
  archiveStudy=()=>Live.withStudy(s=>{location.replace(Live.route('processing',s.id));return Live.loading()});
 
  /* ---------- start a study: create, signed uploads, start ---------- */
@@ -388,10 +346,10 @@
     const content=`<span class="hub-progress-marker" aria-hidden="true">${step.state==='done'?'✓':i+1}</span><span><strong>${esc(step.label)}</strong><small>${esc(step.status)}</small></span>`;
     return `<li class="${step.state==='done'?'is-done':step.state==='active'?'is-current':''} step-tone-${toneOf(step.status)}" ${step.state==='active'?'aria-current="step"':''}>${step.canOpen?`<a class="hub-progress-step" href="${Live.route(step.destination,s.id)}">${content}</a>`:`<span class="hub-progress-step" aria-disabled="true">${content}</span>`}</li>`;
    }).join('')}</ol></nav>`;
-   return `${Live.studyStatus(s,'processing')}${progressBar}<div class="study-hub">${heading('Study progress','')}<div class="hub-layout"><div class="hub-main">${sent?`<section class="hub-sent" aria-label="Corrections sent"><h2>Sent ${sent.items.length} ${sent.items.length===1?'correction':'corrections'} · rerunning as revision ${sent.revision}</h2><ul>${sent.items.map(i=>`<li><strong>${esc(i.title)}</strong><span>${esc(i.changes)}</span></li>`).join('')}</ul>${sent.comment?`<p>${esc(sent.comment)}</p>`:''}<p class="small">The review opens again with these applied; nothing can be approved while it reruns.</p></section>`:''}${finished?'':`<section class="hub-next ${finished?'is-complete':''}" aria-label="${finished?'Study complete':'Current step'}"><div><span class="hub-eyebrow">${finished?'Completed':archived?'Archived':failed?'Needs attention':gate?'Up next':notStarted?'Getting started':'In progress'}</span><h2>${esc(current)}</h2>${failed&&globalThis.BasisErrorHelp?BasisErrorHelp.html(p?.failure_code,s.failure_reason||p?.failure||detail):`<p>${esc(detail)}</p>`}</div>${action}</section>`}<section class="panel hub-steps" aria-label="Study progress steps"><div class="panel-head"><h2>Study steps</h2><span class="small">${done} of ${list.length} complete</span></div><ol>${list.map((step,i)=>{
+   return `${Live.studyIdentity?Live.studyIdentity(s):''}${Live.studyStatus(s,'processing')}${progressBar}<div class="study-hub">${Live.studyIdentity?'':heading('Study progress','')}<div class="hub-layout"><div class="hub-main">${sent?`<section class="hub-sent" aria-label="Corrections sent"><h2>Sent ${sent.items.length} ${sent.items.length===1?'correction':'corrections'} · rerunning as revision ${sent.revision}</h2><ul>${sent.items.map(i=>`<li><strong>${esc(i.title)}</strong><span>${esc(i.changes)}</span></li>`).join('')}</ul>${sent.comment?`<p>${esc(sent.comment)}</p>`:''}<p class="small">The review opens again with these applied; nothing can be approved while it reruns.</p></section>`:''}${finished?'':`<section class="hub-next ${finished?'is-complete':''}" aria-label="${finished?'Study complete':'Current step'}"><div><span class="hub-eyebrow">${finished?'Completed':archived?'Archived':failed?'Needs attention':gate?'Up next':notStarted?'Getting started':'In progress'}</span><h2>${esc(current)}</h2>${failed&&globalThis.BasisErrorHelp?BasisErrorHelp.html(p?.failure_code,s.failure_reason||p?.failure||detail):`<p>${esc(detail)}</p>`}</div>${action}</section>`}${Live.studyDeliverables?Live.studyDeliverables(s):''}${(finished||archived)&&Live.studyIdentity?'':`<section class="panel hub-steps" aria-label="Study progress steps"><div class="panel-head"><h2>Study steps</h2><span class="small">${done} of ${list.length} complete</span></div><ol>${list.map((step,i)=>{
     const content=`<span class="hub-step-marker" aria-hidden="true">${step.state==='done'?'✓':i+1}</span><span class="hub-step-name"><strong>${esc(step.label)}</strong><small>${esc(step.hint)}</small></span><span class="hub-step-status">${esc(step.status)}</span>${step.canOpen?icon('chevron',15):''}`;
     return `<li class="${step.state==='active'?'is-current':''} ${step.state==='done'?'is-done':''} step-tone-${toneOf(step.status)}">${step.canOpen?`<a href="${Live.route(step.destination,s.id)}" ${step.state==='active'?'aria-current="step"':''}>${content}</a>`:`<div ${step.state==='active'?'aria-current="step"':'aria-disabled="true"'}>${content}</div>`}</li>`;
-   }).join('')}</ol></section>${p?.flagged_photos?.length?`<div class="note"><h3>${p.flagged_photos.length} photos need attention</h3><p>These photos remain available in the ${G.componentsGate(s)?'components':'rooms'} review.</p></div>`:''}${Live.studyTools?Live.studyTools(s):''}${w?.error&&w.error.status!==404?`<p class="live-upload-error">Status unavailable: ${esc(Live.errorText(w.error))}. Showing the last confirmed state.</p>`:''}</div><aside class="hub-details"><section class="panel panel-body"><h2>Study details</h2><dl><div><dt>Study</dt><dd>${esc(s.property_name)}</dd></div>${person?`<div><dt>Created by</dt><dd>${esc(person.name)}${person.email&&person.email!==person.name?`<small>${esc(person.email)}</small>`:''}</dd></div>`:''}<div><dt>Created</dt><dd>${Live.when(s.created_at)}</dd></div><div><dt>Last update</dt><dd>${Live.when(s.updated_at)}</dd></div><div><dt>Revision</dt><dd>${s.revision}</dd></div></dl></section><section class="panel panel-body"><h2>Source files</h2><div class="hub-file-row"><span>Appraisal</span><strong>${confirmed.some(d=>d.kind==='appraisal')?'Uploaded':'Missing'}</strong></div><div class="hub-file-row"><span>Photos</span><strong>${photos.length}</strong></div><a class="screen-link" href="${Live.route('files',s.id)}">View files ${icon('arrow',14)}</a></section></aside></div>${!finished&&!archived?`<div class="actionbar"><p>${gate?'Decisions apply to revision '+s.revision+'.':notStarted?'Confirm the appraisal and photos before starting.':'Progress updates automatically.'}</p>${!notStarted?'<button class="button quiet danger small" data-live="cancel">Cancel study</button>':''}</div>`:''}</div>`;
+   }).join('')}</ol></section>`}${Live.studyActivity?Live.studyActivity(s):''}${p?.flagged_photos?.length?`<div class="note"><h3>${p.flagged_photos.length} photos need attention</h3><p>These photos remain available in the ${G.componentsGate(s)?'components':'rooms'} review.</p></div>`:''}${Live.studyTools?Live.studyTools(s):''}${w?.error&&w.error.status!==404?`<p class="live-upload-error">Status unavailable: ${esc(Live.errorText(w.error))}. Showing the last confirmed state.</p>`:''}</div><aside class="hub-details">${Live.studyDetails?Live.studyDetails(s,person):`<section class="panel panel-body"><h2>Study details</h2><dl><div><dt>Study</dt><dd>${esc(s.property_name)}</dd></div>${person?`<div><dt>Created by</dt><dd>${esc(person.name)}${person.email&&person.email!==person.name?`<small>${esc(person.email)}</small>`:''}</dd></div>`:''}<div><dt>Created</dt><dd>${Live.when(s.created_at)}</dd></div><div><dt>Last update</dt><dd>${Live.when(s.updated_at)}</dd></div><div><dt>Revision</dt><dd>${s.revision}</dd></div></dl></section>`}<section class="panel panel-body"><h2>Source files</h2><div class="hub-file-row"><span>Appraisal</span><strong>${confirmed.some(d=>d.kind==='appraisal')?'Uploaded':'Missing'}</strong></div><div class="hub-file-row"><span>Photos</span><strong>${photos.length}</strong></div><a class="screen-link" href="${Live.route('files',s.id)}">View files ${icon('arrow',14)}</a></section></aside></div>${!finished&&!archived?`<div class="actionbar"><p>${gate?'Decisions apply to revision '+s.revision+'.':notStarted?'Confirm the appraisal and photos before starting.':'Progress updates automatically.'}</p>${!notStarted?'<button class="button quiet danger small" data-live="cancel">Cancel study</button>':''}</div>`:''}</div>`;
   });
  };
  // Upload · Appraisal · Rooms · Components · Assets · Results · Report & sign (no Components step for a
@@ -401,12 +359,14 @@
   // On a finished study's review pages the header badge and the Report & sign step already say
   // it (Update required, Signed), so the strip is kept for progress, results and the records.
   if(view==='report')return '';
-  if(s.status==='completed'&&['appraisal','rooms','components','assets','asset-detail','viewer'].includes(view))return '';
+  if(s.status==='completed'&&['appraisal','rooms','components','assets','asset-detail','viewer','files'].includes(view))return '';
   const context=G.reviewContext(s,view,Live.reportStateEntry?.(s));if(!context)return '';
   // r26: "Update required" (a signed report is out of date) is said once, on Study progress with its
   // action; elsewhere the header badge (a link to Report & sign) and the step bar already say it.
   // The next step after approval (add details, sign) keeps its strip: it is where the engineer goes next.
   if(s.status==='completed'&&view!=='processing'&&Live.delivery(s).label==='Update required')return '';
+  // A delivered study's page: its header and its report card say it is signed; the banner would repeat it.
+  if(s.status==='completed'&&view==='processing'&&Live.studyDeliverables&&Live.delivery(s).tone==='done')return '';
   return `<section class="study-status study-status--${context.tone}" aria-label="Study status"><span class="study-status-symbol" aria-hidden="true">${icon(context.tone==='complete'?'check':context.tone==='attention'?'help':'eye',18)}</span><div class="study-status-copy"><div class="study-status-title"><h2>${esc(context.title)}</h2></div><p>${esc(context.detail)}</p></div>${context.action?`<a class="button study-status-action" href="${Live.route(context.action,s.id)}">${esc(context.actionLabel||'Study progress')}${icon('arrow',16)}</a>`:''}</section>`;
  };
  // This page's own access, next to its title: read-only (approved, or not open yet) and, on a
@@ -425,7 +385,10 @@
  /* ---------- files ---------- */
  studyFiles=function(){
   return Live.withStudy(s=>{const docs=s.documents||[],groups=[['appraisal','Appraisal'],['photo','Property photos'],['other','Supporting documents']];
-   return `${Live.steps(s)}<div class="study-files"><header class="review-heading"><div><p>${esc(s.property_name)} <span>Study materials</span></p><h1>Uploaded files</h1></div><a class="button" href="${Live.route('processing',s.id)}">Study progress</a></header>${groups.map(([kind,label])=>{const list=docs.filter(d=>d.kind===kind);return list.length?`<h2 class="live-files-heading">${label} <span>${list.length}</span></h2><div class="study-file-grid" data-file-kind="${kind}">${list.map(d=>`<article class="study-file-card"><button class="file-preview-trigger" data-live="open-doc" data-value="${esc(d.id)}" aria-label="${(Live.isPdf(d)||Live.isAppraisalSource(d))?'Preview':'Open'} ${esc(d.filename)}">${d.kind==='photo'?Live.photo(d.id,d.filename):(Live.isPdf(d)||Live.isAppraisalSource(d))?Live.pdfThumbnail(d):`<div class="file-document-thumbnail">${icon('file',46)}<strong>${esc(d.filename)}</strong></div>`}</button><div class="study-file-meta"><strong>${esc(d.filename)}</strong><span>${(d.bytes/1048576).toFixed(1)} MB <i>·</i> ${d.uploaded_at?'Confirmed':'Upload not confirmed'}</span><div><button data-live="open-doc" data-value="${esc(d.id)}">${(Live.isPdf(d)||Live.isAppraisalSource(d))?'Preview':'Open'}</button><button data-live="download-doc" data-value="${esc(d.id)}">${icon('download',15)}Download</button></div></div></article>`).join('')}</div>`:''}).join('')||'<div class="file-empty"><h3>No files yet</h3></div>'}</div>`});
+   return `${Live.steps(s)}<div class="study-files"><header class="review-heading"><div><p>${esc(s.property_name)} <span>Study materials</span></p><h1>Uploaded files</h1></div><a class="button" href="${Live.route('processing',s.id)}">Study progress</a></header>${(()=>{const group=([kind,label])=>{const list=docs.filter(d=>d.kind===kind);return list.length?`<section class="study-files-group" data-files-group="${kind}"><h2 class="live-files-heading">${label} <span>${list.length}</span></h2><div class="study-file-grid" data-file-kind="${kind}">${list.map(d=>`<article class="study-file-card"><button class="file-preview-trigger" data-live="open-doc" data-value="${esc(d.id)}" aria-label="${(Live.isPdf(d)||Live.isAppraisalSource(d))?'Preview':'Open'} ${esc(d.filename)}">${d.kind==='photo'?Live.photo(d.id,d.filename):(Live.isPdf(d)||Live.isAppraisalSource(d))?Live.pdfThumbnail(d):`<div class="file-document-thumbnail">${icon('file',46)}<strong>${esc(d.filename)}</strong></div>`}</button><div class="study-file-meta"><strong>${esc(d.filename)}</strong><span>${d.bytes<104858?'&lt;0.1':(d.bytes/1048576).toFixed(1)} MB <i>·</i> ${d.uploaded_at?'Confirmed':'Upload not confirmed'}</span><div><button data-live="open-doc" data-value="${esc(d.id)}">${(Live.isPdf(d)||Live.isAppraisalSource(d))?'Preview':'Open'}</button><button data-live="download-doc" data-value="${esc(d.id)}">${icon('download',15)}Download</button></div></div></article>`).join('')}</div></section>`:''};
+   // The appraisal (and any other document) in a narrow column beside the photos, so the photos start at the top.
+   const side=[groups[0],groups[2]].map(group).join(''),photos=group(groups[1]);
+   return side||photos?`<div class="study-files-layout">${side?`<div class="study-files-side">${side}</div>`:''}${photos}</div>`:'<div class="file-empty"><h3>No files yet</h3></div>'})()}</div>`});
  };
  Live.openDocument=async(docId,page=1)=>{
   const d=(L.study?.documents||[]).find(x=>x.id===docId);if(!d)return;
@@ -449,7 +412,6 @@
    case 'reload-studies':studiesEntry(true);break;
    case 'reload-me':Live.refreshMe?.();break;
    case 'reload-study':Live.reloadStudy();break;
-   case 'studies-filter':L.studiesFilter=value;render();break;
    case 'open-doc':Live.openDocument(value);break;
    case 'download-doc':{const d=L.study.documents.find(x=>x.id===value);const url=await blobUrl(value);const a=Object.assign(document.createElement('a'),{href:url,download:d.filename});document.body.append(a);a.click();a.remove();break}
    case 'start':await guarded('start',async()=>{await api.start(L.studyId,L.startKey||=BasisApi.newKey());toast('Study started.');await Live.reloadStudy();startPolling();render()});break;
@@ -468,8 +430,6 @@
   const design=e.target.closest('[data-action="preview-analysis"]');if(design&&state.screen==='upload'){e.preventDefault();e.stopImmediatePropagation();startStudy()}
  },true);
  root.addEventListener('submit',e=>{if(e.target.matches('[data-live-form="email"]')){e.preventDefault();emailSignIn(false)}},true);
- root.addEventListener('input',e=>{if(e.target.id==='live-study-search'){L.studiesQuery=e.target.value;const pos=e.target.selectionStart;render();const box=root.querySelector('#live-study-search');box?.focus();box?.setSelectionRange(pos,pos)}},true);
- root.addEventListener('change',e=>{if(e.target.id==='live-study-sort'){L.studiesSort=e.target.value;render()}},true);
 
  /* ---------- start ---------- */
  // Another account signed in: nothing cached for the previous one may show.

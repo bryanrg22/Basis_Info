@@ -12,16 +12,32 @@
  * web/assets/sample-report.pdf. No value comes from a real study.
  *
  * States (&sample=): appraisal | rooms | components (default) | assets | processing |
- * unsigned | signed | update-required. Two more studies sit on the dashboard (one signed,
- * one at the appraisal review). Decisions, reopen, objects, the report answers, the firm
- * profile and signing all work and change what the next GET answers; a decision reruns for
- * about two seconds (status processing), then the next gate opens.
+ * unsigned | signed | update-required: where Harbor House, the main study, stands.
  *
- * Three things the real API does not have yet are implemented only in the PROPOSED section
- * near the end (web/FRONTEND_BACKLOG.md section 14, "Engineer overrides"); deleting that
- * section removes them and leaves the API as it is.
+ * The firm (Alder & Pine Engineering, synthetic): an admin, four engineers and a viewer, 14
+ * studies at every stage (processing, waiting at each review, needs a signature, signed, update
+ * required, failed, archived, a draft), each with the address, client, taxpayer, parcel number
+ * and file number that identify it, a month of events by the person who did each one, and
+ * pending, accepted, expired and revoked invitations. Dates are relative to now (a capture pins
+ * the browser clock, so they repeat).
  *
- * Node: require('./sample-api.js').create({state, now, fetchAsset}) makes an instance.
+ * Who is signed in (&role=): admin (Alex Morgan, the owner; the default) | engineer (Jordan Lee)
+ * | viewer (Sam Rivera). The real API's rules apply: team, invitations and the firm profile are
+ * owner-only, a viewer cannot decide or sign. Onboarding (&onboarding=): invited (Casey Nguyen,
+ * no firm, one invitation to accept) | nofirm (Taylor Brooks: no firm and no invitation; firms are
+ * set up by Basis, so there is nothing to create) | new-firm (Morgan Hale, the owner of a firm Basis
+ * just set up, the owner invitation accepted: no studies, no letterhead).
+ *
+ * Decisions, reopen, objects, the report answers, the firm profile, signing, invitations, roles
+ * and removals all work and change what the next GET answers; a decision reruns for about two
+ * seconds (status processing), then the next gate opens.
+ *
+ * What the real API does not have yet is implemented only in the PROPOSED section near the end
+ * (web/FRONTEND_BACKLOG.md sections 14, "Engineer overrides", and 15, "Firm pages"); deleting
+ * that section removes it and leaves the API as it is.
+ *
+ * Node: require('./sample-api.js').create({state, role, onboarding, now, fetchAsset}) makes an
+ * instance.
  */
 (function(scope){
  'use strict';
@@ -64,13 +80,22 @@
 
  /* ---------- the synthetic fixture ---------- */
  const FIRM={name:'Alder & Pine Engineering (sample)'};
+ // The firm's people: joined (days ago), seen (days since last active; null: never), and the
+ // details each engineer signs with (PROPOSED P7 keeps them per person; null: not set yet).
  const PEOPLE=[
-  {id:'sample-user-1',email:'alex.morgan@example.test',name:'Alex Morgan',role:'owner'},
-  {id:'sample-user-2',email:'jordan.lee@example.test',name:'Jordan Lee',role:'engineer'},
-  {id:'sample-user-3',email:'sam.rivera@example.test',name:'Sam Rivera',role:'viewer'},
+  {id:'sample-user-1',email:'alex.morgan@example.test',name:'Alex Morgan',role:'owner',joined:150,seen:0.03,signer:{name:'Alex Morgan',credentials:'PE',license_number:'PE-60218',license_state:'CA'}},
+  {id:'sample-user-2',email:'jordan.lee@example.test',name:'Jordan Lee',role:'engineer',joined:110,seen:0.01,signer:{name:'Jordan Lee',credentials:'PE',license_number:'PE-77120',license_state:'CA'}},
+  {id:'sample-user-4',email:'priya.shah@example.test',name:'Priya Shah',role:'engineer',joined:96,seen:0.08,signer:{name:'Priya Shah',credentials:'PE',license_number:'PE-71324',license_state:'CA'}},
+  {id:'sample-user-5',email:'marcus.bell@example.test',name:'Marcus Bell',role:'engineer',joined:44,seen:0.9,signer:{name:'Marcus Bell',credentials:'PE',license_number:'PE-88016',license_state:'AZ'}},
+  {id:'sample-user-6',email:'dana.ortiz@example.test',name:'Dana Ortiz',role:'engineer',joined:12,seen:2.2,signer:null},
+  {id:'sample-user-3',email:'sam.rivera@example.test',name:'Sam Rivera',role:'viewer',joined:60,seen:null,signer:null},
  ];
- const ME=PEOPLE[0],ORG_ID='5a3f0000-0000-4000-8000-000000000001';
- const PROFILE={name:FIRM.name,address:'400 Example Way, Suite 2, Ventura, CA 93001',phone:'(555) 010-0144',logo_png:null,engineer:{name:'Alex Morgan',credentials:'PE',license_number:'SAMPLE-00000',license_state:'CA',email:'alex.morgan@example.test'},limiting_conditions:null};
+ // Who signs in for each &role, and the people of the onboarding states (not members yet).
+ const ROLE_PERSON={admin:'sample-user-1',owner:'sample-user-1',engineer:'sample-user-2',viewer:'sample-user-3'};
+ const NEWCOMERS={invited:{id:'sample-user-7',email:'casey.nguyen@example.test',name:'Casey Nguyen'},nofirm:{id:'sample-user-8',email:'taylor.brooks@example.test',name:'Taylor Brooks'},'new-firm':{id:'sample-user-9',email:'morgan.hale@example.test',name:'Morgan Hale'}};
+ const ORG_ID='5a3f0000-0000-4000-8000-000000000001',NEW_ORG_ID='5a3f0000-0000-4000-8000-000000000002';
+ const DAY=86400000,HOUR=3600000;
+ const PROFILE={name:FIRM.name,address:'400 Example Way, Suite 2, Ventura, CA 93001',phone:'(555) 010-0144',logo_png:null,engineer:{name:'Alex Morgan',credentials:'PE',license_number:'PE-60218',license_state:'CA',email:'alex.morgan@example.test'},limiting_conditions:null};
  const ANSWERS={taxpayer_name:'Harbor House Holdings LLC (sample)',photographs:'engineer_site_visit',photographed_by:'Alex Morgan',photographed_on:'2026-10-20',interviews:[],prior_depreciation:null};
  // Documents: the illustrative appraisal and five photos (sizes and digests of the files).
  const DOCS=[
@@ -201,20 +226,39 @@
  const COMPONENTS=[['A','Substructure',0.1,'Foundations and slab (structure)'],['B','Shell',0.3,'Exterior walls, roof and openings (structure)'],['C','Interiors',0.2,'Interior construction and finishes (structure)'],['D','Services',0.3,'Plumbing, HVAC, electrical and fire protection (structure)'],['E','Equipment & furnishings',0.1,'Built-in equipment (structure)']];
  const DEPRECIATION={rate:'0.266667',effectiveAge:16,life:60};
  const INTAKE={purchase_price:'1240000.00',acquisition_costs:[{category:'title_insurance_owner',amount:'3150.00',description:null},{category:'legal_fees',amount:'2400.00',description:null},{category:'recording_fees',amount:'450.00',description:null}],land_method:'appraisal_site_value',appraisal_site_value:'280000.00',appraisal_effective_date:'2026-09-30',land_appraisal_value:null,land_appraisal_date:null,assessor_land_value:null,assessor_improvement_value:null,flat_land_percentage:null,flat_land_source:null,property_use:'nonresidential',dwelling_unit_income_share:null,transient_lodging:true,placed_in_service_date:'2026-11-01',acquisition_date:'2026-10-15',state:'CA',zip:null,location_source:'appraisal'};
+ // The firm's studies. by: who started it and decides its reviews; steps: someone else who
+ // decided a step ({step index: user}); signer: who signed (default by). days: when each step
+ // happened, in days before now: [created, appraisal approved, rooms approved, components
+ // approved, assets approved, signed, a later change (answers edited, archived)]. meta: what
+ // identifies the property (from the appraisal, the intake and the report answers; PROPOSED P4).
+ const M=(address,city,state,zip,county,apn,client,taxpayer,file,borrower)=>({address,city,state,zip,county,apn,client,taxpayer,file,borrower:borrower||taxpayer});
  const STUDIES=[
-  {n:1,name:'Harbor House',main:true},
-  {n:2,name:'Cedar Court Inn',state:'signed',offsetDays:-21},
-  {n:3,name:'Maple Row Lodge',state:'appraisal',offsetDays:-2},
+  {n:1,name:'Harbor House',main:true,by:'sample-user-2',days:[6.2,5.1,3.25,1.9,0.95,0.16,0.1],meta:M('1200 Harbor Boulevard','Ventura','CA','93001','Ventura','071-0-224-115','Harbor Property Partners','Harbor House Holdings LLC (sample)','AP-2026-0141')},
+  {n:2,name:'Cedar Court Inn',state:'signed',by:'sample-user-4',days:[27,26,24.2,22.1,20.3,19.2],meta:M('22 Cedar Court','Santa Barbara','CA','93101','Santa Barbara','039-182-007','Pacific Coast Lending','Cedar Court Hospitality LP','AP-2026-0112')},
+  {n:3,name:'Maple Row Lodge',state:'appraisal',by:'sample-user-2',days:[0.12],meta:M('310 Maple Row','Ojai','CA','93023','Ventura','017-0-091-245','Sierra Federal Credit Union','Maple Row Lodge LLC','AP-2026-0149')},
+  {n:4,name:'Juniper Flats',state:'rooms',by:'sample-user-4',days:[3.1,0.95],meta:M('2 Juniper Lane','Ojai','CA','93023','Ventura','017-0-130-020','Harbor Bank','Juniper Flats Partners','AP-2026-0146')},
+  {n:5,name:'Bayview Duplex',state:'components',by:'sample-user-2',days:[8.3,7.2,5.1],meta:M('118 Bay Street','Ventura','CA','93001','Ventura','071-0-302-088','Harbor Bank','Bayview Rentals LLC','AP-2026-0138')},
+  {n:6,name:'Orchard Street Fourplex',state:'assets',by:'sample-user-5',steps:{3:'sample-user-1'},days:[12.4,11.3,9.2,1.08],meta:M('455 Orchard Street','Camarillo','CA','93010','Ventura','163-0-071-305','Golden State Mortgage','Orchard Four LLC','AP-2026-0133')},
+  {n:7,name:'Willow Creek Cottages',state:'extracting',by:'sample-user-5',days:[0.05],meta:M('8 Willow Creek Road','Fillmore','CA','93015','Ventura','046-0-210-115','Sierra Federal Credit Union','Willow Creek Cottages LP','AP-2026-0150')},
+  {n:8,name:'Sycamore Terrace',state:'components-processing',by:'sample-user-6',days:[4.2,2.6,0.12],meta:M('77 Sycamore Terrace','Thousand Oaks','CA','91360','Ventura','523-0-144-019','Pacific Coast Lending','Sycamore Terrace Homes LLC','AP-2026-0144')},
+  {n:9,name:'Granite Peak Office',state:'failed',by:'sample-user-6',days:[2.8],meta:M('9 Peak Road','Camarillo','CA','93012','Ventura','163-0-410-002','Golden State Mortgage','Granite Peak Holdings Inc.','AP-2026-0145')},
+  {n:10,name:'Linden Avenue Townhomes',state:'unsigned',by:'sample-user-2',days:[15.2,14.1,12.3,10.2,1.15],meta:M('44 Linden Avenue','Ojai','CA','93023','Ventura','017-0-055-310','Linden Partners Bank','Linden Avenue Owners LLC','AP-2026-0129')},
+  {n:11,name:'Redwood Commons',state:'update-required',by:'sample-user-4',signer:'sample-user-4',days:[34.2,33.1,31.3,30.2,29.1,28.3,2.1],meta:M('1600 Redwood Drive','Santa Paula','CA','93060','Ventura','098-0-260-140','Harbor Bank','Redwood Commons Apartments LP','AP-2026-0104')},
+  {n:12,name:'Aspen Ridge Retreat',state:'signed',by:'sample-user-1',days:[45.3,44.2,42.4,40.1,38.3,37.2],meta:M('51 Aspen Ridge Way','Big Bear Lake','CA','92315','San Bernardino','0307-221-14','Mountain West Bank','Aspen Ridge Retreat LLC','AP-2026-0091')},
+  {n:13,name:'Pinecrest Bungalow',state:'archived',by:'sample-user-5',days:[58.2,57.1,55.3,54.2,53.1,52.3,9.1],meta:M('19 Pinecrest Avenue','Ventura','CA','93003','Ventura','084-0-115-060','Sierra Federal Credit Union','Pinecrest Bungalow Trust','AP-2026-0077')},
+  {n:14,name:'Elm Street Fourplex',state:'draft',by:'sample-user-6',days:[0.6],meta:M('260 Elm Street','Oxnard','CA','93030','Ventura','202-0-033-125','Golden State Mortgage','Elm Street Equities LLC','AP-2026-0151')},
  ];
- const T0=Date.parse('2026-10-28T15:00:00Z');
+ const SEED_STATES=['appraisal','rooms','components','assets','processing','unsigned','signed','update-required','extracting','components-processing','failed','archived','draft'];
 
  /* ---------- one study: state, data, the workflow's steps ---------- */
  function makeStudy(spec,inst){
   const n=spec.n,uid=(kind,i)=>`5a3${kind}${n.toString(16).padStart(4,'0')}-0000-4000-8000-${String(i).padStart(12,'0')}`;
   let seq=1000;const next=kind=>uid(kind,seq++);
-  const S={n,uid,next,id:uid(0,0),name:spec.name,status:'draft',stage:'uploading',revision:1,created_at:null,updated_at:null,
-   docs:[],fields:[],extractionId:uid('a',1),rooms:[],objects:{},has:{},assetEdits:{},compPrices:{},reviews:[],corrections:[],revisions:[],events:[],audit:[],steps:[],stages:[],calls:[],snapshots:{},pending:null,runs:[],exports:{},signatures:{},answers:null,answersVersion:0,intakeVersion:1,seedClock:T0+(spec.offsetDays||0)*86400000};
-  S.clock=()=>inst.seeding?(S.seedClock+=97000):inst.now();
+  const person=id=>inst.people.find(p=>p.id===id)||inst.people[0];
+  const S={n,uid,next,id:uid(0,0),name:spec.name,inst,owner:person(spec.by),actor:null,stepBy:spec.steps||{},signerId:spec.signer||spec.by,days:spec.days||null,meta:clone(spec.meta||null),failure_reason:null,status:'draft',stage:'uploading',revision:1,created_at:null,updated_at:null,
+   docs:[],fields:[],extractionId:uid('a',1),rooms:[],objects:{},has:{},assetEdits:{},compPrices:{},reviews:[],corrections:[],revisions:[],events:[],audit:[],steps:[],stages:[],calls:[],snapshots:{},pending:null,runs:[],exports:{},signatures:{},answers:null,answersVersion:0,intakeVersion:1,seedClock:inst.t0-(spec.days?.[0]??0)*DAY};
+  // While seeding, 97 s per event, never past now (the seed's days leave room; this is a guard).
+  S.clock=()=>inst.seeding?(S.seedClock=Math.min(S.seedClock+97000,inst.t0-60000)):inst.now();
   let i=0;for(const d of DOCS)S.docs.push({...d,id:uid(1,++i)});
   S.doc=key=>S.docs.find(d=>d.key===key);
   return S;
@@ -223,6 +267,8 @@
  function buildData(S){
   const at=iso(S.clock()),prov=null;
   S.fields=FIELDS.map(([key,label,kind,value,places,confidence,critical],i)=>{const [section,...rest]=key.split('.');return {id:S.uid(2,i+1),extraction_id:S.extractionId,document_id:docId(S,'appraisal'),pdf_document_id:docId(S,'appraisal'),key,section,field:rest.join('.'),label,critical,value_text:kind==='text'?value:null,value_num:kind==='num'?value:null,value_date:kind==='date'?value:null,confidence,source:'llm',page:places[0][0],regions:places.map(([page,bbox])=>({page,bbox})),provenance:{origin:'model',correction_id:null,review_id:null,stage:'extracting',revision:S.revision,at,by:null,before:null,after:null,changed:[],carried_from:null}}});
+  // Each study's appraisal names its own property and client (the sample PDF stays Harbor House's).
+  if(S.meta){const own={'subject.property_name':S.name,'subject.property_address':S.meta.address,'subject.city':S.meta.city,'subject.state':S.meta.state,'subject.client':S.meta.client};for(const f of S.fields)if(f.key in own)f.value_text=own[f.key]}
   let c=0;
   S.rooms=ROOMS.map((r,ri)=>({id:S.uid(3,ri+1),key:r.key,name:r.name,room_type:r.room_type,floor:r.floor,area:r.area,source:'vision',group_key:r.key,photos:r.photos.map(k=>docId(S,k)),provenance:prov,
    inventory:INVENTORY[r.key].map(([label,count,material,attachment,confidence,seen])=>({component_id:S.uid(4,++c),label,count,material,attachment,confidence,document_id:docId(S,seen[0]),seen_in:seen.map(k=>docId(S,k)),added:false,provenance:null,roomKey:r.key}))}));
@@ -232,12 +278,16 @@
 
  /* ---------- events, audit, steps ---------- */
  let requestSeq=0;
+ // Who an engineer event is by: while seeding, the study's acting person; otherwise whoever is signed in.
+ const actorOf=S=>S.inst.seeding&&S.actor?S.actor:S.inst.me;
+ // The seed moves the study's clock to a step's day (never backwards).
+ function seedAt(S,i){if(!S.days||S.days[i]==null)return;const t=S.inst.t0-S.days[i]*DAY;if(t>S.seedClock)S.seedClock=t}
  function event(S,type,{actor='system',by=null,stage=S.stage,revision=S.revision,entity_type=null,entity_id=null,before=null,after=null,detail=null,activity=null,duration=null,code=null}={}){
   const at=iso(S.clock());S.updated_at=at;
-  S.events.push({seq:S.events.length+1,at,event_type:type,actor_type:actor,actor_id:actor==='engineer'?(by||ME.id):null,stage,revision,workflow_id:S.runs.length?'study-'+S.id:null,run_id:S.runs.length?S.runs[S.runs.length-1].run_id:null,activity,activity_id:activity?activity+'-'+S.events.length:null,attempt:activity?1:null,started_at:duration!=null?iso(Date.parse(at)-duration):null,duration_ms:duration,entity_type,entity_id,code,request_id:actor==='engineer'?'sample-req-'+(++requestSeq):null,before,after,detail});
+  S.events.push({seq:S.events.length+1,at,event_type:type,actor_type:actor,actor_id:actor==='engineer'?(by||actorOf(S).id):null,stage,revision,workflow_id:S.runs.length?'study-'+S.id:null,run_id:S.runs.length?S.runs[S.runs.length-1].run_id:null,activity,activity_id:activity?activity+'-'+S.events.length:null,attempt:activity?1:null,started_at:duration!=null?iso(Date.parse(at)-duration):null,duration_ms:duration,entity_type,entity_id,code,request_id:actor==='engineer'?'sample-req-'+(++requestSeq):null,before,after,detail});
   return at;
  }
- function audit(S,kind,action,extra={}){S.audit.push({kind,at:iso(S.clock()),by:ME.id,stage:S.stage,revision:S.revision,action,entity_type:null,entity_id:null,before:null,after:null,changed:[],reason:null,review_id:null,correction_id:null,produced:[],...extra})}
+ function audit(S,kind,action,extra={}){S.audit.push({kind,at:iso(S.clock()),by:actorOf(S).id,stage:S.stage,revision:S.revision,action,entity_type:null,entity_id:null,before:null,after:null,changed:[],reason:null,review_id:null,correction_id:null,produced:[],...extra})}
  // The workflow's activities for one processing step, recorded as finished.
  function activities(S,names){
   for(const name of names){const ms=1200+(name.length*137)%2400,end=S.clock();S.steps.push({activity:name,activity_id:`${name}-${S.steps.length+1}`,started_at:iso(end-ms),ended_at:iso(end),duration_ms:ms,attempts:[{attempt:1,started_at:iso(end-ms),ended_at:iso(end),duration_ms:ms,outcome:'completed',code:null,error:null}],outcome:'completed',code:null});event(S,'activity.completed',{activity:name,duration:ms})}
@@ -272,7 +322,8 @@
    enterStage(S,'completed');S.status='completed';
    const r=S.result=resultOf(S),skipped=r.allocation?null:{code:E.INPUTS_MISSING,message:'The allocation was withheld: '+(r.missing.join(', ')||'see the result')};
    S.exports[S.revision]={uri:`sample://exports/${S.id}/rev-${S.revision}/summary.json`,sha256:digest(`export:${S.id}:${S.revision}:${JSON.stringify(r.schedule)}`),at:iso(S.clock()),skipped};
-   event(S,'export.written',{detail:{skipped}});
+   // The backend's shape (activities/export_report.py): the report written, or why it was not.
+   event(S,'export.written',{detail:{uri:S.exports[S.revision].uri,sha256:S.exports[S.revision].sha256,report:skipped?{skipped}:{files:{},draft:true}}});
    const run=S.runs[S.runs.length-1];if(run){run.ended_at=iso(S.clock());run.outcome='completed'}
    return;
   }
@@ -284,11 +335,12 @@
  }
  // A pending step finishes once its time has come (any request checks; no timers).
  function tick(S,inst){if(S.pending&&inst.now()>=S.pending.until){const p=S.pending;S.pending=null;openGate(S,p.gate)}}
- function schedule(S,inst,gate){S.status='processing';S.pending={gate,until:inst.seeding?0:inst.now()+inst.delayMs};if(inst.seeding){S.pending=null;openGate(S,gate)}}
+ function schedule(S,inst,gate){S.status='processing';S.pending={gate,until:inst.hold?Infinity:inst.seeding?0:inst.now()+inst.delayMs};if(inst.seeding&&!inst.hold){S.pending=null;openGate(S,gate)}}
 
  /* ---------- the views (the API's response bodies) ---------- */
  const reached=(S,stage)=>S.status==='completed'||ORDER.indexOf(S.stage)>=ORDER.indexOf(stage);
- function studyOut(S){return {id:S.id,org_id:ORG_ID,created_by:ME.id,created_by_name:ME.name,created_by_email:ME.email,property_name:S.name,status:S.status,current_stage:S.stage,revision:S.revision,room_aliases:{},failure_reason:null,components_gate:true,intake:clone(INTAKE),intake_version:S.intakeVersion,purged_at:null,created_at:S.created_at,updated_at:S.updated_at}}
+ const STUDY_OUT=[];// hooks: (output, study) => void (the PROPOSED section adds `summary`)
+ function studyOut(S){const out={id:S.id,org_id:S.inst.org.id,created_by:S.owner.id,created_by_name:S.owner.name,created_by_email:S.owner.email,property_name:S.name,status:S.status,current_stage:S.stage,revision:S.revision,room_aliases:{},failure_reason:S.failure_reason,components_gate:true,intake:clone(INTAKE),intake_version:S.intakeVersion,purged_at:null,created_at:S.created_at,updated_at:S.updated_at};for(const f of STUDY_OUT)f(out,S);return out}
  function studyDetail(S){
   const latest=new Map();for(const r of S.reviews)latest.set(r.stage,r);
   return {...studyOut(S),documents:S.docs.map(d=>({id:d.id,study_id:S.id,kind:d.kind,filename:d.filename,content_type:d.content_type,bytes:d.bytes,sha256:d.sha256,uploaded_at:S.created_at,created_at:S.created_at})),latest_reviews:[...latest.values()].map(clone)};
@@ -338,7 +390,7 @@
  const locationTrail=()=>({factor:COST.location.toFixed(3),from:'state',lookup:'state',zip:null,lookup_from:'appraisal',state:'CA',city:null,zip_prefixes:null,cities:null,low:null,high:null,pages:null,table_year:COST.baseYear,origin:'sample',citation:'Sample location factors (illustrative), California',store:null});
  const METHOD={cost_basis:'total_incl_op',rcn_source:'square_foot_model',modifications:false,overhead_allocation:'pro_rata',specialties_residual:'row'};
  const COST_HOOKS=[];// hooks: (asset, context) => void (the PROPOSED section applies a unit price override)
- function provenanceOf(edit,base){return edit?{origin:'engineer_modified',correction_id:edit.correction_id,review_id:edit.review_id,stage:'assets_review',revision:edit.revision,at:edit.at,by:ME.id,before:edit.before,after:edit.after,changed:Object.keys(edit.after),carried_from:null}:base}
+ function provenanceOf(edit,base){return edit?{origin:'engineer_modified',correction_id:edit.correction_id,review_id:edit.review_id,stage:'assets_review',revision:edit.revision,at:edit.at,by:edit.by??null,before:edit.before,after:edit.after,changed:Object.keys(edit.after),carried_from:null}:base}
  function itemizedAssets(S){
   const out=[];
   for(const room of S.rooms)for(const item of room.inventory){
@@ -554,7 +606,7 @@
    for(const k of Object.keys(c.after).filter(k=>AFTER_KEYS.asset.includes(k))){before[k]=k==='quantity'?cur.takeoff?.quantity??null:k==='quantity_unit'?cur.takeoff?.unit??null:k==='quantity_source'?null:cur[k];e[k]=c.after[k]}
    if('bucket' in c.after&&!('recovery_period' in c.after))e.recovery_period=BUCKET_YEARS[c.after.bucket];
    if('quantity' in c.after)e.quantity=String(c.after.quantity);
-   Object.assign(e,{correction_id:ctx.correctionId,review_id:ctx.reviewId,revision:S.revision+1,at:ctx.at,before,after:clone(c.after)});S.assetEdits[c.entity_id]=e;
+   Object.assign(e,{correction_id:ctx.correctionId,review_id:ctx.reviewId,revision:S.revision+1,at:ctx.at,by:actorOf(S).id,before,after:clone(c.after)});S.assetEdits[c.entity_id]=e;
   },
  };
  CORRECTORS.reprice={validate(){return []},apply(){}};
@@ -573,46 +625,138 @@
   return tags.has(String(version));
  }
  const notFound=(detail,code=E.NOT_FOUND)=>new Problem(404,'not-found','Not Found',detail,code);
+ // Firms (basis/api/routes/orgs.py): members only (404 otherwise), owners for the team and the profile.
+ const FC={FIRM_NO_FIRM:'BASIS-FIRM-001',FIRM_LAST_OWNER:'BASIS-FIRM-004',FIRM_ALREADY_MEMBER:'BASIS-FIRM-005',FIRM_INVITATION_PENDING:'BASIS-FIRM-006',FIRM_INVITATION_ACCEPTED:'BASIS-FIRM-007',FIRM_INVITATION_DECLINED:'BASIS-FIRM-008',FIRM_INVITATION_REVOKED:'BASIS-FIRM-009',FIRM_INVITATION_EXPIRED:'BASIS-FIRM-010'};
+ const forbidden=detail=>new Problem(403,'forbidden','Forbidden',detail,'BASIS-API-010');
+ const noFirm=()=>new Problem(403,'no-firm','Forbidden','You are not a member of a firm yet.',FC.FIRM_NO_FIRM);
+ const isMember=I=>I.people.some(p=>p.id===I.me.id);
+ const inFirm=ctx=>isMember(ctx.i)&&(ctx.p.org_id===undefined||ctx.p.org_id===ctx.i.org.id);
+ function ownerOnly(ctx,study=false){if(!study&&!inFirm(ctx))return notFound('Firm not found.');if(ctx.i.me.role!=='owner')return forbidden('Only the firm’s owners can do this.');return null}
+ const MEMBER_READERS=['owner'];// who lists the members (the PROPOSED section opens it to every member)
+ const MEMBER_OUT=[];// hooks: (output, person) => void (the PROPOSED section adds `signer`)
+ function memberOut(I,p){const out={user_id:p.id,email:p.email,display_name:p.name,role:p.role,joined_at:p.joined_at,last_seen_at:p.last_seen_at};for(const f of MEMBER_OUT)f(out,p,I);return out}
+ const inviteeOut=v=>({id:v.id,org_id:v.org_id,org_name:v.org_name,role:v.role,status:v.status,invited_by_name:v.invited_by_name,invited_by_email:v.invited_by_email,created_at:v.created_at,expires_at:v.expires_at});
+ const STUDY_MATCH=[(S,q)=>S.name.toLowerCase().includes(q)];// q matches the property name (the PROPOSED section adds the rest)
+ // Every study's events, newest first, with the study's id and name (GET /v1/me/activity's items).
+ function studyEvents(I){let seq=0;const all=[];for(const S of I.studies)for(const e of S.events)all.push({...clone(e),study_id:S.id,property_name:S.name});return all.sort((a,b)=>a.at.localeCompare(b.at)||a.seq-b.seq).map(e=>({...e,seq:++seq})).reverse()}
  const conflict=(suffix,detail,code)=>new Problem(409,suffix,'Conflict',detail,code);
  const invalid=(errors,code)=>new Problem(422,'validation','Unprocessable Content','The request did not pass validation; see errors.',code||(errors.length&&errors.every(e=>VALIDATION_CODE[e.type])?VALIDATION_CODE[[...new Set(errors.map(e=>e.type))].sort()[0]]:E.VALIDATION),errors);
  const fieldErr=(loc,detail,type)=>({loc,detail,type});
  const gateNotOpen=(S,code=E.GATE)=>conflict('gate-not-open',`${S.stage} revision ${S.revision} of study ${S.id} is not open for a decision yet (status ${S.status})`,code);
 
  function create(options={}){
-  const inst={now:options.now||(()=>Date.now()),delayMs:options.delayMs??2000,fetchAsset:options.fetchAsset||null,assetBase:options.assetBase||null,seeding:false,profile:clone(PROFILE),profileVersion:1,profileUpdated:iso(T0-86400000*30),idem:new Map(),assetCache:new Map()};
+  const inst={now:options.now||(()=>Date.now()),delayMs:options.delayMs??2000,fetchAsset:options.fetchAsset||null,assetBase:options.assetBase||null,seeding:false,profile:clone(PROFILE),profileVersion:1,idem:new Map(),assetCache:new Map()};
+  inst.t0=inst.now();inst.profileUpdated=iso(inst.t0-DAY*30);
   const state=STATES.includes(options.state)?options.state:'components';
   inst.state=state;
+  inst.people=PEOPLE.map(p=>({...clone(p),joined_at:iso(inst.t0-p.joined*DAY),last_seen_at:p.seen==null?null:iso(inst.t0-p.seen*DAY)}));
+  inst.org={id:ORG_ID,name:FIRM.name,created_at:iso(inst.t0-150*DAY)};
+  inst.onboarding=Object.keys(NEWCOMERS).includes(options.onboarding)?options.onboarding:null;
+  inst.me=inst.people.find(p=>p.id===ROLE_PERSON[options.role])||inst.people[0];
+  inst.invitations=seedInvitations(inst);inst.orgEvents=seedOrgEvents(inst);
   inst.studies=STUDIES.map(spec=>seed(makeStudy(spec,inst),spec.main?state:spec.state,inst));
+  if(inst.onboarding){
+   // Not a member of Alder & Pine (yet): their own person, and for new-firm the empty firm Basis set up for them.
+   const p=NEWCOMERS[inst.onboarding];inst.me={...clone(p),role:null,joined_at:null,last_seen_at:iso(inst.t0),signer:null};
+   // invited: Casey's invitation (sent three days ago by Alex Morgan) is already in the firm's list.
+   if(inst.onboarding==='new-firm'){inst.me.role='owner';inst.me.joined_at=iso(inst.t0-HOUR);inst.org={id:NEW_ORG_ID,name:'Hale Cost Engineering (sample)',created_at:iso(inst.t0-2*HOUR)};inst.people=[inst.me];inst.studies=[];
+    // As python -m basis.admin create-firm does: Basis creates the firm (org.created by the system)
+    // and invites its first owner (an invitation with no inviter); Morgan accepted it an hour ago.
+    const inv=invitation(inst,{id:'5a3d0000-0000-4000-8000-0000000000a1',email:inst.me.email,role:'owner',by:null,days:2/24,status:'accepted',answered:1/24});inst.invitations=[inv];
+    inst.orgEvents=[orgEvent(inst,'org.created',{actor:null,after:{name:inst.org.name},at:inst.t0-2*HOUR}),orgEvent(inst,'invitation.created',{actor:null,entity:['invitation',inv.id],after:{email:inv.email,role:inv.role,expires_at:inv.expires_at},at:inst.t0-2*HOUR}),orgEvent(inst,'invitation.accepted',{actor:inst.me.id,subject:inst.me.id,entity:['invitation',inv.id],after:{email:inv.email,role:inv.role},detail:{role_before:null},at:inst.t0-HOUR})].map((e,i)=>({...e,seq:i+1}));
+    inst.profile=null;inst.profileVersion=0}
+   else inst.people=inst.people.slice();// Alder & Pine stays as it is; they are not in it
+  }
   return api(inst);
+ }
+ // Invitations: [email, role, by, days ago, status, answered days ago].
+ function invitation(inst,{id,email,role,by,days,status='pending',answered=null}){
+  const who=inst.people.find(p=>p.id===by),at=inst.t0-days*DAY,exp=at+14*DAY,ans=answered==null?null:iso(inst.t0-answered*DAY);
+  const st=status==='pending'&&exp<inst.t0?'expired':status;
+  return {id,org_id:inst.org.id,org_name:inst.org.name,role,status:st,invited_by_name:who?.name||null,invited_by_email:who?.email||null,created_at:iso(at),expires_at:iso(exp),email,created_by:by,accepted_at:status==='accepted'?ans:null,accepted_by:status==='accepted'?inst.people.find(p=>p.email===email)?.id||null:null,declined_at:status==='declined'?ans:null,revoked_at:status==='revoked'?ans:null,revoked_by:status==='revoked'?by:null,delivery:'sent',email_queued_at:iso(at),emailed_at:iso(at+60000),email_error:null};
+ }
+ function seedInvitations(inst){
+  const I=(n,email,role,days,status,answered)=>invitation(inst,{id:`5a3d0000-0000-4000-8000-0000000000${String(n).padStart(2,'0')}`,email,role,by:'sample-user-1',days,status,answered});
+  return [
+   I(1,'casey.nguyen@example.test','engineer',3.2,'pending'),
+   I(2,'riley.park@example.test','viewer',0.9,'pending'),
+   I(3,'chris.wong@example.test','engineer',19.1,'pending'),// unanswered for 19 days: expired
+   I(4,'dana.ortiz@example.test','engineer',13.2,'accepted',12),
+   I(5,'lee.adams@example.test','engineer',30.4,'revoked',28.2),
+   I(6,'marcus.bell@example.test','engineer',45.1,'accepted',44),
+  ];
+ }
+ // The firm's own history (GET /v1/orgs/{id}/activity, owners): who joined, invitations, roles.
+ function orgEvent(inst,type,{actor,subject=null,entity=null,before=null,after=null,detail=null,at}){return {seq:0,at:iso(at),event_type:type,actor_type:actor?'engineer':'system',actor_id:actor||null,subject_user_id:subject,entity_type:entity?entity[0]:null,entity_id:entity?entity[1]:null,request_id:actor?'sample-org-'+type:null,before,after,detail}}
+ function seedOrgEvents(inst){
+  const ev=[orgEvent(inst,'org.created',{actor:null,after:{name:inst.org.name},at:inst.t0-150*DAY})];
+  for(const inv of inst.invitations){
+   const at=Date.parse(inv.created_at);ev.push(orgEvent(inst,'invitation.created',{actor:inv.created_by,entity:['invitation',inv.id],after:{email:inv.email,role:inv.role,expires_at:inv.expires_at},at}));
+   if(inv.accepted_at)ev.push(orgEvent(inst,'invitation.accepted',{actor:inv.accepted_by,subject:inv.accepted_by,entity:['invitation',inv.id],after:{email:inv.email,role:inv.role},detail:{role_before:null},at:Date.parse(inv.accepted_at)}));
+   if(inv.revoked_at)ev.push(orgEvent(inst,'invitation.revoked',{actor:inv.revoked_by,entity:['invitation',inv.id],before:{email:inv.email,role:inv.role,expires_at:inv.expires_at},detail:{reason:'revoked'},at:Date.parse(inv.revoked_at)}));
+  }
+  ev.push(orgEvent(inst,'member.role_changed',{actor:'sample-user-1',subject:'sample-user-3',entity:['member','sample-user-3'],before:{role:'engineer'},after:{role:'viewer'},at:inst.t0-21.3*DAY}));
+  ev.push(orgEvent(inst,'profile.set',{actor:'sample-user-1',entity:['profile',inst.org.id],detail:{version_before:0,version_after:1,if_match:null,changed:['name','address','phone','engineer']},at:inst.t0-30*DAY}));
+  ev.sort((a,b)=>a.at.localeCompare(b.at)).forEach((e,i)=>{e.seq=i+1});
+  return ev;
  }
  function seed(S,target,inst){
   inst.seeding=true;
+  const person=id=>inst.people.find(p=>p.id===id)||S.owner;
+  // Step i happens on its day, by its person (the study's engineer unless the spec names another).
+  const at=i=>{S.actor=person(S.stepBy[i]||S.owner.id);seedAt(S,i)};
   try{
+   at(0);
    S.created_at=iso(S.clock());S.updated_at=S.created_at;event(S,'study.created',{actor:'engineer'});
    buildData(S);
-   for(const d of S.docs){event(S,'document.uploaded',{actor:'engineer',entity_type:'document',entity_id:d.id,stage:'uploading'});audit(S,'document','uploaded',{entity_type:'document',entity_id:d.id,stage:'uploading',after:{filename:d.filename}})}
+   for(const d of S.docs){event(S,'document.uploaded',{actor:'engineer',entity_type:'document',entity_id:d.id,stage:'uploading',detail:{kind:d.kind,filename:d.filename,bytes:d.bytes}});audit(S,'document','uploaded',{entity_type:'document',entity_id:d.id,stage:'uploading',after:{filename:d.filename}})}
+   if(target==='draft')return S;// files uploaded, not started yet
    event(S,'study.started',{actor:'engineer'});audit(S,'started','started');
-   newRevision(S,{kind:'start',stage:null,actor_id:ME.id,at:iso(S.clock()),review_id:null,from_revision:null});
+   newRevision(S,{kind:'start',stage:null,actor_id:actorOf(S).id,at:iso(S.clock()),review_id:null,from_revision:null});
    startRun(S,'start');enterStage(S,'extracting',true);S.status='processing';
+   if(target==='extracting'){S.pending={gate:'appraisal_review',until:Infinity};return S}
+   if(target==='failed'){
+    // The appraisal is a scan with no text: ingestion fails and the study waits for a retry.
+    const ms=4200,end=S.clock(),code='BASIS-INGEST-005',error='ValidationError: the appraisal PDF has no text layer and no page could be read';
+    S.steps.push({activity:'ingest_appraisal',activity_id:'ingest_appraisal-1',started_at:iso(end-ms),ended_at:iso(end),duration_ms:ms,attempts:[{attempt:1,started_at:iso(end-ms),ended_at:iso(end),duration_ms:ms,outcome:'failed',code,error}],outcome:'failed',code});
+    event(S,'activity.failed',{activity:'ingest_appraisal',duration:ms,code,detail:{error}});
+    S.failure_reason='ingest_appraisal: '+error;S.status='failed';
+    event(S,'stage.failed',{code,detail:{reason:S.failure_reason,marked:'failed'}});
+    return S;
+   }
    openGate(S,'appraisal_review');
-   const decideSeed=(decision,corrections=[])=>{const r=decide(S,inst,{stage:S.stage,revision:S.revision,decision,comment:null,corrections});if(r instanceof Problem)throw new Error('seed decision refused: '+r.detail+JSON.stringify(r.errors||[]));tick(S,inst)};
-   const stop=target==='appraisal'?0:target==='rooms'?1:target==='components'?2:target==='assets'?3:target==='processing'?2:4;
-   if(stop>=1)decideSeed('approve');
-   if(stop>=2||target==='processing'){
+   const decideSeed=(decision,corrections=[],comment=null)=>{const r=decide(S,inst,{stage:S.stage,revision:S.revision,decision,comment,corrections});if(r instanceof Problem)throw new Error('seed decision refused: '+r.detail+JSON.stringify(r.errors||[]));tick(S,inst)};
+   const processing=target==='processing'||target==='components-processing';
+   const stop=target==='appraisal'?0:target==='rooms'?1:target==='components'?2:target==='assets'?3:processing?2:4;
+   if(stop>=1){at(1);decideSeed('approve')}
+   if(stop>=2){
+    at(2);
     // The engineer renamed the model's "Family room" on the first pass (revision 2).
     const living=S.rooms.find(r=>r.key==='living');
-    decideSeed('reject',[{entity_type:'room',entity_id:living.id,before:{name:living.name,room_type:living.room_type,floor:living.floor},after:{name:'Living room',room_type:'living_room'},reason:'The appraisal calls it the living room.'}]);
-    if(target==='processing'){inst.seeding=false;decide(S,inst,{stage:S.stage,revision:S.revision,decision:'approve',comment:null,corrections:[]});S.pending.until=Infinity;return S}
+    decideSeed('reject',[{entity_type:'room',entity_id:living.id,before:{name:living.name,room_type:living.room_type,floor:living.floor},after:{name:'Living room',room_type:'living_room'},reason:'The appraisal calls it the living room.'}],'Renamed the family room to match the appraisal.');
+    // Processing: the rooms are approved and Basis is still counting the components.
+    if(processing){inst.hold=true;try{decideSeed('approve')}finally{inst.hold=false}return S}
     decideSeed('approve');
    }
-   if(stop>=3)decideSeed('approve');
+   if(stop>=3){at(3);decideSeed('approve')}
    if(stop>=4){
-    decideSeed('approve');
-    S.answers=clone(ANSWERS);S.answersVersion=1;audit(S,'report_answers','added',{after:clone(ANSWERS)});
-    if(target==='signed'||target==='update-required'){const r=sign(S,inst,{revision:S.revision,reviewed_sha256:previewTag(S,inst),engineer:clone(PROFILE.engineer),attest:true,statement_version:1});if(r instanceof Problem)throw new Error('seed sign refused: '+r.detail)}
-    if(target==='update-required'){inst.profile.phone='(555) 010-0199';inst.profileVersion++;inst.profileUpdated=iso(S.clock())}
+    at(4);decideSeed('approve');
+    S.answers=S.n===1?clone(ANSWERS):{...clone(ANSWERS),taxpayer_name:S.meta?.taxpayer||ANSWERS.taxpayer_name,photographed_by:S.owner.name};S.answersVersion=1;audit(S,'report_answers','added',{after:clone(S.answers)});event(S,'study.report_answers_set',{actor:'engineer'});
+    if(['signed','update-required','archived'].includes(target)){
+     at(5);const signer=person(S.signerId);S.actor=signer;
+     const engineer=signer.signer?{...clone(signer.signer),email:signer.email}:clone(PROFILE.engineer);
+     const r=sign(S,inst,{revision:S.revision,reviewed_sha256:previewTag(S,inst),engineer,attest:true,statement_version:1});if(r instanceof Problem)throw new Error('seed sign refused: '+r.detail);
+    }
+    if(target==='update-required'){
+     at(6);
+     // Harbor House: the firm's letterhead changed since (every study's report shows it); another
+     // study: its own answers changed (who photographed it).
+     if(S.n===1){inst.profile.phone='(555) 010-0199';inst.profileVersion++;inst.profileUpdated=iso(S.clock())}
+     else{const before=clone(S.answers);S.answers={...S.answers,photographed_on:iso(S.clock()).slice(0,10),photographs:'taxpayer_supplied'};S.answersVersion++;audit(S,'report_answers','modified',{before,after:clone(S.answers)});event(S,'study.report_answers_set',{actor:'engineer'})}
+    }
+    if(target==='archived'){at(6);S.status='archived';event(S,'study.archived',{actor:'engineer',after:{status:'archived'}});audit(S,'archived','archived')}
    }
-  }finally{inst.seeding=false}
+  }finally{inst.seeding=false;S.actor=null}
   return S;
  }
 
@@ -636,10 +780,10 @@
   for(const [c,i] of order)for(const e of CORRECTORS[c.entity_type].validate(c,S,ctx,i)){out.push(fieldErr(['body','corrections',i,e.where],e.detail,e.type))}
   if(out.length)return invalid(out.sort((a,b)=>a.loc[2]-b.loc[2]));
   // Record the review and the corrections.
-  const at=iso(S.clock()),review={id:S.next(7),study_id:S.id,stage:S.stage,revision:S.revision,decision:body.decision,reviewer_id:ME.id,comment:body.comment??null,created_at:at};
-  S.reviews.push(review);const rev=S.revisions[S.revisions.length-1];rev.decisions.push({stage:review.stage,decision:review.decision,reviewer_id:ME.id,review_id:review.id,at});
+  const at=iso(S.clock()),review={id:S.next(7),study_id:S.id,stage:S.stage,revision:S.revision,decision:body.decision,reviewer_id:actorOf(S).id,comment:body.comment??null,created_at:at};
+  S.reviews.push(review);const rev=S.revisions[S.revisions.length-1];rev.decisions.push({stage:review.stage,decision:review.decision,reviewer_id:actorOf(S).id,review_id:review.id,at});
   const stg=S.stages[S.stages.length-1];stg.decided_at=at;stg.decision=body.decision;stg.review_wait_ms=stg.gate_opened_at?Date.parse(at)-Date.parse(stg.gate_opened_at):null;
-  event(S,'review.decided',{actor:'engineer',entity_type:'review',entity_id:review.id,after:{decision:body.decision},detail:{corrections:corrections.length}});
+  event(S,'review.decided',{actor:'engineer',entity_type:'review',entity_id:review.id,after:{decision:body.decision},detail:{decision:body.decision,comment:body.comment??null,corrections:corrections.length}});
   audit(S,'decision',body.decision==='approve'?'approved':'rejected',{entity_type:'review',entity_id:review.id,review_id:review.id,reason:body.comment??null});
   const gate=S.stage;
   if(body.decision==='approve'){
@@ -650,7 +794,7 @@
    const from=S.revision;
    corrections.forEach(c=>{const id=S.next(8);c._id=id});
    for(const [c] of order){
-    const id=c._id,prov=(before,after,changed)=>({origin:'engineer_modified',correction_id:id,review_id:review.id,stage:gate,revision:from+1,at,by:ME.id,before,after,changed,carried_from:null});
+    const id=c._id,prov=(before,after,changed)=>({origin:'engineer_modified',correction_id:id,review_id:review.id,stage:gate,revision:from+1,at,by:actorOf(S).id,before,after,changed,carried_from:null});
     CORRECTORS[c.entity_type].apply(c,S,{...ctx,prov,correctionId:id,reviewId:review.id,at});
     rev.corrections[c.entity_type]=(rev.corrections[c.entity_type]||0)+1;
     event(S,'correction.recorded',{actor:'engineer',entity_type:c.entity_type,entity_id:c.entity_id,before:c.before??null,after:c.after,detail:{reason:c.reason??null}});
@@ -661,7 +805,7 @@
    S.rooms=S.rooms.filter(r=>r.photos.length);
    S.revision=from+1;
    S.has={fields:gate!=='appraisal_review',rooms:gate==='components_review'||gate==='assets_review',objects:gate==='components_review'||gate==='assets_review',assets:false};
-   newRevision(S,{kind:'rejection',stage:gate,actor_id:ME.id,at,review_id:review.id,from_revision:from});
+   newRevision(S,{kind:'rejection',stage:gate,actor_id:actorOf(S).id,at,review_id:review.id,from_revision:from});
    enterStage(S,AFTER_REJECT[gate],true);
    event(S,'run.continued',{detail:{applied_revision:S.revision}});
    activities(S,['apply_corrections']);
@@ -683,7 +827,7 @@
   if(body.dry_run)return {status:200,body:plan};
   snapshot(S);const from=S.revision;S.revision++;
   S.has={fields:true,rooms:true,objects:true,assets:body.stage==='assets_review'};
-  newRevision(S,{kind:'reopen',stage:body.stage,actor_id:ME.id,at:iso(S.clock()),review_id:null,from_revision:from});
+  newRevision(S,{kind:'reopen',stage:body.stage,actor_id:actorOf(S).id,at:iso(S.clock()),review_id:null,from_revision:from});
   enterStage(S,body.stage,true);
   event(S,'study.reopened',{actor:'engineer',detail:{from_revision:from,reason:'reopen',...plan}});audit(S,'reopened','reopened',{after:{stage:body.stage,revision:S.revision}});
   startRun(S,'reopen');activities(S,['carry_revision']);
@@ -703,7 +847,7 @@
   // The real route answers 412 with the current preview's ETag (basis/api/routes/report.py).
   if(body.reviewed_sha256!==previewTag(S,inst))return new Problem(412,'precondition-failed','Precondition Failed','The report changed since you reviewed it (an input or the export changed); nothing was signed. Open the preview again, review it, and sign with its ETag.',E.CHANGED,undefined,{etag:`"${previewTag(S,inst)}"`});
   const at=iso(S.clock()),pdf=digest(`pdf:${S.id}:${S.revision}:${at}`);
-  const sig={id:S.next(9),study_id:S.id,revision:S.revision,signed_by:ME.id,signed_by_name:ME.name,signed_by_email:ME.email,signed_at:at,engineer:clone(body.engineer),statement_version:1,export_sha256:S.exports[S.revision].sha256,reviewed_sha256:body.reviewed_sha256,pdf_sha256:pdf,firm_profile_version:inst.profileVersion,report_answers_version:S.answersVersion};
+  const who=actorOf(S),sig={id:S.next(9),study_id:S.id,revision:S.revision,signed_by:who.id,signed_by_name:who.name,signed_by_email:who.email,signed_at:at,engineer:clone(body.engineer),statement_version:1,export_sha256:S.exports[S.revision].sha256,reviewed_sha256:body.reviewed_sha256,pdf_sha256:pdf,firm_profile_version:inst.profileVersion,report_answers_version:S.answersVersion};
   S.signatures[S.revision]=sig;event(S,'report.signed',{actor:'engineer',entity_type:'signature',entity_id:sig.id});audit(S,'report_signed','signed',{entity_type:'signature',entity_id:sig.id});
   return {status:201,body:clone(sig)};
  }
@@ -733,7 +877,7 @@
    if(best)return {status:200,body:{object:objectOut(S,doc,best[0]),created:false,duplicate_of:best[0].id,overlap:round4(best[1])}};
   }
   if(body.kind==='box'&&!candidate){const m=live.filter(o=>!o.counted&&o.label===label).map(o=>[o,iou(o.box,area).iou]).filter(x=>x[1]>=0.5).sort((a,b)=>b[1]-a[1])[0];if(m)candidate=m[0]}
-  const at=iso(S.clock()),o={id:S.next(5),label,phrase:PHRASES[label]||label.replace(/_/g,' '),score:null,box:{...area},area:round4((area.x2-area.x1)*(area.y2-area.y1)),source:'manual',counted:true,derived_from:candidate?candidate.id:null,created_by:ME.id,created_at:at,deleted_at:null,deleted_by:null,mask:candidate?null:outlineMask(area),mask_source:candidate?'candidate':'sam_box_prompt',mask_reason:null};
+  const at=iso(S.clock()),o={id:S.next(5),label,phrase:PHRASES[label]||label.replace(/_/g,' '),score:null,box:{...area},area:round4((area.x2-area.x1)*(area.y2-area.y1)),source:'manual',counted:true,derived_from:candidate?candidate.id:null,created_by:actorOf(S).id,created_at:at,deleted_at:null,deleted_by:null,mask:candidate?null:outlineMask(area),mask_source:candidate?'candidate':'sam_box_prompt',mask_reason:null};
   list.push(o);event(S,'object.added',{actor:'engineer',entity_type:'photo_object',entity_id:o.id,after:{label,box:o.box}});audit(S,'object_added','added',{entity_type:'photo_object',entity_id:o.id,after:{label,document_id:doc}});
   return {status:201,body:{object:objectOut(S,doc,o),created:true,duplicate_of:null,overlap:null}};
  }
@@ -743,7 +887,7 @@
   const o=liveObjects(S,doc).find(x=>x.id===id);if(!o)return notFound('Object not found.',E.OBJ_NOT_FOUND);
   const gate=objectGate(S);if(gate)return gate;
   if(o.source!=='manual')return conflict('not-manual',"A model instance is the photo's evidence and is not deleted.",E.OBJ_NOT_MANUAL);
-  o.deleted_at=iso(S.clock());o.deleted_by=ME.id;event(S,'object.deleted',{actor:'engineer',entity_type:'photo_object',entity_id:o.id});audit(S,'object_deleted','deleted',{entity_type:'photo_object',entity_id:o.id});
+  o.deleted_at=iso(S.clock());o.deleted_by=actorOf(S).id;event(S,'object.deleted',{actor:'engineer',entity_type:'photo_object',entity_id:o.id});audit(S,'object_deleted','deleted',{entity_type:'photo_object',entity_id:o.id});
   return {status:200,body:objectOut(S,doc,o)};
  }
 
@@ -757,23 +901,91 @@
   const json=(status,body,headers={})=>({status,body,headers});
   function registerRoutes(){
    route('GET','/health',()=>json(200,{status:'ok',service:'basis-api',version:'sample',git_sha:'sample',env:'sample',checks:{db:{status:'ok',latency_ms:1.2},temporal:{status:'ok',latency_ms:2.4}}}));
-   route('GET','/v1/me',()=>json(200,{user:{id:ME.id,email:ME.email,display_name:ME.name},email_verified:true,memberships:[{org_id:ORG_ID,org_name:FIRM.name,role:'owner'}],pending_invitations:[]}));
-   route('GET','/v1/orgs/{org_id}/profile',ctx=>ctx.p.org_id!==ORG_ID?notFound('Firm not found.'):!ctx.i.profile?notFound('The firm has no report profile yet.','BASIS-REPORT-013'):json(200,{org_id:ORG_ID,profile:clone(ctx.i.profile),version:ctx.i.profileVersion,updated_at:ctx.i.profileUpdated},{etag:`"${ctx.i.profileVersion}"`}));
+   route('GET','/v1/me',ctx=>{const I=ctx.i,me=I.me,member=isMember(I);return json(200,{user:{id:me.id,email:me.email,display_name:me.name},email_verified:true,memberships:member?[{org_id:I.org.id,org_name:I.org.name,role:me.role}]:[],pending_invitations:member?[]:I.invitations.filter(v=>v.status==='pending'&&v.email===me.email).map(inviteeOut)})});
+   route('POST','/v1/invitations/{invitation_id}/(?<answer>accept|decline)',ctx=>{
+    const I=ctx.i,inv=I.invitations.find(v=>v.id===ctx.p.invitation_id&&v.email===I.me.email);if(!inv)return notFound('Invitation not found.');
+    const accept=ctx.p.answer==='accept',closed={accepted:'FIRM_INVITATION_ACCEPTED',declined:'FIRM_INVITATION_DECLINED',revoked:'FIRM_INVITATION_REVOKED',expired:'FIRM_INVITATION_EXPIRED'};
+    if(inv.status==='accepted'&&accept||inv.status==='declined'&&!accept)return json(200,{invitation:inviteeOut(inv),membership:accept?{org_id:I.org.id,org_name:I.org.name,role:inv.role}:null});
+    if(inv.status!=='pending')return conflict('invitation-'+inv.status,`This invitation was ${inv.status}.`,FC[closed[inv.status]]);
+    const at=iso(I.now());
+    if(accept){inv.status='accepted';inv.accepted_at=at;inv.accepted_by=I.me.id;I.me={...I.me,role:inv.role,joined_at:at,last_seen_at:at};I.people=[...I.people.filter(p=>p.id!==I.me.id),I.me];I.orgEvents.push({...orgEvent(I,'invitation.accepted',{actor:I.me.id,subject:I.me.id,entity:['invitation',inv.id],after:{email:inv.email,role:inv.role},detail:{role_before:null},at:I.now()}),seq:I.orgEvents.length+1})}
+    else{inv.status='declined';inv.declined_at=at;I.orgEvents.push({...orgEvent(I,'invitation.declined',{actor:I.me.id,subject:I.me.id,entity:['invitation',inv.id],before:{email:inv.email,role:inv.role,expires_at:inv.expires_at},at:I.now()}),seq:I.orgEvents.length+1})}
+    return json(200,{invitation:inviteeOut(inv),membership:accept?{org_id:I.org.id,org_name:I.org.name,role:inv.role}:null});
+   });
+   route('GET','/v1/orgs/{org_id}/profile',ctx=>!inFirm(ctx)?notFound('Firm not found.'):!ctx.i.profile?notFound('The firm has no report profile yet.','BASIS-REPORT-013'):json(200,{org_id:ctx.i.org.id,profile:clone(ctx.i.profile),version:ctx.i.profileVersion,updated_at:ctx.i.profileUpdated},{etag:`"${ctx.i.profileVersion}"`}));
    route('PUT','/v1/orgs/{org_id}/profile',ctx=>{
-    const I=ctx.i;if(ctx.p.org_id!==ORG_ID)return notFound('Firm not found.');
+    const I=ctx.i;if(!inFirm(ctx))return notFound('Firm not found.');if(I.me.role!=='owner')return forbidden('Only the firm’s owners edit its report profile.');
     const b=ctx.body,errs=checkShape(b,{name:TEXT,address:OPT,phone:OPT,logo_png:v=>v===null||typeof v==='string'&&v.length<=524288,engineer:v=>v===null||validEngineer(v),limiting_conditions:v=>v===null||Array.isArray(v)&&v.every(x=>typeof x==='string'&&x.trim()&&x.length<=4000)},['name']);
     if(errs.length)return invalid(errs);
     if(!ifMatchAllows(ctx.h['if-match'],I.profileVersion,Boolean(I.profile)))return new Problem(412,'precondition-failed','Precondition Failed',`The profile is at version ${I.profileVersion}.`,E.PROFILE_412,undefined,{etag:`"${I.profileVersion}"`});
     I.profile={address:null,phone:null,logo_png:null,engineer:null,limiting_conditions:null,...clone(b)};I.profileVersion++;I.profileUpdated=iso(I.now());
-    return json(200,{org_id:ORG_ID,profile:clone(I.profile),version:I.profileVersion,updated_at:I.profileUpdated},{etag:`"${I.profileVersion}"`});
+    I.orgEvents.push({...orgEvent(I,'profile.set',{actor:I.me.id,entity:['profile',I.org.id],detail:{version_before:I.profileVersion-1,version_after:I.profileVersion,if_match:ctx.h['if-match']||null,changed:Object.keys(b)},at:I.now()}),seq:I.orgEvents.length+1});
+    return json(200,{org_id:I.org.id,profile:clone(I.profile),version:I.profileVersion,updated_at:I.profileUpdated},{etag:`"${I.profileVersion}"`});
    });
-   route('GET','/v1/orgs/{org_id}/members',ctx=>ctx.p.org_id!==ORG_ID?notFound('Firm not found.'):json(200,{items:PEOPLE.map((u,i)=>({user_id:u.id,email:u.email,display_name:u.name,role:u.role,joined_at:iso(T0-86400000*(60-i*7)),last_seen_at:i===2?null:iso(T0+86400000*(7-i))}))}));
-   route('GET','/v1/orgs/{org_id}/invitations',ctx=>ctx.p.org_id!==ORG_ID?notFound('Firm not found.'):json(200,{items:[{id:'5a3d0000-0000-4000-8000-000000000001',org_id:ORG_ID,org_name:FIRM.name,role:'engineer',status:'pending',invited_by_name:ME.name,invited_by_email:ME.email,created_at:iso(T0+86400000*5),expires_at:iso(T0+86400000*19),email:'casey.nguyen@example.test',created_by:ME.id,accepted_at:null,accepted_by:null,declined_at:null,revoked_at:null,revoked_by:null,delivery:'sent',email_queued_at:iso(T0+86400000*5),emailed_at:iso(T0+86400000*5+60000),email_error:null}]}));
-   route('GET','/v1/studies',ctx=>{for(const S of ctx.i.studies)tick(S,ctx.i);const q=(ctx.q.get('q')||'').toLowerCase(),status=ctx.q.get('status');const items=ctx.i.studies.filter(S=>(!q||S.name.toLowerCase().includes(q))&&(!status||S.status===status)).map(studyOut).sort((a,b)=>b.updated_at.localeCompare(a.updated_at));return json(200,{items,total:items.length,next_cursor:null})});
+   route('GET','/v1/orgs/{org_id}/members',ctx=>{if(!inFirm(ctx))return notFound('Firm not found.');if(!MEMBER_READERS.includes(ctx.i.me.role))return forbidden('Only the firm’s owners list its members.');return json(200,{items:ctx.i.people.map(p=>memberOut(ctx.i,p))})});
+   route('POST','/v1/orgs/{org_id}/members/{user_id}/role',ctx=>{
+    const I=ctx.i,deny=ownerOnly(ctx);if(deny)return deny;
+    const errs=checkShape(ctx.body,{role:v=>['owner','engineer','viewer'].includes(v)},['role']);if(errs.length)return invalid(errs);
+    const m=I.people.find(p=>p.id===ctx.p.user_id);if(!m)return notFound('Member not found.');
+    if(m.role===ctx.body.role)return json(200,memberOut(I,m));
+    if(m.role==='owner'&&I.people.filter(p=>p.role==='owner').length===1)return conflict('last-owner','A firm keeps at least one owner: make another member an owner first.',FC.FIRM_LAST_OWNER);
+    const before=m.role;m.role=ctx.body.role;if(m.id===I.me.id)I.me=m;
+    I.orgEvents.push({...orgEvent(I,'member.role_changed',{actor:I.me.id,subject:m.id,entity:['member',m.id],before:{role:before},after:{role:m.role},at:I.now()}),seq:I.orgEvents.length+1});
+    return json(200,memberOut(I,m));
+   });
+   route('DELETE','/v1/orgs/{org_id}/members/{user_id}',ctx=>{
+    const I=ctx.i,deny=ownerOnly(ctx);if(deny)return deny;
+    const m=I.people.find(p=>p.id===ctx.p.user_id);if(!m)return notFound('Member not found.');
+    if(m.role==='owner'&&I.people.filter(p=>p.role==='owner').length===1)return conflict('last-owner','A firm keeps at least one owner: make another member an owner first.',FC.FIRM_LAST_OWNER);
+    I.people=I.people.filter(p=>p.id!==m.id);
+    const revoked=I.invitations.filter(v=>v.status==='pending'&&v.email===m.email);for(const v of revoked){v.status='revoked';v.revoked_at=iso(I.now());v.revoked_by=I.me.id}
+    I.orgEvents.push({...orgEvent(I,'member.removed',{actor:I.me.id,subject:m.id,entity:['member',m.id],before:{role:m.role},detail:{self:m.id===I.me.id,invitations_revoked:revoked.map(v=>v.id)},at:I.now()}),seq:I.orgEvents.length+1});
+    return json(200,memberOut(I,m));
+   });
+   route('GET','/v1/orgs/{org_id}/invitations',ctx=>{const deny=ownerOnly(ctx);if(deny)return deny;return json(200,{items:ctx.i.invitations.slice().sort((a,b)=>b.created_at.localeCompare(a.created_at)).map(clone)})});
+   route('POST','/v1/orgs/{org_id}/invitations',ctx=>{
+    const I=ctx.i,deny=ownerOnly(ctx);if(deny)return deny;
+    const errs=checkShape(ctx.body,{email:v=>typeof v==='string'&&/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(v.trim())&&v.length<=320,role:v=>['owner','engineer','viewer'].includes(v)},['email','role']);if(errs.length)return invalid(errs);
+    const email=ctx.body.email.trim().toLowerCase();
+    if(I.people.some(p=>p.email.toLowerCase()===email))return conflict('already-member','This email already belongs to a member of the firm.',FC.FIRM_ALREADY_MEMBER);
+    if(I.invitations.some(v=>v.status==='pending'&&v.email.toLowerCase()===email))return conflict('invitation-pending','This email already has a pending invitation.',FC.FIRM_INVITATION_PENDING);
+    const inv=invitation(I,{id:`5a3d0000-0000-4000-8000-${String(900000000000+I.invitations.length).padStart(12,'0')}`,email,role:ctx.body.role,by:I.me.id,days:0});
+    I.invitations.unshift(inv);
+    I.orgEvents.push({...orgEvent(I,'invitation.created',{actor:I.me.id,entity:['invitation',inv.id],after:{email,role:inv.role,expires_at:inv.expires_at},at:I.now()}),seq:I.orgEvents.length+1});
+    return json(201,clone(inv));
+   });
+   route('DELETE','/v1/orgs/{org_id}/invitations/{invitation_id}',ctx=>{
+    const I=ctx.i,deny=ownerOnly(ctx);if(deny)return deny;
+    const inv=I.invitations.find(v=>v.id===ctx.p.invitation_id);if(!inv)return notFound('Invitation not found.');
+    if(inv.status==='accepted')return conflict('invitation-accepted','This invitation was accepted: remove the member instead.',FC.FIRM_INVITATION_ACCEPTED);
+    if(inv.status==='declined')return conflict('invitation-declined','This invitation was declined.',FC.FIRM_INVITATION_DECLINED);
+    if(inv.status!=='revoked'){inv.status='revoked';inv.revoked_at=iso(I.now());inv.revoked_by=I.me.id;I.orgEvents.push({...orgEvent(I,'invitation.revoked',{actor:I.me.id,entity:['invitation',inv.id],before:{email:inv.email,role:inv.role,expires_at:inv.expires_at},detail:{reason:'revoked'},at:I.now()}),seq:I.orgEvents.length+1})}
+    return json(200,clone(inv));
+   });
+   route('GET','/v1/orgs/{org_id}/activity',ctx=>{const deny=ownerOnly(ctx);if(deny)return deny;const t=ctx.q.getAll('event_type');return json(200,{org_id:ctx.i.org.id,items:ctx.i.orgEvents.filter(e=>!t.length||t.includes(e.event_type)).slice().reverse().map(clone),next_cursor:null})});
+   route('GET','/v1/me/activity',ctx=>{
+    const I=ctx.i,until=ctx.q.get('until'),since=ctx.q.get('since')||iso(I.now()-90*DAY),t=ctx.q.getAll('event_type');
+    const items=studyEvents(I).filter(e=>e.actor_id===I.me.id&&e.at>=since&&(!until||e.at<=until)&&(!t.length||t.includes(e.event_type))).slice(0,Math.min(200,Number(ctx.q.get('limit')||50)));
+    return json(200,{items,since,until:until||null,next_cursor:null});
+   });
+   // The library (docs/api/STUDY_LIBRARY.md): q, repeatable status, created_by, include_archived, sort.
+   route('GET','/v1/studies',ctx=>{
+    const I=ctx.i;if(!isMember(I))return noFirm();for(const S of I.studies)tick(S,I);
+    const q=(ctx.q.get('q')||'').trim().toLowerCase(),statuses=ctx.q.getAll('status'),by=ctx.q.get('created_by'),sort=ctx.q.get('sort')||'updated_desc';
+    if(q.length>200)return invalid([fieldErr(['query','q'],'String should have at most 200 characters','string_too_long')]);
+    if(!['updated_desc','created_desc','name_asc'].includes(sort))return invalid([fieldErr(['query','sort'],"Input should be 'updated_desc', 'created_desc' or 'name_asc'",'enum')]);
+    const archived=ctx.q.get('include_archived')==='true'||statuses.includes('archived');
+    const items=I.studies.filter(S=>(archived||S.status!=='archived')&&(!statuses.length||statuses.includes(S.status))&&(!by||S.owner.id===by)&&(!q||STUDY_MATCH.some(m=>m(S,q)))).map(studyOut);
+    const key={updated_desc:(a,b)=>b.updated_at.localeCompare(a.updated_at)||b.id.localeCompare(a.id),created_desc:(a,b)=>b.created_at.localeCompare(a.created_at)||b.id.localeCompare(a.id),name_asc:(a,b)=>a.property_name.toLowerCase().localeCompare(b.property_name.toLowerCase())||a.id.localeCompare(b.id)}[sort];
+    items.sort(key);return json(200,{items,total:items.length,next_cursor:null});
+   });
    route('GET','/v1/studies/{study_id}',withStudy(S=>json(200,studyDetail(S))));
+   route('DELETE','/v1/studies/{study_id}',withStudy((S,ctx)=>{const deny=ownerOnly(ctx,true);if(deny)return deny;if(['processing','waiting_review','failed'].includes(S.status))return conflict('workflow-running','The study’s workflow is still running: cancel it first.','BASIS-STUDY-035');if(S.status!=='archived'){S.prevStatus=S.status;S.status='archived';event(S,'study.archived',{actor:'engineer',after:{status:'archived'}});audit(S,'archived','archived')}return json(200,studyOut(S))}));
+   route('POST','/v1/studies/{study_id}/unarchive',withStudy((S,ctx)=>{const deny=ownerOnly(ctx,true);if(deny)return deny;if(S.status==='archived'){S.status=S.prevStatus||(S.stage==='completed'?'completed':S.stage==='uploading'?'draft':'waiting_review');event(S,'study.unarchived',{actor:'engineer',after:{status:S.status}});audit(S,'unarchived','unarchived')}return json(200,studyOut(S))}));
    route('GET','/v1/studies/{study_id}/workflow',withStudy(S=>{
-    const run=S.runs[S.runs.length-1],done=S.status==='completed',gate=S.status==='waiting_review'?S.stage:null,processing=S.stage==='components_processing'&&S.status==='processing';
-    return json(200,{workflow_id:run.workflow_id,run_id:run.run_id,execution_status:done?'COMPLETED':'RUNNING',status:{stage:S.stage,revision:S.revision,waiting_since:gate?S.stages[S.stages.length-1].gate_opened_at:null,pending_photos:processing?2:0,completed_photos:processing?3:5,decisions_applied:S.reviews.map(r=>r.id),stalled:false,budget_remaining_usd:Math.round((8-S.calls.reduce((s,c)=>s+Number(c.cost_usd),0))*100)/100,awaiting:gate,flagged_photos:[],needs_review_stages:gate?[gate]:[],failed_stage:null,failure:null,failure_code:null},runs:S.runs.map(clone)});
+    const run=S.runs[S.runs.length-1];if(!run)return notFound('The study has not been started: it has no workflow yet.',E.NO_WORKFLOW);
+    const done=S.status==='completed'||S.status==='archived',gate=S.status==='waiting_review'?S.stage:null,processing=S.stage==='components_processing'&&S.status==='processing';
+    return json(200,{workflow_id:run.workflow_id,run_id:run.run_id,execution_status:done?'COMPLETED':'RUNNING',status:{stage:S.stage,revision:S.revision,waiting_since:gate?S.stages[S.stages.length-1].gate_opened_at:null,pending_photos:processing?2:0,completed_photos:processing?3:5,decisions_applied:S.reviews.map(r=>r.id),stalled:false,budget_remaining_usd:Math.round((8-S.calls.reduce((s,c)=>s+Number(c.cost_usd),0))*100)/100,awaiting:gate,flagged_photos:[],needs_review_stages:gate?[gate]:[],failed_stage:S.status==='failed'?S.stage:null,failure:S.status==='failed'?S.failure_reason:null,failure_code:S.status==='failed'?'BASIS-INGEST-005':null},runs:S.runs.map(clone)});
    }));
    route('GET','/v1/studies/{study_id}/documents/{document_id}/(?<what>image|content)',withStudy(async(S,ctx)=>{const d=S.docs.find(x=>x.id===ctx.p.document_id);if(!d)return notFound('Document not found.');if(ctx.p.what==='image'&&d.kind!=='photo')return notFound('Not a photo.');return {status:200,bytes:await asset(ctx.i,d.path),headers:{'content-type':d.content_type,'content-disposition':`inline; filename="${d.filename}"`,etag:`"${d.sha256}"`}}}));
    route('GET','/v1/studies/{study_id}/fields',withStudy((S,ctx)=>atRevision(S,ctx,(snap,r)=>json(200,page(snap?.fields||[],{revision:r})),()=>json(200,page(S.has.fields?fieldsOut(S):[],{revision:S.revision})))));
@@ -792,7 +1004,7 @@
     const b=ctx.body,errs=checkShape(b,{taxpayer_name:TEXT,photographs:v=>v==='engineer_site_visit'||v==='taxpayer_supplied',photographed_by:TEXT,photographed_on:v=>typeof v==='string'&&/^\d{4}-\d{2}-\d{2}$/.test(v),interviews:v=>Array.isArray(v),prior_depreciation:v=>v===null||typeof v==='object'},['taxpayer_name','photographs','photographed_by','photographed_on']);
     if(errs.length)return invalid(errs);
     if(!ifMatchAllows(ctx.h['if-match'],S.answersVersion,Boolean(S.answers)))return new Problem(412,'precondition-failed','Precondition Failed',`The report answers changed since you read them (their ETag is now "${S.answersVersion}"); nothing was written.`,E.ANSWERS_412,undefined,{etag:`"${S.answersVersion}"`});
-    const before=clone(S.answers);S.answers={interviews:[],prior_depreciation:null,...clone(b)};S.answersVersion++;audit(S,'report_answers',before?'modified':'added',{before,after:clone(S.answers)});event(S,'report_answers.saved',{actor:'engineer'});
+    const before=clone(S.answers);S.answers={interviews:[],prior_depreciation:null,...clone(b)};S.answersVersion++;audit(S,'report_answers',before?'modified':'added',{before,after:clone(S.answers)});event(S,'study.report_answers_set',{actor:'engineer'});
     return json(200,{study_id:S.id,report_answers:clone(S.answers),report_answers_version:S.answersVersion},{etag:`"${S.answersVersion}"`});
    }));
    route('GET','/v1/studies/{study_id}/report/preview',withStudy(async(S,ctx)=>{const st=reportState(S,ctx.i);if(!st.exported||st.skipped)return conflict('conflict',`Revision ${S.revision} has no report to preview yet.`,E.NOT_SIGNABLE);return {status:200,bytes:await asset(ctx.i,REPORT_PATH),headers:{'content-type':'application/pdf','content-disposition':`inline; filename="study-${S.id.slice(0,8)}-rev-${S.revision}-report-preview.pdf"`,etag:`"${previewTag(S,ctx.i)}"`}}}));
@@ -812,8 +1024,8 @@
    route('GET','/v1/studies/{study_id}/audit',withStudy(S=>json(200,{study_id:S.id,items:S.audit.slice().reverse().map(clone),next_cursor:null})));
    route('GET','/v1/studies/{study_id}/spend',withStudy(S=>json(200,spendOut(S))));
    route('GET','/v1/studies/{study_id}/calls',withStudy((S,ctx)=>{const a=ctx.q.get('activity'),k=ctx.q.get('kind');return json(200,{items:S.calls.filter(c=>(!a||c.activity===a)&&(!k||c.kind===k)).slice().reverse().map(clone),next_cursor:null})}));
-   route('GET','/v1/cost-indices',ctx=>{const items=[[2020,'100.0'],[2024,'118.9'],[2025,'121.0'],[2026,'123.4']].map(([year,value],i)=>({id:`5a3b0000-0000-4000-8000-00000000${year}`,source:'sample',series:'historical',year,region:'national',value,as_of:`${year}-07-01`,citation:`Sample cost index (illustrative), ${year}`,url:null,derived:null,version:1,obtained_at:iso(T0-86400000*(40-i)),obtained_by:null,obtained_by_name:'Sample loader',document_sha256:null,run_id:'5a3b0000-0000-4000-8000-0000000000aa',detail:null}));items.push({id:'5a3b0000-0000-4000-8000-000000000ca1',source:'sample',series:'city',year:2020,region:'CA',value:'1.180',as_of:'2020-07-01',citation:'Sample location factors (illustrative), California',url:null,derived:null,version:1,obtained_at:iso(T0-86400000*40),obtained_by:null,obtained_by_name:'Sample loader',document_sha256:null,run_id:'5a3b0000-0000-4000-8000-0000000000aa',detail:null});const y=ctx.q.get('year'),s=ctx.q.get('series');return json(200,{items:items.filter(x=>(!y||String(x.year)===y)&&(!s||x.series===s)),next_cursor:null})});
-   route('GET','/v1/cost-indices/runs',()=>json(200,{items:[{id:'5a3b0000-0000-4000-8000-0000000000aa',source:'sample',trigger:'manual',actor_type:'system',actor_id:null,actor_name:'Sample loader',status:'succeeded',started_at:iso(T0-86400000*40),finished_at:iso(T0-86400000*40+4000),rows_added:5,years_wanted:[2020,2024,2025,2026],years_added:[2020,2024,2025,2026],failures:[],document_sha256:null,detail:null}]}));
+   route('GET','/v1/cost-indices',ctx=>{const items=[[2020,'100.0'],[2024,'118.9'],[2025,'121.0'],[2026,'123.4']].map(([year,value],i)=>({id:`5a3b0000-0000-4000-8000-00000000${year}`,source:'sample',series:'historical',year,region:'national',value,as_of:`${year}-07-01`,citation:`Sample cost index (illustrative), ${year}`,url:null,derived:null,version:1,obtained_at:iso(ctx.i.t0-DAY*(40-i)),obtained_by:null,obtained_by_name:'Sample loader',document_sha256:null,run_id:'5a3b0000-0000-4000-8000-0000000000aa',detail:null}));items.push({id:'5a3b0000-0000-4000-8000-000000000ca1',source:'sample',series:'city',year:2020,region:'CA',value:'1.180',as_of:'2020-07-01',citation:'Sample location factors (illustrative), California',url:null,derived:null,version:1,obtained_at:iso(ctx.i.t0-DAY*40),obtained_by:null,obtained_by_name:'Sample loader',document_sha256:null,run_id:'5a3b0000-0000-4000-8000-0000000000aa',detail:null});const y=ctx.q.get('year'),s=ctx.q.get('series');return json(200,{items:items.filter(x=>(!y||String(x.year)===y)&&(!s||x.series===s)),next_cursor:null})});
+   route('GET','/v1/cost-indices/runs',ctx=>json(200,{items:[{id:'5a3b0000-0000-4000-8000-0000000000aa',source:'sample',trigger:'manual',actor_type:'system',actor_id:null,actor_name:'Sample loader',status:'succeeded',started_at:iso(ctx.i.t0-DAY*40),finished_at:iso(ctx.i.t0-DAY*40+4000),rows_added:5,years_wanted:[2020,2024,2025,2026],years_added:[2020,2024,2025,2026],failures:[],document_sha256:null,detail:null}]}));
    PROPOSED_ROUTES.forEach(fn=>fn({route,json,withStudy,notFound,conflict,invalid,fieldErr,Problem,E,objectGate,objectOut,liveObjects,iso,clone,TEXT,blank,event,audit}));
   }
   async function fetchFile(I,path){if(I.fetchAsset)return new Uint8Array(await I.fetchAsset(path));const base=I.assetBase||globalThis.document?.baseURI||globalThis.location?.href;const r=await fetch(new URL(path,base));if(!r.ok)throw new Error(`${path}: ${r.status}`);return new Uint8Array(await r.arrayBuffer())}
@@ -838,6 +1050,9 @@
    // Idempotency-Key: a retry with the same key and body replays the first answer.
    const key=h['idempotency-key'];
    if(key&&(method==='POST'||method==='DELETE')){const hit=inst.idem.get(key);if(hit&&hit.fingerprint===method+path+(rawBody||''))return {...hit.result,replayed:true}}
+   // The real API's roles: a viewer reads; a person with no firm has no studies.
+   if(path.startsWith('/v1/studies')&&!isMember(inst))return {problem:noFirm(),path};
+   if(path.startsWith('/v1/studies/')&&method!=='GET'&&inst.me.role==='viewer')return {problem:forbidden('A viewer reads the firm’s studies and cannot change them.'),path};
    let out;
    try{out=await match.r.handler({p:match.m.groups||{},q:u.searchParams,h,body,i:inst,method,path})}catch(e){return {status:500,problem:new Problem(500,'internal','Internal Server Error','The sample API failed: '+(e?.message||e),'BASIS-API-024'),path}}
    const result=out instanceof Problem?{problem:out,path}:{...out,path};
@@ -880,10 +1095,61 @@
   *      then reports cost.unit_cost = the override and cost.override (the backend's shape:
   *      unit_cost a decimal string as entered, with level, correction_id and revision).
   *  P3  room_create at rooms_review; photo_room corrections in the same decision may name it.
+  *
+  * The firm pages (web/FRONTEND_BACKLOG.md section 15):
+  *  P4  every study carries `summary` (what identifies the property: address, city, state, zip,
+  *      county, parcel number, client, borrower, taxpayer, the firm's file number) and `q` on
+  *      GET /v1/studies matches all of it and the engineer's name.
+  *  P5  GET /v1/orgs/{org_id}/members for every member (read-only below owner); each member
+  *      carries `signer` (their signer details, or null).
+  *  P6  GET /v1/me/signer -> {signer, version, updated_at}; PUT /v1/me/signer with If-Match:
+  *      the name, credentials, license number and state an engineer signs with.
+  *  P7  GET /v1/orgs/{org_id}/feed: the firm's study activity for every member, newest first,
+  *      each event with the actor's name and the study's name and address.
   * ===================================================================================== */
  (function proposed(){
   // P0
   PROPOSED_ROUTES.push(({route,json})=>route('GET','/v1/capabilities',()=>json(200,{object_exclusion:true,unit_cost_override:true,room_create:true})));
+  // P4: what identifies each study, and a search that reaches it.
+  STUDY_OUT.push((out,S)=>{const m=S.meta;out.summary=m?{address:m.address,city:m.city,state:m.state,zip:m.zip,county:m.county,parcel_number:m.apn,client:m.client,borrower:m.borrower,taxpayer:S.answers?.taxpayer_name||m.taxpayer,file_number:m.file}:null});
+  STUDY_MATCH.push((S,q)=>{const m=S.meta;if(!m)return false;
+   const fold=v=>String(v??'').toLowerCase().normalize('NFKD').replace(/[̀-ͯ]/g,'');
+   const values=[S.name,m.address,m.city,m.state,m.zip,m.county,m.apn,m.client,m.borrower,m.taxpayer,S.answers?.taxpayer_name,m.file,S.owner.name,S.owner.email].map(fold);
+   return fold(q).split(/\s+/).every(w=>values.some(v=>v.includes(w)))});
+  // P5: every member reads the member list; each member carries their signer details.
+  MEMBER_READERS.push('engineer','viewer');
+  MEMBER_OUT.push((out,p,I)=>{const r=I.signers?.[p.id],s=r?r.signer:p.signer;out.signer=s?{...s}:null});
+  // P6: an engineer's own signer details.
+  const signerOf=I=>{I.signers??={};if(!(I.me.id in I.signers))I.signers[I.me.id]={signer:I.me.signer?{...I.me.signer}:null,version:I.me.signer?1:0,updated_at:I.me.signer?iso(I.t0-20*86400000):null};return I.signers[I.me.id]};
+  const signerBody=r=>({signer:r.signer?{...r.signer}:null,version:r.version,updated_at:r.updated_at});
+  PROPOSED_ROUTES.push(({route,json,invalid,fieldErr,Problem,TEXT,iso})=>{
+   route('GET','/v1/me/signer',ctx=>{const r=signerOf(ctx.i);return json(200,signerBody(r),{etag:`"${r.version}"`})});
+   route('PUT','/v1/me/signer',ctx=>{
+    const I=ctx.i,r=signerOf(I),b=ctx.body,errs=[];
+    if(!b||typeof b!=='object'||Array.isArray(b))errs.push(fieldErr(['body'],'Input should be a valid dictionary','dict_type'));
+    else{
+     for(const k of Object.keys(b))if(!['name','credentials','license_number','license_state'].includes(k))errs.push(fieldErr(['body',k],'Extra inputs are not permitted','extra_forbidden'));
+     if(!TEXT(b.name)||b.name.length>200)errs.push(fieldErr(['body','name'],'The name you sign with (1 to 200 characters).','value_error'));
+     if(!TEXT(b.credentials)||b.credentials.length>100)errs.push(fieldErr(['body','credentials'],'Your credentials, e.g. PE (1 to 100 characters).','value_error'));
+     if(b.license_number!=null&&(!TEXT(b.license_number)||b.license_number.length>50))errs.push(fieldErr(['body','license_number'],'Up to 50 characters.','value_error'));
+     if(b.license_state!=null&&!/^[A-Z]{2}$/.test(b.license_state))errs.push(fieldErr(['body','license_state'],'A two-letter state code, e.g. CA.','value_error'));
+     if((b.license_number==null)!==(b.license_state==null))errs.push(fieldErr(['body','license_state'],'A license number goes with its state.','value_error'));
+    }
+    if(errs.length)return invalid(errs);
+    const m=ctx.h['if-match'];if(m&&m!=='*'&&!m.split(',').map(x=>x.trim()).includes(`"${r.version}"`))return new Problem(412,'precondition-failed','Precondition Failed',`Your signer details changed since you read them (now version ${r.version}).`,'BASIS-FIRM-011',undefined,{etag:`"${r.version}"`});
+    r.signer={name:b.name.trim(),credentials:b.credentials.trim(),license_number:b.license_number==null?null:b.license_number.trim(),license_state:b.license_state??null};r.version++;r.updated_at=iso(I.now());
+    const p=I.people.find(x=>x.id===I.me.id);if(p)p.signer={...r.signer};I.me.signer={...r.signer};
+    return json(200,signerBody(r),{etag:`"${r.version}"`});
+   });
+  });
+  // P7: the firm's study activity, for every member.
+  PROPOSED_ROUTES.push(({route,json,notFound})=>route('GET','/v1/orgs/{org_id}/feed',ctx=>{
+   const I=ctx.i;if(!inFirm(ctx))return notFound('Firm not found.');
+   const since=ctx.q.get('since')||iso(I.now()-30*86400000),until=ctx.q.get('until'),actor=ctx.q.get('actor_id'),study=ctx.q.get('study_id'),limit=Math.min(200,Math.max(1,Number(ctx.q.get('limit')||100)));
+   const name=id=>I.people.find(p=>p.id===id)?.name||null,place=id=>{const S=I.studies.find(s=>s.id===id),m=S?.meta;return m?`${m.address}, ${m.city}, ${m.state}`:null};
+   const items=studyEvents(I).filter(e=>e.at>=since&&(!until||e.at<=until)&&(!actor||e.actor_id===actor)&&(!study||e.study_id===study)).slice(0,limit).map(e=>({...e,actor_name:e.actor_type==='engineer'?name(e.actor_id):null,property_address:place(e.study_id)}));
+   return json(200,{org_id:I.org.id,items,since,until:until||null,next_cursor:null});
+  }));
   // P1: exclusion on every object; PATCH excludes or restores.
   OBJECT_OUT.push((out,o)=>{out.exclusion=o.exclusion?{...o.exclusion}:null});
   PROPOSED_ROUTES.push(({route,json,withStudy,notFound,invalid,fieldErr,E,objectGate,objectOut,liveObjects,iso,TEXT,blank,event,audit})=>route('PATCH','/v1/studies/{study_id}/photos/{document_id}/objects/{object_id}',withStudy((S,ctx)=>{
@@ -894,7 +1160,7 @@
    else{for(const k of Object.keys(b))if(!['counted','reason'].includes(k))errs.push(fieldErr(['body',k],'Extra inputs are not permitted','extra_forbidden'));if(typeof b.counted!=='boolean')errs.push(fieldErr(['body','counted'],'Field required','missing'));if(b.counted===false&&(blank(b.reason)||b.reason.length>500))errs.push(fieldErr(['body','reason'],'A reason of 1 to 500 characters is required to exclude an instance.','value_error'));if(b.counted===true&&b.reason!==undefined&&b.reason!==null&&(typeof b.reason!=='string'||b.reason.length>500))errs.push(fieldErr(['body','reason'],'The reason is at most 500 characters.','value_error'))}
    if(errs.length)return invalid(errs);
    const gate=objectGate(S);if(gate)return gate;
-   if(b.counted===false){o.counted=false;o.exclusion={by:'sample-user-1',by_name:'Alex Morgan',at:iso(S.clock()),reason:b.reason.trim()}}
+   if(b.counted===false){o.counted=false;o.exclusion={by:S.inst.me.id,by_name:S.inst.me.name,at:iso(S.clock()),reason:b.reason.trim()}}
    else{o.counted=true;o.exclusion=null}
    event(S,b.counted?'object.restored':'object.excluded',{actor:'engineer',entity_type:'photo_object',entity_id:o.id,detail:{reason:b.reason??null}});
    return json(200,objectOut(S,doc,o));
@@ -915,14 +1181,14 @@
    return null;
   };
   COMPONENT_CHECKS.push(checkPrice);ASSET_CHECKS.push(checkPrice);
-  const keepPrice=(store,key,level,c,ctx)=>{if(!('unit_cost' in c.after))return;if(c.after.unit_cost===null){delete store[key];return}
-   store[key]={unit_cost:String(c.after.unit_cost),source:c.after.unit_cost_source.trim(),reason:c.reason.trim(),by:ME.id,by_name:ME.name,at:ctx.at,level,correction_id:ctx.correctionId,revision:ctx.revision}};
+  const keepPrice=(store,key,level,c,ctx,S)=>{if(!('unit_cost' in c.after))return;if(c.after.unit_cost===null){delete store[key];return}
+   store[key]={unit_cost:String(c.after.unit_cost),source:c.after.unit_cost_source.trim(),reason:c.reason.trim(),by:actorOf(S).id,by_name:actorOf(S).name,at:ctx.at,level,correction_id:ctx.correctionId,revision:ctx.revision}};
   // A price alone changes no identification and no classification: the rest of the
   // correction, if any, goes to the base corrector without the price keys.
   const withoutPrice=c=>{const after={...c.after};for(const k of PRICE_KEYS)delete after[k];return Object.keys(after).length?{...c,after}:null};
   const baseComponent=CORRECTORS.component.apply,baseAsset=CORRECTORS.asset.apply;
-  CORRECTORS.component.apply=(c,S,ctx)=>{const rest=withoutPrice(c);if(rest)baseComponent(rest,S,ctx);keepPrice(S.compPrices,c.entity_id,'component',c,{...ctx,revision:S.revision+1})};
-  CORRECTORS.asset.apply=(c,S,ctx)=>{const rest=withoutPrice(c);if(rest)baseAsset(rest,S,ctx);keepPrice(S.compPrices,'asset:'+c.entity_id,'asset',c,{...ctx,revision:S.revision+1})};
+  CORRECTORS.component.apply=(c,S,ctx)=>{const rest=withoutPrice(c);if(rest)baseComponent(rest,S,ctx);keepPrice(S.compPrices,c.entity_id,'component',c,{...ctx,revision:S.revision+1},S)};
+  CORRECTORS.asset.apply=(c,S,ctx)=>{const rest=withoutPrice(c);if(rest)baseAsset(rest,S,ctx);keepPrice(S.compPrices,'asset:'+c.entity_id,'asset',c,{...ctx,revision:S.revision+1},S)};
   // The review reasons about the table's price go; the classification's and quantity's stay.
   const TABLE_PRICE_REASONS=['cost:YEAR_INDEX_MISSING','cost:YEAR_INDEX_CONVERTED','cost:LOCATION_STATE_MISMATCH','cross:COST_ROW_MISSING','cross:COST_NEEDS_QUANTITY'];
   COST_HOOKS.push((asset,{S,componentId,id,quantity})=>{
@@ -955,8 +1221,8 @@
  /* END PROPOSED ====================================================================== */
 
  /* ---------- the signed-in stub (same surface as live/auth.js) ---------- */
- function authStub(){
-  const U={uid:ME.id,email:ME.email,displayName:ME.name,emailVerified:true,getIdToken:async()=>'sample-token'};
+ function authStub(person=PEOPLE[0]){
+  const U={uid:person.id,email:person.email,displayName:person.name,emailVerified:true,getIdToken:async()=>'sample-token'};
   let user=U;const listeners=new Set();const notify=()=>listeners.forEach(fn=>{try{fn(user)}catch{}});
   return {init:async()=>{notify();return null},signInWithGoogle:async()=>{user=U;notify();return U},signInWithEmail:async()=>{user=U;notify();return U},signOut:async()=>{user=null;notify()},getToken:async()=>user?'sample-token':null,onChange(fn){listeners.add(fn);return ()=>listeners.delete(fn)},get user(){return user},get redirectError(){return ''},describe:e=>e?.message||'Sign-in failed.'};
  }
@@ -965,7 +1231,8 @@
  if(typeof module==='object'&&module.exports){module.exports=exported;return}
  const q=new URLSearchParams(scope.location?.search||'');
  if(q.get('api')!=='sample'){scope.BasisSampleApi={active:false};return}
- const instance=create({state:q.get('sample')||'components'});
+ const instance=create({state:q.get('sample')||'components',role:q.get('role')||'admin',onboarding:q.get('onboarding')});
+ instance.roles=true;// this sample knows roles and onboarding (a capture's own role wrapper stands aside)
  scope.BasisSampleApi=instance;
- scope.BasisAuth=authStub();
+ scope.BasisAuth=authStub(instance._inst.me);
 })(typeof globalThis==='object'?globalThis:this);

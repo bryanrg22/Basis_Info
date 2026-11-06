@@ -4,7 +4,7 @@
  *   the design renders, returns the page that replaces the app: "Not a member of a firm yet"
  *   (no firm, no invitation) or the join page (invitations to answer, or #join). Otherwise
  *   the app runs in the current firm (the stored choice per account, else the first).
- * * The sidebar names the firm and the role (Admin / Employee / Viewer; the API says owner /
+ * * The sidebar names the firm and the role (Admin / Engineer / Viewer; the API says owner /
  *   engineer / viewer). Several firms: a firm switcher in the top bar; the studies list
  *   shows the current firm's studies and a new study is created in it (org_id).
  * * #team (admins only; anyone else gets a no-access page): members with role change and
@@ -46,15 +46,18 @@
   if(gate==='join'||state.screen==='join')return joinPage(me);
   return '';
  };
+ // No firm: Basis sets firms up (python -m basis.admin create-firm), so there is no way to create one here.
  function noFirm(me){
   const email=me.user.email||L.user?.email||'this account';
-  return `<main class="invite-page live-firm-page"><div class="content"><section class="invitation-card panel"><div class="panel-body">${logo()}<h2>Not a member of a firm yet</h2><p>You are signed in as <strong>${esc(email)}</strong>. Basis is invite-only: ask your firm’s admin to invite this email address. The invitation appears here the next time you sign in.</p>${me.email_verified?'':`<div class="note"><strong class="small">This email address is not confirmed</strong><p>Invitations can only be shown to a confirmed address. Sign in with Google to use one.</p></div>`}<div class="row wrap"><button class="button primary" data-live="reload-me">Check again</button><button class="button" data-live="sign-out">Sign out and use another account</button></div><p class="footnote">An invitation is tied to one email address. If your firm invited a different address, sign in with that account.</p></div></section></div></main>`;
+  return `<main class="invite-page live-firm-page"><div class="content fp-nofirm"><section class="invitation-card panel"><div class="panel-body">${logo()}<h2>You’re not in a firm yet</h2><p>You are signed in as <strong>${esc(email)}</strong>. If your firm uses Basis, ask its admin to invite this address: the invitation appears here. Setting up a new firm? Contact Basis.</p>${me.email_verified?'':`<div class="note"><strong class="small">This email address is not confirmed</strong><p>Invitations can only be shown to a confirmed address. Sign in with Google to use one.</p></div>`}<div class="row wrap"><button class="button" data-live="reload-me">Check for an invitation</button><button class="button quiet" data-live="sign-out">Use another account</button></div></div></section></div></main>`;
  }
+
  function inviter(inv){const who=inv.invited_by_name||inv.invited_by_email;return who?`${esc(who)} invited you`:'You were invited'}
  function pendingCard(me,inv){
   const label=F.roleLabel(inv.role);
-  return `<section class="invitation-card panel" data-invitation="${esc(inv.id)}"><div class="panel-body">${logo()}<div class="invitation-workspace"><span class="avatar">${esc(F.initials(inv.org_name))}</span><span>${esc(inv.org_name)}</span></div><h2>Join ${esc(inv.org_name)}</h2><p>${inviter(inv)} as ${article(label)} ${esc(label.toLowerCase())}, using ${esc(me.user.email||'')}.</p><div class="note"><strong class="small">${esc(label)} access</strong><p>${esc(F.ROLE_SCOPE[inv.role]||'')}</p></div><div class="row wrap"><button class="button primary" data-live="accept-invite" data-value="${esc(inv.id)}">Accept and join</button><button class="button quiet" data-live="decline-invite" data-value="${esc(inv.id)}">Decline</button></div><p class="footnote">Expires ${esc(Live.when(inv.expires_at))}. No email is sent: invitations appear here when you sign in with the invited address.</p></div></section>`;
+  return `<section class="invitation-card panel" data-invitation="${esc(inv.id)}"><div class="panel-body">${logo()}<p class="fp-step-label">Step 1 of 2 · Join your firm</p><h2>Join ${esc(inv.org_name)}</h2><p>${inviter(inv)} as ${article(label)} ${esc(label.toLowerCase())}: ${esc((F.ROLE_SCOPE[inv.role]||'').replace(/^./,c=>c.toLowerCase()))}</p><dl class="fp-invite-facts"><div><dt>Signed in as</dt><dd>${esc(me.user.email||'')}</dd></div><div><dt>Expires</dt><dd>${esc(Live.when(inv.expires_at))}</dd></div></dl><div class="row wrap"><button class="button primary" data-live="accept-invite" data-value="${esc(inv.id)}">Accept and join</button><button class="button quiet" data-live="decline-invite" data-value="${esc(inv.id)}">Decline</button></div></div></section>`;
  }
+
  function answeredCard({invitation:inv,state:answer}){
   const [title,body]=F.ANSWER_COPY[answer]||F.ANSWER_COPY.error;
   const switchAccount=['wrong-account','unverified','taken'].includes(answer);
@@ -63,15 +66,19 @@
  function joinPage(me){
   let cards='';
   if(T.joined){
-   const label=F.roleLabel(T.joined.role);
-   cards=`<section class="invitation-card panel"><div class="panel-body">${logo()}<div class="invitation-workspace"><span class="avatar">${esc(F.initials(T.joined.org_name))}</span><span>${esc(T.joined.org_name)}</span></div><h2>You’re ready to start</h2><p>You joined ${esc(T.joined.org_name)} as ${article(label)} ${esc(label.toLowerCase())}.</p><div class="note"><strong class="small">${esc(label)} access</strong><p>${esc(F.ROLE_SCOPE[T.joined.role]||'')}</p></div><button class="button primary" data-live="open-firm">Open your studies</button></div></section>`;
+   const label=F.roleLabel(T.joined.role),signs=T.joined.role!=='viewer'&&Live.signerForm&&Live.mySigner;
+   // Step 2 only where Basis keeps signer details (P6); without them the engineer types them when signing.
+   const sig=signs?Live.mySigner(T.joined.org_id):null,step=signs&&!sig.loading&&!sig.error&&sig.own;
+   cards=signs&&sig.error?`<section class="invitation-card panel"><div class="panel-body">${logo()}<h2>You joined ${esc(T.joined.org_name)}</h2>${Live.failed(sig.error,'fp-reload')}<button class="button primary" data-live="open-firm">Open ${esc(T.joined.org_name)}</button></div></section>`:step?`<section class="invitation-card panel fp-onboarding"><div class="panel-body">${logo()}<p class="fp-step-label">Step 2 of 2 · Your signer details</p><h2>You joined ${esc(T.joined.org_name)}</h2><p>Set the details printed in the signature of every report you sign. You enter them once; you can change them in Settings.</p>${Live.signerForm({...sig,signer:sig.signer||{name:me.user.display_name||''}},{onboarding:true})}</div></section>`
+    :`<section class="invitation-card panel"><div class="panel-body">${logo()}<h2>You joined ${esc(T.joined.org_name)}</h2><p>You are ${article(label)} ${esc(label.toLowerCase())}: ${esc((F.ROLE_SCOPE[T.joined.role]||'').replace(/^./,c=>c.toLowerCase()))}</p>${signs&&sig.loading?Live.loading():`${signs?'<p>You enter your name, credentials and license when you sign a report.</p>':''}<button class="button primary" data-live="open-firm">Open ${esc(T.joined.org_name)}</button>`}</div></section>`;
   }else{
    const done=new Set(T.answered.map(a=>a.invitation.id));
    cards=T.answered.map(answeredCard).join('')+me.pending_invitations.filter(i=>!done.has(i.id)).map(i=>pendingCard(me,i)).join('');
    if(!cards)cards=`<section class="invitation-card panel"><div class="panel-body">${logo()}<h2>No invitations waiting</h2><p>There is nothing to answer for ${esc(me.user.email||'this account')}.</p><a class="button primary" href="#dashboard">Back to your studies</a></div></section>`;
    else if(!me.memberships.length&&T.answered.length&&!me.pending_invitations.some(i=>!done.has(i.id)))cards+=`<p class="footnote live-join-note">You are not a member of a firm yet. <button class="button quiet small" data-live="join-done">Continue</button></p>`;
   }
-  return `<main class="invite-page live-firm-page"><div class="content">${heading('Firm invitation','Join the firm that invited you. Your role decides what you can do there.')}${cards}</div></main>`;
+  // After joining, the page is the welcome, not the invitation any more.
+  return `<main class="invite-page live-firm-page"><div class="content">${T.joined?heading(`Welcome to ${esc(T.joined.org_name)}`,'One more step, then your studies.'):heading('Firm invitation','Join the firm that invited you. Your role decides what you can do there.')}${cards}</div></main>`;
  }
 
  /* ---------- answering ---------- */
@@ -81,7 +88,7 @@
   try{
    const result=await api.acceptInvitation(id);
    stored.set(result.membership?.org_id||inv.org_id);
-   T.joined={org_name:inv.org_name,role:result.membership?.role||inv.role};
+   T.joined={org_id:result.membership?.org_id||inv.org_id,org_name:inv.org_name,role:result.membership?.role||inv.role};
    Live.invalidate('studies');
   }catch(e){if(!e.status)throw e;T.answered.push({invitation:inv,state:F.answerState(e)})}
   await Live.refreshMe();Live.render();
@@ -97,6 +104,8 @@
   });
  };
  Live.actions['open-firm']=()=>{T.joined=null;T.answered=[];location.hash='#dashboard';Live.render()};
+ // The signer step (firm-pages.js) ends the join flow on Home.
+ Live.finishJoin=()=>{T.joined=null;T.answered=[]};
  Live.actions['join-done']=()=>{T.answered=[];location.hash='#dashboard';Live.render()};
 
  /* ---------- firm identity, the switcher, the invitation notice ---------- */
@@ -182,13 +191,13 @@
  Live.actions['invite-member']=()=>{
   const firm=Live.firm();if(!F.isAdmin(firm))return;
   const help=r=>`<strong class="small">${F.roleLabel(r)}</strong><p>${esc(F.ROLE_SCOPE[r])}</p>`;
-  const m=modal('Invite a team member',`<p>Give someone access to ${esc(firm.org_name)} with their work email.</p><div class="field"><label for="live-invite-email">Work email</label><input id="live-invite-email" type="email" autocomplete="off" placeholder="name@company.com" required></div><div class="field" style="margin-top:17px"><label for="live-invite-role">Role</label><select id="live-invite-role">${['engineer','owner','viewer'].map(r=>`<option value="${r}">${F.roleLabel(r)}</option>`).join('')}</select></div><div class="invite-role-help note" style="margin-top:18px">${help('engineer')}</div><p class="footnote" style="margin-top:16px">No email is sent. They see the invitation when they sign in to Basis with this address.</p>`,`${closeBtn}<button class="button primary" id="live-create-invite">Create invitation</button>`);
+  const m=modal('Invite a team member',`<p>Give someone access to ${esc(firm.org_name)} with their work email.</p><div class="field"><label for="live-invite-email">Work email</label><input id="live-invite-email" type="email" autocomplete="off" placeholder="name@company.com" required></div><div class="field" style="margin-top:17px"><label for="live-invite-role">Role</label><select id="live-invite-role">${['engineer','owner','viewer'].map(r=>`<option value="${r}">${F.roleLabel(r)}</option>`).join('')}</select></div><div class="invite-role-help note" style="margin-top:18px">${help('engineer')}</div><p class="footnote" style="margin-top:16px">Basis emails them the invitation. They accept it by signing in with this address; it expires in 14 days.</p>`,`${closeBtn}<button class="button primary" id="live-create-invite">Send invitation</button>`);
   const roleField=m.querySelector('#live-invite-role');
   roleField.onchange=()=>{m.querySelector('.invite-role-help').innerHTML=help(roleField.value)};
   m.querySelector('#live-create-invite').onclick=()=>Live.guarded('invite-create',async()=>{
    const input=m.querySelector('#live-invite-email'),email=input.value.trim();
    if(!email||!input.checkValidity()){input.reportValidity();toast('Enter a valid work email.');return}
-   try{await api.invite(firm.org_id,{email,role:roleField.value});m.remove();toast(`Invitation created for ${email.toLowerCase()}. No email was sent.`);reloadTeam(firm.org_id)}
+   try{await api.invite(firm.org_id,{email,role:roleField.value});m.remove();toast(`Invitation sent to ${email.toLowerCase()}.`);Live.invalidate('org-activity:');reloadTeam(firm.org_id)}
    catch(e){toast(e.status?F.adminError(e):Live.errorText(e))}
   });
  };

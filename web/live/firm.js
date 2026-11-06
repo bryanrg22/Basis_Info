@@ -1,7 +1,7 @@
 /* Live mode: invite-only firms, the parts that are rules rather than markup (node-tested).
  *
  * A firm is an organization in the API (GET /v1/me, /v1/orgs/{id}/...). The API's roles are
- * owner / engineer / viewer; the UI says Admin / Employee / Viewer. Everyone signs in on the
+ * owner / engineer / viewer; the UI says Admin / Engineer / Viewer. Everyone signs in on the
  * same page; GET /v1/me then decides what they see:
  *   no firm and no invitation  -> the "Not a member of a firm yet" screen
  *   invitations, and no firm   -> the join screen (accept or decline)
@@ -11,7 +11,7 @@
  */
 (function(scope){
  'use strict';
- const ROLE_LABEL={owner:'Admin',engineer:'Employee',viewer:'Viewer'};
+ const ROLE_LABEL={owner:'Admin',engineer:'Engineer',viewer:'Viewer'};
  // What each role can do, shown next to the role wherever one is chosen or offered.
  const ROLE_SCOPE={
   owner:'Manages the firm: invites people, changes roles, removes members, and sees and works on every study.',

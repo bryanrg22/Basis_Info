@@ -15,8 +15,8 @@ test('the gate: no firm and no invitation, invitations, or the app',()=>{
  // An unverified email lists no invitations (the API hides them), so it is the no-firm page.
  assert.equal(F.gate(me([],[],false)),'no-firm');
 });
-test('roles read Admin / Employee / Viewer, each with its scope',()=>{
- assert.deepEqual(F.ROLES.map(F.roleLabel),['Admin','Employee','Viewer']);
+test('roles read Admin / Engineer / Viewer, each with its scope',()=>{
+ assert.deepEqual(F.ROLES.map(F.roleLabel),['Admin','Engineer','Viewer']);
  for(const role of F.ROLES)assert.match(F.ROLE_SCOPE[role],/^[A-Z].*\.$/);
  assert.equal(F.roleLabel('auditor'),'auditor');
 });
