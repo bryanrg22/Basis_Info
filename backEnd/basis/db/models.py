@@ -275,6 +275,26 @@ class User(Base):
     last_seen_at: Mapped[datetime | None]
 
 
+class UserLinkedAccount(Base):
+    """Another sign-in account (Firebase uid) of an existing user (migration
+    ``0031_user_linked_accounts``): the same person back with a new uid keeps their firms.
+    ``users.firebase_uid`` itself never changes. ``linked_by`` is ``sign_in`` (automatic,
+    ``AUTH_LINK_VERIFIED_EMAIL``) or ``operator`` (``basis.admin link-account``)."""
+
+    __tablename__ = "user_linked_accounts"
+    __table_args__ = (
+        CheckConstraint("linked_by IN ('sign_in', 'operator')", name="linked_by_valid"),
+        Index(None, "user_id"),
+    )
+
+    firebase_uid: Mapped[str] = mapped_column(primary_key=True)
+    user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"))
+    # The address the link was made for (normalized), kept for the record.
+    email: Mapped[str | None]
+    linked_by: Mapped[str]
+    created_at: Mapped[datetime] = _created_at()
+
+
 class OrgMember(Base):
     __tablename__ = "org_members"
     __table_args__ = (

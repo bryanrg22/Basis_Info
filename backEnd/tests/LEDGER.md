@@ -653,3 +653,12 @@ upload slow tests 142 passed.
 | `web/tests/live-photos.test.cjs` | A photo on screen is fetched from `/image` and the original from `/content`, separately cached; each copy once for concurrent asks; a fetched photo renders with its `src` at once and the original never replaces it | 2 tests, pass |
 | `web/tests/api-client.test.cjs` | Added: `documentImage` requests `.../documents/{id}/image` with the ids URL-encoded | 1 test, pass |
 
+## One person, one user: the Team page's duplicate (2026-11-06; EVAL_REPORT 93)
+
+| File | What it tests | Result |
+|---|---|---|
+| `tests/integration/db/test_linked_accounts.py` | Linking a new sign-in uid to an existing firm member: setting on and off, verified and not, firmless and other-email users never targeted, an own uid never relinked, the most recently seen of several members, three concurrent first sign-ins link once, the operator CLI and its refusals | 13 tests, pass |
+| `tests/api/test_linked_accounts_api.py` | `GET /v1/me` and the members list for a member back with a new account, with the setting on and off, and an unverified new account | 4 tests, pass |
+| `tests/integration/db/test_migrations.py` | Changed: head 0031; the `0031` table, its checks and an exact downgrade | pass |
+| `tests/api/apitest_support.py` | Changed: the own-firm dependency passes the request to `get_current_user` | (support) |
+

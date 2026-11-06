@@ -42,6 +42,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from basis.api.auth import CurrentPrincipal
 from basis.api.errors import Forbidden, NotFound, ServiceUnavailable
 from basis.auth.firebase import Principal
+from basis.config import Settings
 from basis.db.enums import OrgRole
 from basis.db.models import User
 from basis.db.repositories import OrgRepository, StudyRepository, UserRepository, VisibleStudy
@@ -93,8 +94,10 @@ def _is_current(user: User, principal: Principal, now: datetime) -> bool:
 
 
 async def get_current_user(
-    principal: CurrentPrincipal, sessionmaker: SessionmakerDep
+    principal: CurrentPrincipal, sessionmaker: SessionmakerDep, request: Request
 ) -> CurrentUser:
+    settings: Settings | None = getattr(request.app.state, "settings", None)
+    link = settings is not None and settings.auth_link_verified_email
     async with session_scope(sessionmaker) as session:
         users = UserRepository(session)
         existing = await users.get_by_firebase_uid(principal.uid)
@@ -102,7 +105,11 @@ async def get_current_user(
             bind(user_id=str(existing.id))
             return CurrentUser(user=existing, principal=principal)
         user = await users.upsert_by_firebase_uid(
-            principal.uid, principal.email, principal.display_name
+            principal.uid,
+            principal.email,
+            principal.display_name,
+            email_verified=principal.email_verified,
+            link_verified_email=link,
         )
     bind(user_id=str(user.id))
     return CurrentUser(user=user, principal=principal)
