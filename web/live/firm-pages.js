@@ -46,7 +46,7 @@
  const PALETTE=['#2f5c46','#3b5878','#7a4527','#5a3d7a','#265d5d','#5f5322'];// dark enough for 4.5:1 on their own 14% tint
  const hue=t=>{let h=0;for(const c of String(t||''))h=(h*31+c.charCodeAt(0))>>>0;return PALETTE[h%PALETTE.length]};
  const avatar=(name,size='')=>name==='Basis'?`<span class="fp-avatar is-basis ${size}" aria-hidden="true"><img src="assets/basis-mark.png" alt=""></span>`:`<span class="fp-avatar ${size}" aria-hidden="true" style="--av:${hue(name)}">${esc(M.initials(name))}</span>`;
- const KIND=l=>/^sign report|^update the report/i.test(l)?' is-sign':/^failed/i.test(l)?' is-failed':'';
+ const KIND=l=>/^sign report/i.test(l)?' is-sign':/^update the report/i.test(l)?' is-update':/^failed/i.test(l)?' is-failed':'';
  const pill=(label,tone)=>`<span class="fp-pill tone-${tone}${KIND(label)}">${esc(label)}</span>`;
  const stripOf=(s,d)=>{const seg=M.strip(s,d),cur=seg.findIndex(x=>x.state==='current'),at=cur<0?seg.length:cur+1;return `<span class="fp-stagebox"><span class="fp-strip" aria-hidden="true">${seg.map(x=>`<i class="is-${x.state} tone-${x.tone}" title="${esc(x.label)}"></i>`).join('')}</span><small>${cur<0?`All ${seg.length} done`:`${at} of ${seg.length} · ${esc(seg[cur].label.replace('Report & sign','Report'))}`}</small></span>`};
  const when=at=>`<time datetime="${esc(at)}" title="${esc(Live.when(at))}">${esc(M.ago(at,now()))}</time>`;
@@ -113,7 +113,7 @@
   const working=h.working.length?`<section class="fp-card" aria-labelledby="fp-working-title"><header><h2 id="fp-working-title">Processing</h2><span>Basis is working; nothing to do yet</span></header>${list(h.working,'',4)}</section>`:'';
   const signed=h.finished.length?`<section class="fp-card fp-finished" aria-labelledby="fp-signed-title"><header><h2 id="fp-signed-title">Recently signed</h2><a href="#library" data-live="fp-lib-filter" data-value="signed">All signed ${icon('arrow',14)}</a></header><div class="fp-rows">${h.finished.slice(0,3).map(r=>studyRow(r,{owner:admin})).join('')}</div></section>`:'';
   const f=feedEntries();
-  const feed=`<section class="fp-card fp-feed" aria-labelledby="fp-feed-title"><header><h2 id="fp-feed-title">${f.own?'Your activity':'Firm activity'}</h2><a href="#activity">All activity ${icon('arrow',14)}</a></header>${!f.done?Live.loading():f.entries.length?`<ol class="fp-events is-compact">${f.entries.slice(0,8).map(x=>entryHtml(x,{compact:true})).join('')}</ol>`:'<p class="fp-empty">No activity yet.</p>'}</section>`;
+  const feed=`<section class="fp-card fp-feed" aria-labelledby="fp-feed-title"><header><h2 id="fp-feed-title">${f.own?'Your activity':'Firm activity'}</h2><a href="#activity">All activity ${icon('arrow',14)}</a></header>${!f.done?Live.loading():f.entries.length?`<ol class="fp-events is-compact">${f.entries.slice(0,6).map(x=>entryHtml(x,{compact:true})).join('')}</ol>`:'<p class="fp-empty">No activity yet.</p>'}</section>`;
   let team='';const setup=admin?setupChecklist(firm,all):'';
   if(admin&&!setup){const inv=invitationsEntry(firm.org_id),mem=membersEntry(firm.org_id);if(inv.done&&mem.done&&!inv.error&&!mem.error){const pending=inv.data.items.filter(i=>i.status==='pending').length,noSigner=mem.data.items.filter(m=>m.role!=='viewer'&&'signer' in m&&!m.signer);
    const lines=[pending&&`${pending} pending ${pending===1?'invitation':'invitations'}`,noSigner.length&&`${noSigner.map(m=>firstName(m.display_name||m.email)).join(', ')} ${noSigner.length===1?'has':'have'} no signer details`].filter(Boolean);

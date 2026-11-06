@@ -75,7 +75,8 @@
    if(!cards)cards=`<section class="invitation-card panel"><div class="panel-body">${logo()}<h2>No invitations waiting</h2><p>There is nothing to answer for ${esc(me.user.email||'this account')}.</p><a class="button primary" href="#dashboard">Back to your studies</a></div></section>`;
    else if(!me.memberships.length&&T.answered.length&&!me.pending_invitations.some(i=>!done.has(i.id)))cards+=`<p class="footnote live-join-note">You are not a member of a firm yet. <button class="button quiet small" data-live="join-done">Continue</button></p>`;
   }
-  return `<main class="invite-page live-firm-page"><div class="content">${heading('Firm invitation','Join the firm that invited you. Your role decides what you can do there.')}${cards}</div></main>`;
+  // After joining, the page is the welcome, not the invitation any more.
+  return `<main class="invite-page live-firm-page"><div class="content">${T.joined?heading(`Welcome to ${esc(T.joined.org_name)}`,'One more step, then your studies.'):heading('Firm invitation','Join the firm that invited you. Your role decides what you can do there.')}${cards}</div></main>`;
  }
 
  /* ---------- answering ---------- */

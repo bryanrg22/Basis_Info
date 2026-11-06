@@ -299,3 +299,5 @@
 #app .fp-to-sign{list-style:none;margin:0;padding:0;display:grid;gap:6px}
 #app .fp-to-sign li{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:8px 10px;border:1px solid #e3ebe5;border-radius:10px;font-size:14px;font-weight:600}
 #app .fp-row-main strong{white-space:normal;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical}
+#app .fp-pill.is-update{background:#fbe3bd;color:#7a3f00;box-shadow:inset 0 0 0 1.5px #c27a1a}
+#app .fp-pill.is-update::before{content:"↻";width:auto;height:auto;background:none;font-size:13px;line-height:1}
