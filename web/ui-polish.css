@@ -419,3 +419,12 @@ body:has(.review-decision) #toast{bottom:118px}
 .live-send-list li strong{font-size:13.5px;color:#213b30}
 .live-send-list span{text-align:left;font-variant-numeric:tabular-nums}
 .live-send-list em{font-style:normal;color:#56685e;font-size:12.5px}
+/* r24: an object selected, the photo-vs-priced difference sits above its card. */
+.vision-inspector-body>.vision-compare{margin:0 16px 12px;padding:10px 12px;border:1px solid #efd9b0;border-radius:10px;background:#fffaf1;gap:6px}
+.vision-inspector-body>.vision-compare>.vision-room-suggest{background:transparent;padding:0}
+.vision-inspector-footer .vision-pending.is-gap b{color:#7a4a10}
+/* r24: the step bar: names lead (14/600), states 13; a completed step's check needs no second dot. */
+#app .workspace:not([data-screen="viewer"]) .study-navigation .step strong{font-size:14px;font-weight:600}
+#app .workspace:not([data-screen="viewer"]) .study-navigation .step small{font-size:13px}
+#app .workspace:not([data-screen="viewer"]) .study-navigation .step.step-tone-done small::before{display:none}
+#app .workspace:not([data-screen="viewer"]) .study-navigation .step.step-tone-done:not(.is-selected) strong{font-weight:600}
