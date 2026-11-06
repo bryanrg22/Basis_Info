@@ -13381,3 +13381,318 @@ sweep exactly. Not verified: a live study on the fixed code (the location flag a
 mid-quarter note on a real run are covered by tests with synthetic studies only); the wainscot
 height on any property but this one; whether firms want the location flag on every priced row
 or once on the study (it follows the cost-index flag's precedent).
+
+
+## 92. Library search beyond the property name (2026-11-06)
+
+**Question.** Bryan asked for the library's search to find a study by more than its property
+name: the address, the client or taxpayer, a file number, the engineer, and the intake's
+identifying fields, measured on a realistic number of studies. Which way of searching returns
+exactly the studies it should (never another firm's), fast enough at a firm's real library
+size and at a stress size, and what does keeping it current cost a write?
+
+### 92.1 What `q` matched, and where each wanted value lives
+
+Before this change `GET /v1/studies?q=` (`StudyRepository.list_for_user`, `_filter_clauses`)
+was `studies.property_name ILIKE '%q%'` with `%`, `_` and `\` escaped: the whole query as one
+substring, case ignored, accents not.
+
+| Wanted | Where it is in Basis | Searched now |
+|---|---|---|
+| Property name | `studies.property_name` | yes; every match of the old search still matches |
+| Address, city, state, ZIP, county | the appraisal's extracted subject fields (`extraction_fields`, `section = 'subject'`: `property_address`, `city`, `state`, `zip`, `county`); every revision's; an engineer's correction overwrites the row | yes |
+| Client / taxpayer | `studies.report_answers.taxpayer_name`; the appraisal's `borrower` and `owner_of_public_record` | yes, all three |
+| Parcel number | the appraisal's `assessors_parcel` | yes |
+| Intake's identifying fields | the intake has two, `zip` and `state` (`basis.domain.intake.StudyIntakeIn`); the rest are dollars, dates and the land method | yes, both |
+| Engineer | the creator (`users.display_name`, `users.email` through `studies.created_by`); each signer (`report_signatures.engineer` name and email, as attested) | yes, both |
+| File number | **nowhere** (92.7) | no |
+| Lender | the appraisal's `lender_client`: the appraisal's client, not the firm's, and the same few banks across a library | no (it would filter nothing) |
+
+### 92.2 The standard (research)
+
+- A leading wildcard defeats a B-tree: PostgreSQL reads every row in scope. GitLab's SQL
+  guidelines: "PostgreSQL does not use any indexes when using `LIKE` / `ILIKE` with a wildcard
+  at the start"; trigram indexes "can lead to greatly improved performance" but "can easily get
+  quite large" (https://docs.gitlab.com/development/sql/).
+- `pg_trgm` GIN (`gin_trgm_ops`) or GiST serve `LIKE`/`ILIKE` anywhere in the string, not
+  left-anchored; "a pattern with no extractable trigrams will degenerate to a full-index scan"
+  (one- and two-letter words); the module is "trusted", so a database owner may install it
+  (https://www.postgresql.org/docs/16/pgtrgm.html). GIN for read-heavy containment search;
+  GiST adds nearest-neighbour ordering, not needed here.
+- Full-text search matches words and word prefixes (`word:*` matches "any word in a tsvector
+  that begins with the given string",
+  https://www.postgresql.org/docs/16/textsearch-controls.html): not the middle of a word, so
+  `arbor` cannot find `Harbor`, which the old search does. The `simple` configuration neither
+  stems nor drops stop words, which suits names.
+- Accents: `unaccent` (contrib, trusted) removes diacritics. It is `STABLE`, not `IMMUTABLE`
+  (its rules file can change), so an expression index over `unaccent(column)` needs a wrapper
+  falsely declared immutable; folding the text when it is written into a stored document avoids
+  that.
+- Several words: search boxes treat whitespace-separated words as all required, in any order
+  (GitHub: "Searching for multiple terms separated by whitespace is the equivalent to the
+  search `hello AND world`",
+  https://docs.github.com/en/search-github/github-code-search/understanding-github-code-search-syntax).
+  Adopted: every word must be found in some searched value; case and accents ignored; a ZIP or
+  parcel number matched as text (`9303` finds every ZIP containing it). Every match of the old
+  search still matches (each word of a substring is itself a substring).
+- Volume, to size the library: a practitioner's paper puts an experienced specialist at 60 to
+  75 engineering-based studies a year
+  (https://www.taxconnections.com/user_uploads/pubs/pub_6b92e3afecd7c43458e35532d151f153c198cf32b868f1978450954da4301f2d16987393d9353698d9c91e3965f9a4c2.pdf);
+  firms state cumulative totals of 20,000 studies in 25 years (MS Consultants,
+  https://www.cpapracticeadvisor.com/firm-management/news/21231150/tax-advisory-ms-consultants-celebrates-25th-anniversary),
+  28,000 since 2006 (Cost Segregation Authority,
+  https://hub.coso.org/company/cost-segregation-authority) and 60,000 in 23 years (Cost
+  Segregation Services Inc., as a search result quoted its site): their own unverified
+  claims, roughly 800 to 2,600 a year at the largest firms. A study supports depreciation for
+  27.5 or 39 years, so firms keep them.
+
+### 92.3 Setup
+
+`python -m evals.library_search` (harness v1) seeds a disposable PostgreSQL
+(`pgvector/pgvector:pg16`, the image the stack and CI use; its default `shared_buffers` 128MB
+and `work_mem` 4MB; Docker's `/dev/shm` raised to 1 GB for parallel maintenance) with a
+synthetic library built by the real migrations to `0030` (main before this change), so a later
+migration never changes what a candidate measures. Synthetic names, streets, cities and parcel
+numbers only; no client file is read. Nothing is paid; no AI model is called.
+
+- **Sizes.** 2,000, 20,000 and 200,000 studies over eight firms; the searching user's firm
+  holds a quarter: 500 (a small firm's year), 5,000 (a large firm's several years) and 50,000
+  (beyond the largest firm's whole history cited above: the stress size).
+- **Each study**: a status drawn as a library is (70 % completed, 8 % waiting for review, 5 %
+  processing, 10 % draft, 2 % failed, 5 % archived); a name that is an address (40 %), a place
+  (40 %) or a surname (20 %); an intake with state and ZIP on every study but half the drafts;
+  on every non-draft an appraisal extraction with the eight searched subject fields and the
+  catalogue's other 126 keys as filler values (years, words such as `Asphalt Shingle`), so
+  `extraction_fields` has 134 rows a study as a real extraction does (24.1 million at 200k);
+  on completed and archived studies a taxpayer and a signature by one of the firm's engineers.
+- **Load.** As a restore loads: foreign-key triggers off and the two `extraction_fields`
+  indexes rebuilt after the rows (same names and definitions), then `VACUUM ANALYZE`. Loading
+  24 million fields one index entry at a time was abandoned after 30 minutes; nothing is
+  measured during the load.
+- **Planted needles** (in the searching firm unless stated): `Harbor Point Lofts` with a unique
+  street, borrower, owner, taxpayer, parcel, creator and signer; an archived study; the `100%`
+  and `unit_7` names; `Café Lofts` owned by `José Núñez`; a draft known only by its intake ZIP;
+  a study named after a filler value; and in another firm a study and a client that must never
+  come back, plus the same taxpayer name.
+- **Queries.** 27 labelled (name mid-word and case; address; two fields at once; ZIP exact and
+  prefix; intake-only ZIP; parcel fragment; taxpayer; borrower; creator name, email, and a
+  creator with no name; signer; accents both ways; literal `%` and `_`; firm isolation by name
+  and by client; archived hidden; a filler value not searched; no match; one and two letters)
+  and 120 sampled the way a person types (a street, a whole address, a city, a ZIP, a ZIP's
+  first three digits, the end of a parcel, a surname, a name's first word, a mid-word
+  fragment, a street and a city, two letters, one letter, nonsense). At most 3 words each.
+- **Correctness**: each query's full answer (every matching id, and the count) against a Python
+  oracle of the intended semantics: the searching user's firm only, archived hidden, every
+  word a substring of some searched value, case and accents ignored. Exact means the sets are
+  equal; firm isolation is part of every comparison, and two labels test it directly.
+- **Latency**: the request as the repository runs it (`count(*)`, then the first page of 50
+  under the default sort): one warm-up pass, three timed passes over the 147 queries (441
+  samples), p50 and p95 in ms, client wall clock. A phase over 300 s is cut short and says so.
+- **Plans**: `EXPLAIN (ANALYZE, BUFFERS)` of a rare word (`quillon`), a common one (`austin`)
+  and one letter (`a`) per candidate and size, in each run's `plans/`.
+- **Cost**: `pg_total_relation_size` of what the candidate adds; its build time; one
+  extraction's 134 fields inserted one statement at a time as `persist_extraction` does, and
+  one creator's rename, medians of 15 transactions rolled back.
+
+| Candidate | What it is |
+|---|---|
+| `current` | main: `property_name ILIKE '%q%'` |
+| `joined_ilike` | every word `ILIKE` across the joined fields at query time (correlated `EXISTS` into extractions, users, signatures); no index, no migration |
+| `joined_trgm` | the same predicate as `IN` subqueries, with pg_trgm GIN indexes on the subject fields (partial), on users' name and email, and on the signature's name and email |
+| `doc_seq` | one search document per study in its own table, kept by triggers; `ILIKE` per word; no index on it |
+| `doc_trgm` | the same with a pg_trgm GIN index |
+| `doc_trgm_fold` | the same, the document lower-cased and accent-folded (`unaccent`) when written, each word folded the same way when searched |
+| `doc_trgm_fold_live_creator` | `doc_trgm_fold` without the creator in the document: the creator matched on `users` at query time, so a rename rewrites nothing |
+| `doc_fts` | the same document, full text: `to_tsvector('simple')` and GIN, each word a prefix term |
+| `implemented` | the shipped change end to end: `alembic upgrade head` (migration 0033) on the seeded library, then `StudyRepository` itself (its filter clauses for the full answer, `list_for_user` for latency, rows loaded as the route loads them) |
+
+### 92.4 Results
+
+Runs (commit `84c21a2`; `$BASIS_EVAL_DATA_DIR/verification/library_search/v1/`):
+`library_search_2026-11-06_2k_20k` (2k and 20k), `library_search_2026-11-06_200k` (200k,
+run on its own, 92.8) and `library_search_2026-11-06_200k_20000_users` (the folded candidates
+again with 20,000 more users, below). Another, `library_search_2026-11-06` (commit `84ab330`, the same
+measured code), finished 2k and 20k and failed at 200k (92.8); its 2k and 20k numbers are the
+run-to-run check below.
+
+**How to read this table.**
+
+- **Models**: none; no AI model is called, so tokens and dollars are zero in every row.
+- **Exact**: queries whose full answer (ids and `total`) equals the oracle's, of 147; a
+  candidate cut short by the 300 s budget shows how many it answered.
+- **p50 / p95 ms**: the search request (count and first page); lower is better. The
+  `implemented` row goes through `StudyRepository.list_for_user`, which also compiles the
+  statement and loads the 51 rows as `Study` objects (intake and report answers validated) as
+  the route does; the other rows are bare SQL through asyncpg, so `implemented` carries a few
+  milliseconds the others do not (its plans are the same as `doc_trgm_fold`'s).
+- **Added MB**: what the candidate adds (indexes; the document table and its index).
+- **Build s**: creating it on the largest library (backfill and index; for `implemented`,
+  `alembic upgrade head`).
+- **Extraction write ms**: one extraction's 134 fields, one INSERT each, with the candidate in
+  place; `current` is main with nothing added.
+- **Rename ms**: one creator's rename; they created 49, 408 and 4,190 studies.
+
+| Candidate | Exact queries (2k / 20k / 200k) | p50 / p95 ms (2k) | p50 / p95 ms (20k) | p50 / p95 ms (200k) | Added MB (2k / 20k / 200k) | Build s (200k) | Extraction write ms (2k / 20k / 200k) | Rename ms (2k / 20k / 200k) |
+|---|---|---|---|---|---|---|---|---|
+| `current` | 31/147 / 27/147 / 18/147 | 0.9 / 1.2 | 5.71 / 9.08 | 124.46 / 151.1 | 0.0 / 0.0 / 0.0 | 0.0 | 25.47 / 26.37 / 78.45 | 0.22 / 0.22 / 0.36 |
+| `joined_ilike` | 145/147 / 145/147 / 29/31 | 78.3 / 222.96 | 807.81 / 2251.85 (cut: 240 samples) | 7789.44 / 21287.12 (cut: 22 samples) | 0.0 / 0.0 / 0.0 | 0.0 | 26.04 / 26.68 / 74.3 | 0.2 / 0.21 / 0.31 |
+| `joined_trgm` | 145/147 / 145/147 / 145/147 | 2.76 / 17.69 | 16.61 / 186.67 | 237.31 / 2254.84 (cut: 431 samples) | 0.9 / 6.7 / 61.7 | 4.36 | 29.86 / 29.95 / 71.16 | 0.28 / 0.27 / 0.33 |
+| `doc_seq` | 145/147 / 145/147 / 145/147 | 6.29 / 8.28 | 55.31 / 79.69 | 403.86 / 681.53 | 0.6 / 5.8 / 57.0 | 34.04 | 27.46 / 49.04 / 82.61 | 6.71 / 66.68 / 665.15 |
+| `doc_trgm` | 145/147 / 145/147 / 145/147 | 6.64 / 8.64 | 2.27 / 129.61 | 10.75 / 1472.93 | 1.4 / 11.9 / 106.7 | 32.57 | 29.48 / 44.0 / 80.82 | 9.48 / 69.65 / 900.23 |
+| `doc_trgm_fold` | 147/147 / 147/147 / 147/147 | 2.57 / 4.26 | 1.32 / 69.58 | 8.63 / 1039.88 | 1.4 / 11.9 / 106.5 | 33.18 | 31.99 / 49.97 / 78.53 | 9.65 / 80.6 / 871.85 |
+| `doc_trgm_fold_live_creator` | 147/147 / 147/147 / 147/147 | 2.81 / 5.41 | 6.45 / 54.76 | 136.21 / 923.49 | 1.2 / 10.2 / 94.2 | 30.75 | 29.86 / 28.67 / 57.48 | 0.21 / 0.2 / 0.27 |
+| `doc_fts` | 97/147 / 96/147 / 91/147 | 1.55 / 11.89 | 4.86 / 74.94 | 5.57 / 136.47 | 1.0 / 7.7 / 69.7 | 29.86 | 30.39 / 42.21 / 79.71 | 8.13 / 64.8 / 718.24 |
+| `implemented` | 147/147 / 147/147 / 147/147 | 5.07 / 9.08 | 4.97 / 87.69 | 40.09 / 1173.57 | 1.4 / 12.1 / 108.2 | 27.63 | 30.31 / 43.19 / 80.98 | 8.86 / 74.55 / 876.71 |
+
+What the wrong answers were, in queries: `current` misses everything that is not in the name
+(every labelled field query, 99, 103 and 111 of the 120 sampled, and for a name fragment it
+returns fewer studies than the word rule finds); `joined_ilike`, `joined_trgm`, `doc_seq` and
+`doc_trgm` miss exactly the two accent queries (`cafe`, `jose nunez`) at every size;
+`doc_fts` misses 50, 51 and 56 (mid-word fragments such as `arbor`, parcel fragments, an
+email's local part, the accents, `unit_7`, `100%`, one letter, and 43 to 48 sampled); the
+three folded candidates miss none. No candidate returned another firm's study or an archived
+one: the two firm-isolation labels and the archived label pass for every candidate at every
+size (all are under the same membership join).
+
+Run to run (same code, two runs, p50 ms, first run / second run): `implemented` 3.68 / 5.07 at
+2k and 6.49 / 4.97 at 20k; `doc_trgm_fold` 2.23 / 2.57 and 1.53 / 1.32; `joined_trgm` 2.18 /
+2.76 and 15.14 / 16.61; `current` 0.91 / 0.90 and 6.06 / 5.71. Differences up to about 35 %
+between runs at the low milliseconds are noise on this machine.
+
+**The creator, live or in the document, with many users.** At 2k and 20k the live creator
+(`doc_trgm_fold_live_creator`) is within a few milliseconds of `doc_trgm_fold` with no rename
+cost; at 200k it is 136 against 8.6 ms at p50. Its cost also grows with the platform's users,
+which the eight-firm library (64 users) does not have, so the folded candidates were measured
+again at 200k studies with 20,000 more users (members of the other firms who created nothing;
+`--extra-users 20000`, run `library_search_2026-11-06_200k_20000_users`):
+
+| Candidate (200k studies, 20,064 users) | Models | Exact | p50 / p95 ms | Added MB | Extraction write ms | Rename ms (4,190 studies) | Tokens |
+|---|---|---|---|---|---|---|---|
+| `doc_trgm_fold` | No AI model | 147/147 | 8.01 / 1059.82 | 106.5 | 82.53 | 869.39 | None |
+| `doc_trgm_fold_live_creator` | No AI model | 147/147 | 168.69 / 977.55 | 94.2 | 58.07 | 0.27 | None |
+| `implemented` | No AI model | 147/147 | 44.45 / 1229.46 | 108.2 | 79.39 | 872.63 | None |
+
+The live form's `OR`
+between the document and `created_by IN (users ...)` cannot start from the document's index:
+the plan reads all 50,000 of the firm's study rows for every word and folds every user's name
+(17 ms per word at 20,000 users). The creator in the document is one `EXISTS` per word, which
+the planner starts from the trigram index when the word is rare (0.1 ms for `quillon`).
+
+**Worst cases at 200k (implemented, 20,000 more users; ad hoc, `list_for_user`, three runs
+each, ms):** the longest query a caller could send before the cap, 200 characters of 66
+distinct two-letter words, 1,924 to 2,557; 100 one-letter words (26 distinct), 1,152 to 1,311;
+ten two-letter words (the cap) 110 to 129; ten one-letter words 279 to 3,933; five and eight
+real words 20 to 55. A rename of the creator with the most studies (7,184) took 4,385 ms and
+2,201 ms on two tries. These ad hoc runs' files were in the session scratch directory, lost in
+a machine crash; the numbers are as printed at the time.
+
+### 92.5 The pick
+
+`doc_trgm_fold`, shipped as `implemented`: migration 0033 (`study_search`, the folded
+document kept by triggers, its pg_trgm GIN index) and one `EXISTS` per word in
+`StudyRepository._filter_clauses`.
+
+- **Correctness decides first.** Only the three folded candidates answer all 147 queries at
+  every size. Every unfolded candidate misses the accent queries, and the house rule picks the
+  cheapest candidate within the noise of the best, which presupposes the same answers;
+  `doc_fts` misses a third of the queries (no mid-word match) and is out however fast.
+- **Between the folded ones**, at a firm's real size they are within the run-to-run noise of
+  each other (20k p50 1.3 to 6.5 ms, p95 55 to 88 ms). At the stress size the live creator is
+  16 times slower at p50 (136 against 8.6 ms) and 21 times slower (168.7 against 8.0 ms) with 20,000 more users; that
+  cost is paid by every search, while the document's is paid by a rename, which is rare (a
+  person changes their name or email at their identity provider). The live form is 2 MB
+  smaller at 20k and 12 MB at 200k; size does not separate them.
+- **The index matters**: the same document without it (`doc_seq`) is 55 ms at 20k p50
+  against 1.3 ms, and the joined form without indexes (`joined_ilike`) is 0.8 s, cut short.
+- **`joined_trgm`** (no new table, indexes on the source tables) is correct but for accents
+  (folding there needs immutable-declared `unaccent` wrappers in three expression indexes)
+  and 13 times slower at 20k p50 (16.6 against 1.3 ms; 237 against 8.6 ms at 200k).
+- **`doc_fts`** has the best p95 at 200k (136 ms) because a prefix term never degenerates to
+  a scan, and is out on correctness (56 wrong at 200k).
+
+### 92.6 The write path: triggers, lock order, renames, the word cap
+
+The document is kept by triggers, not by the routes and activities that write its sources:
+every writer (the intake and report-answer routes, the extraction, a correction at the
+appraisal gate, signing, a login that changes a name) would otherwise have to remember it, and
+a forgotten one is a study that silently cannot be found. The triggers run in the writer's
+transaction, so the document commits or rolls back with its source.
+
+- **Lock order.** The first version wrote the document without touching the study row. A
+  field write followed by a stage move in one transaction (the extraction does that) and a
+  concurrent study update (a rename, an intake) then deadlock: the study update holds the study
+  row and waits for the document row; the field write holds the document row and its stage
+  move waits for the study row. `study_search_refresh` locks the study row
+  (`FOR NO KEY UPDATE`) first, the order a study update takes. The test runs the two
+  transactions for real and sees the rename wait on the lock; with the lock line removed it
+  fails with `DeadlockDetectedError` (mutation checked).
+- **`updated_at`.** `set_updated_at()` bumps `studies.updated_at` on any update of the row and
+  the library sorts by it, so the document is its own table: a new extraction field moves the
+  document, not the study (tested).
+- **Write cost.** One extraction's 134 fields: 25 to 26 ms on main, 30 / 43 ms (2k / 20k) and
+  81 (main: 78) ms at 200k with the document kept (8 of the 134 rows are searched fields, each
+  rewriting the document). An extraction runs once per study revision and takes minutes.
+- **Renames.** A change of a user's name or email rewrites the documents of every study they
+  created, in study-id order; `last_seen_at`, which every request updates, does not fire it
+  (`WHEN` on name and email; tested). 9 ms for 49 studies, 75 ms for 408, 877 ms for
+  4,190, and 2 to 4 s for 7,184 (92.4).
+- **The word cap.** Each word is one more `EXISTS`, and a one- or two-letter word cannot use
+  the index; a 200-character query of 66 two-letter words took about 2 s at 200k. `q` now
+  refuses more than 10 distinct words with a 422 (repeats, case ignored, count once); the
+  longest query in the labelled and sampled sets has 3. Ten two-letter words take about 0.1 s
+  at 200k; ten one-letter words up to a few seconds there, a scan of the firm.
+
+### 92.7 A file number
+
+There is none to search. No study, intake, report-answer or signature field holds a firm's
+own file or job number, and the extraction catalogue (`basis/extraction/field_mappings.py`,
+134 keys) extracts no appraisal file or reference number (the UAD 3.6 page footer carries an
+Appraiser or Client Reference ID, which `basis/extraction/forms.py` uses only to tell the forms
+apart). Two ways to add it, both small, neither done here because each is a product decision:
+(1) the firm's own number as an optional study field set at creation, joining the document's
+study-row values in the migration that adds it; (2) the appraiser's or lender's reference as
+a new extraction key, measured on the appraisal sets first, then one more subject field in the
+document.
+
+### 92.8 The failed 200k attempt
+
+The first all-sizes run (`library_search_2026-11-06`, commit `84ab330`) finished 2k and 20k
+and failed while loading the 200k library: PostgreSQL reported `could not fsync file ...:
+Input/output error` and the connection closed (08:21). At that moment the laptop's data volume
+had 4.5 to 6 GB free (`df`, 99 % used) while four other test suites ran at once, and this
+session's own anonymous Docker volume from an earlier kept 200k library (7.8 GB) was still on
+disk; the disk filling under that load is the likely cause (not proven). The run record is
+kept as it ended (`status: error`). An earlier attempt's 200k load, inserting one index entry
+at a time, was stopped by hand after 30 minutes (92.3). The 200k size was then run on its own
+with nothing else heavy running and 20 GB free: `library_search_2026-11-06_200k`, status ok, every candidate measured (`joined_ilike` and `joined_trgm` cut short by the budget).
+
+### 92.9 Verdict
+
+Ship `doc_trgm_fold` as implemented: correct on all 147 queries at every size, firm isolation
+included; at a firm's real size the search request is a few milliseconds at the median and
+under 0.1 s at p95 (20k: 4.97 / 87.69 ms through the repository), and at the stress size
+40 ms at the median and 1.2 s at p95 (a 50,000-study firm, cold cache). It costs 12 MB at 20k and 108 MB at 200k, a few milliseconds on an
+extraction, and a rewrite of a creator's documents when they rename. API: `q` keeps its
+parameter, length and NUL limits and its literal wildcards; it now means every word in any
+searched value (case and accents ignored), refuses more than 10 distinct words, and every old
+match still matches (`docs/api/STUDY_LIBRARY.md` 1.1).
+
+### 92.10 Open
+
+- Absolute times are a laptop's Docker PostgreSQL with the image's default 128 MB
+  `shared_buffers`; the 200k library's working set does not fit in that, so its numbers are
+  disk-bound. The candidates' order on the same machine is the result; staging Cloud SQL
+  (parked) is not measured.
+- One- and two-letter words cannot use a trigram index: the request is then a scan of the
+  firm's studies, tens of ms at 20k and about a second at the stress size. A search box that
+  waits for a third character avoids it; that is the frontend's call.
+- A rename at the stress size takes seconds in the login request and holds the study rows'
+  locks meanwhile. If renames are not rare in practice, the alternative is the live creator
+  with a folded, indexed column on `users` and the creator's id on the document so both
+  conditions are on one table (not built, not measured).
+- Folding is `unaccent`'s default rules (Latin diacritics, ligatures); other scripts compare
+  as written.
+- The 10-word cap is a guard, not a measured preference.
+- Not verified: the web app using the new search (frontend work is Bryan's); a live study's
+  document written by the real extraction activity (the triggers are tested with the
+  repository's own `set_field`, the path `persist_extraction` and the corrections use).
