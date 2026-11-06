@@ -54,14 +54,11 @@
   one context across releases merges when the answer agrees, the latest approval keeps the
   key when it does not, unknown versions and malformed keys are left alone; it downgrades
   back to the version keys;
-* ``0032_signer_details`` creates ``signer_details`` (one row per user, a license number only
-  with its state, a two-letter state, version >= 1, its ``updated_at`` trigger) and adds
-  ``report_signatures.signer_details_version`` and ``letterhead`` (NULL on existing
-  signatures, which keep every value), nothing backfilled; it downgrades back to ``0030``
-  exactly;
 * ``0030_operator_document_access`` lets ``study_events.actor_type`` be ``operator`` (Basis
   support opened a firm's file) and downgrades back to ``0029`` only while no such row exists
   (access records are append-only and never deleted);
+* ``0031_user_linked_accounts`` adds the table of extra sign-in accounts per user, with a
+  check on who linked it, and downgrades back to ``0030`` exactly;
 * ``0029_study_input_records`` lets ``client_errors.kind`` be ``study_input`` (a study held by a
   missing input, written by the server) and downgrades back to ``0028`` (those rows deleted);
 * ``0028_client_errors`` creates ``client_errors`` (the browser error records: the client's
@@ -83,6 +80,11 @@
 * ``0024_review_drafts`` creates an engineer's pending corrections at a review gate (one row
   per study, stage and user; a review stage only; a JSON object; revision and version from 1;
   its ``updated_at`` trigger), nothing backfilled; it downgrades back to ``0023`` exactly;
+* ``0032_signer_details`` creates ``signer_details`` (one row per user, a license number only
+  with its state, a two-letter state, version >= 1, its ``updated_at`` trigger) and adds
+  ``report_signatures.signer_details_version`` and ``letterhead`` (NULL on existing
+  signatures, which keep every value), nothing backfilled; it downgrades back to ``0031``
+  exactly;
 * upgrading at head is a no-op; offline (``--sql``) rendering works.
 
 Each test that changes the schema gets its own throwaway database in the shared
@@ -125,10 +127,8 @@ pytestmark = pytest.mark.integration
 # 0025_invitation_email lands after 0022 (user activity), 0023 (rate-limit hits) and 0024
 # (review drafts); 0026 (retention and alerts) revises 0025, and 0027_signature_input_versions
 # revises 0026 (it was 0024, then 0026, until the branches before it landed).
-# 0032_signer_details revises 0030 while 0031 is on another branch in flight; it is re-chained
-# onto 0031 when both merge (HEAD stays 0032, HISTORY gains 0031).
 HEAD = "0032"
-HISTORY = ["0032", *(f"{n:04d}" for n in range(30, 0, -1))]  # "0032", "0030" .. "0001"
+HISTORY = [f"{n:04d}" for n in range(32, 0, -1)]  # "0032" .. "0001"
 EXPECTED_TRIGGERS = (
     {(f"{table}_set_updated_at", table) for table in UPDATED_AT_TABLES}
     | {(f"{table}_append_only", table) for table in APPEND_ONLY_TABLES}
@@ -1688,7 +1688,35 @@ async def test_0030_operator_actor_and_a_downgrade_that_keeps_access_records(
         await downgrade(url, "0029")
 
 
-# --------------------------------------------------------------------------- 0032
+async def test_0031_linked_accounts_table_and_an_exact_downgrade(empty_database_url: str) -> None:
+    url = empty_database_url
+    await upgrade(url, "0030")
+    at_0030 = await snapshot(url)
+    await upgrade(url, "0031")
+    connection = await asyncpg.connect(plain_dsn(url))
+    try:
+        user = await connection.fetchval(
+            "INSERT INTO users (firebase_uid, email) VALUES ('uid-a', 'a@example.test') "
+            "RETURNING id"
+        )
+        link = (
+            "INSERT INTO user_linked_accounts (firebase_uid, user_id, email, linked_by) "
+            "VALUES ($1, $2, 'a@example.test', $3)"
+        )
+        await connection.execute(link, "uid-b", user, "sign_in")
+        await connection.execute(link, "uid-c", user, "operator")
+        with pytest.raises(asyncpg.CheckViolationError, match="linked_by_valid"):
+            await connection.execute(link, "uid-d", user, "someone")
+        with pytest.raises(asyncpg.UniqueViolationError):
+            await connection.execute(link, "uid-b", user, "operator")
+        with pytest.raises(asyncpg.ForeignKeyViolationError):
+            await connection.execute(link, "uid-e", uuid.uuid4(), "operator")
+        await connection.execute("DELETE FROM user_linked_accounts")
+        await connection.execute("DELETE FROM users")
+    finally:
+        await connection.close()
+    await downgrade(url, "0030")
+    assert await snapshot(url) == at_0030
 
 
 async def test_0032_signer_details_and_signature_columns_and_downgrade(
@@ -1697,9 +1725,9 @@ async def test_0032_signer_details_and_signature_columns_and_downgrade(
     """``signer_details``: one row per user, a license number only with its state, the state a
     two-letter upper-case code, ``updated_at`` maintained. ``report_signatures`` gains two
     nullable columns; an existing signature keeps every value and reads NULL in both (the
-    append-only trigger does not fire on ``ADD COLUMN``). Back to 0030 exactly."""
+    append-only trigger does not fire on ``ADD COLUMN``). Back to 0031 exactly."""
     url = empty_database_url
-    await upgrade(url, "0030")
+    await upgrade(url, "0031")
     connection = await asyncpg.connect(plain_dsn(url))
     try:
         study, _, user = await _photo(connection)
@@ -1714,7 +1742,7 @@ async def test_0032_signer_details_and_signature_columns_and_downgrade(
         )
     finally:
         await connection.close()
-    at_0030 = await snapshot(url)
+    at_0031 = await snapshot(url)
     await upgrade(url)
     connection = await asyncpg.connect(plain_dsn(url))
     try:
@@ -1756,5 +1784,5 @@ async def test_0032_signer_details_and_signature_columns_and_downgrade(
         await connection.execute("DELETE FROM signer_details")
     finally:
         await connection.close()
-    await downgrade(url, "0030")
-    assert await snapshot(url) == at_0030
+    await downgrade(url, "0031")
+    assert await snapshot(url) == at_0031

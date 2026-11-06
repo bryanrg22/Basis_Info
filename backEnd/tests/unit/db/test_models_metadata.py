@@ -45,6 +45,7 @@ SPEC_TABLES = {
     "status_set_by status_set_at status_build_sha occurrences first_seen_at last_seen_at "
     "last_build_sha created_at updated_at",
     "users": "id firebase_uid email display_name created_at last_seen_at",
+    "user_linked_accounts": "firebase_uid user_id email linked_by created_at",
     "org_members": "org_id user_id role",
     # v0.9: room_aliases added by migration 0005_room_grouping (EVAL_REPORT section 27).
     # v0.12: components_gate (migration 0009_components_gate).
@@ -300,6 +301,7 @@ SPEC_UNIQUES = {
 
 SPEC_PRIMARY_KEYS = {
     "org_members": ("org_id", "user_id"),
+    "user_linked_accounts": ("firebase_uid",),
     "document_pages": ("document_id", "page_no"),
     "photo_rooms": ("document_id", "revision"),
     "photo_localizations": ("document_id", "revision"),

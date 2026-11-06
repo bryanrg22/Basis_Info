@@ -13529,3 +13529,75 @@ set" and Report & sign refused to sign with "Add your signer details in Settings
 field is now `signer` in those answers and in `GET .../report/state`; the `report.signed`
 event's `signer_details: saved | entered` is unchanged (recorded history). The app allows a
 license number of up to 50 characters, so the API now does too (it allowed 40).
+
+## 93. One person, one user: why the Team page listed an email twice (2026-11-06)
+
+Bryan's members page on the local demo stack listed Bryan's address twice, once with
+his name and once without. Asked why, and to fix it.
+
+### 93.1 What the data said
+
+On the demo database (`basis_demo`, a copy of the live-run stack's database) three `users`
+rows had that email, each with its own Firebase uid: the original one (signed in with Google
+on the emulator, so it has a display name), and two created on 2026-10-27 and 2026-10-30 by
+email-and-password sign-ins, which carry no name. Users are keyed by uid, and the local Auth
+emulator forgets its accounts when it restarts, so each restart gave the same person a new
+uid and Basis a new user. The nameless row was a member of the firm, but no invitation, no
+`invitation.accepted` event and no `POST /v1/orgs` explains it: its two memberships (the firm
+and another one) were written at the same microsecond, 2026-10-27 00:38:03.050839, with no
+history. No route adds a member without one of those, so the rows were inserted by hand
+(most likely by a session restoring access after an emulator restart). The row owned no
+study, review or correction. Its two memberships were removed from the demo database
+(2026-11-06); the members page now lists Bryan once.
+
+### 93.2 The defect underneath
+
+The hand-written rows are the immediate cause, but the product has the gap that made them
+tempting: a person back with a new uid for the same address becomes a second user with no
+firm. In production that happens only when a Firebase account is deleted and created again
+(Firebase's default is one account per email address, Google Firebase help 9134820, so a
+second uid for an address needs the first one gone); on every local stack it happens at each
+emulator restart. A firm that re-invites the person then lists them twice.
+
+### 93.3 The standard
+
+* Auth0's account-linking guidance: link only verified emails, and do not link
+  automatically on email alone; have the person authenticate with both accounts, because a
+  verified email shows who held the address when it was verified, not that it is the same
+  person now (auth0.com/docs, "User account linking" and "Verified email usage").
+* Sudhodanan and Paverd, "Pre-hijacked accounts", USENIX Security 2022: 35 of 75 services
+  were open to attacks that merge accounts on an identifier before the victim arrives.
+* Basis's own rule (migration 0001, BUILD_PLAN section 6.5): a user's uid never changes
+  (`forbid_firebase_uid_change()`), so the fix cannot rewrite `users.firebase_uid`.
+
+### 93.4 What was built
+
+* `user_linked_accounts` (migration 0031): extra uids of an existing user, with who linked
+  them (`sign_in` or `operator`), the address and when. Lookups by uid check the user's own
+  uid, then this table.
+* `python -m basis.admin link-account --email --uid [--user-id]`: the production path. The
+  operator checks in the Firebase console that the uid is that address's account.
+* `AUTH_LINK_VERIFIED_EMAIL` (default false; true in `docker-compose.web.yml`): at sign-in, a
+  new uid whose email is verified and equal (trimmed, case-insensitive) to the stored email of
+  a user who belongs to a firm is linked to that user, the most recently seen one if several.
+  Only a firm member qualifies, because membership is reached only through a verified email
+  (an accepted invitation or `POST /v1/orgs`); a firmless user with the address is never a
+  target. A uid with its own user keeps it. The first sign-in takes a transaction-scoped
+  advisory lock on the uid, so concurrent first requests link once.
+
+Why the automatic path is off in production: the reassigned-address case (a departed
+engineer's mailbox given to a new hire) would hand the old member's firms to the new holder,
+which is exactly what Auth0 warns against. Locally the emulator is the only identity
+provider and the person at the keyboard is the developer, so the convenience is safe there.
+
+### 93.5 Tests
+
+| File | What it covers | Result |
+|---|---|---|
+| `tests/integration/db/test_linked_accounts.py` | Setting on: a new verified uid joins the member (case and spaces ignored), memberships shared, both uids resolve, `users.firebase_uid` unchanged; later sign-ins of the linked uid refresh the member; setting off, unverified, or both: a new user as before (the regression check); a firmless user is never a target; another email is not linked; a uid with its own user is never relinked; two members with the email: the one seen last; three concurrent first sign-ins of one new uid (barrier, held transactions): one link, no error; operator link and every refusal | 13 pass |
+| `tests/api/test_linked_accounts_api.py` | End to end through `GET /v1/me` and the members list, setting on and off: on, the new account is the same user, lists the firm, can act as its owner, and the members list has one row; off, a new firmless user and 404 on the firm; an unverified new account is never linked | 4 pass |
+| `tests/integration/db/test_migrations.py` | Head 0031; `0031` creates the table with its checks (linked_by, primary key, user foreign key) and downgrades to 0030 exactly | pass |
+
+Verified: the sign-in and members paths above, on Postgres, with the setting on and off.
+Not verified: the operator path against a real (non-emulator) Firebase project; nothing is
+deployed.

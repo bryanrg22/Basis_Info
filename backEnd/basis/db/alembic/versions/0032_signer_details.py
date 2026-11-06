@@ -1,14 +1,12 @@
 """Signer details: each engineer's own name, credentials and license (EVAL_REPORT 91).
 
 Revision ID: 0032
-Revises: 0030
+Revises: 0031
 Create Date: 2026-11-05
 
 Hand-written to match ``basis.db.models`` (``alembic check`` proves it).
 
-Numbering: 0031 is taken by another branch in flight; this one revises 0030 for now and is
-re-chained onto 0031 when both merge (only ``down_revision`` changes; nothing here depends on
-0031).
+Revises 0031 (``user_linked_accounts``, #157); nothing here depends on it.
 
 * ``signer_details``: one row per user (``user_id`` primary key), written only by that user
   (``PUT /v1/me/signer``), ``version`` its entity tag, ``set_updated_at()``. A license number
@@ -33,7 +31,7 @@ from alembic import op
 from sqlalchemy.dialects import postgresql
 
 revision: str = "0032"
-down_revision: str | Sequence[str] | None = "0030"
+down_revision: str | Sequence[str] | None = "0031"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 
