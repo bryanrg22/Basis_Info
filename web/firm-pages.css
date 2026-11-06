@@ -145,13 +145,6 @@
 #app .fp-table td.fp-actions{text-align:right;white-space:nowrap}
 #app .fp-table td.fp-actions .button{margin-left:4px}
 #app .fp-signer{font-size:13.5px;font-variant-numeric:tabular-nums}
-#app .fp-colleagues{list-style:none;margin:0;padding:0;display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:14px}
-#app .fp-colleague{display:flex;gap:14px;align-items:flex-start;background:#fff;border:1px solid var(--ui-line);border-radius:14px;padding:16px 18px}
-#app .fp-colleague p{margin:0}
-#app .fp-colleague-name strong{font-size:15.5px}
-#app .fp-colleague-role{margin-top:2px!important;font-size:13.5px;font-weight:600;color:var(--ui-accent)}
-#app .fp-colleague-mail{display:inline-block;margin-top:6px;font-size:13.5px;color:var(--ui-ink)}
-#app .fp-colleague-meta{margin-top:6px!important;font-size:13px;color:var(--ui-muted)}
 #app .fp-roles{display:grid;gap:12px;margin:0}
 #app .fp-roles dt{font-weight:700}
 #app .fp-roles dd{margin:2px 0 0;color:var(--ui-muted)}
@@ -289,8 +282,6 @@
 #app .fp-event-body a:hover,#app .fp-event-body a:focus-visible{text-decoration-color:var(--ui-accent)}
 #app .fp-event-body a{font-weight:600}
 #app .fp-day>h2{font-size:15px;font-weight:650;letter-spacing:0;text-transform:none;color:var(--ui-ink)}
-#app .fp-colleague-meta{white-space:normal}
-#app .fp-colleague-meta span{white-space:nowrap}
 
 /* Round 5: stable Library controls; reports to sign as actions */
 #app .fp-library .fp-lib-bar{flex-wrap:nowrap;align-items:flex-start}
@@ -301,3 +292,9 @@
 #app .fp-row-main strong{white-space:normal;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical}
 #app .fp-pill.is-update{background:#fbe3bd;color:#7a3f00;box-shadow:inset 0 0 0 1.5px #c27a1a}
 #app .fp-pill.is-update::before{content:"↻";width:auto;height:auto;background:none;font-size:13px;line-height:1}
+
+/* Round 6: signing is its own filled status; one sentence per entry on Home */
+#app .fp-pill.is-sign{background:#ebe3fa;color:#4a2f80;box-shadow:none}
+#app .fp-pill.is-update{box-shadow:none}
+#app .nd-signing-as a{font-size:13px;font-weight:600;color:var(--ui-accent);justify-self:start}
+#app .fp-colleagues-table small a{color:var(--ui-muted)}
