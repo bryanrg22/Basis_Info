@@ -29,7 +29,7 @@ dependencies = [
     "pymupdf>=1.26",
     "rank-bm25>=0.2.2",
     "sentence-transformers>=6.2.0",
-    "sqlalchemy[asyncio]>=2.1.4",
+    "sqlalchemy[asyncio]>=2.1.6",
     "temporalio==1.35.0",
     "tiktoken>=0.9",
     "torch>=2.15.0",
