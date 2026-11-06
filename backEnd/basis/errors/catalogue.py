@@ -3439,6 +3439,46 @@ ENTRIES: Final[tuple[Entry, ...]] = (
         "after fix",
         problem="not-found",
     ),
+    _e(
+        E.REPORT_SIGNER_DETAILS_MISSING,
+        "refusal",
+        "`POST .../report/sign`",
+        "basis.api.routes.report",
+        "The signer has saved no signer details (their name, credentials and license) and the "
+        "signing names none, or the deployment requires saved details "
+        "(`REPORT_SIGNER_DETAILS_REQUIRED`). A report is signed with the signer's own details, "
+        "never the firm's.",
+        "409 `conflict` with the code; nothing is signed.",
+        "The signer saves their details once in their account (`PUT /v1/me/signer`), opens "
+        "the preview again (it now names them) and signs.",
+        "after fix",
+        problem="conflict",
+    ),
+    _e(
+        E.REPORT_SIGNER_DETAILS_MISMATCH,
+        "refusal",
+        "`POST .../report/sign`",
+        "basis.api.routes.report",
+        "The signing sent an `engineer` whose name, credentials or license differ from the "
+        "signer's saved details, which are what the report prints.",
+        "409 `conflict` with the code; nothing is signed.",
+        "Sign with the saved details (send them, or leave `engineer` out), or change the saved "
+        "details first (`PUT /v1/me/signer`), open the preview again and sign.",
+        "after fix",
+        problem="conflict",
+    ),
+    _e(
+        E.REPORT_SIGNER_PRECONDITION_FAILED,
+        "refusal",
+        "`PUT /v1/me/signer`",
+        "basis.api.routes.signer",
+        "The `If-Match` entity tag is not the signer details' current one, or `If-Match: *` "
+        "while none are saved.",
+        "412 `precondition-failed`; the response's `ETag` is the current tag. Nothing was written.",
+        "Read the details again, reapply the change, and send the new `ETag` as `If-Match`.",
+        "yes",
+        problem="precondition-failed",
+    ),
     # ------------------------------------------------------------------ INF
     _e(
         E.INF_WORKER_CONFIG,

@@ -20,6 +20,7 @@ from basis.db.repositories import (
     Membership,
 )
 from basis.db.repositories.invitation import EMAIL_PATTERN, MAX_EMAIL_LENGTH
+from basis.report.inputs import SignerDetails
 
 DELIVERY_DESCRIPTION: Final = (
     "The invitation email (docs/api/FIRMS.md): `queued` (enqueued for the relay), `sent` "
@@ -149,9 +150,15 @@ class MemberOut(ResponseModel):
     role: OrgRole = Field(description=ROLE_DESCRIPTION)
     joined_at: datetime
     last_seen_at: datetime | None
+    signer: SignerDetails | None = Field(
+        default=None,
+        description="The name, credentials and license the member signs reports with, as "
+        "they saved them (`PUT /v1/me/signer`); null when they have saved none. Read-only "
+        "here: only the member sets their own.",
+    )
 
     @classmethod
-    def of(cls, member: Member) -> MemberOut:
+    def of(cls, member: Member, signer: SignerDetails | None = None) -> MemberOut:
         return cls(
             user_id=member.user_id,
             email=member.email,
@@ -159,6 +166,7 @@ class MemberOut(ResponseModel):
             role=member.role,
             joined_at=member.joined_at,
             last_seen_at=member.last_seen_at,
+            signer=signer,
         )
 
 

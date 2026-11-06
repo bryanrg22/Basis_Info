@@ -630,6 +630,21 @@ upload slow tests 142 passed.
 | `tests/unit/evals/test_schedule_vs_engineer.py` | `evals.schedule_vs_engineer` on a synthetic export and engineer schedule: row matching, period, method, convention and bonus comparison, first-year shares under each rule set, the 40 % test, and the stored-report regression | 21 tests, pass |
 | `tests/unit/evals/test_gap_sweep.py` | Unchanged; rerun because `evals/reprice_export.py` gained an optional `LocationChoice` (default behaviour identical) | 3 tests, pass |
 
+## Each engineer's own signer details (2026-11-05; EVAL_REPORT 91)
+
+| File | What it checks | Result |
+|---|---|---|
+| `tests/unit/report/test_signer_details.py` | `SignerDetails`: exactly the 55 NCEES jurisdictions (each accepted; `AS`, lower case, three letters, blanks refused), a license number only with its state, values trimmed, `matches` on name, credentials and license only; the firm profile's `engineer` marked deprecated in the schema; the report's preparer order (signature, then the reader's saved details, then the firm's engineer, then the placeholder); a number without a state prints `License 123`, not `(None)`; `_signer` (saved details win, a different sent engineer 409 BASIS-REPORT-015, typed details only when not required, else 409 BASIS-REPORT-014); `changed_since_signing` compares the signer by value; `REPORT_SIGNER_DETAILS_REQUIRED` default, override, bad value | 80 tests, pass |
+| `tests/api/test_signer_details.py` | `GET`/`PUT /v1/me/signer`: null and `ETag "0"` before saving, `If-Match` 412 BASIS-REPORT-016 (also `*` with nothing saved), yours only, a user with no firm may save; 15 invalid bodies 422 with nothing written; every kind of jurisdiction; the preview names the reader who may sign, never a viewer; signing prints the saved details, their version and the letterhead (the firm's engineer never in the signed PDF); a different sent engineer 409 (five variants); no saved details: the typed engineer signs as before, nothing at all 409 BASIS-REPORT-014; the deployment requiring saved details; an edit between preview and signing 412; two engineers on two revisions, each PDF with its signer, each edit marking only its own signature, an undone edit not a change; the members list and the role answer carry `signer_details`; two first saves with one ETag at once write one (mutation: without the row lock the second is a 500) | 34 tests, `integration`, pass; mutations of the mismatch check, the viewer rule, the value comparison and the setting each failed a test |
+| `tests/integration/db/test_migrations.py` | Added: 0032 creates `signer_details` (license pair, state code, version, one per user, foreign key, `updated_at` trigger) and two nullable signature columns (an existing signature keeps every value, NULL in both; `letterhead` an object), back to 0030 exactly; head pinned at 0032 with 0031 left for the branch in flight | pass |
+| `tests/api/test_firms.py` | Changed: a member in the list carries `signer_details` (null when none saved): a deliberate shape change | pass |
+| `tests/api/test_health.py` | Changed: `GET`/`PUT /v1/me/signer` in the known-routes list | pass |
+| `tests/api/test_openapi_contract.py` | Changed: valid-data cases of `PUT /me/signer` drop `If-Match` and clear half a license (a rule between two fields the schema cannot say). Its first run found the schema allowing any two capitals while the API took only 55: `license_state` is now an enum | pass |
+| `tests/unit/db/test_models_metadata.py` | Changed: `signer_details` (columns, natural key, `updated_at` trigger from 0032), the two signature columns, 39 JSONB columns | pass |
+| `tests/api/test_report_signing.py` | Unchanged and rerun: every existing signing test passes as before (the request still names `engineer`, the signer has saved none: the typed-details path) | 22 tests, pass |
+| `web/tests/result-workspace.test.cjs` | Changed: the browser catalogue has 298 codes (BASIS-REPORT-014 to 016 added) | pass |
+| `tests/api/test_signer_details.py`, `tests/unit/report/test_signer_details.py`, `tests/api/test_firms.py` | Changed: the field is `signer` (what the web app reads, #160's P5 and P6), a license number is up to 50 characters (51 refused) | pass |
+
 ## The five defects the free comparisons found, fixed (2026-11-03; EVAL_REPORT 89)
 
 | File | What it checks | Result |

@@ -86,7 +86,7 @@ from basis.db.enums import (
     StudyStatus,
 )
 from basis.domain.intake import StudyIntake
-from basis.report.inputs import FirmProfile, StudyAnswers
+from basis.report.inputs import FirmProfile, SignerDetails, StudyAnswers
 
 EMBEDDING_DIM: Final = 384
 
@@ -106,6 +106,7 @@ UPDATED_AT_TABLES: Final = (
     "firm_profiles",
     "review_drafts",
     "client_error_issues",
+    "signer_details",
 )
 # Tables whose rows can never be updated or deleted (forbid_mutation() trigger).
 APPEND_ONLY_TABLES: Final = (
@@ -1126,6 +1127,41 @@ class FirmProfileRow(Base):
     updated_at: Mapped[datetime] = _updated_at()
 
 
+class SignerDetailsRow(Base):
+    """One engineer's signer details (EVAL_REPORT 91; migration ``0032_signer_details``): the
+    name, credentials and license they sign with, written only by that user
+    (``PUT /v1/me/signer``), ``version`` its entity tag. One row per user, not per firm: a
+    license is the person's, and a consultant in two firms signs with the same one."""
+
+    __tablename__ = "signer_details"
+    __table_args__ = (
+        CheckConstraint("version >= 1", name="version_positive"),
+        CheckConstraint("(license_number IS NULL) = (license_state IS NULL)", name="license_pair"),
+        CheckConstraint("license_state ~ '^[A-Z]{2}$'", name="license_state_code"),
+    )
+
+    user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"), primary_key=True)
+    name: Mapped[str]
+    credentials: Mapped[str]
+    license_number: Mapped[str | None]
+    license_state: Mapped[str | None]
+    version: Mapped[int] = mapped_column(server_default=text("1"), default=1)
+    created_at: Mapped[datetime] = _created_at()
+    updated_at: Mapped[datetime] = _updated_at()
+
+    def details(self) -> SignerDetails:
+        """The row as the API and the report read it (validated: the jurisdiction list is the
+        API's, the table checks only the code's form)."""
+        return SignerDetails.model_validate(
+            {
+                "name": self.name,
+                "credentials": self.credentials,
+                "license_number": self.license_number,
+                "license_state": self.license_state,
+            }
+        )
+
+
 class ReportSignature(Base):
     """An engineer's signature on a revision's report (STUDY_REPORT_SPEC 11.13): who signed,
     the name and credentials they attested, the certification version, and the sha256 of the
@@ -1133,13 +1169,20 @@ class ReportSignature(Base):
     updated (``forbid_mutation()``). ``firm_profile_version`` and ``report_answers_version``
     (migration 0027) are the versions of the two inputs the signed report was rendered with,
     so ``GET .../report/state`` can say when an input changed after signing; NULL on a
-    signature recorded before they were kept."""
+    signature recorded before they were kept. ``signer_details_version`` (migration 0032) is
+    the version of the signer's saved details the signature printed, NULL when the details
+    were typed at signing (no saved details) or before it was kept; ``letterhead`` is the firm
+    profile's name, address, phone and logo sha256 as signed, NULL before 0032."""
 
     __tablename__ = "report_signatures"
     __table_args__ = (
         UniqueConstraint("study_id", "revision"),
         CheckConstraint("revision >= 1", name="revision_positive"),
         CheckConstraint("jsonb_typeof(engineer) = 'object'", name="engineer_is_object"),
+        CheckConstraint(
+            "letterhead IS NULL OR jsonb_typeof(letterhead) = 'object'",
+            name="letterhead_is_object",
+        ),
         CheckConstraint(
             "export_sha256 ~ '^[0-9a-f]{64}$' AND reviewed_sha256 ~ '^[0-9a-f]{64}$' "
             "AND pdf_sha256 ~ '^[0-9a-f]{64}$'",
@@ -1160,6 +1203,8 @@ class ReportSignature(Base):
     pdf_sha256: Mapped[str]
     firm_profile_version: Mapped[int | None]
     report_answers_version: Mapped[int | None]
+    signer_details_version: Mapped[int | None]
+    letterhead: Mapped[dict[str, Any] | None] = mapped_column(JSON_DOC)
     created_at: Mapped[datetime] = _created_at()
 
 
