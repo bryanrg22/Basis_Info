@@ -401,3 +401,21 @@ body:has(.review-decision) #toast{bottom:118px}
 .vision-inspector-body>.vision-type-title h3{margin:0;min-width:0}
 /* r22: low-confidence marks stay amber on an approved appraisal; flags read as history. */
 #app .appraisal-organized .look-mark,#app .appraisal-organized .look-mark.is-retained{background:#94621e!important;box-shadow:0 0 0 2px #f6e7cc!important}
+/* r23: the viewer footer says what is saved and what waits, with Review & send. */
+.vision-inspector .vision-inspector-footer:has(.vision-pending){display:flex!important;align-items:center;justify-content:space-between;gap:12px;padding:12px 16px}
+.vision-inspector-footer .vision-pending{margin:0;display:grid;gap:2px;min-width:0}
+.vision-inspector-footer .vision-pending b{font-size:13.5px;font-weight:600;color:#213b30}
+.vision-inspector-footer .vision-pending span{font-size:12.5px;line-height:1.35;color:#475a50}
+.vision-inspector-footer:has(.vision-pending) .button{flex:none;white-space:nowrap}
+.vision-inspector-footer:has(.vision-pending b:not(:only-child)) {background:#fbfcfb}
+/* r23: an added correction flashes the decision bar instead of a toast over the rows. */
+@keyframes decision-flash{0%{box-shadow:0 0 0 0 rgba(148,98,30,.55)}100%{box-shadow:0 0 0 10px rgba(148,98,30,0)}}
+#app .review-decision.is-flash{animation:decision-flash .9s ease-out 1}
+@media (prefers-reduced-motion:reduce){#app .review-decision.is-flash{animation:none;outline:2px solid #94621e}}
+/* Rows clear the sticky decision bar at the end of the page. */
+#app .workspace:has(.review-decision) .content{padding-bottom:140px}
+/* r23: each correction to send: what, then one change per line, then the reason. */
+.live-send-list li{display:grid;justify-content:stretch;gap:2px}
+.live-send-list li strong{font-size:13.5px;color:#213b30}
+.live-send-list span{text-align:left;font-variant-numeric:tabular-nums}
+.live-send-list em{font-style:normal;color:#56685e;font-size:12.5px}

@@ -85,6 +85,18 @@ test('legacy Rooms keeps grouping, inventories and editable photo review togethe
  assert.match(html,/data-live="edit-room"/);assert.match(html,/live-inventory/);assert.match(html,/data-live="use-suggested"/);
  const photo=ctx.viewer();assert.match(photo,/Back to rooms/);assert.match(photo,/href="#rooms\/study"/);assert.match(photo,/data-vision="add"[^>]*>[^<]*(<[^>]*>[^<]*)*Draw missing object</);
 });
+test('Use the lower photo count stages the row difference and keeps other edits',()=>{
+ const {live,room}=boot(true,'components_review'),stage=G.editStage(live.state.study);
+ // After Not counted the busiest photo shows 5 of the room's 7 (rows 1 + 6): row c2 becomes 4, not 5.
+ room.suggested_counts=[{label:'light_fixture',suggested:7,inventory_count:7,photo_count:5,manual_count:0}];
+ live.state.corrections[stage]=new Map([['component:c2',{after:{material:'glass'},reason:'Checked'}]]);
+ live.actions['use-photo-count']({dataset:{room:'kitchen'}},'c2');
+ const c=live.state.corrections[stage].get('component:c2');
+ assert.equal(c.after.count,4);assert.equal(c.after.material,'glass');assert.equal(c.reason,'Checked');
+ // No suggestion for the label: nothing is staged.
+ room.suggested_counts=[];live.state.corrections[stage]=new Map();
+ live.actions['use-photo-count']({dataset:{room:'kitchen'}},'c2');assert.equal(live.state.corrections[stage].size,0);
+});
 test('Use N stages the row delta at the correct gate and preserves other edits',()=>{
  for(const gate of [true,false]){
   const {live,ctx}=boot(gate,gate?'components_review':'rooms_review'),stage=G.editStage(live.state.study);
