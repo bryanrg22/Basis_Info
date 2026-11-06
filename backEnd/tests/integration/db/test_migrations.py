@@ -56,8 +56,9 @@
   back to the version keys;
 * ``0033_study_search`` (on 0030 until 0031 and 0032 land) creates ``study_search``, the
   library's folded search document, backfills every study, keeps it by triggers on
-  ``studies``, ``extraction_fields`` and ``report_signatures``, and downgrades back to ``0030``
-  exactly (``pg_trgm`` and ``unaccent`` stay installed);
+  ``studies``, ``extraction_fields``, ``report_signatures`` and ``users``, and downgrades
+  back to ``0030``
+  exactly (``pg_trgm`` and ``unaccent`` dropped with it);
 * ``0030_operator_document_access`` lets ``study_events.actor_type`` be ``operator`` (Basis
   support opened a firm's file) and downgrades back to ``0029`` only while no such row exists
   (access records are append-only and never deleted);
@@ -141,6 +142,7 @@ EXPECTED_TRIGGERS = (
         ("study_search_field_update", "extraction_fields"),
         ("study_search_field_delete", "extraction_fields"),
         ("study_search_signature", "report_signatures"),
+        ("study_search_user", "users"),
     }
 )
 EXPECTED_FUNCTIONS = {
@@ -154,6 +156,7 @@ EXPECTED_FUNCTIONS = {
     "study_search_refresh",
     "study_search_from_study",
     "study_search_from_child",
+    "study_search_from_user",
 }
 
 
@@ -1752,7 +1755,4 @@ async def test_0033_backfills_every_study_and_downgrades_exactly(empty_database_
     finally:
         await connection.close()
     await downgrade(url, "0030")
-    after = await snapshot(url)
-    assert {"pg_trgm", "unaccent"} <= after["extensions"]  # left installed, as vector is
-    after["extensions"] = at_0030["extensions"]
-    assert after == at_0030
+    assert await snapshot(url) == at_0030  # the extensions it installed are gone too

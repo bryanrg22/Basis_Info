@@ -34,7 +34,13 @@ from basis.db.repositories import (
     scoped_key,
 )
 from basis.db.repositories.document import normalize_sha256
-from basis.db.repositories.study import SORTS, StudySort, decode_cursor, encode_cursor
+from basis.db.repositories.study import (
+    SORTS,
+    StudySort,
+    decode_cursor,
+    encode_cursor,
+    search_words,
+)
 
 
 @pytest.mark.parametrize(
@@ -173,6 +179,21 @@ def test_a_name_cursor_needs_a_string_key() -> None:
     ).decode()
     with pytest.raises(InvalidCursorError):
         decode_cursor(raw, "name_asc")
+
+
+@pytest.mark.parametrize(
+    ("q", "expected"),
+    [
+        (None, []),
+        ("", []),
+        ("  \t ", []),
+        ("  Harbor   Oxnard ", ["Harbor", "Oxnard"]),
+        ("harbor HARBOR Harbor oxnard", ["harbor", "oxnard"]),  # the first spelling kept
+        ("100% unit_7 C:\\x", ["100%", "unit_7", "C:\\x"]),  # escaped later, not here
+    ],
+)
+def test_search_words_split_trim_and_drop_repeats(q: str | None, expected: list[str]) -> None:
+    assert search_words(q) == expected
 
 
 def test_scoped_key() -> None:

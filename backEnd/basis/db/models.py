@@ -419,10 +419,11 @@ class Study(Base):
 class StudySearch(Base):
     """The library's search document of one study (migration ``0033_study_search``,
     docs/api/STUDY_LIBRARY.md, EVAL_REPORT 92): the property name, the intake's ZIP and
-    state, the taxpayer, the appraisal's identifying subject fields and the signers' names,
-    one per line, lower-cased and accent-folded (``study_search_fold``). Written only by the
-    database's triggers on those sources; the application reads it. A table of its own so that
-    a document change never touches ``studies.updated_at`` (the library's default order)."""
+    state, the taxpayer, the creator's name and email, the appraisal's identifying subject
+    fields and the signers' names, one per line, lower-cased and accent-folded
+    (``study_search_fold``). Written only by the database's triggers on those sources; the
+    application reads it. A table of its own so that a document change never touches
+    ``studies.updated_at`` (the library's default order)."""
 
     __tablename__ = "study_search"
     __table_args__ = (

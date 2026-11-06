@@ -321,7 +321,7 @@ def _study(rng: random.Random, firm: Firm, firm_index: int, now: datetime) -> St
     return study
 
 
-def build_library(total: int, seed: int = 92) -> Library:
+def build_library(total: int, seed: int = 92, extra_users: int = 0) -> Library:
     """A deterministic synthetic library of ``total`` studies over :data:`FIRMS` firms; the
     searching firm (index 0) holds :data:`SEARCHER_SHARE` of them, plus the planted needles
     the labelled queries name (some planted in firm 1 too, for isolation)."""
@@ -355,6 +355,20 @@ def build_library(total: int, seed: int = 92) -> Library:
         studies.append(_study(rng, firms[f], f, now))
     needles = _plant(rng, firms, users, studies, now)
     rng.shuffle(studies)
+    # Members who created nothing (the platform's other users), from a generator of their
+    # own so the studies are the same with or without them: the creator clause scans users.
+    extra = random.Random(seed + 1)
+    for n in range(extra_users):
+        first, last = _person(extra)
+        f = 1 + n % (FIRMS - 1)
+        user = User(
+            id=uuid.UUID(int=extra.getrandbits(128), version=4),
+            firm=f,
+            display_name=f"{first} {last}",
+            email=f"{_ascii(first).lower()}.{_ascii(last).lower()}.{n}@{firms[f].domain}",
+        )
+        firms[f].users.append(user)
+        users[user.id] = user
     return Library(firms=firms, users=users, studies=studies, searcher=searcher, needles=needles)
 
 
@@ -940,10 +954,22 @@ def _chunks(items: Sequence[Any], size: int) -> Iterator[Sequence[Any]]:
 
 
 async def seed(dsn: str, library: Library, filler_fields: int) -> dict[str, Any]:
-    """COPY the library in; the filler extraction fields are generated server-side."""
+    """COPY the library in; the filler extraction fields are generated server-side.
+
+    Loaded as a restore loads (``pg_restore`` adds keys after the data): the foreign-key
+    triggers off (``session_replication_role = replica``) for rows the generator made
+    consistent, and the two indexes of ``extraction_fields`` dropped and rebuilt with the same
+    names and definitions after the rows are in; inserting 24 million random-UUID keys one
+    by one into indexes larger than the server's cache took over 30 minutes and was not done.
+    Nothing is measured during the load; the schema is identical for everything after it."""
     t0 = time.monotonic()
     conn = await asyncpg.connect(dsn)
     try:
+        await conn.execute("SET session_replication_role = replica")
+        await conn.execute(
+            "ALTER TABLE extraction_fields DROP CONSTRAINT pk_extraction_fields, "
+            "DROP CONSTRAINT uq_extraction_fields_extraction_id_section_field"
+        )
         await conn.copy_records_to_table(
             "orgs", records=[(f.id, f.name) for f in library.firms], columns=["id", "name"]
         )
@@ -1110,6 +1136,12 @@ async def seed(dsn: str, library: Library, filler_fields: int) -> dict[str, Any]
             [o[1] for o in others],
             list(FILLER_WORDS),
         )
+        await conn.execute(
+            "ALTER TABLE extraction_fields ADD CONSTRAINT pk_extraction_fields PRIMARY KEY (id), "
+            "ADD CONSTRAINT uq_extraction_fields_extraction_id_section_field "
+            "UNIQUE (extraction_id, section, field)"
+        )
+        await conn.execute("RESET session_replication_role")
         await conn.execute("VACUUM ANALYZE")
         counts = {
             table: await conn.fetchval(f"SELECT count(*) FROM {table}")
@@ -1193,7 +1225,8 @@ async def write_probe(conn: Any, library: Library) -> dict[str, float]:
         rename_ms.append((time.perf_counter() - t0) * 1000)
         await tx.rollback()
     return {
-        "extraction_fields_103_ms": round(statistics.median(extraction_ms), 2),
+        "extraction_fields": len(keys),
+        "extraction_ms": round(statistics.median(extraction_ms), 2),
         "creator_rename_ms": round(statistics.median(rename_ms), 2),
         "creator_studies": sum(1 for s in library.studies if s.created_by == library.searcher.id),
     }
@@ -1342,7 +1375,7 @@ async def measure_implemented(
     loaded as ORM objects), plans from the statement it runs."""
     from alembic import command
     from sqlalchemy import func, select
-    from sqlalchemy.dialects import postgresql
+    from sqlalchemy.dialects.postgresql.asyncpg import PGDialect_asyncpg
     from sqlalchemy.engine import make_url
     from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
@@ -1440,7 +1473,7 @@ async def measure_implemented(
                 )
                 sql = str(
                     stmt.compile(
-                        dialect=postgresql.dialect(),  # type: ignore[no-untyped-call]
+                        dialect=PGDialect_asyncpg(),  # type: ignore[no-untyped-call]
                         compile_kwargs={"literal_binds": True},
                     )
                 )
@@ -1479,7 +1512,7 @@ def _accent_label(qid: str) -> bool:
 async def run_size(
     admin_dsn: str, size: str, total: int, args: argparse.Namespace, run: record.EvalRun
 ) -> dict[str, Any]:
-    library = build_library(total)
+    library = build_library(total, extra_users=args.extra_users)
     dsn = await create_schema(admin_dsn, f"library_{size}")
     seeded = await seed(dsn, library, args.filler_fields)
     print(f"[{size}] seeded {seeded}", flush=True)
@@ -1579,6 +1612,9 @@ def main(argv: list[str] | None = None) -> int:
         "--database-url", help="an admin DSN (postgresql://...) instead of a container"
     )
     parser.add_argument("--keep", action="store_true", help="keep the seeded databases")
+    parser.add_argument(
+        "--extra-users", type=int, default=0, help="members of other firms who created nothing"
+    )
     args = parser.parse_args(argv)
     run = record.EvalRun.begin(
         args.out, harness=__name__, args=args, component="library_search", version=VERSION

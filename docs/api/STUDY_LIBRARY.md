@@ -14,7 +14,7 @@ GET /v1/studies?q=harbor&status=waiting_review&status=failed&created_by=<user>&i
 
 | Parameter | Meaning |
 |---|---|
-| `q` | A case-insensitive substring of the property name, trimmed; blank matches everything. `%`, `_` and `\` are literal characters, not wildcards. At most 200 characters. |
+| `q` | Search words (section 1.1): each must be found, as a substring with case and accents ignored, in one of the study's searched values (the property name, the address, the client, the parcel number, the ZIP, the creator, the signer). Blank matches everything. `%`, `_` and `\` are literal characters, not wildcards. At most 200 characters. |
 | `status` | Repeatable: only studies in these statuses (`draft`, `processing`, `waiting_review`, `stalled`, `completed`, `failed`, `archived`). |
 | `created_by` | Only studies this user created (`users.id`, the `created_by` member of a study). |
 | `include_archived` | `true` lists archived studies too. They are hidden by default, and shown when `status` names `archived`, so a client can show the archive without the switch. |
@@ -23,6 +23,45 @@ GET /v1/studies?q=harbor&status=waiting_review&status=failed&created_by=<user>&i
 
 Every filter is applied before counting and paging: the page, `next_cursor` and `total`
 all describe the same filtered listing.
+
+### 1.1 What `q` searches (EVAL_REPORT 92)
+
+`q` is split on whitespace into words; a study matches when **every** word is a substring of
+**some** searched value of that study, in any order. Case and accents never decide a match
+(`cafe` finds `Café`, `CAFÉ` finds `cafe`): both sides go through the database's
+`study_search_fold` (`lower(unaccent(...))`). A query that matched before this release (a
+substring of the property name) still matches.
+
+| Searched value | Where it lives |
+|---|---|
+| Property name | `studies.property_name` |
+| ZIP and state the engineer entered | the intake (`studies.intake`: `zip`, `state`) |
+| Taxpayer (the client) | the report answers (`studies.report_answers.taxpayer_name`) |
+| Address, city, state, ZIP, county | the appraisal's subject fields (`property_address`, `city`, `state`, `zip`, `county`), every revision's, an engineer's correction included |
+| Borrower, owner of public record | the appraisal's subject fields (`borrower`, `owner_of_public_record`) |
+| Parcel number | the appraisal's `assessors_parcel` (`205-118-34`; any part of it) |
+| Creator | the creating user's name and email (`users`), as they are now (a rename rewrites the documents of the studies they created) |
+| Signer | each signature's attested engineer name and email (`report_signatures.engineer`) |
+
+Not searched: the appraisal's lender/client (the same few banks across a library, so it
+filters nothing), every other appraisal field (a year, a material), the study id. **There is
+no file or job number in Basis**: no study, intake or report field carries a firm's own file
+number, and the appraisal's file number is not extracted. A firm that searches by file number
+needs that field added first (an intake or study field the engineer types); once it is a
+column or an intake member it joins the document below with one line in the migration that
+adds it.
+
+A ZIP or a parcel number is matched like any other text: `93035` finds the ZIP, `9303` finds
+every ZIP that starts (or contains) it, `118-34` finds the parcel `205-118-34`. One or two
+letters match a great deal, as the web app's in-browser search did; the server answers them
+as fast as longer words (EVAL_REPORT 92).
+
+How: one search document per study (`study_search`, migration 0033), kept by the database's
+triggers in the same transaction as the write that changes a source (the study's name, intake
+or report answers; an extracted subject field; a signature; the creator's name or email),
+folded, one value per line, with a pg_trgm GIN index that serves `LIKE '%word%'`. Each word is
+one `EXISTS` on the document, so a rare word starts from the index. A document change never
+moves `updated_at` (the default sort): the document is its own table.
 
 ## 2. The response and the sorts
 
@@ -52,11 +91,12 @@ issued before this release (the `{t, id}` form) is refused the same way: fetch t
 again.
 
 `total` costs one `count(*)` over the filtered join per request. The listing is the
-caller's firms' rows (the membership join, `ix_studies_org_id_created_at`), hundreds per
-firm rather than the table; `q` is an `ILIKE` over those rows and the sorts order them. No
-index was added for the new sorts: a firm's library is read whole by the web app today, and
-an index on `(org_id, updated_at)` is a one-line migration when a firm's library outgrows a
-scan.
+caller's firms' rows (the membership join, `ix_studies_org_id_created_at`); each word of `q`
+is an index probe of the study's search document (section 1.1) and the sorts order the rows.
+Measured on synthetic libraries of 2,000, 20,000 and 200,000 studies (the caller's firm a
+quarter of them), the search request's median and 95th percentile are in EVAL_REPORT 92. No
+index was added for the new sorts: an index on `(org_id, updated_at)` is a one-line
+migration when a firm's library outgrows a scan.
 
 ## 3. Status filter groups the web app uses
 
@@ -131,7 +171,7 @@ What the web app does in the browser today (`web/live/live-app.js`: `FILTERS`,
 
 | Web app state | Request |
 |---|---|
-| `L.studiesQuery` (the search box, `property_name.toLowerCase().includes(q)`) | `q=<text>` (the server trims and ignores case the same way) |
+| `L.studiesQuery` (the search box, `property_name.toLowerCase().includes(q)`) | `q=<text>`: the server finds everything the browser found and more (the address, client, parcel, ZIP, creator, signer; accents ignored; words in any order, section 1.1) |
 | `L.studiesFilter` (a `FILTERS` key) | the `status` values of section 3 |
 | `L.studiesSort` `updated` ("Last updated") | `sort=updated_desc` (the default) |
 | `L.studiesSort` `oldest` ("Oldest first") | not a server sort: the app sorts by `updated_at` ascending. Fetch with `sort=updated_desc` and reverse the page, or add `updated_asc` when it is wanted |

@@ -23,6 +23,17 @@ def test_the_library_is_deterministic(library: ls.Library) -> None:
     assert [s.property_name for s in again.studies] == [s.property_name for s in library.studies]
 
 
+def test_extra_users_leave_the_studies_and_the_answers_alone(library: ls.Library) -> None:
+    crowded = ls.build_library(400, extra_users=50)
+    assert len(crowded.users) == len(library.users) + 50
+    assert [s.id for s in crowded.studies] == [s.id for s in library.studies]
+    assert all(u.firm != 0 for u in crowded.users.values() if u.id not in library.users)
+    for labelled in ls.LABELLED:
+        assert ls.oracle(crowded, labelled.q, accents=True) == ls.oracle(
+            library, labelled.q, accents=True
+        )
+
+
 def test_the_searcher_holds_a_quarter_and_the_firms_are_eight(library: ls.Library) -> None:
     own = [s for s in library.studies if s.firm == library.searcher.firm]
     assert len(library.firms) == ls.FIRMS

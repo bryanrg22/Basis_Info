@@ -2,8 +2,10 @@
 (migration ``0033_study_search``, docs/api/STUDY_LIBRARY.md, EVAL_REPORT 92).
 
 * every source writes through: the property name, the intake's ZIP and state, the report
-  answers' taxpayer, the appraisal's identifying subject fields (insert, a correction's
-  overwrite, delete), a signature's engineer; other extraction fields are not searched;
+  answers' taxpayer, the creator's name and email (a rename rewrites the documents of every
+  study they created, and only theirs; a login that changes nothing rewrites none), the
+  appraisal's identifying subject fields (insert, a correction's overwrite, delete), a
+  signature's engineer; other extraction fields are not searched;
 * the document is folded (lower case, accents removed) by ``study_search_fold``, one value
   per line, and a study's document goes with the study;
 * a document change never moves ``studies.updated_at`` (the library's default order), and a
@@ -91,9 +93,10 @@ async def sign(session: AsyncSession, study: Study, signer: User, name: str, ema
 
 
 async def test_every_source_writes_through(session: AsyncSession, make: Factory) -> None:
-    owner = await make.user()
+    owner = await make.user("ss-owner")  # email ss-owner@example.test, no name
     study = await make.study(owner, property_name="Café Lofts")
-    assert await document(session, study.id) == "cafe lofts"  # folded on insert
+    # Folded on insert; the creator's email is the last study-row value.
+    assert await document(session, study.id) == "cafe lofts\nss-owner@example.test"
 
     await session.execute(
         text(
@@ -103,10 +106,19 @@ async def test_every_source_writes_through(session: AsyncSession, make: Factory)
         {
             "id": study.id,
             "i": json.dumps({"zip": "93035", "state": "CA"}),
-            "a": json.dumps({"taxpayer_name": "Okonkwo Holdings LLC"}),
+            "a": json.dumps(
+                {
+                    "taxpayer_name": "Okonkwo Holdings LLC",
+                    "photographs": "engineer_site_visit",
+                    "photographed_by": "Site Engineer",
+                    "photographed_on": "2026-01-15",
+                }
+            ),
         },
     )
-    assert await document(session, study.id) == "cafe lofts\n93035\nca\nokonkwo holdings llc"
+    assert await document(session, study.id) == (
+        "cafe lofts\n93035\nca\nokonkwo holdings llc\nss-owner@example.test"
+    )
 
     extraction = await appraisal(session, study.id)
     await set_field(session, extraction, "subject.property_address", "4417 Quillon Ave")
@@ -148,12 +160,37 @@ async def test_a_studys_document_goes_with_it(session: AsyncSession, make: Facto
     assert await document(session, study.id) is None
 
 
+async def test_a_rename_rewrites_the_creators_documents_only(
+    session: AsyncSession, make: Factory
+) -> None:
+    alice, bob = await make.user("ss-alice"), await make.user("ss-bob")
+    hers = [await make.study(alice, property_name=f"Hers {n}") for n in range(3)]
+    his = await make.study(bob, property_name="His")
+    users = UserRepository(session)
+    await users.upsert_by_firebase_uid("ss-alice", None, "Zoë Strand")
+    for study in hers:
+        assert await document(session, study.id) == (
+            f"hers {hers.index(study)}\nzoe strand\nss-alice@example.test"
+        )
+    assert await document(session, his.id) == "his\nss-bob@example.test"
+    before = await session.scalar(
+        text("SELECT max(xmin::text::bigint) FROM study_search WHERE study_id = :id"),
+        {"id": hers[0].id},
+    )
+    await users.upsert_by_firebase_uid("ss-alice", None, "Zoë Strand")  # a login, no change
+    after = await session.scalar(
+        text("SELECT max(xmin::text::bigint) FROM study_search WHERE study_id = :id"),
+        {"id": hers[0].id},
+    )
+    assert after == before  # last_seen_at alone does not fire the trigger
+
+
 async def test_the_search_matches_through_the_repository(
     session: AsyncSession, make: Factory
 ) -> None:
     """The repository's word clauses against the triggers' document: every source, the
-    creator matched live (and a rename seen at once), case and accents, LIKE wildcards
-    literal, every word required, the user's own firms only."""
+    creator (and a rename seen at once), case and accents, LIKE wildcards literal, every
+    word required, the user's own firms only."""
     owner = await make.user("search-owner")
     await UserRepository(session).upsert_by_firebase_uid(
         "search-owner", "w.strand@firm.example", "Wilhelmina Strand"
@@ -176,7 +213,7 @@ async def test_the_search_matches_through_the_repository(
     assert await found("OXNARD  harbor") == {study.id}  # any order, case
     assert await found("ines") == {study.id}  # the query without the accent
     assert await found("INÉS") == {study.id}  # or with it
-    assert await found("strand") == {study.id, plain.id}  # the creator, live
+    assert await found("strand") == {study.id, plain.id}  # the creator
     assert await found("w.strand@") == {study.id, plain.id}
     assert await found("harbor fresno") == set()  # every word must match
     assert await found("100%") == {plain.id}
@@ -185,7 +222,8 @@ async def test_the_search_matches_through_the_repository(
     assert await found("") == {study.id, plain.id}
     assert elsewhere.id not in await found("lofts")
     await UserRepository(session).upsert_by_firebase_uid("search-owner", None, "Mina Okafor")
-    assert await found("okafor") == {study.id, plain.id}  # a rename rewrites nothing
+    assert await found("okafor") == {study.id, plain.id}  # a rename is found at once
+    assert await found("wilhelmina") == set()  # and the old name is gone
     assert await found("strand") == {study.id, plain.id}  # the email still says strand
 
 
@@ -282,11 +320,14 @@ async def test_a_field_write_and_a_study_update_queue_instead_of_deadlocking(
         await worker.commit()
         await asyncio.wait_for(renaming, 10)  # no DeadlockDetectedError
     async with committed() as session:
-        assert await document(session, study_id) == "after\naustin"
+        doc = await document(session, study_id)
+        assert doc is not None and doc.startswith("after\n") and doc.endswith("\naustin")
 
 
 async def test_signatures_record_when_signed(session: AsyncSession, make: Factory) -> None:
-    owner = await make.user()
+    owner = await make.user("ss-signer")
     study = await make.study(owner, property_name="Signed")
     await sign(session, study, owner, "Zoë Ångström", "zoe@firm.example")
-    assert await document(session, study.id) == "signed\nzoe angstrom\nzoe@firm.example"
+    assert await document(session, study.id) == (
+        "signed\nss-signer@example.test\nzoe angstrom\nzoe@firm.example"
+    )
