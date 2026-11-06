@@ -328,7 +328,8 @@ test('report: preview ETag, sign, then a firm profile change marks the signature
  const preview=await x.a.call('GET',S(x.id)+'/report/preview');assert.equal(preview.status,200);assert.equal(preview.headers['content-type'],'application/pdf');
  const tag=preview.headers.etag.replace(/"/g,'');assert.match(tag,/^[0-9a-f]{64}$/);
  const engineer={name:'Alex Morgan',credentials:'PE',license_state:'CA'},body={revision:(await study(x)).revision,reviewed_sha256:tag,engineer,attest:true,statement_version:1};
- problem(await x.post(S(x.id)+'/report/sign',{...body,reviewed_sha256:'0'.repeat(64)}),409);
+ // A stale preview: 412 BASIS-REPORT-010 with the current preview's ETag, as the real route answers.
+ const stale=await x.post(S(x.id)+'/report/sign',{...body,reviewed_sha256:'0'.repeat(64)});problem(stale,412);assert.equal(stale.body.code,'BASIS-REPORT-010');assert.equal(stale.headers.etag,`"${tag}"`);
  problem(await x.post(S(x.id)+'/report/sign',{...body,attest:false}),422);
  const sig=check('POST',T+'/sign',await x.post(S(x.id)+'/report/sign',body),201);assert.equal(sig.reviewed_sha256,tag);
  problem(await x.post(S(x.id)+'/report/sign',body),409);
@@ -459,4 +460,32 @@ test('the validator itself refuses what openapi.json refuses',()=>{
  assert.match(validate(ref('SignIn'),{revision:1,reviewed_sha256:'x',engineer:{name:'A',credentials:'PE'},attest:true,statement_version:1}).join(),/does not match/);
  assert.match(validate(ref('DecisionIn'),{stage:'appraisal_review',revision:1,decision:'approve',extra:1}).join(),/additionalProperties false/);
  assert.match(validate(ref('CostOut'),{unit_cost:null,total:null,source_row:null,location_factor:null,cost_year:null,override:{}}).join(),/^$/,'override on CostOut');
+});
+test('deleting the PROPOSED section, as its header says, leaves an API that answers like the real one',async()=>{
+ const src=fs.readFileSync(path.join(__dirname,'../live/sample-api.js'),'utf8');
+ const start=src.indexOf(' /* ===',src.indexOf('PROPOSED: not in the real API')-400),end=src.indexOf('/* END PROPOSED');
+ assert(start>0&&end>start,'the section markers are where the header says');
+ const head=src.lastIndexOf('\n',src.indexOf('PROPOSED: not in the real API'));
+ const trimmed=src.slice(0,src.lastIndexOf('/*',head))+src.slice(src.indexOf('\n',end)+1);
+ assert.doesNotMatch(trimmed,/PROPOSED_ROUTES\.push|object_exclusion:true/);
+ const m={exports:{}};new Function('module','exports','require',trimmed)(m,m.exports,require);
+ const a=m.exports.create({state:'components',fetchAsset});
+ assert.equal((await a.call('GET','/v1/capabilities')).status,404,'no capabilities: live mode shows only what the API has');
+ assert.equal((await a.call('GET','/health')).status,200);
+});
+
+test('If-Match on the report answers reads as the real API does: * needs existing answers, only strong quoted tags match',async()=>{
+ const x=instance('unsigned'),P=S(x.id)+'/report-answers';
+ const ans=(await x.a.call('GET',P)).body,v=ans.report_answers_version,put=h=>x.a.call('PUT',P,{body:{...ans.report_answers,taxpayer_name:'Harbor House Trust (sample)'},headers:h});
+ assert.ok(ans.report_answers,'the unsigned sample has answers');
+ const unquoted=await put({'If-Match':String(v)});problem(unquoted,412);assert.equal(unquoted.headers.etag,`"${v}"`);
+ problem(await put({'If-Match':`W/"${v}"`}),412);// weak tags never match
+ assert.equal((await put({'If-Match':`"98", "${v}"`})).status,200,'a list holding the current tag');
+ const now=(await x.a.call('GET',P)).body.report_answers_version;
+ assert.equal((await put({'If-Match':'*'})).status,200,'* holds: the answers exist');
+ assert.equal((await put({})).status,200,'no condition');
+ assert.ok((await x.a.call('GET',P)).body.report_answers_version>now);
+ // Absent answers: * does not hold.
+ const y=instance('components'),Q=S(y.id)+'/report-answers',none=(await y.a.call('GET',Q)).body;
+ if(!none.report_answers){problem(await y.a.call('PUT',Q,{body:{taxpayer_name:'T',photographs:'taxpayer_supplied',photographed_by:'T',photographed_on:'2026-10-01'},headers:{'If-Match':'*'}}),412)}
 });

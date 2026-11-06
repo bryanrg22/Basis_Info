@@ -518,6 +518,7 @@
   if('attachment' in a&&a.attachment!==null&&!ATTACHMENTS.includes(a.attachment))return 'attachment is one of '+ATTACHMENTS.join(', ')+'.';
   return '';
  }
+ const PROPOSED_ROUTES=[];// hooks: (route helpers) => void, registered by the PROPOSED section
  const COMPONENT_CHECKS=[];// hooks: (correction, S) => error | null, run before the shared checks (PROPOSED: unit_cost)
  CORRECTORS.component={
   validate(c,S){if(!findItem(S,c.entity_id))return [err('entity_id','No component with this id in the decided revision.','correction_target')];for(const fn of COMPONENT_CHECKS){const e=fn(c,S,'component');if(e)return [e]}const m=checkComponentAfter(c.after,true);return m?[err('after',m)]:[]},
@@ -559,7 +560,17 @@
  CORRECTORS.structure_model={validate(){return []},apply(){}};
 
  /* ---------- request handling ---------- */
- class Problem{constructor(status,suffix,title,detail,code,errors){Object.assign(this,{status,suffix,title,detail,code,errors})}}
+ class Problem{constructor(status,suffix,title,detail,code,errors,headers){Object.assign(this,{status,suffix,title,detail,code,errors,headers})}}
+ // If-Match as the real API reads it (basis/api/preconditions.py): absent or empty holds; * holds
+ // when the representation exists; otherwise only a listed strong quoted tag matches (weak and
+ // malformed members, an unquoted 3, never do).
+ function ifMatchAllows(header,version,exists){
+  if(header==null||!String(header).trim())return true;
+  const v=String(header);if(v.trim()==='*')return exists;
+  const tags=new Set(),re=/\s*(W\/)?"([^"]*)"\s*(?:,|$)/y;let pos=0;
+  while(pos<v.length){re.lastIndex=pos;const m=re.exec(v);if(!m){const c=v.indexOf(',',pos);if(c<0)break;pos=c+1;continue}if(!m[1])tags.add(m[2]);pos=re.lastIndex}
+  return tags.has(String(version));
+ }
  const notFound=(detail,code=E.NOT_FOUND)=>new Problem(404,'not-found','Not Found',detail,code);
  const conflict=(suffix,detail,code)=>new Problem(409,suffix,'Conflict',detail,code);
  const invalid=(errors,code)=>new Problem(422,'validation','Unprocessable Content','The request did not pass validation; see errors.',code||(errors.length&&errors.every(e=>VALIDATION_CODE[e.type])?VALIDATION_CODE[[...new Set(errors.map(e=>e.type))].sort()[0]]:E.VALIDATION),errors);
@@ -688,7 +699,8 @@
   if(st.skipped)return conflict('conflict',`The export of revision ${S.revision} has no report: ${st.skipped.message}`,E.NOT_SIGNABLE);
   if(st.signature)return conflict('conflict',`Revision ${S.revision} is already signed.`,E.SIGNED);
   if(st.missing_for_final.some(k=>k!=='signature'))return conflict('conflict','The report needs the firm profile and the study details before it can be signed.',E.INPUTS_MISSING);
-  if(body.reviewed_sha256!==previewTag(S,inst))return conflict('conflict','The report changed since the preview was opened: open the preview again and sign what you reviewed.',E.CHANGED);
+  // The real route answers 412 with the current preview's ETag (basis/api/routes/report.py).
+  if(body.reviewed_sha256!==previewTag(S,inst))return new Problem(412,'precondition-failed','Precondition Failed','The report changed since you reviewed it (an input or the export changed); nothing was signed. Open the preview again, review it, and sign with its ETag.',E.CHANGED,undefined,{etag:`"${previewTag(S,inst)}"`});
   const at=iso(S.clock()),pdf=digest(`pdf:${S.id}:${S.revision}:${at}`);
   const sig={id:S.next(9),study_id:S.id,revision:S.revision,signed_by:ME.id,signed_by_name:ME.name,signed_by_email:ME.email,signed_at:at,engineer:clone(body.engineer),statement_version:1,export_sha256:S.exports[S.revision].sha256,reviewed_sha256:body.reviewed_sha256,pdf_sha256:pdf,firm_profile_version:inst.profileVersion,report_answers_version:S.answersVersion};
   S.signatures[S.revision]=sig;event(S,'report.signed',{actor:'engineer',entity_type:'signature',entity_id:sig.id});audit(S,'report_signed','signed',{entity_type:'signature',entity_id:sig.id});
@@ -750,7 +762,7 @@
     const I=ctx.i;if(ctx.p.org_id!==ORG_ID)return notFound('Firm not found.');
     const b=ctx.body,errs=checkShape(b,{name:TEXT,address:OPT,phone:OPT,logo_png:v=>v===null||typeof v==='string'&&v.length<=524288,engineer:v=>v===null||validEngineer(v),limiting_conditions:v=>v===null||Array.isArray(v)&&v.every(x=>typeof x==='string'&&x.trim()&&x.length<=4000)},['name']);
     if(errs.length)return invalid(errs);
-    const m=ctx.h['if-match'];if(m&&m!=='*'&&m.replace(/"/g,'')!==String(I.profileVersion))return new Problem(412,'precondition-failed','Precondition Failed',`The profile is at version ${I.profileVersion}.`,E.PROFILE_412);
+    if(!ifMatchAllows(ctx.h['if-match'],I.profileVersion,Boolean(I.profile)))return new Problem(412,'precondition-failed','Precondition Failed',`The profile is at version ${I.profileVersion}.`,E.PROFILE_412,undefined,{etag:`"${I.profileVersion}"`});
     I.profile={address:null,phone:null,logo_png:null,engineer:null,limiting_conditions:null,...clone(b)};I.profileVersion++;I.profileUpdated=iso(I.now());
     return json(200,{org_id:ORG_ID,profile:clone(I.profile),version:I.profileVersion,updated_at:I.profileUpdated},{etag:`"${I.profileVersion}"`});
    });
@@ -778,7 +790,7 @@
    route('PUT','/v1/studies/{study_id}/report-answers',withStudy((S,ctx)=>{
     const b=ctx.body,errs=checkShape(b,{taxpayer_name:TEXT,photographs:v=>v==='engineer_site_visit'||v==='taxpayer_supplied',photographed_by:TEXT,photographed_on:v=>typeof v==='string'&&/^\d{4}-\d{2}-\d{2}$/.test(v),interviews:v=>Array.isArray(v),prior_depreciation:v=>v===null||typeof v==='object'},['taxpayer_name','photographs','photographed_by','photographed_on']);
     if(errs.length)return invalid(errs);
-    const m=ctx.h['if-match'];if(m&&!(m==='*'&&!S.answers)&&m.replace(/"/g,'')!==String(S.answersVersion))return new Problem(412,'precondition-failed','Precondition Failed',`The report answers are at version ${S.answersVersion}.`,E.ANSWERS_412);
+    if(!ifMatchAllows(ctx.h['if-match'],S.answersVersion,Boolean(S.answers)))return new Problem(412,'precondition-failed','Precondition Failed',`The report answers changed since you read them (their ETag is now "${S.answersVersion}"); nothing was written.`,E.ANSWERS_412,undefined,{etag:`"${S.answersVersion}"`});
     const before=clone(S.answers);S.answers={interviews:[],prior_depreciation:null,...clone(b)};S.answersVersion++;audit(S,'report_answers',before?'modified':'added',{before,after:clone(S.answers)});event(S,'report_answers.saved',{actor:'engineer'});
     return json(200,{study_id:S.id,report_answers:clone(S.answers),report_answers_version:S.answersVersion},{etag:`"${S.answersVersion}"`});
    }));
@@ -829,7 +841,7 @@
   }
   function toResponse(res){
    const headers={'x-request-id':'sample-'+(++rid),...(res.headers||{})};
-   if(res.problem){const b=problemBody(res.problem,res.path);return new Response(JSON.stringify(b),{status:res.problem.status,headers:{...headers,'content-type':'application/problem+json'}})}
+   if(res.problem){const b=problemBody(res.problem,res.path);return new Response(JSON.stringify(b),{status:res.problem.status,headers:{...headers,...(res.problem.headers||{}),'content-type':'application/problem+json'}})}
    if(res.bytes)return new Response(res.bytes,{status:res.status,headers});
    return new Response(JSON.stringify(res.body),{status:res.status,headers:{...headers,'content-type':'application/json'}});
   }
@@ -841,7 +853,7 @@
     return toResponse(await handle((init.method||'GET').toUpperCase(),String(url),headers,init.body));
    },
    // The raw answer (status, body or problem) for tests.
-   async call(method,path,{body,headers={}}={}){const res=await handle(method,BASE+path,{Authorization:'Bearer sample-token',...headers},body===undefined?undefined:JSON.stringify(body));if(res.problem)return {status:res.problem.status,body:problemBody(res.problem,res.path),headers:res.headers||{}};return {status:res.status,body:res.bytes?res.bytes:res.body,headers:res.headers||{}}},
+   async call(method,path,{body,headers={}}={}){const res=await handle(method,BASE+path,{Authorization:'Bearer sample-token',...headers},body===undefined?undefined:JSON.stringify(body));if(res.problem)return {status:res.problem.status,body:problemBody(res.problem,res.path),headers:res.problem.headers||res.headers||{}};return {status:res.status,body:res.bytes?res.bytes:res.body,headers:res.headers||{}}},
    get state(){return inst.state},
    studies:()=>inst.studies.map(S=>({id:S.id,name:S.name,status:S.status,stage:S.stage,revision:S.revision})),
    mainStudyId:()=>inst.studies[0].id,
@@ -863,7 +875,6 @@
   *      then reports cost.unit_cost = the override and cost.override.
   *  P3  room_create at rooms_review; photo_room corrections in the same decision may name it.
   * ===================================================================================== */
- const PROPOSED_ROUTES=[];
  (function proposed(){
   // P0
   PROPOSED_ROUTES.push(({route,json})=>route('GET','/v1/capabilities',()=>json(200,{object_exclusion:true,unit_cost_override:true,room_create:true})));

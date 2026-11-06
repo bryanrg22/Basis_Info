@@ -237,3 +237,23 @@ test('the inventory row dialog offers type, count stepper, material, attachment,
  live.state.corrections[stage].set('component:c1',{key:'component:c1',after:{count:2}});live.caps={unitCostOverride:true};live.actions['edit-component']({dataset:{room:'kitchen'}},'c1');
  assert.match(seen.actions,/Reset to AI/);assert.match(seen.body,/id="live-comp-price"/);assert.match(seen.body,/id="live-comp-price-source"/);
 });
+test('sent room corrections read as room names, recovery classes by name, never as ids',()=>{
+ const {live}=boot(true,'components_review'),lines=c=>[...live.correctionLines(c)];// arrays from the sandbox realm
+ assert.deepEqual(lines({entity_type:'room',after:{merge_into:'5a330001-0000-4000-8000-000000000001'},summary:'merge into Kitchen'}),['merge into Kitchen']);
+ assert.deepEqual(lines({entity_type:'photo_room',before:{room_id:'r1'},after:{room_id:'r4'},summary:'move to Living room'}),['move to Living room']);
+ assert.deepEqual(lines({entity_type:'photo_room',after:{room_id:'r4'}}),['moved to another room']);
+ assert.deepEqual(lines({entity_type:'room',before:{name:'Den'},after:{name:'Living room'}}),['name: Den → Living room']);
+ assert.deepEqual(lines({entity_type:'asset',before:{bucket:'y39'},after:{bucket:'y5'}}),['bucket: 39-year → 5-year']);
+ for(const line of [live.correctionChanges({entity_type:'room',after:{merge_into:'5a330001'},summary:'merge into Kitchen'})])assert.doesNotMatch(line,/5a33/);
+});
+test('Study progress returns to the review only after the send succeeds',async()=>{
+ const {live,ctx}=boot(true,'components_review'),stage=G.editStage(live.state.study);
+ live.state.corrections[stage]=new Map([['component:c1',{key:'component:c1',entity_type:'component',entity_id:'c1',before:{count:1},after:{count:2},reason:'Counted',title:'Light fixture'}]]);
+ live.errorText=()=>'refused';
+ live.api.decide=async()=>{const e=new Error('refused');e.status=422;throw e};
+ live.actions.reject(null,stage);ctx.lastModal.querySelector('#live-confirm').onclick();await live.lastAction;
+ assert.equal(live.state.reopenTarget,undefined,'a refused send leaves no redirect');
+ live.api.decide=async(id,body)=>({corrections_recorded:body.corrections.length});
+ live.actions.reject(null,stage);ctx.lastModal.querySelector('#live-confirm').onclick();await live.lastAction;
+ assert.deepEqual({...live.state.reopenTarget},{studyId:'study',stage});
+});
