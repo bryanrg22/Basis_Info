@@ -2,14 +2,13 @@
 address, client, parcel number, ZIP or engineer, not only by its name
 (docs/api/STUDY_LIBRARY.md, EVAL_REPORT section 92).
 
-Revision ID: 0033
-Revises: 0030
+Revision ID: 0034
+Revises: 0033
 Create Date: 2026-11-05
 
 Hand-written to match ``basis.db.models`` (``alembic check`` proves it).
 
-Numbered 0033 on top of 0030 for now: 0031 and 0032 are taken by branches in review, and the
-chain is re-linked to whichever lands last when they merge.
+Revises 0033 (``photo_objects`` exclusion, #159); nothing here depends on 0031 to 0033.
 
 The document is every searched value of one study, one per line (so a word of the query
 never spans two values), lower-cased and accent-folded by ``study_search_fold``
@@ -47,8 +46,8 @@ from collections.abc import Sequence
 import sqlalchemy as sa
 from alembic import op
 
-revision: str = "0033"
-down_revision: str | Sequence[str] | None = "0030"
+revision: str = "0034"
+down_revision: str | Sequence[str] | None = "0033"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 

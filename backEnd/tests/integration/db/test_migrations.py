@@ -54,14 +54,11 @@
   one context across releases merges when the answer agrees, the latest approval keeps the
   key when it does not, unknown versions and malformed keys are left alone; it downgrades
   back to the version keys;
-* ``0033_study_search`` (on 0030 until 0031 and 0032 land) creates ``study_search``, the
-  library's folded search document, backfills every study, keeps it by triggers on
-  ``studies``, ``extraction_fields``, ``report_signatures`` and ``users``, and downgrades
-  back to ``0030``
-  exactly (``pg_trgm`` and ``unaccent`` dropped with it);
 * ``0030_operator_document_access`` lets ``study_events.actor_type`` be ``operator`` (Basis
   support opened a firm's file) and downgrades back to ``0029`` only while no such row exists
   (access records are append-only and never deleted);
+* ``0031_user_linked_accounts`` adds the table of extra sign-in accounts per user, with a
+  check on who linked it, and downgrades back to ``0030`` exactly;
 * ``0029_study_input_records`` lets ``client_errors.kind`` be ``study_input`` (a study held by a
   missing input, written by the server) and downgrades back to ``0028`` (those rows deleted);
 * ``0028_client_errors`` creates ``client_errors`` (the browser error records: the client's
@@ -83,6 +80,20 @@
 * ``0024_review_drafts`` creates an engineer's pending corrections at a review gate (one row
   per study, stage and user; a review stage only; a JSON object; revision and version from 1;
   its ``updated_at`` trigger), nothing backfilled; it downgrades back to ``0023`` exactly;
+* ``0032_signer_details`` creates ``signer_details`` (one row per user, a license number only
+  with its state, a two-letter state, version >= 1, its ``updated_at`` trigger) and adds
+  ``report_signatures.signer_details_version`` and ``letterhead`` (NULL on existing
+  signatures, which keep every value), nothing backfilled; it downgrades back to ``0031``
+  exactly;
+* ``0033_object_exclusion`` adds ``photo_objects.excluded_at``, ``excluded_by`` and
+  ``exclusion_reason`` (an engineer's Not counted, EVAL_REPORT 90): the three go together and
+  an excluded row is never counted; it downgrades back to ``0032`` exactly, and refuses while
+  any row is excluded (who and why would be lost);
+* ``0034_study_search`` (on 0030 until 0031 and 0032 land) creates ``study_search``, the
+  library's folded search document, backfills every study, keeps it by triggers on
+  ``studies``, ``extraction_fields``, ``report_signatures`` and ``users``, and downgrades
+  back to ``0033``
+  exactly (``pg_trgm`` and ``unaccent`` dropped with it);
 * upgrading at head is a no-op; offline (``--sql``) rendering works.
 
 Each test that changes the schema gets its own throwaway database in the shared
@@ -97,6 +108,7 @@ import io
 import json
 import uuid
 from collections.abc import AsyncIterator
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -125,9 +137,8 @@ pytestmark = pytest.mark.integration
 # 0025_invitation_email lands after 0022 (user activity), 0023 (rate-limit hits) and 0024
 # (review drafts); 0026 (retention and alerts) revises 0025, and 0027_signature_input_versions
 # revises 0026 (it was 0024, then 0026, until the branches before it landed).
-# 0033_study_search revises 0030 while 0031 and 0032 are in review (re-chained at merge).
-HEAD = "0033"
-HISTORY = ["0033", *(f"{n:04d}" for n in range(30, 0, -1))]  # "0033", "0030" .. "0001"
+HEAD = "0034"
+HISTORY = [f"{n:04d}" for n in range(34, 0, -1)]  # "0034" .. "0001"
 EXPECTED_TRIGGERS = (
     {(f"{table}_set_updated_at", table) for table in UPDATED_AT_TABLES}
     | {(f"{table}_append_only", table) for table in APPEND_ONLY_TABLES}
@@ -135,7 +146,7 @@ EXPECTED_TRIGGERS = (
     | {("users_firebase_uid_immutable", "users")}
     | {(f"{table}_published_immutable", table) for table in PUBLISHED_IMMUTABLE_TABLES}
     | {("corpus_versions_published_immutable", "corpus_versions")}
-    # 0033: the library's search document.
+    # 0034: the library's search document.
     | {
         ("study_search_study", "studies"),
         ("study_search_field_insert", "extraction_fields"),
@@ -151,7 +162,7 @@ EXPECTED_FUNCTIONS = {
     "forbid_firebase_uid_change",
     "forbid_published_corpus_write",
     "forbid_published_version_update",
-    # 0033 (the SQL-language study_search_document and study_search_fold are not listed:
+    # 0034 (the SQL-language study_search_document and study_search_fold are not listed:
     # snapshot() reads plpgsql functions only).
     "study_search_refresh",
     "study_search_from_study",
@@ -317,7 +328,7 @@ def test_offline_sql_rendering() -> None:
         assert f"CREATE TABLE {table} " in sql or f"CREATE UNLOGGED TABLE {table} " in sql, table
     assert "CREATE UNLOGGED TABLE rate_limit_hits " in sql  # 0022: ephemeral, no WAL
     assert "CREATE TRIGGER reviews_append_only" in sql
-    assert "CREATE EXTENSION IF NOT EXISTS pg_trgm" in sql  # 0033
+    assert "CREATE EXTENSION IF NOT EXISTS pg_trgm" in sql  # 0034
     assert "USING gin (document gin_trgm_ops)" in sql
     assert "CREATE TYPE outbox_status AS ENUM ('pending', 'delivered', 'dead')" in sql
     assert "UPDATE outbox SET status = 'delivered' WHERE delivered_at IS NOT NULL" in sql
@@ -1704,10 +1715,158 @@ async def test_0030_operator_actor_and_a_downgrade_that_keeps_access_records(
         await downgrade(url, "0029")
 
 
-async def test_0033_backfills_every_study_and_downgrades_exactly(empty_database_url: str) -> None:
+async def test_0031_linked_accounts_table_and_an_exact_downgrade(empty_database_url: str) -> None:
     url = empty_database_url
     await upgrade(url, "0030")
     at_0030 = await snapshot(url)
+    await upgrade(url, "0031")
+    connection = await asyncpg.connect(plain_dsn(url))
+    try:
+        user = await connection.fetchval(
+            "INSERT INTO users (firebase_uid, email) VALUES ('uid-a', 'a@example.test') "
+            "RETURNING id"
+        )
+        link = (
+            "INSERT INTO user_linked_accounts (firebase_uid, user_id, email, linked_by) "
+            "VALUES ($1, $2, 'a@example.test', $3)"
+        )
+        await connection.execute(link, "uid-b", user, "sign_in")
+        await connection.execute(link, "uid-c", user, "operator")
+        with pytest.raises(asyncpg.CheckViolationError, match="linked_by_valid"):
+            await connection.execute(link, "uid-d", user, "someone")
+        with pytest.raises(asyncpg.UniqueViolationError):
+            await connection.execute(link, "uid-b", user, "operator")
+        with pytest.raises(asyncpg.ForeignKeyViolationError):
+            await connection.execute(link, "uid-e", uuid.uuid4(), "operator")
+        await connection.execute("DELETE FROM user_linked_accounts")
+        await connection.execute("DELETE FROM users")
+    finally:
+        await connection.close()
+    await downgrade(url, "0030")
+    assert await snapshot(url) == at_0030
+
+
+async def test_0032_signer_details_and_signature_columns_and_downgrade(
+    empty_database_url: str,
+) -> None:
+    """``signer_details``: one row per user, a license number only with its state, the state a
+    two-letter upper-case code, ``updated_at`` maintained. ``report_signatures`` gains two
+    nullable columns; an existing signature keeps every value and reads NULL in both (the
+    append-only trigger does not fire on ``ADD COLUMN``). Back to 0031 exactly."""
+    url = empty_database_url
+    await upgrade(url, "0031")
+    connection = await asyncpg.connect(plain_dsn(url))
+    try:
+        study, _, user = await _photo(connection)
+        await connection.execute(
+            "INSERT INTO report_signatures (study_id, revision, signed_by, signed_at, engineer, "
+            "statement_version, export_sha256, reviewed_sha256, pdf_uri, pdf_sha256, "
+            "firm_profile_version, report_answers_version) "
+            "VALUES ($1, 1, $2, now(), '{\"name\": \"A\"}', 1, $3, $3, 'gs://b/r.pdf', $3, 1, 1)",
+            study,
+            user,
+            "a" * 64,
+        )
+    finally:
+        await connection.close()
+    at_0031 = await snapshot(url)
+    await upgrade(url)
+    connection = await asyncpg.connect(plain_dsn(url))
+    try:
+        kept = await connection.fetchrow("SELECT * FROM report_signatures")
+        assert json.loads(kept["engineer"]) == {"name": "A"}
+        assert kept["firm_profile_version"] == 1
+        assert kept["signer_details_version"] is None and kept["letterhead"] is None
+        assert await connection.fetchval("SELECT count(*) FROM signer_details") == 0
+        insert = (
+            "INSERT INTO signer_details (user_id, name, credentials, license_number, "
+            "license_state) VALUES ($1, 'A. Engineer', 'PE', $2, $3)"
+        )
+        with pytest.raises(asyncpg.CheckViolationError, match="license_pair"):
+            await connection.execute(insert, user, "123", None)
+        with pytest.raises(asyncpg.CheckViolationError, match="license_pair"):
+            await connection.execute(insert, user, None, "NY")
+        with pytest.raises(asyncpg.CheckViolationError, match="license_state_code"):
+            await connection.execute(insert, user, "123", "ny")
+        await connection.execute(insert, user, "123", "NY")
+        with pytest.raises(asyncpg.UniqueViolationError):  # one row per user
+            await connection.execute(insert, user, None, None)
+        with pytest.raises(asyncpg.ForeignKeyViolationError):
+            await connection.execute(insert, uuid.uuid4(), None, None)
+        with pytest.raises(asyncpg.CheckViolationError, match="version_positive"):
+            await connection.execute("UPDATE signer_details SET version = 0")
+        before = await connection.fetchval("SELECT updated_at FROM signer_details")
+        await connection.execute("UPDATE signer_details SET version = 2")
+        assert await connection.fetchval("SELECT updated_at FROM signer_details") >= before
+        with pytest.raises(asyncpg.CheckViolationError, match="letterhead_is_object"):
+            await connection.execute(
+                "INSERT INTO report_signatures (study_id, revision, signed_by, signed_at, "
+                "engineer, statement_version, export_sha256, reviewed_sha256, pdf_uri, "
+                "pdf_sha256, letterhead) VALUES ($1, 2, $2, now(), '{}', 1, $3, $3, 'u', $3, "
+                "'[1]')",
+                study,
+                user,
+                "a" * 64,
+            )
+        await connection.execute("DELETE FROM signer_details")
+    finally:
+        await connection.close()
+    await downgrade(url, "0031")
+    assert await snapshot(url) == at_0031
+
+
+async def test_0033_object_exclusion_constraints_and_a_downgrade_that_keeps_them(
+    empty_database_url: str,
+) -> None:
+    url = empty_database_url
+    await upgrade(url, "0032")
+    connection = await asyncpg.connect(plain_dsn(url))
+    try:
+        study, document, user = await _photo(connection)
+        await connection.execute(
+            "INSERT INTO photo_objects (study_id, document_id, revision, label, score, "
+            "x1, y1, x2, y2, area, source) "
+            "VALUES ($1, $2, 1, 'window', 0.9, 0.1, 0.1, 0.5, 0.5, 0.16, 'model')",
+            study,
+            document,
+        )
+    finally:
+        await connection.close()
+    at_0032 = await snapshot(url)
+    await upgrade(url)
+    await downgrade(url, "0032")  # nothing excluded: back to 0032 exactly
+    assert await snapshot(url) == at_0032
+    await upgrade(url)
+    connection = await asyncpg.connect(plain_dsn(url))
+    try:
+        row = await connection.fetchrow(
+            "SELECT id, excluded_at, excluded_by, exclusion_reason FROM photo_objects"
+        )
+        assert tuple(row)[1:] == (None, None, None)  # nothing backfilled
+        exclude = (
+            "UPDATE photo_objects SET counted = $2, excluded_at = $3, excluded_by = $4, "
+            "exclusion_reason = $5 WHERE id = $1"
+        )
+        at = datetime.now(UTC)
+        for counted, when, who, why, check in (
+            (False, at, None, "a reflection", "excluded_by_whom"),
+            (False, at, user, None, "exclusion_has_reason"),
+            (False, None, None, "a reflection", "exclusion_has_reason"),
+            (True, at, user, "a reflection", "excluded_not_counted"),
+        ):
+            with pytest.raises(asyncpg.CheckViolationError, match=check):
+                await connection.execute(exclude, row["id"], counted, when, who, why)
+        await connection.execute(exclude, row["id"], False, at, user, "a reflection")
+    finally:
+        await connection.close()
+    with pytest.raises(Exception, match="marked Not counted"):
+        await downgrade(url, "0032")
+
+
+async def test_0034_backfills_every_study_and_downgrades_exactly(empty_database_url: str) -> None:
+    url = empty_database_url
+    await upgrade(url, "0033")
+    at_0033 = await snapshot(url)
     connection = await asyncpg.connect(plain_dsn(url))
     try:
         study, _, _ = await _photo(connection)
@@ -1754,5 +1913,5 @@ async def test_0033_backfills_every_study_and_downgrades_exactly(empty_database_
         assert "pg_trgm" in (await snapshot(url))["extensions"]
     finally:
         await connection.close()
-    await downgrade(url, "0030")
-    assert await snapshot(url) == at_0030  # the extensions it installed are gone too
+    await downgrade(url, "0033")
+    assert await snapshot(url) == at_0033  # the extensions it installed are gone too

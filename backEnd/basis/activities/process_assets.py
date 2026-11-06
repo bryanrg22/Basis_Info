@@ -82,6 +82,20 @@ the structure model wrote, no component) is matched by the row's label: the new 
 row of that label takes the correction's values the same way, its quantity and cost
 recomputed.
 
+The engineer's unit price (EVAL_REPORT 90, :mod:`basis.domain.price_overrides`): a component
+row carrying an override (``raw["asset_unit_cost_override"]``, else
+``raw["unit_cost_override"]``, stored by ``apply_corrections``) is priced at it: ``unit_cost``
+the engineer's, ``total`` it times the quantity, no year, location or overhead factor, the
+trail ``kind`` ``engineer_price`` with the override and the cost table's own pricing of the
+same quantity (``replaced``). The table's price is still computed, only to be kept. The
+pricing reasons that describe the table's price (the missing year index, the converted
+index, the location state mismatch, a missing or per-other-unit row) are not written; the
+classification's and the quantity's are. A row whose quantity is a missing input
+(``input:<code>``) is not priced by an override (a price is not a quantity): it stays
+unpriced, its blocker stands, and its trail carries the override waiting for the quantity.
+An asset correction that carries only a price leaves the classification to the classifier
+(it is not a manual classification); one that carries both applies both.
+
 The structure model (docs/review_2026-10-15/STRUCTURE_MODEL.md, ``STRUCTURE_STEP=on``):
 after the components, one concealed row per building system from the appraisal's cost
 approach (or the RSMeans square-foot model) carved against the itemized assets, and the
@@ -158,9 +172,11 @@ from basis.db.repositories.room import RoomRepository
 from basis.db.repositories.study import StudyRepository
 from basis.db.repositories.study_event import StudyEventRepository
 from basis.db.session import session_scope
+from basis.domain import price_overrides
 from basis.domain.cost_table import CostTable, cost_table_for
 from basis.domain.cost_trail import (
     TrailContext,
+    engineer_trail,
     priced_trail,
     quantity_block,
     structure_block,
@@ -665,6 +681,18 @@ async def _write(
             settings.cost_basis,
             markup if inside_model(component.label) else None,
         )
+        # The engineer's unit price (module doc): the table's pricing is kept as ``replaced``.
+        price = price_overrides.active(component.raw)
+        table_priced = (cost, priced_per, not_priced)
+        engineer: CostEstimate | None = None
+        if price is not None and not isinstance(takeoff.inputs.get(MISSING_INPUT), str):
+            engineer = price_overrides.estimate(
+                takeoff,
+                price,
+                cost_year=plan.index.cost_year,
+                replaced=_source_row(takeoff, cost, not_priced),
+            )
+            cost, priced_per, not_priced = engineer, None, None
         issues = [
             i
             for i in cross_validate(
@@ -681,13 +709,14 @@ async def _write(
         extra_reasons = [f"cross:{i.code}" for i in issues]
         if not_priced is not None:
             extra_reasons.insert(0, not_priced.reason)
-        if cost is not None and cost.year_assumption is not None:
+        indexed = cost is not None and engineer is None  # the index priced the dollars
+        if indexed and cost is not None and cost.year_assumption is not None:
             # The cost year has no published index loaded (COST_INDICES.md section 4): the
             # dollars stand on the latest index until the firm supplies the year's.
             extra_reasons.append(EXTRAPOLATED_REASON)
-        elif cost is not None and plan.index.year_conversion is not None:
+        elif indexed and plan.index.year_conversion is not None:
             extra_reasons.append(CONVERTED_REASON)
-        if cost is not None and plan.index.location_mismatch is not None:
+        if indexed and plan.index.location_mismatch is not None:
             extra_reasons.append(LOCATION_MISMATCH_REASON)
         if takeoff.inputs.get("quantity_bound") == "upper":
             # A derived quantity that is an upper bound (landscaping = the whole unbuilt
@@ -713,6 +742,25 @@ async def _write(
             inputs=takeoff_inputs,
         )
         source_row = _source_row(takeoff, cost, not_priced)
+        quantity = quantity_block(takeoff, takeoff_inputs)
+        table_cost, table_per, table_not = table_priced
+        table_source = _source_row(takeoff, table_cost, table_not)
+        trail = priced_trail(
+            quantity,
+            table_cost,
+            plan.index,
+            context=context,
+            missing=None if table_cost is not None else table_source,
+            priced_per=table_per,
+        )
+        if engineer is not None:
+            assert price is not None
+            trail = engineer_trail(
+                quantity, engineer, plan.index, context=context, override=price, replaced=trail
+            )
+        elif price is not None:
+            # Waiting for its quantity: unpriced, with the engineer's price on record.
+            trail = {**trail, "override": price}
         await assets.add_cost_estimate(
             asset=asset,
             unit_cost=None if cost is None else cost.unit_cost,
@@ -720,14 +768,7 @@ async def _write(
             source_row=source_row,
             location_factor=plan.index.location_factor,
             cost_year=plan.index.cost_year,
-            trail=priced_trail(
-                quantity_block(takeoff, takeoff_inputs),
-                cost,
-                plan.index,
-                context=context,
-                missing=None if cost is not None else source_row,
-                priced_per=priced_per,
-            ),
+            trail=trail,
         )
         for citation in citations:
             row = await assets.add_citation(
@@ -1629,6 +1670,18 @@ async def _overrides(
                 f"asset {correction.entity_id} not found in study {study_id}",
                 E.ASSETS_ASSET_NOT_FOUND,
             )
+        # A unit price was stored on the component by ``apply_corrections`` (EVAL_REPORT
+        # 90): it is not a classification, and a correction carrying only a price leaves
+        # the asset to the classifier.
+        after, price = price_overrides.split(correction.after)
+        if price and old.component_id is None:
+            raise validation_error(
+                f"asset {old.id} is a concealed row of the structure model; it has no unit "
+                "price to override",
+                E.CORRECT_UNIT_COST_CONCEALED,
+            )
+        if not after:
+            continue
         if old.component_id is None:
             # A concealed row of the structure model: matched by its label.
             takeoff = (await assets.takeoffs([old.id])).get(old.id)
@@ -1640,7 +1693,7 @@ async def _overrides(
                 )
             previous = structure_overrides.get(label)
             structure_overrides[label] = Override(
-                old=old, after={**(previous.after if previous else {}), **correction.after}
+                old=old, after={**(previous.after if previous else {}), **after}
             )
             continue
         component_id = by_origin.get(str(old.component_id))
@@ -1649,7 +1702,7 @@ async def _overrides(
                 f"asset {old.id} has no component in this revision", E.ASSETS_NO_COMPONENT
             )
         previous = overrides.get(component_id)
-        merged = {**(previous.after if previous else {}), **correction.after}
+        merged = {**(previous.after if previous else {}), **after}
         overrides[component_id] = Override(old=old, after=merged)
     return overrides, structure_overrides
 

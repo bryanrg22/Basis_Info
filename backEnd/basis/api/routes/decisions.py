@@ -58,9 +58,18 @@ the printed ``evidence``; ``reason`` is required. A bad ``after`` is ``correctio
 ``correction_field_exists`` (correct it with ``extraction_field``), the same key twice
 ``correction_duplicate``.
 
+A unit price (EVAL_REPORT 90, :mod:`basis.domain.price_overrides`, docs/api/OVERRIDES.md): an
+``asset`` or ``component`` correction may carry ``unit_cost`` (dollars per takeoff unit to
+the cent, above 0, at most 10,000,000; null clears an override) with ``unit_cost_source``
+(1 to 300 characters, required with a number) and a required ``reason``. A bad value is
+``correction_value`` at ``after``, a missing reason ``correction_reason`` at ``reason``, and
+both are refused while ``UNIT_COST_OVERRIDE`` is off. A price on a concealed row of the
+structure model (an asset with no component: its total is a share of the building's cost,
+not a unit price) is ``correction_value`` at ``after``, checked with the targets.
+
 The checks that need no database run with the types, before anything is written; the
-rebuilt, last-row, existing-key and page checks run after the target check, in the same
-transaction, so a stale decision is still a 409.
+rebuilt, last-row, existing-key, page and concealed-row checks run after the target check,
+in the same transaction, so a stale decision is still a 409.
 """
 
 from __future__ import annotations
@@ -71,6 +80,7 @@ from typing import Annotated, Any, Final
 
 from fastapi import Depends, Request, status
 from fastapi.exceptions import RequestValidationError
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from temporalio.exceptions import ApplicationError
 
@@ -80,12 +90,14 @@ from basis.api.idempotency import IDEMPOTENCY_HEADER, parse_idempotency_key
 from basis.api.routes.common import problems, write_router
 from basis.api.schemas.reviews import CorrectionIn, DecisionAccepted, DecisionIn, ReviewOut
 from basis.api.users import CurrentUserDep, study_access
+from basis.config import Settings
 from basis.db.enums import OrgRole, Stage
+from basis.db.models import Asset
 from basis.db.repositories import CorrectionInput, ReviewRepository, VisibleStudy
 from basis.db.repositories.extraction import ExtractionRepository
 from basis.db.repositories.room import RoomRepository
 from basis.db.session import SessionDep
-from basis.domain import removals
+from basis.domain import price_overrides, removals
 from basis.domain.counts import count_problem, room_component_problems
 from basis.domain.rooms import room_field_problems
 from basis.errors.codes import E
@@ -184,16 +196,21 @@ async def check_correction_targets(
         raise RequestValidationError(errors)
 
 
-def check_correction_values(corrections: Sequence[CorrectionIn]) -> None:
+def check_correction_values(
+    corrections: Sequence[CorrectionIn], *, unit_cost_override: bool = True
+) -> None:
     """422 naming every count the rooms review would refuse (:mod:`basis.domain.counts`): a
     ``component`` ``count`` that is not a whole number from 1, or a ``room_component`` that
     is not a known label with a count (and known material and attachment), and a
     ``photo_room`` that is not exactly a ``room_id`` UUID, and a ``room`` whose ``name``,
     ``room_type`` or ``floor`` it could not store (:mod:`basis.domain.rooms`). Refused here, because
     ``apply_corrections`` refusing one would start the next revision without any of the
-    rejection's corrections."""
+    rejection's corrections. A unit price on an ``asset`` or ``component`` correction is
+    checked here too (module doc), and refused outright when ``unit_cost_override`` (the
+    ``UNIT_COST_OVERRIDE`` setting) is off."""
     errors = []
     for index, item in enumerate(corrections):
+        errors += unit_cost_errors(index, item, enabled=unit_cost_override)
         problems: list[str] = []
         if item.entity_type == "component" and "count" in item.after:
             problem = count_problem(item.after["count"])
@@ -210,6 +227,75 @@ def check_correction_values(corrections: Sequence[CorrectionIn]) -> None:
             _correction_error(index, "after", problem, CORRECTION_VALUE_ERROR)
             for problem in problems
         ]
+    if errors:
+        raise RequestValidationError(errors)
+
+
+def unit_cost_errors(index: int, item: CorrectionIn, *, enabled: bool) -> list[dict[str, Any]]:
+    """The 422 entries of a correction's unit price (none when it carries none)."""
+    if item.entity_type not in ("asset", "component") or not price_overrides.has_price(item.after):
+        return []
+    if not enabled:
+        return [
+            _correction_error(
+                index,
+                "after",
+                "unit price overrides are turned off on this deployment (GET /v1/capabilities)",
+                CORRECTION_VALUE_ERROR,
+            )
+        ]
+    errors = [
+        _correction_error(index, "after", problem, CORRECTION_VALUE_ERROR)
+        for problem in price_overrides.problems(item.after, "-")
+    ]
+    if item.reason is None or not item.reason.strip():
+        errors.append(
+            _correction_error(
+                index,
+                "reason",
+                "a unit price override needs a reason",
+                CORRECTION_REASON_ERROR,
+            )
+        )
+    return errors
+
+
+async def check_unit_cost_targets(
+    session: AsyncSession, study_id: uuid.UUID, corrections: Sequence[CorrectionIn]
+) -> None:
+    """422 naming every asset correction that prices a concealed row of the structure model
+    (no component: its total is a share of the building's cost, not a unit price). Runs
+    after the target check."""
+    priced = {
+        index: item.entity_id
+        for index, item in enumerate(corrections)
+        if item.entity_type == "asset" and price_overrides.has_price(item.after)
+    }
+    if not priced:
+        return
+    concealed = set(
+        (
+            await session.scalars(
+                select(Asset.id).where(
+                    Asset.study_id == study_id,
+                    Asset.id.in_(list(priced.values())),
+                    Asset.component_id.is_(None),
+                )
+            )
+        ).all()
+    )
+    errors = [
+        _correction_error(
+            index,
+            "after",
+            f"asset {asset_id} is a concealed row of the structure model: its total is a share "
+            "of the building's replacement cost, not a unit price; correct the square-foot "
+            "model instead (POST /v1/studies/{id}/assets/reprice)",
+            CORRECTION_VALUE_ERROR,
+        )
+        for index, asset_id in priced.items()
+        if asset_id in concealed
+    ]
     if errors:
         raise RequestValidationError(errors)
 
@@ -423,7 +509,12 @@ def check_no_corrections_on_approve(decision: str, corrections: Sequence[Correct
         "(EVAL_REPORT 78) is `quantity` (positive), `quantity_unit` (EA, SF, LF, SY) and "
         "`quantity_source` (where it was measured) together, and a `room_component` "
         "`after` a taxonomy `label` with a `count` (optional `material`, `attachment` from "
-        "their vocabularies); otherwise 422 with one `errors` entry per offending "
+        "their vocabularies); an `asset` or `component` correction may carry the "
+        "engineer's unit price, `unit_cost` (dollars per takeoff unit to the cent, above 0, "
+        "at most 10,000,000; null clears it) with `unit_cost_source` (1 to 300 characters) "
+        "and a required `reason`, refused for a concealed row of the structure model and "
+        "while `GET /v1/capabilities` says `unit_cost_override: false` "
+        "(docs/api/OVERRIDES.md); otherwise 422 with one `errors` entry per offending "
         'correction, located at `["body", "corrections", <index>, "entity_type" | '
         '"entity_id" | "after" | "reason"]`. '
         "A `component_remove` (an erroneous room inventory component row: `entity_id` a "
@@ -456,7 +547,8 @@ async def record_decision(
         body.stage, body.corrections, components_gate=access.study.components_gate is True
     )
     check_no_corrections_on_approve(body.decision, body.corrections)
-    check_correction_values(body.corrections)
+    settings: Settings = request.app.state.settings
+    check_correction_values(body.corrections, unit_cost_override=settings.unit_cost_override)
     check_removals_and_additions(body.corrections)
     reviews = ReviewRepository(session)
     record = await reviews.record_decision(
@@ -481,6 +573,7 @@ async def record_decision(
     await check_correction_targets(reviews, access, body.revision, body.corrections)
     await check_removal_targets(session, access.study.id, body.revision, body.corrections)
     await check_field_add_targets(session, access.study.id, body.corrections)
+    await check_unit_cost_targets(session, access.study.id, body.corrections)
     return DecisionAccepted(
         review=ReviewOut.model_validate(record.review),
         current_stage=record.study.current_stage,

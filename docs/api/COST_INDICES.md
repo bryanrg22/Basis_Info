@@ -222,6 +222,16 @@ Every Decimal is a string exactly as used (`"1.2330"`, not `1.233`); dates are I
   `unit_cost` is the total over the quantity, rounded half even, as the row is written). A
   small system of the structure model (smoke alarms, data outlets, ...) is priced from the cost
   table like any label: `unit_price` or `unpriced`, with `structure` set and `building` null.
+  `engineer_price` (EVAL_REPORT 90, docs/api/OVERRIDES.md): the engineer set the unit price.
+  `unit_cost` is `override.unit_cost` as entered, `total` it times `quantity.value` half up to
+  the cent, no year, location or overhead factor applied; `base` is null; `year`, `location`,
+  `cost_year` and `location_factor` are the study's index as an `unpriced` row records them;
+  `override` is the engineer's price (`unit_cost`, `source`, `reason`, `by`, `by_name`, `at`,
+  `level` `asset` or `component`, `correction_id`, `revision`); `replaced` is the cost table's
+  own pricing of the same quantity (`kind` `unit_price` with `base`, `unit_cost`, `total`,
+  `rounding`; or `unpriced` with `missing`, `priced_per`), never lost. `check()` verifies both:
+  the engineer's arithmetic, and the table's as a `unit_price` trail. An `unpriced` row whose
+  quantity is a missing input carries `override` too (the price waits for the quantity).
 * `base.unit_cost` is per takeoff unit at the row's base year, before the factors, exactly as
   multiplied (it can carry more than two decimals). `table` is `TYPICAL_UNIT_COSTS` (the legacy
   placeholder rows: `tier` set, `source` null) or the configured table's name; `conversion` is

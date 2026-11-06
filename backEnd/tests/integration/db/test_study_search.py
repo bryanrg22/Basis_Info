@@ -1,5 +1,5 @@
 """``study_search``: the library's search document, kept by the database's triggers
-(migration ``0033_study_search``, docs/api/STUDY_LIBRARY.md, EVAL_REPORT 92).
+(migration ``0034_study_search``, docs/api/STUDY_LIBRARY.md, EVAL_REPORT 92).
 
 * every source writes through: the property name, the intake's ZIP and state, the report
   answers' taxpayer, the creator's name and email (a rename rewrites the documents of every

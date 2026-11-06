@@ -52,7 +52,8 @@ from basis.api.schemas.orgs import (
 from basis.api.users import CurrentUser, CurrentUserDep, org_access, require_org_role
 from basis.config import Settings
 from basis.db.enums import OrgRole
-from basis.db.repositories import InvitationRepository, Membership, OrgRepository
+from basis.db.repositories import InvitationRepository, Member, Membership, OrgRepository
+from basis.db.repositories.signer import SignerRepository
 from basis.db.session import SessionDep
 from basis.errors.codes import E
 
@@ -164,7 +165,13 @@ async def rename_firm(
 )
 async def list_members(org_id: OwnedOrg, session: SessionDep) -> MemberList:
     members = await OrgRepository(session).members(org_id)
-    return MemberList(items=[MemberOut.of(m) for m in members])
+    signers = await SignerRepository(session).for_users(m.user_id for m in members)
+    return MemberList(items=[MemberOut.of(m, signers.get(m.user_id)) for m in members])
+
+
+async def _member_out(session: AsyncSession, member: Member) -> MemberOut:
+    signers = await SignerRepository(session).for_users([member.user_id])
+    return MemberOut.of(member, signers.get(member.user_id))
 
 
 @writes.post(
@@ -182,7 +189,7 @@ async def change_member_role(
 ) -> MemberOut:
     await lock_as_owner(session, user, org_id)
     member = await OrgRepository(session).set_role(org_id, user_id, body.role, changed_by=user.id)
-    return MemberOut.of(member)
+    return await _member_out(session, member)
 
 
 @writes.delete(
@@ -199,7 +206,7 @@ async def remove_member(
 ) -> MemberOut:
     await lock_as_owner(session, user, org_id)
     member = await OrgRepository(session).remove(org_id, user_id, user.id)
-    return MemberOut.of(member)
+    return await _member_out(session, member)
 
 
 # --------------------------------------------------------------------------- invitations

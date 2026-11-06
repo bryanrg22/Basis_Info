@@ -85,7 +85,7 @@ LOCAL_STORAGE_DIR: Final = Path(tempfile.gettempdir()) / "basis-local-storage"
 # What the browser may send and read cross-origin: the methods the /v1 routes use (PUT: the
 # intake), the request headers they read (If-Match: the intake's precondition), and the
 # response headers a client acts on (ETag: the intake's version).
-CORS_ALLOW_METHODS: Final = ("GET", "POST", "PUT", "DELETE")
+CORS_ALLOW_METHODS: Final = ("GET", "POST", "PUT", "PATCH", "DELETE")
 CORS_ALLOW_HEADERS: Final = (
     "Authorization",
     "Content-Type",

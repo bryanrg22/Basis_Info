@@ -86,7 +86,7 @@ from basis.db.enums import (
     StudyStatus,
 )
 from basis.domain.intake import StudyIntake
-from basis.report.inputs import FirmProfile, StudyAnswers
+from basis.report.inputs import FirmProfile, SignerDetails, StudyAnswers
 
 EMBEDDING_DIM: Final = 384
 
@@ -106,6 +106,7 @@ UPDATED_AT_TABLES: Final = (
     "firm_profiles",
     "review_drafts",
     "client_error_issues",
+    "signer_details",
 )
 # Tables whose rows can never be updated or deleted (forbid_mutation() trigger).
 APPEND_ONLY_TABLES: Final = (
@@ -275,6 +276,26 @@ class User(Base):
     last_seen_at: Mapped[datetime | None]
 
 
+class UserLinkedAccount(Base):
+    """Another sign-in account (Firebase uid) of an existing user (migration
+    ``0031_user_linked_accounts``): the same person back with a new uid keeps their firms.
+    ``users.firebase_uid`` itself never changes. ``linked_by`` is ``sign_in`` (automatic,
+    ``AUTH_LINK_VERIFIED_EMAIL``) or ``operator`` (``basis.admin link-account``)."""
+
+    __tablename__ = "user_linked_accounts"
+    __table_args__ = (
+        CheckConstraint("linked_by IN ('sign_in', 'operator')", name="linked_by_valid"),
+        Index(None, "user_id"),
+    )
+
+    firebase_uid: Mapped[str] = mapped_column(primary_key=True)
+    user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"))
+    # The address the link was made for (normalized), kept for the record.
+    email: Mapped[str | None]
+    linked_by: Mapped[str]
+    created_at: Mapped[datetime] = _created_at()
+
+
 class OrgMember(Base):
     __tablename__ = "org_members"
     __table_args__ = (
@@ -417,7 +438,7 @@ class Study(Base):
 
 
 class StudySearch(Base):
-    """The library's search document of one study (migration ``0033_study_search``,
+    """The library's search document of one study (migration ``0034_study_search``,
     docs/api/STUDY_LIBRARY.md, EVAL_REPORT 92): the property name, the intake's ZIP and
     state, the taxpayer, the creator's name and email, the appraisal's identifying subject
     fields and the signers' names, one per line, lower-cased and accent-folded
@@ -676,6 +697,14 @@ class PhotoObject(Base):
     ``candidate`` (a stored candidate promoted), ``sam_box_prompt`` (SAM 3 prompted with the
     engineer's box, ``prompt_id`` names the call) or ``none`` (the box alone; ``mask_reason``
     says why: nothing matched, the call failed or timed out, no localizer).
+
+    Migration 0033 (EVAL_REPORT 90): an engineer may mark a counted instance, model or
+    manual, Not counted (``PATCH .../objects/{id}``): ``excluded_at``/``excluded_by``/
+    ``exclusion_reason`` say who, when and why, and ``counted`` is false while it is
+    excluded, so every reader of counted instances (the per-label counts, the rooms'
+    suggested counts, the report's photo exhibit) leaves it out. Counting it again clears
+    the three and sets ``counted`` back to true. Nothing is deleted; the copy into the next
+    revision keeps the exclusion.
     """
 
     __tablename__ = "photo_objects"
@@ -699,6 +728,11 @@ class PhotoObject(Base):
         CheckConstraint(
             "(source = 'manual') = (mask_source IS NOT NULL)", name="manual_has_mask_source"
         ),
+        CheckConstraint("(excluded_at IS NULL) = (excluded_by IS NULL)", name="excluded_by_whom"),
+        CheckConstraint(
+            "(excluded_at IS NULL) = (exclusion_reason IS NULL)", name="exclusion_has_reason"
+        ),
+        CheckConstraint("excluded_at IS NULL OR NOT counted", name="excluded_not_counted"),
     )
 
     id: Mapped[uuid.UUID] = _uuid_pk()
@@ -724,6 +758,9 @@ class PhotoObject(Base):
     mask_source: Mapped[str | None]
     mask_reason: Mapped[str | None]
     prompt_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("object_prompts.id"))
+    excluded_at: Mapped[datetime | None]
+    excluded_by: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id"))
+    exclusion_reason: Mapped[str | None]
     created_at: Mapped[datetime] = _created_at()
 
 
@@ -1132,6 +1169,41 @@ class FirmProfileRow(Base):
     updated_at: Mapped[datetime] = _updated_at()
 
 
+class SignerDetailsRow(Base):
+    """One engineer's signer details (EVAL_REPORT 91; migration ``0032_signer_details``): the
+    name, credentials and license they sign with, written only by that user
+    (``PUT /v1/me/signer``), ``version`` its entity tag. One row per user, not per firm: a
+    license is the person's, and a consultant in two firms signs with the same one."""
+
+    __tablename__ = "signer_details"
+    __table_args__ = (
+        CheckConstraint("version >= 1", name="version_positive"),
+        CheckConstraint("(license_number IS NULL) = (license_state IS NULL)", name="license_pair"),
+        CheckConstraint("license_state ~ '^[A-Z]{2}$'", name="license_state_code"),
+    )
+
+    user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"), primary_key=True)
+    name: Mapped[str]
+    credentials: Mapped[str]
+    license_number: Mapped[str | None]
+    license_state: Mapped[str | None]
+    version: Mapped[int] = mapped_column(server_default=text("1"), default=1)
+    created_at: Mapped[datetime] = _created_at()
+    updated_at: Mapped[datetime] = _updated_at()
+
+    def details(self) -> SignerDetails:
+        """The row as the API and the report read it (validated: the jurisdiction list is the
+        API's, the table checks only the code's form)."""
+        return SignerDetails.model_validate(
+            {
+                "name": self.name,
+                "credentials": self.credentials,
+                "license_number": self.license_number,
+                "license_state": self.license_state,
+            }
+        )
+
+
 class ReportSignature(Base):
     """An engineer's signature on a revision's report (STUDY_REPORT_SPEC 11.13): who signed,
     the name and credentials they attested, the certification version, and the sha256 of the
@@ -1139,13 +1211,20 @@ class ReportSignature(Base):
     updated (``forbid_mutation()``). ``firm_profile_version`` and ``report_answers_version``
     (migration 0027) are the versions of the two inputs the signed report was rendered with,
     so ``GET .../report/state`` can say when an input changed after signing; NULL on a
-    signature recorded before they were kept."""
+    signature recorded before they were kept. ``signer_details_version`` (migration 0032) is
+    the version of the signer's saved details the signature printed, NULL when the details
+    were typed at signing (no saved details) or before it was kept; ``letterhead`` is the firm
+    profile's name, address, phone and logo sha256 as signed, NULL before 0032."""
 
     __tablename__ = "report_signatures"
     __table_args__ = (
         UniqueConstraint("study_id", "revision"),
         CheckConstraint("revision >= 1", name="revision_positive"),
         CheckConstraint("jsonb_typeof(engineer) = 'object'", name="engineer_is_object"),
+        CheckConstraint(
+            "letterhead IS NULL OR jsonb_typeof(letterhead) = 'object'",
+            name="letterhead_is_object",
+        ),
         CheckConstraint(
             "export_sha256 ~ '^[0-9a-f]{64}$' AND reviewed_sha256 ~ '^[0-9a-f]{64}$' "
             "AND pdf_sha256 ~ '^[0-9a-f]{64}$'",
@@ -1166,6 +1245,8 @@ class ReportSignature(Base):
     pdf_sha256: Mapped[str]
     firm_profile_version: Mapped[int | None]
     report_answers_version: Mapped[int | None]
+    signer_details_version: Mapped[int | None]
+    letterhead: Mapped[dict[str, Any] | None] = mapped_column(JSON_DOC)
     created_at: Mapped[datetime] = _created_at()
 
 

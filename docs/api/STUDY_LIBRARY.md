@@ -56,7 +56,7 @@ every ZIP that starts (or contains) it, `118-34` finds the parcel `205-118-34`. 
 letters match a great deal, as the web app's in-browser search did; the server answers them
 as fast as longer words (EVAL_REPORT 92).
 
-How: one search document per study (`study_search`, migration 0033), kept by the database's
+How: one search document per study (`study_search`, migration 0034), kept by the database's
 triggers in the same transaction as the write that changes a source (the study's name, intake
 or report answers; an extracted subject field; a signature; the creator's name or email),
 folded, one value per line, with a pg_trgm GIN index that serves `LIKE '%word%'`. Each word is
