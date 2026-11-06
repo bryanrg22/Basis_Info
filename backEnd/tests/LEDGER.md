@@ -679,3 +679,14 @@ Code review of the branch (Sol on Codex, Opus on the Claude provider), each fix 
 | `web/tests/sample-api.test.cjs` | Added: a stale-preview sign answers 412 BASIS-REPORT-010 with the current preview ETag; If-Match on the report answers reads as `parse_if_match` (unquoted and weak never match, a tag list does, `*` needs existing answers); with the PROPOSED section deleted the sample still runs and `/v1/capabilities` is 404 | 30 pass |
 
 The full `web/tests/*.test.cjs` suite passed 410 tests.
+
+### The firm pages: Home, Library, Activity, Team, Settings, onboarding (web/, November 2026)
+
+| Test file | Coverage | Result |
+| --- | --- | --- |
+| `web/tests/firm-model.test.cjs` | Search matches every word against the property, address, client, taxpayer, file and parcel numbers, county, borrower and engineer (accents and case ignored) and reports the field that holds the whole query; the seven-step strip and each study's next action per state (Checking… until a report state loads, never Signed); Home's queues (an engineer's own, failures and signatures first; an admin's every waiting study; archived left out); events read as sentences with their step, bookkeeping left out, a creation with its uploads as one entry, firm events by name; Today/Yesterday grouping; signer details validation; the same rules over the sample firm (a client's name finds Harbor House, every study is found by its file number, a colleague acted yesterday) | 13 pass |
+| `web/tests/firm-pages.test.cjs` | The pages as rendered on the sample API through the real client, for an admin and an engineer: Home's queues and links to the waiting step, no id shown as text; Library search by client with marked words, the archive as its own filter, and a no-match that names the filter holding the match; Activity's day groups and linked sentences, Me filter; Team managed by the admin and read-only for the engineer; Settings with signer details and no New design switch; the new firm's checklist; with the PROPOSED section deleted (today's API) each page falls back and says so | 7 pass |
+| `web/tests/sample-api.test.cjs` | Changed: the firm (14 studies at every stage, 6 people, invitations) validates against openapi.json in all eight states for every study, a draft has no workflow (404), the archived study is listed only on request; `MemberOut.signer` and `StudyOut.summary` are the proposed extras | 30 pass |
+| `web/tests/study-overview.test.cjs`, `firm.test.cjs`, `ui-review.test.cjs`, `profile.test.cjs` | Changed: a finished study's Files page sits under the step bar; roles read Admin / Engineer / Viewer; the New design switch's tests are removed with the switch | pass |
+
+The full `web/tests/*.test.cjs` suite passed 428 tests.
