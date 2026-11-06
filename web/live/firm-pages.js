@@ -48,7 +48,7 @@
  const avatar=(name,size='')=>name==='Basis'?`<span class="fp-avatar is-basis ${size}" aria-hidden="true"><img src="assets/basis-mark.png" alt=""></span>`:`<span class="fp-avatar ${size}" aria-hidden="true" style="--av:${hue(name)}">${esc(M.initials(name))}</span>`;
  const KIND=l=>/^sign report|^update the report/i.test(l)?' is-sign':/^failed/i.test(l)?' is-failed':'';
  const pill=(label,tone)=>`<span class="fp-pill tone-${tone}${KIND(label)}">${esc(label)}</span>`;
- const stripOf=(s,d)=>{const seg=M.strip(s,d),cur=seg.findIndex(x=>x.state==='current'),at=cur<0?seg.length:cur+1;return `<span class="fp-stagebox"><span class="fp-strip" aria-hidden="true">${seg.map(x=>`<i class="is-${x.state} tone-${x.tone}" title="${esc(x.label)}"></i>`).join('')}</span><small>${cur<0?`All ${seg.length} done`:`${at} of ${seg.length} · ${esc(seg[cur].label)}`}</small></span>`};
+ const stripOf=(s,d)=>{const seg=M.strip(s,d),cur=seg.findIndex(x=>x.state==='current'),at=cur<0?seg.length:cur+1;return `<span class="fp-stagebox"><span class="fp-strip" aria-hidden="true">${seg.map(x=>`<i class="is-${x.state} tone-${x.tone}" title="${esc(x.label)}"></i>`).join('')}</span><small>${cur<0?`All ${seg.length} done`:`${at} of ${seg.length} · ${esc(seg[cur].label.replace('Report & sign','Report'))}`}</small></span>`};
  const when=at=>`<time datetime="${esc(at)}" title="${esc(Live.when(at))}">${esc(M.ago(at,now()))}</time>`;
  const href=(s,n)=>Live.route(n.action?n.screen:'processing',s.id);// the step that waits, else the study's page
  const sub=s=>{const m=s.summary;return [M.place(s),m?.client].filter(Boolean).join(' · ')};

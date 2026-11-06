@@ -279,7 +279,7 @@
 #app .fp-stagebox small{font-size:12px;font-weight:550;color:#4d5f56;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%}
 #app .fp-strip i{background:#cfdcd3}
 #app .fp-row{grid-template-columns:minmax(0,1fr) 124px 190px 80px}
-#app .fp-row:has(.fp-row-owner){grid-template-columns:minmax(0,1fr) 96px 124px 190px 80px}
+#app .fp-row:has(.fp-row-owner){grid-template-columns:minmax(0,1fr) 84px 116px 190px 72px}
 @media(max-width:1380px){#app .fp-row:has(.fp-row-owner){grid-template-columns:minmax(0,1fr) 26px 124px 190px 74px}}
 #app .fp-rows .fp-strip i{width:14px}
 #app .fp-row-main span{white-space:normal;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical}
@@ -298,3 +298,4 @@
 #app .fp-library .fp-lib-controls{flex:none}
 #app .fp-to-sign{list-style:none;margin:0;padding:0;display:grid;gap:6px}
 #app .fp-to-sign li{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:8px 10px;border:1px solid #e3ebe5;border-radius:10px;font-size:14px;font-weight:600}
+#app .fp-row-main strong{white-space:normal;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical}

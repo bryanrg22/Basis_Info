@@ -49,7 +49,7 @@ test('next: what each study needs and where it goes',()=>{
  assert.deepEqual(n({}),['Review components','review','components',true]);
  assert.deepEqual(n({current_stage:'appraisal_review'}),['Review appraisal','review','appraisal',true]);
  assert.deepEqual(n({status:'processing',current_stage:'components_processing'}),['Counting components','progress','processing',false]);
- assert.deepEqual(n({status:'failed',current_stage:'extracting'}),['Failed at reading · retry','danger','processing',true]);
+ assert.deepEqual(n({status:'failed',current_stage:'extracting'}),['Failed at Appraisal · retry','danger','processing',true]);
  assert.deepEqual(n({status:'draft',current_stage:'uploading'}),['Finish uploading','review','processing',true]);
  assert.deepEqual(n({status:'completed',current_stage:'completed'},{label:'Needs signature',tone:'review'}),['Sign report','review','report',true]);
  assert.deepEqual(n({status:'completed',current_stage:'completed'},{label:'Update required',tone:'review'}),['Update the report','review','report',true]);
