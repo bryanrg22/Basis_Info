@@ -13,9 +13,11 @@ function sampleModule(proposed=true){
  const m={exports:{}};new Function('module','exports','require',src)(m,m.exports,require);return m.exports;
 }
 // fail: {"<path regex>": status} answers those GETs with that status (a transient 503, a missing 404).
-async function boot({role='engineer',proposed=true,onboarding,fail={},intercept=null}={}){
+// intercept(path, query, init): a body answers 200; a Response is returned as it is.
+// team: also run live/live-team.js (the join page); report: also run live/live-report.js (signing).
+async function boot({role='engineer',proposed=true,onboarding,fail={},intercept=null,team=false,report=false}={}){
  const A=sampleModule(proposed),sample=A.create({now:()=>NOW,role,onboarding,fetchAsset});
- const fetchImpl=async(url,init={})=>{const u=new URL(String(url)),path=u.pathname;if(intercept){const body=intercept(path,u.searchParams,init);if(body)return new Response(JSON.stringify(body),{status:200,headers:{'content-type':'application/json'}})}for(const [re,status] of Object.entries(fail))if(new RegExp(re).test(path)&&(!init.method||init.method==='GET'))return new Response(JSON.stringify({type:'https://basis.invalid/problems/unavailable',title:'Unavailable',status,detail:'Injected by the test.'}),{status,headers:{'content-type':'application/problem+json'}});return sample.fetch(url,init)};
+ const fetchImpl=async(url,init={})=>{const u=new URL(String(url)),path=u.pathname;if(intercept){const body=intercept(path,u.searchParams,init);if(body instanceof Response)return body;if(body)return new Response(JSON.stringify(body),{status:200,headers:{'content-type':'application/json'}})}for(const [re,status] of Object.entries(fail))if(new RegExp(re).test(path)&&(!init.method||init.method==='GET'))return new Response(JSON.stringify({type:'https://basis.invalid/problems/unavailable',title:'Unavailable',status,detail:'Injected by the test.'}),{status,headers:{'content-type':'application/problem+json'}});return sample.fetch(url,init)};
  const api=require('../live/api-client.js').createClient({baseUrl:sample.base,fetchImpl,getToken:async()=>'sample-token'});
  api.invitations=org=>api.request('GET',`/v1/orgs/${org}/invitations`);api.timeline=(id,q)=>api.request('GET',`/v1/studies/${id}/timeline`,{query:q});
  const cache=new Map(),events={},me=await api.request('GET','/v1/me');
@@ -27,9 +29,14 @@ async function boot({role='engineer',proposed=true,onboarding,fail={},intercept=
  // The page reads the time from Date: pin it to the sample's now, as a capture pins the browser clock.
  class FixedDate extends Date{constructor(...a){super(...(a.length?a:[NOW]))}static now(){return NOW}}
  const g={BASIS_CONFIG:{mode:'live'},BasisLive:Live,BasisFirm:F,BasisFirmModel:M,Date:FixedDate,Intl,setTimeout,URLSearchParams,Promise,
-  icon:()=>'<svg></svg>',esc:s=>String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])),toast(){},modal(){return {querySelector:()=>null,remove(){}}},closeBtn:'',
+  icon:()=>'<svg></svg>',esc:s=>String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])),toasts:[],toast(t){g.toasts.push(t)},modals:[],closeBtn:'',
+  // A dialog: its HTML is kept; its inputs answer with the value the HTML gives them, or a value the test set.
+  modal(title,html){const typed={},m={title,html,typed,removed:false,go:{},querySelector(sel){if(sel==='#live-sign-attest')return {checked:true};if(sel==='#live-sign-go')return m.go;const id=sel.slice(1),v=new RegExp(`id="${id}" value="([^"]*)"`).exec(html);return v||id in typed?{value:id in typed?typed[id]:v[1].replace(/&#39;/g,"'").replace(/&quot;/g,'"').replace(/&amp;/g,'&')}:null},remove(){m.removed=true}};g.modals.push(m);return m},
   root:{addEventListener(name,fn){(events[name]||=[]).push(fn)},querySelector:()=>null},document:{addEventListener(){}},state:{screen:'dashboard'},location:{hash:''}};
- g.globalThis=g;vm.createContext(g);vm.runInContext(read('live/firm-pages.js'),g);
+ g.globalThis=g;vm.createContext(g);
+ if(team){g.REVIEW={screens:[]};g.logo=()=>'<a class="logo"></a>';g.heading=(t,d)=>`<h1>${t}</h1><p>${d}</p>`;g.localStorage={getItem:()=>null,setItem(){}};Live.state.user={uid:'u',email:me.user.email};cache.set('me',{done:true,data:me});vm.runInContext(read('live/live-team.js'),g)}
+ vm.runInContext(read('live/firm-pages.js'),g);
+ if(report){g.BasisReport=require('../live/report.js');Live.withStudy=fn=>'';Live.steps=()=>'';Live.errorText=e=>e?.message||'';vm.runInContext(read('live/live-report.js'),g)}
  // Render until every load the page starts has answered.
  async function page(name){let html;for(let i=0;i<12;i++){g.state.screen=name;html=Live.screens[name]();const open=[...cache.values()].filter(e=>!e.done);if(!open.length&&!/live-state/.test(html))break;await Promise.all(open.map(e=>e.promise))}return html}
  return {Live,page,events,g,me,M,sample,api};
@@ -95,15 +102,17 @@ test('against today’s API (no PROPOSED section) each page falls back and says 
  assert.match(await e.page('library'),/Search by property name or engineer/);
  const act=await e.page('activity');assert.match(act,/Your own reviews, uploads and signatures/);assert.doesNotMatch(act,/<strong>Priya Shah<\/strong>/);
  const team=await e.page('team');assert.match(team,/Showing the people on the firm’s studies/);
- const s=await e.page('settings');assert.match(s,/engineer of record, which an admin edits/);assert.match(s,/readonly/);
+ const s=await e.page('settings');assert.match(s,/You enter your name, credentials and license when you sign a report/);assert.doesNotMatch(s,/data-fp-form="signer"|readonly/,'no form that cannot be saved');
  assert.match(await e.page('dashboard'),/Your activity/);
 });
 
 /* ---------- the code review's findings (Sol, round 6): each fails on the code before its fix ---------- */
 test('onboarding without personal signer details (today’s API) still has a way on',async()=>{
- const e=await boot({proposed:false,role:'engineer'});
- const form=e.Live.signerForm(e.Live.mySigner().loading?await (async()=>{await e.page('settings');return e.Live.mySigner()})():e.Live.mySigner(),{onboarding:true});
- assert.match(form,/readonly/);assert.match(form,/data-live="fp-signer-later">Continue to your studies/);
+ const join=async proposed=>{const e=await boot({proposed,role:'engineer',onboarding:'invited',team:true});const inv=e.me.pending_invitations[0];e.Live.gate();
+  await e.Live.actions['accept-invite'](null,inv.id);let html;for(let i=0;i<8;i++){html=e.Live.gate();const open=[...e.Live.state.cache.values()].filter(x=>!x.done);if(!open.length)break;await Promise.all(open.map(x=>x.promise))}return html};
+ const today=await join(false);
+ assert.doesNotMatch(today,/data-fp-form="signer"|readonly/);assert.match(today,/You enter your name, credentials and license when you sign a report/);assert.match(today,/data-live="open-firm"/);
+ const proposed=await join(true);assert.match(proposed,/Step 2 of 2/);assert.match(proposed,/data-fp-form="signer"/);
 });
 test('a letterhead that could not be read is not offered as an empty form, and is not saved over',async()=>{
  const a=await boot({role:'admin',fail:{'/profile$':503}}),s=await a.page('settings');
@@ -132,12 +141,71 @@ test('a study’s activity reads every page of its timeline',async()=>{
  const s={id:'x',property_name:'X',updated_at:'u',org_id:'o'};e.Live.studyActivity(s);await new Promise(r=>setTimeout(r,30));
  assert.equal(pages,2,'both pages are read');assert.match(e.Live.studyActivity(s),/signed revision 2/,'the latest event, on the second page, is shown');
 });
-test('opening Activity again re-reads the feed once, without re-rendering inside the render (it recursed without end)',async()=>{
- const e=await boot();let renders=0,depth=0,maxDepth=0;
- e.Live.render=()=>{renders++;depth++;maxDepth=Math.max(maxDepth,depth);if(depth<50)for(const h of e.Live.afterRender)h();depth--};
+test('opening Home or Activity reads the feed once per visit, and never renders inside a render (it recursed without end)',async()=>{
+ let feeds=0;const e=await boot({intercept:(path)=>{if(/\/feed$/.test(path))feeds++;return null}});let renders=0;e.Live.render=()=>{renders++};
  const hooks=()=>{for(const h of e.Live.afterRender)h()};
+ await e.page('activity');hooks();assert.equal(feeds,1,'the first visit reads the feed once');
+ await e.page('activity');hooks();assert.equal(feeds,1,'a re-render in the same visit reads nothing again');
  e.g.state.screen='library';hooks();
- e.g.state.screen='activity';e.Live.state.cache.set('feed:x',{done:true,data:{}});hooks();
- assert.equal(maxDepth,0,'nothing renders inside the hook');assert.ok(!e.Live.state.cache.has('feed:x'),'the feed is read again');
- await new Promise(r=>setTimeout(r,5));assert.equal(renders,1,'one render, after the current one');assert.ok(maxDepth<2);
+ await e.page('activity');hooks();assert.equal(feeds,2,'the next visit reads it once more');
+ await e.page('dashboard');hooks();assert.equal(feeds,3,'so does opening Home');
+ assert.equal(renders,0,'no hook renders');
+});
+
+/* ---------- the code review's findings (Opus): each fails on the code before its fix ---------- */
+const linden=async e=>{const all=await e.api.listAll('/v1/studies',{},{limit:100});return all.items.find(s=>s.property_name==='Linden Avenue Townhomes')};
+async function signDialog({proposed,role='engineer',typed={},hold=false}){
+ let sent=null;const e=await boot({proposed,role,report:true,intercept:(path,q,init)=>{if(/\/report\/sign$/.test(path)&&init.method==='POST'){sent=JSON.parse(init.body);return {}}return null}});
+ const s=await linden(e);
+ for(const [k,url] of [['report-state:'+s.id+':'+s.revision,`/v1/studies/${s.id}/report/state`],['report-answers:'+s.id,`/v1/studies/${s.id}/report-answers`]])e.Live.state.cache.set(k,{done:true,data:await e.api.request('GET',url)});
+ Object.assign(e.Live.state,{study:s,studyId:s.id,reportPreview:{studyId:s.id,revision:s.revision,tag:'"'+'a'.repeat(64)+'"'}});
+ if(!hold){e.Live.mySigner(s.org_id);await Promise.all([...e.Live.state.cache.values()].filter(x=>!x.done).map(x=>x.promise));e.Live.mySigner(s.org_id);await Promise.all([...e.Live.state.cache.values()].filter(x=>!x.done).map(x=>x.promise))}
+ e.Live.actions['report-sign']();const m=e.g.modals.at(-1);
+ if(m){Object.assign(m.typed,typed);await m.go.onclick?.();await new Promise(r=>setTimeout(r,10))}
+ return {e,m,sent:()=>sent,s};
+}
+test('signing on today’s API: the engineer types their own details; the engineer of record’s are never sent for them',async()=>{
+ const {m,sent}=await signDialog({proposed:false,typed:{'live-sign-cred':'PE','live-sign-license':'PE-77120','live-sign-state':'ca'}});
+ assert.match(m.html,/id="live-sign-name" value="Jordan Lee"/,'prefilled with their own name');assert.doesNotMatch(m.html,/Alex Morgan|PE-60218/);
+ assert.deepEqual(sent().engineer,{name:'Jordan Lee',credentials:'PE',license_number:'PE-77120',license_state:'CA'});
+ const bad=await signDialog({proposed:false,typed:{'live-sign-cred':''}});assert.equal(bad.sent(),null,'no credentials, nothing sent');assert.match(bad.e.g.toasts.join(' '),/credentials/);
+ const admin=await signDialog({proposed:false,role:'admin'});assert.match(admin.m.html,/id="live-sign-license" value="PE-60218"/,'the engineer of record prefills only their own dialog (same email)');
+ const own=await signDialog({proposed:true});assert.match(own.m.html,/Signing as<\/span><strong>Jordan Lee, PE · CA PE-77120/);assert.doesNotMatch(own.m.html,/live-sign-name/);
+ assert.equal(own.sent().engineer.name,'Jordan Lee');
+});
+test('signing while the signer details load waits instead of sending the user to Settings',async()=>{
+ const {e,m}=await signDialog({proposed:true,hold:true});
+ assert.equal(m,undefined,'no dialog yet');assert.equal(e.g.location.hash,'','not moved to Settings');assert.match(e.g.toasts.join(' '),/still loading/);
+});
+test('the fallback reads the study’s firm profile, not the firm on screen',async()=>{
+ const asked=[];const e=await boot({proposed:false,intercept:(path)=>{if(/\/profile$/.test(path))asked.push(path);return null}});
+ for(let i=0;i<3;i++){e.Live.mySigner('org-of-the-study');await Promise.all([...e.Live.state.cache.values()].filter(x=>!x.done).map(x=>x.promise))}
+ assert.ok(asked.some(p=>p.includes('/orgs/org-of-the-study/profile')));
+});
+test('a viewer is never asked for signer details; Settings has no signer card for them',async()=>{
+ const v=await boot({role:'viewer'}),home=await v.page('dashboard'),set=await v.page('settings');
+ assert.doesNotMatch(home,/Set your signer details/);assert.doesNotMatch(set,/Signer details|data-fp-form="signer"/);
+});
+test('Settings reads the report state only of the studies its to-sign list can show',async()=>{
+ const e=await boot();const asked=[];e.Live.loadDeliveries=list=>{asked.push(...list.map(s=>s.created_by))};
+ await e.page('settings');assert.ok(asked.length>0);assert.ok(asked.every(id=>id===e.me.user.id),'an engineer’s own studies only');
+});
+test('a Resend that revoked the old invitation and failed to send says both',async()=>{
+ const a=await boot({role:'admin',intercept:(path,q,init)=>/\/invitations$/.test(path)&&init.method==='POST'?new Response(JSON.stringify({type:'about:blank',title:'Unavailable',status:503,detail:'down'}),{status:503,headers:{'content-type':'application/problem+json'}}):null});
+ await a.page('team');const inv=a.Live.state.cache.get('invitations:'+a.Live.firm().org_id).data.items.find(i=>i.status==='pending');
+ a.api.revokeInvitation=async()=>({});a.api.invite=(org,body)=>a.api.request('POST',`/v1/orgs/${org}/invitations`,{body});
+ a.Live.actions['fp-resend'](null,inv.id);await new Promise(r=>setTimeout(r,20));
+ assert.match(a.g.toasts.at(-1),/was revoked, but sending a new one failed/);
+});
+test('the Library announces a count, not its table',async()=>{
+ const e=await boot(),lib=await e.page('library');
+ assert.match(lib,/<p class="sr-only" id="fp-lib-status" role="status">\d+ studies<\/p>/);assert.doesNotMatch(lib,/id="fp-results" aria-live/);
+});
+test('Home with deliveries that are not signed: Sign report and Update the report wait, before reviews',async()=>{
+ const e=await boot({role:'admin'});const by={'Linden Avenue Townhomes':{label:'Needs signature',tone:'review'},'Redwood Commons':{label:'Update required',tone:'review'}};
+ e.Live.deliveryPeek=s=>by[s.property_name]||{label:'Signed',tone:'done'};
+ const needs=(await e.page('dashboard')).split('id="fp-needs-title"')[1].split('</section>')[0];
+ assert.match(needs,/Linden Avenue Townhomes[\s\S]*?is-sign">Sign report</);assert.match(needs,/href="#report\/[^"]+"/,'a signature opens Report & sign');
+ assert.match(needs,/Redwood Commons[\s\S]*?is-update">Update the report</);
+ assert.ok(needs.indexOf('Sign report')<needs.indexOf('Review '),'signatures before reviews');
 });

@@ -29,6 +29,7 @@
 #app .fp-strip{display:inline-flex;gap:3px;flex:none}
 #app .fp-strip i{width:14px;height:6px;border-radius:3px;background:#dfe7e1}
 #app .fp-strip i.is-done{background:#7aa68c}
+#app .fp-strip i.is-done.tone-idle{background:#a9b8ae}
 #app .fp-strip i.is-current.tone-review{background:#d98a1e}
 #app .fp-strip i.is-current.tone-progress{background:#5b8fc4}
 #app .fp-strip i.is-current.tone-danger{background:#c4453a}
@@ -209,6 +210,9 @@
 #app .live-report-signer span{font-size:12.5px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;color:var(--ui-muted)}
 #app .live-report-signer strong{font-size:14.5px}
 #app .live-report-signer a{font-size:13.5px;font-weight:600;color:var(--ui-accent)}
+#app .live-report-signer-fields{margin:14px 0;padding:0;border:0;display:grid;grid-template-columns:repeat(2,minmax(0,1fr));column-gap:12px}
+#app .live-report-signer-fields legend{grid-column:1/-1;padding:0;font-size:12.5px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;color:var(--ui-muted)}
+@media (max-width:560px){#app .live-report-signer-fields{grid-template-columns:1fr}}
 /* Onboarding cards (live-team.js) */
 #app .fp-step-label{margin:14px 0 2px!important;font-size:12.5px!important;font-weight:700;letter-spacing:.04em;text-transform:uppercase;color:var(--ui-accent)!important}
 #app .fp-invite-facts{display:grid;grid-template-columns:auto 1fr;gap:6px 16px;margin:16px 0 20px;padding:12px 14px;border-radius:10px;background:#f4f8f5;font-size:14px}

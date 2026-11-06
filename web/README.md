@@ -76,12 +76,18 @@ Lee); `&onboarding=invited`, `nofirm` or `new-firm` for the first-run states.
 * **Settings**: your firm and role (read-only), your signer details (editable), the firm letterhead
   (admins edit it; engineers read it).
 * **Report & sign**: the letterhead and "Signing as" come from Settings, read-only with "Edit in
-  Settings"; the sign dialog shows who signs instead of asking.
+  Settings"; the sign dialog shows who signs instead of asking. Against today's API, which keeps
+  no signer details per person, the dialog asks for the signer's name, credentials and license,
+  prefilled with their own name (and with the firm's engineer of record only when that is them,
+  by email); it never signs one engineer with another's license.
 * **Onboarding**: an invitation (step 1), then the signer details once (step 2, or Later), then
-  Home; the no-firm screen also offers "Create a firm" (`POST /v1/orgs`).
+  Home; the no-firm screen also offers "Create a firm" (`POST /v1/orgs`). Viewers, who never sign,
+  are not asked for signer details anywhere.
 * **The developer page** runs on synthetic health with `developer/?api=sample&health=partial`
-  (or `healthy`, `stale`, `missing`, `forbidden`, `offline`) and renders at full size (it was
-  zoomed to 67 %).
+  (or `healthy`, `stale`, `missing`, `forbidden`, `offline`), says so in a banner, and renders at
+  full size (it was zoomed to 67 %).
+* **Re-renders** keep what was typed in a form and the focused field with its caret (a load
+  answering re-renders the page; `Live.beforeRender` in `live/live-app.js`).
 
 What the API lacks for these pages (study identity and search, the directory for engineers,
 signer details, the firm feed) is in `FRONTEND_BACKLOG.md` section 15, built in the sample API's

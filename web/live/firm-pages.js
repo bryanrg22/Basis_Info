@@ -35,14 +35,20 @@
  const signerEntry=()=>Live.load('me-signer',()=>api.request('GET','/v1/me/signer',quiet));
  // The same key and answer as live-report.js: null until the firm saves a profile (404).
  const profileEntry=org=>Live.load('firm-profile:'+org,()=>api.request('GET',`/v1/orgs/${encodeURIComponent(org)}/profile`,{expect:[404]}).catch(e=>{if(e.status===404)return null;throw e}));
- Live.signerEntry=signerEntry;Live.firmProfileEntry=profileEntry;
- // The signed-in engineer's signer details: their own (P6), else the firm profile's engineer of record.
- // A route the API does not have answers 404 (or 405/501): only then fall back to what exists.
- // Any other failure is an error to show, never a reason to use someone else's details.
+ // The signed-in engineer's signer details. With the proposed /v1/me/signer (P6) they are their
+ // own: {signer, own:true, version}. Without it (404, 405 or 501) the API keeps none, so the
+ // engineer types them when signing: {signer:null, own:false, draft}, the draft prefilled from the
+ // firm's engineer of record only when that is this user (the same email), else their name. Any
+ // other failure is {error}; never someone else's details. org: the study's firm (default: the
+ // firm on screen), so a member of two firms reads the right profile.
  const unsupported=e=>[404,405,501].includes(e?.status);
- // The signed-in engineer's signer details: their own (P6), else, when the API has no such route,
- // the firm profile's engineer of record. {loading} | {error} | {signer, own, version}.
- Live.mySigner=()=>{const s=signerEntry();if(!s.done)return {loading:true};if(!s.error)return {signer:s.data.signer,own:true,version:s.data.version};if(!unsupported(s.error))return {error:s.error,signer:null};const f=Live.firm(),p=f?profileEntry(f.org_id):null;if(!p?.done)return {loading:true};if(p.error)return {error:p.error,signer:null};return {signer:p.data?.profile?.engineer||null,own:false}};
+ Live.mySigner=org=>{const s=signerEntry();if(!s.done)return {loading:true};if(!s.error)return {signer:s.data.signer,own:true,version:s.data.version};if(!unsupported(s.error))return {error:s.error,signer:null};
+  const id=org||Live.firm()?.org_id,p=id?profileEntry(id):null;if(p&&!p.done)return {loading:true};
+  const me=Live.me(),eor=p&&!p.error?p.data?.profile?.engineer||null:null,email=String(me?.user?.email||'').trim().toLowerCase();
+  const mine=Boolean(eor?.email&&email&&String(eor.email).trim().toLowerCase()===email);
+  return {signer:null,own:false,draft:mine?{...eor}:{name:me?.user?.display_name||''}}};
+ // Who may sign: engineers and admins (a viewer never signs, so is never asked for signer details).
+ const signs=firm=>Boolean(firm)&&firm.role!=='viewer';
  const people=()=>{const f=Live.firm();if(!f)return [];const e=L.cache.get('members:'+f.org_id);return e?.done&&!e.error?e.data.items:[]};
  const nameOf=id=>{const me=Live.me();if(me&&id===me.user.id)return meName(me);const p=people().find(m=>m.user_id===id);if(p)return p.display_name||p.email;const s=(L.cache.get('studies-all')?.data||[]).find(x=>x.created_by===id);return s?.created_by_name||null};
  const deliveryOf=s=>s.status==='completed'?Live.deliveryPeek(s):null;
@@ -73,6 +79,10 @@
  }
  // The feed's entries: the firm feed (P7) when the API has it, else your own activity; an admin
  // also gets the firm's own events (invitations, roles, the letterhead).
+ // Home and Activity read the feed again each time they are opened (a decision elsewhere changed
+ // it): the first render of a visit drops the cached feed before reading it, so a visit reads it once.
+ let lastShown=null;
+ function freshFeed(){if(lastShown===state.screen)return;lastShown=state.screen;for(const k of ['feed:','me-activity','org-activity:'])Live.invalidate(k)}
  function feedEntries(){
   const f=Live.firm();if(!f)return {done:true,entries:[],own:false};
   const studies=L.cache.get('studies-all')?.data||[];
@@ -90,23 +100,25 @@
  function setupChecklist(firm,studies){
   const prof=profileEntry(firm.org_id),members=membersEntry(firm.org_id),inv=invitationsEntry(firm.org_id),sig=Live.mySigner();
   if(!prof.done||!members.done||!inv.done||sig.loading)return '';
+  // Signer details are a step only where Basis keeps them (P6); today they are typed when signing.
   const steps=[
-   ['Add your firm’s letterhead','Name, address and phone, printed on every report.',!prof.error&&Boolean(prof.data?.profile),'#settings'],
-   ['Set your signer details','Your name, credentials and license, used when you sign.',Boolean(sig.signer),'#settings'],
-   ['Invite your engineers','They see every study of the firm and sign their own reports.',(members.data?.items?.length||0)>1||(inv.data?.items||[]).some(i=>i.status==='pending'),'#team'],
-   ['Start your first study','Upload an appraisal and the property photos.',studies.length>0,'#upload'],
-  ];
+   ['Add your firm’s letterhead','Name, address and phone, printed on every report.',!prof.error&&Boolean(prof.data?.profile),'#settings','Open Settings'],
+   sig.own&&['Set your signer details','Your name, credentials and license, used when you sign.',Boolean(sig.signer),'#settings','Open Settings'],
+   ['Invite your engineers','They see every study of the firm and sign their own reports.',(members.data?.items?.length||0)>1||(inv.data?.items||[]).some(i=>i.status==='pending'),'#team','Invite'],
+   ['Start your first study','Upload an appraisal and the property photos.',studies.length>0,'#upload','Start a study'],
+  ].filter(Boolean);
   const left=steps.filter(s=>!s[2]).length;if(!left)return '';
-  return `<section class="fp-card fp-setup" aria-labelledby="fp-setup-title"><header><h2 id="fp-setup-title">Set up ${esc(firm.org_name)}</h2><span>${steps.length-left} of ${steps.length} done</span></header><ol>${steps.map(([t,d,done,to],i)=>`<li class="${done?'is-done':''}"><span class="fp-check" aria-hidden="true">${done?icon('check',14):i+1}</span><div><strong>${esc(t)}</strong><p>${esc(d)}</p></div>${done?'<span class="fp-done-label">Done</span>':`<a class="button small${steps.findIndex(s=>!s[2])===i?' primary':''}" href="${to}">${i===3?'Start a study':i===2?'Invite':'Open Settings'}</a>`}</li>`).join('')}</ol></section>`;
+  return `<section class="fp-card fp-setup" aria-labelledby="fp-setup-title"><header><h2 id="fp-setup-title">Set up ${esc(firm.org_name)}</h2><span>${steps.length-left} of ${steps.length} done</span></header><ol>${steps.map(([t,d,done,to,go],i)=>`<li class="${done?'is-done':''}"><span class="fp-check" aria-hidden="true">${done?icon('check',14):i+1}</span><div><strong>${esc(t)}</strong><p>${esc(d)}</p></div>${done?'<span class="fp-done-label">Done</span>':`<a class="button small${steps.findIndex(s=>!s[2])===i?' primary':''}" href="${to}">${go}</a>`}</li>`).join('')}</ol></section>`;
  }
  function welcomeCard(me,firm,studies){
-  // An engineer who just joined: one card until they have a study or set their signer details.
-  const sig=Live.mySigner(),mine=studies.filter(s=>s.created_by===me.user.id);
-  if(F.isAdmin(firm)||sig.loading||mine.length||(sig.signer&&!L.justJoined))return '';
-  return `<section class="fp-card fp-welcome" aria-labelledby="fp-welcome-title"><div><h2 id="fp-welcome-title">Welcome to ${esc(firm.org_name)}, ${esc(firstName(meName(me)))}</h2><p>Every study of the firm is in the Library. Studies you start, and the reviews waiting on you, appear here.</p></div><div class="fp-welcome-actions">${sig.signer?'':`<a class="button primary" href="#settings">Set your signer details</a>`}<a class="button" href="#library">Open the Library</a>${F.canCreate(firm)?`<a class="button" href="#upload">Start a study</a>`:''}</div></section>`;
+  // A member who just joined: one card until they have a study, and while an engineer still has
+  // signer details to set (only where Basis keeps them; a viewer never signs).
+  const sig=Live.mySigner(),mine=studies.filter(s=>s.created_by===me.user.id),needsSigner=signs(firm)&&sig.own&&!sig.signer;
+  if(F.isAdmin(firm)||sig.loading||mine.length||(!needsSigner&&!L.justJoined))return '';
+  return `<section class="fp-card fp-welcome" aria-labelledby="fp-welcome-title"><div><h2 id="fp-welcome-title">Welcome to ${esc(firm.org_name)}, ${esc(firstName(meName(me)))}</h2><p>Every study of the firm is in the Library. ${signs(firm)?'Studies you start, and the reviews waiting on you, appear here.':'Its reports, schedules and activity are yours to read.'}</p></div><div class="fp-welcome-actions">${needsSigner?`<a class="button primary" href="#settings">Set your signer details</a>`:''}<a class="button" href="#library">Open the Library</a>${F.canCreate(firm)?`<a class="button" href="#upload">Start a study</a>`:''}</div></section>`;
  }
  function homePage(){
-  const me=Live.me(),firm=Live.firm();if(!me||!firm)return Live.loading();
+  const me=Live.me(),firm=Live.firm();if(!me||!firm)return Live.loading();freshFeed();
   const e=studiesEntry();if(!e.done)return Live.loading('Loading your studies…');
   if(e.error?.kind==='no-firm'){Live.invalidate('studies');Live.refreshMe?.();return Live.loading('Checking your firm…')}
   if(e.error)return Live.failed(e.error,'fp-reload');
@@ -177,12 +189,14 @@
   return `<div class="fp fp-library"><header class="fp-head"><div><h1>Library</h1><p>${all.filter(s=>s.status!=='archived').length} studies in ${esc(firm.org_name)}</p></div>${F.canCreate(firm)?`<a class="button primary" href="#upload">${icon('plus',16)}Start a study</a>`:''}</header>
 <div class="fp-search" role="search"><label class="fp-search-box">${icon('search',20)}<span class="sr-only">Search studies</span><input id="fp-search" type="search" value="${esc(P.lib.q)}" placeholder="${placeholder}" autocomplete="off" spellcheck="false" aria-describedby="fp-search-help"><button type="button" class="fp-search-clear" data-live="fp-lib-clear-q" aria-label="Clear the search" ${P.lib.q?'':'hidden'}>${icon('x',16)}</button><kbd aria-hidden="true">/</kbd></label><p id="fp-search-help" class="sr-only">Matches every word against the property, address, client, taxpayer, file number, parcel number, county, borrower and engineer.</p></div>
 <div class="fp-lib-bar"><div class="fp-chips" id="fp-chips" role="group" aria-label="Filter by status">${chipsHtml(hits)}</div><div class="fp-lib-controls"><label><span class="sr-only">Engineer</span><select id="fp-engineer" class="fp-select" data-native="true"><option value="">Every engineer</option>${engineers.map(([id,n])=>`<option value="${esc(id)}" ${P.lib.engineer===id?'selected':''}>${esc(n)}</option>`).join('')}</select></label><label><span class="sr-only">Sort</span><select id="fp-sort" class="fp-select" data-native="true"><option value="updated" ${P.lib.sort==='updated'?'selected':''}>Last updated</option><option value="created" ${P.lib.sort==='created'?'selected':''}>Newest</option><option value="name" ${P.lib.sort==='name'?'selected':''}>Name A–Z</option></select></label></div></div>
-<section class="fp-card fp-lib" id="fp-results" aria-live="polite">${resultsHtml(hits)}</section></div>`;
+<p class="sr-only" id="fp-lib-status" role="status">${esc(statusText(hits))}</p><section class="fp-card fp-lib" id="fp-results">${resultsHtml(hits)}</section></div>`;
  }
+ // What a screen reader hears as the results change: a count, not the whole table again.
+ function statusText(hits){const n=hits.filter(x=>inFilter(x.s,P.lib.filter)).length,q=P.lib.q.trim();return q?`${n} ${n===1?'study matches':'studies match'} “${q}”`:`${n} ${n===1?'study':'studies'}`}
  function paintLibrary(){
   const all=Live.firmStudies(L.cache.get('studies-all')?.data||[]),hits=libraryRows(all);
-  const chips=root.querySelector('#fp-chips'),results=root.querySelector('#fp-results');
-  if(chips)chips.innerHTML=chipsHtml(hits);if(results)results.innerHTML=resultsHtml(hits);
+  const chips=root.querySelector('#fp-chips'),results=root.querySelector('#fp-results'),status=root.querySelector('#fp-lib-status');
+  if(chips)chips.innerHTML=chipsHtml(hits);if(results)results.innerHTML=resultsHtml(hits);if(status)status.textContent=statusText(hits);
  }
  Live.actions['fp-jump']=(el,id)=>{const h=root.querySelector('#'+id);if(!h)return;h.closest('section')?.scrollIntoView({block:'start',behavior:matchMedia('(prefers-reduced-motion: reduce)').matches?'auto':'smooth'});h.setAttribute('tabindex','-1');h.focus({preventScroll:true})};
  Live.actions['fp-lib-filter']=(el,v)=>{P.lib.filter=v||'all';if(state.screen!=='library'){location.hash='#library';return}Live.render()};
@@ -199,7 +213,7 @@
  /* ---------- Activity ---------- */
  const TYPES=[['all','All'],['review','Reviews'],['signature','Reports'],['upload','Uploads'],['team','Team']];
  function activityPage(){
-  const me=Live.me(),firm=Live.firm();if(!me||!firm)return Live.loading();
+  const me=Live.me(),firm=Live.firm();if(!me||!firm)return Live.loading();freshFeed();
   const e=studiesEntry();if(!e.done)return Live.loading('Loading activity…');if(e.error)return Live.failed(e.error,'fp-reload');
   if(!people().length)membersEntry(firm.org_id);
   const f=feedEntries();if(!f.done)return `<div class="fp fp-activity">${Live.loading('Loading activity…')}</div>`;if(f.error)return `<div class="fp fp-activity">${Live.failed(f.error,'fp-reload')}</div>`;
@@ -236,7 +250,7 @@
   const tab=tabs.find(t=>t[0]===P.invTab)||tabs[0],shown=all.filter(tab[2]);
   const delivery={queued:['Sending','progress'],sent:['Emailed','done'],failed:['Email failed','danger'],not_sent:['Not emailed','idle']};
   const status=i=>i.status==='pending'?pill(`Pending · ${(delivery[i.delivery]||delivery.not_sent)[0].toLowerCase()}`,'review'):i.status==='accepted'?pill('Accepted','done'):i.status==='expired'?pill('Expired','danger'):pill(F.STATUS_LABEL[i.status]||i.status,'idle');
-  const invRows=shown.map(i=>`<tr><td><strong>${esc(i.email)}</strong></td><td>${ROLE_LABEL(i.role)}</td><td>${status(i)}</td><td>${when(i.created_at)}${i.invited_by_name?` <span class="fp-muted">by ${esc(firstName(i.invited_by_name))}</span>`:''}</td><td>${i.status==='pending'?`<span title="${esc(Live.when(i.expires_at))}">${esc(Live.when(i.expires_at).replace(/,.*$/,''))}</span>`:i.accepted_at?when(i.accepted_at):i.revoked_at?when(i.revoked_at):'<span class="fp-muted">—</span>'}</td><td class="fp-actions">${i.status==='pending'?`<button class="button small quiet" data-live="fp-resend" data-value="${esc(i.id)}">Resend</button><button class="button small quiet" data-live="revoke-invite" data-value="${esc(i.id)}">Revoke</button>`:i.status==='expired'?`<button class="button small quiet" data-live="fp-resend" data-value="${esc(i.id)}">Invite again</button>`:''}</td></tr>`).join('');
+  const invRows=shown.map(i=>`<tr><td><strong>${esc(i.email)}</strong></td><td>${ROLE_LABEL(i.role)}</td><td>${status(i)}</td><td>${when(i.created_at)}${i.invited_by_name?` <span class="fp-muted">by ${esc(firstName(i.invited_by_name))}</span>`:''}</td><td>${i.status==='pending'?`<span title="${esc(Live.when(i.expires_at))}">${esc(Live.when(i.expires_at).replace(/,.*$/,''))}</span>`:i.accepted_at?when(i.accepted_at):i.declined_at?when(i.declined_at):i.revoked_at?when(i.revoked_at):'<span class="fp-muted">—</span>'}</td><td class="fp-actions">${i.status==='pending'?`<button class="button small quiet" data-live="fp-resend" data-value="${esc(i.id)}">Resend</button><button class="button small quiet" data-live="revoke-invite" data-value="${esc(i.id)}">Revoke</button>`:i.status==='expired'?`<button class="button small quiet" data-live="fp-resend" data-value="${esc(i.id)}">Invite again</button>`:''}</td></tr>`).join('');
   return `<div class="fp fp-team"><header class="fp-head"><div><h1>Team</h1><p>${items.length} ${items.length===1?'member':'members'} of ${esc(firm.org_name)} · every member sees every study of the firm</p></div><button class="button primary" data-live="invite-member">${icon('plus',16)}Invite people</button></header>
 <section class="fp-card" aria-labelledby="fp-members-title"><header><h2 id="fp-members-title">Members</h2><button type="button" class="fp-link" data-live="fp-roles">What each role can do</button></header><div class="fp-table-wrap"><table class="fp-table"><thead><tr><th scope="col">Member</th><th scope="col">Role</th>${hasSigner?'<th scope="col">Signs as</th>':''}<th scope="col" class="fp-num">Open studies</th><th scope="col">Last active</th><th scope="col"><span class="sr-only">Actions</span></th></tr></thead><tbody>${rows}</tbody></table></div></section>
 <section class="fp-card" aria-labelledby="fp-inv-title"><header><h2 id="fp-inv-title">Invitations</h2><div class="fp-chips" role="group" aria-label="Invitations by status">${tabs.map(([k,l,f])=>`<button type="button" class="fp-chip${tab[0]===k?' is-on':''}" data-live="fp-inv-tab" data-value="${k}" aria-pressed="${tab[0]===k}">${l}<span>${all.filter(f).length}</span></button>`).join('')}</div></header>${shown.length?`<div class="fp-table-wrap"><table class="fp-table"><thead><tr><th scope="col">Email</th><th scope="col">Role</th><th scope="col">Status</th><th scope="col">Invited</th><th scope="col">${tab[0]==='pending'?'Expires':'Answered'}</th><th scope="col"><span class="sr-only">Actions</span></th></tr></thead><tbody>${invRows}</tbody></table></div>`:`<p class="fp-empty">${tab[0]==='pending'?'No invitations are waiting. Invite people with the button above.':'None.'}</p>`}</section></div>`;
@@ -259,8 +273,9 @@
   const firm=Live.firm();if(!F.isAdmin(firm))return;
   const inv=L.cache.get('invitations:'+firm.org_id)?.data?.items.find(i=>i.id===id);if(!inv)return;
   Live.guarded('invite-resend',async()=>{
-   try{if(inv.status==='pending')await api.revokeInvitation(firm.org_id,id);await api.invite(firm.org_id,{email:inv.email,role:inv.role});toast(`A new invitation was sent to ${inv.email}.`)}
-   catch(e){toast(e.status?F.adminError(e):Live.errorText(e))}
+   let revoked=false;
+   try{if(inv.status==='pending'){await api.revokeInvitation(firm.org_id,id);revoked=true}await api.invite(firm.org_id,{email:inv.email,role:inv.role});toast(`A new invitation was sent to ${inv.email}.`)}
+   catch(e){const why=e.status?F.adminError(e):Live.errorText(e);toast(revoked?`The old invitation to ${inv.email} was revoked, but sending a new one failed: ${why} Use Invite people to send it again.`:why)}
    Live.invalidate('invitations:'+firm.org_id);Live.invalidate('org-activity:');Live.render();
   });
  };
@@ -269,22 +284,28 @@
  const sel=(id,value,options,extra='')=>`<select id="${id}" class="fp-select" data-native="true" ${extra}>${options.map(([v,l])=>`<option value="${esc(v)}" ${String(v)===String(value??'')?'selected':''}>${esc(l)}</option>`).join('')}</select>`;
  const input=(id,label,value,extra='',hint='')=>`<div class="fp-field"><label for="${id}">${label}</label><input id="${id}" value="${esc(value??'')}" ${extra}>${hint?`<p class="fp-hint">${hint}</p>`:''}</div>`;
  function signerForm(sig,{onboarding=false}={}){
-  const s=sig.signer||{},ro=!sig.own;
-  return `<form class="fp-signer-form" data-fp-form="signer" novalidate><div class="fp-grid-2">${input('fp-signer-name','Name as signed',s.name,`autocomplete="name" maxlength="200" ${ro?'readonly':''}`)}${input('fp-signer-cred','Credentials',s.credentials,`maxlength="100" placeholder="PE" ${ro?'readonly':''}`)}${input('fp-signer-license','License number',s.license_number,`maxlength="50" ${ro?'readonly':''}`)}<div class="fp-field"><label for="fp-signer-state">License state</label>${sel('fp-signer-state',s.license_state,[['','Choose a state'],...M.STATES.map(x=>[x,x])],ro?'disabled':'')}</div></div>${ro?(onboarding?`<p class="fp-hint">Your firm signs reports with its engineer of record for now; an admin keeps it in Settings.</p><div class="fp-form-actions"><button type="button" class="button primary" data-live="fp-signer-later">Continue to your studies</button></div>`:''):`<div class="fp-form-actions">${onboarding?'<button type="button" class="button quiet" data-live="fp-signer-later">Later</button>':''}<button type="submit" class="button primary">${onboarding?'Save and continue':'Save signer details'}</button></div>`}</form>`;
+  // The form for the details Basis keeps (P6). Without them, nothing is kept: the engineer types
+  // their details in the sign dialog, so there is no form here (a read-only one would be a dead end).
+  const s=sig.signer||{};
+  return `<form class="fp-signer-form" data-fp-form="signer" novalidate><div class="fp-grid-2">${input('fp-signer-name','Name as signed',s.name,'autocomplete="name" maxlength="200"')}${input('fp-signer-cred','Credentials',s.credentials,'maxlength="100" placeholder="PE"')}${input('fp-signer-license','License number',s.license_number,'maxlength="50"')}<div class="fp-field"><label for="fp-signer-state">License state</label>${sel('fp-signer-state',s.license_state,[['','Choose a state'],...M.STATES.map(x=>[x,x])])}</div></div><div class="fp-form-actions">${onboarding?'<button type="button" class="button quiet" data-live="fp-signer-later">Later</button>':''}<button type="submit" class="button primary">${onboarding?'Save and continue':'Save signer details'}</button></div></form>`;
  }
  function settingsPage(){
   const me=Live.me(),firm=Live.firm();if(!me||!firm)return Live.loading();
   const admin=F.isAdmin(firm),sig=Live.mySigner(),prof=profileEntry(firm.org_id);
   if(sig.loading||!prof.done)return `<div class="fp fp-settings">${Live.loading('Loading your settings…')}</div>`;
   const p=prof.error?null:prof.data?.profile;
-  if(admin&&prof.error)P.profileError=prof.error;else P.profileError=null;
   const identity=`<section class="fp-card fp-settings-card" aria-labelledby="fp-you-title"><header><h2 id="fp-you-title">You</h2></header><dl class="fp-dl"><div><dt>Name</dt><dd>${esc(me.user.display_name||'—')}</dd></div><div><dt>Email</dt><dd>${esc(me.user.email||'—')} <span class="fp-muted">· sign-in</span></dd></div><div><dt>Firm</dt><dd>${esc(firm.org_name)}</dd></div><div><dt>Role</dt><dd>${pill(ROLE_LABEL(firm.role),'idle')}${admin?'':' <span class="fp-muted">· an admin changes roles</span>'}</dd></div></dl></section>`;
-  const studies=Live.firmStudies(L.cache.get('studies-all')?.data||[]),toSign=studies.filter(x=>x.status==='completed'&&(admin||x.created_by===me.user.id)&&deliveryOf(x)?.tone==='review');
-  if(!L.cache.get('studies-all'))studiesEntry();else Live.loadDeliveries(studies.filter(x=>x.status==='completed'));
+  // Reports waiting for this signer: an admin's, any; an engineer's, their own. Only those
+  // studies' report states are read (each answer re-renders the page).
+  const studies=Live.firmStudies(L.cache.get('studies-all')?.data||[]),mayList=signs(firm)?studies.filter(x=>x.status==='completed'&&(admin||x.created_by===me.user.id)):[],toSign=mayList.filter(x=>deliveryOf(x)?.tone==='review');
+  if(!L.cache.get('studies-all'))studiesEntry();else Live.loadDeliveries(mayList);
   if(/^#report\//.test(lastHash)&&L.study&&lastHash.includes(L.study.id))P.backTo={hash:lastHash,name:L.study.property_name};
   const back=P.backTo?`<a class="button" href="${esc(P.backTo.hash)}">${icon('back',15)}Back to ${esc(P.backTo.name)}’s report</a>`:'';
-  const next=sig.signer&&(back||toSign.length)?`<div class="fp-signer-next">${back}${toSign.length?`<p>${toSign.length===1?'One report waits':`${toSign.length} reports wait`} for ${admin?'a':'your'} signature</p><ul class="fp-to-sign">${toSign.slice(0,4).map(x=>`<li><span>${esc(x.property_name)}</span><a class="button small" href="${Live.route('report',x.id)}">Open report to sign</a></li>`).join('')}</ul>`:''}</div>`:'';
-  const signer=sig.error?`<section class="fp-card fp-settings-card" aria-labelledby="fp-signer-title"><header><h2 id="fp-signer-title">Signer details</h2></header>${Live.failed(sig.error,'fp-reload')}</section>`:`<section class="fp-card fp-settings-card" aria-labelledby="fp-signer-title"><header><h2 id="fp-signer-title">Signer details</h2>${sig.signer?pill('Set','done'):pill('Not set','review')}</header><p class="fp-card-lead">${sig.own?'Printed in the signature block of every report you sign. A signed report keeps the details it was signed with.':admin?'Reports are signed with the firm profile’s engineer of record until each engineer can keep their own details. Edit it under Firm letterhead.':'Reports are signed with the firm profile’s engineer of record, which an admin edits.'}</p>${signerForm(sig)}${next}</section>`;
+  const next=(sig.signer||!sig.own)&&(back||toSign.length)?`<div class="fp-signer-next">${back}${toSign.length?`<p>${toSign.length===1?'One report waits':`${toSign.length} reports wait`} for ${admin?'a':'your'} signature</p><ul class="fp-to-sign">${toSign.slice(0,4).map(x=>`<li><span>${esc(x.property_name)}</span><a class="button small" href="${Live.route('report',x.id)}">Open report to sign</a></li>`).join('')}</ul>`:''}</div>`:'';
+  const head=sig.own?`${sig.signer?pill('Set','done'):pill('Not set','review')}`:'';
+  const lead=sig.own?'Printed in the signature block of every report you sign. A signed report keeps the details it was signed with.'
+   :`You enter your name, credentials and license when you sign a report; Basis does not keep them for you yet.${admin?' The engineer of record printed with the letterhead is edited under Firm letterhead.':''}`;
+  const signer=!signs(firm)?'':sig.error?`<section class="fp-card fp-settings-card" aria-labelledby="fp-signer-title"><header><h2 id="fp-signer-title">Signer details</h2></header>${Live.failed(sig.error,'fp-reload')}</section>`:`<section class="fp-card fp-settings-card" aria-labelledby="fp-signer-title"><header><h2 id="fp-signer-title">Signer details</h2>${head}</header><p class="fp-card-lead">${lead}</p>${sig.own?signerForm(sig):''}${next}</section>`;
   const letter=p?[p.name,p.address,p.phone].filter(Boolean):[];
   const firmCard=admin&&prof.error?`<section class="fp-card fp-settings-card" aria-labelledby="fp-firm-title"><header><h2 id="fp-firm-title">Firm letterhead</h2></header>${Live.failed(prof.error,'fp-reload')}<p class="fp-card-lead">The letterhead could not be read, so it cannot be edited until it loads.</p></section>`:admin?`<section class="fp-card fp-settings-card" aria-labelledby="fp-firm-title"><header><h2 id="fp-firm-title">Firm letterhead</h2>${p?'':pill('Not added','review')}</header><p class="fp-card-lead">Printed at the top of every report of ${esc(firm.org_name)}. Only admins edit it.</p><form data-fp-form="letterhead" novalidate><div class="fp-grid-2">${input('fp-firm-name','Firm name',p?.name||firm.org_name,'maxlength="200"')}${input('fp-firm-phone','Phone',p?.phone,'maxlength="100" autocomplete="tel"')}</div>${input('fp-firm-address','Address',p?.address,'maxlength="500" autocomplete="street-address"')}${sig.own?'':`<h3 class="fp-sub">Engineer of record</h3><div class="fp-grid-2">${input('fp-eng-name','Name',p?.engineer?.name,'maxlength="200"')}${input('fp-eng-cred','Credentials',p?.engineer?.credentials,'maxlength="100"')}${input('fp-eng-license','License number',p?.engineer?.license_number,'maxlength="50"')}<div class="fp-field"><label for="fp-eng-state">License state</label>${sel('fp-eng-state',p?.engineer?.license_state,[['','Choose a state'],...M.STATES.map(x=>[x,x])])}</div></div>`}<div class="fp-form-actions"><button type="submit" class="button primary">Save letterhead</button></div></form></section>`
    :`<section class="fp-card fp-settings-card" aria-labelledby="fp-firm-title"><header><h2 id="fp-firm-title">Firm letterhead</h2></header><p class="fp-card-lead">Printed at the top of every report. An admin edits it.</p>${letter.length?`<address class="fp-letterhead">${letter.map(esc).join('<br>')}</address>`:'<p class="fp-empty">Not added yet.</p>'}</section>`;
@@ -297,7 +318,7 @@
   if(problems.length){toast(problems.join(' '));return false}
   const cur=signerEntry().data;
   try{await api.request('PUT','/v1/me/signer',{body,headers:{'If-Match':`"${cur?.version??0}"`}})}
-  catch(e){if(e.status===412){Live.invalidate('me-signer');toast('Your signer details changed in another tab. They were reloaded; apply your change again.');Live.render();return false}throw e}
+  catch(e){if(e.status===412){Live.invalidate('me-signer');P.dropDrafts=true;toast('Your signer details changed in another tab. They were reloaded; apply your change again.');Live.render();return false}throw e}
   Live.invalidate('me-signer');Live.invalidate('members:');toast(onboarding?'Signer details saved.':'Signer details saved. Reports you sign from now on use them.');return true;
  }
  async function saveLetterhead(form){
@@ -311,7 +332,7 @@
   const body={...(cur?.profile||{}),name,address:v('#fp-firm-address').trim()||null,phone:v('#fp-firm-phone').trim()||null,engineer:eng&&eng.name?{name:String(eng.name).trim(),credentials:String(eng.credentials||'').trim(),license_number:String(eng.license_number||'').trim()||null,license_state:String(eng.license_state||'').trim().toUpperCase()||null,...(eng.email?{email:eng.email}:{})}:null};
   if(body.engineer&&!body.engineer.credentials){toast('Enter the engineer of record’s credentials.');return}
   try{await api.request('PUT',`/v1/orgs/${encodeURIComponent(firm.org_id)}/profile`,{body,headers:cur?{'If-Match':`"${cur.version}"`}:{}})}
-  catch(err){if(err.status===412){Live.invalidate('firm-profile:');toast('The letterhead changed since you opened it. It was reloaded; apply your change again.');Live.render();return}throw err}
+  catch(err){if(err.status===412){Live.invalidate('firm-profile:');P.dropDrafts=true;toast('The letterhead changed since you opened it. It was reloaded; apply your change again.');Live.render();return}throw err}
   Live.invalidate('firm-profile:');Live.invalidate('report-');Live.invalidate('org-activity:');toast('Letterhead saved. It is printed on reports written from now on.');Live.render();
  }
  root.addEventListener('submit',e=>{
@@ -351,8 +372,8 @@
   return `<section class="panel fp-deliver" aria-labelledby="fp-deliver-title"><header><h2 id="fp-deliver-title">Report and schedule</h2>${final.tone==='done'?'':pill(final.label,final.tone==='review'?'review':'idle')}</header>${lead}<div class="fp-deliver-row">${dl('pdf','report.pdf',sig?`Signed report · revision ${s.revision}`:'Draft report',true)}${dl('csv','schedule.csv','Schedule CSV')}${dl('xlsx','schedule.xlsx','Schedule XLSX')}</div>${table}</section>`;
  };
  Live.studyActivity=s=>{
-  // The timeline is in recorded order, a page at a time: read every page, then take the latest.
-  const t=Live.load('fp-timeline:'+s.id+':'+s.updated_at,()=>api.listAll(`/v1/studies/${encodeURIComponent(s.id)}/timeline`,{},{limit:200}));
+  // The timeline is in recorded order, a page at a time (at most 1,000 events): read every page, then take the latest.
+  const t=Live.load('fp-timeline:'+s.id+':'+s.updated_at,()=>api.listAll(`/v1/studies/${encodeURIComponent(s.id)}/timeline`,{},{limit:1000}));
   if(!t.done)return `<section class="panel fp-study-activity">${Live.loading('Loading activity…')}</section>`;if(t.error)return '';
   const f=Live.firm();if(f&&!people().length)membersEntry(f.org_id);
   const entries=M.feed(t.data.items.map(e=>({...e,study_id:s.id,property_name:s.property_name,actor_name:e.actor_name||nameOf(e.actor_id)})),{studies:[s]});
@@ -367,12 +388,25 @@
 
  /* ---------- register ---------- */
  Object.assign(Live.screens,{dashboard:homePage,library:libraryPage,activity:activityPage,team:teamPage,settings:settingsPage});
- Live.signerForm=signerForm;Live.firmAvatar=avatar;Live.firmEntryHtml=entryHtml;Live.firmPill=pill;
- // Home and Activity read the feed again each time they are opened (a decision elsewhere changed it).
- let shown=null;
- // The entry is recorded before anything re-renders (a render runs this hook again), and the
- // re-render waits for the current one to finish.
- Live.afterRender.push(()=>{const now=state.screen,was=shown;shown=now;if(now!==was&&was!==null&&['dashboard','activity'].includes(now)){for(const k of ['feed:','me-activity','org-activity:'])Live.invalidate(k);setTimeout(()=>Live.render())}});
+ Live.signerForm=signerForm;
+ // A visit ends when another screen renders (freshFeed then reads the feed again on the next one).
+ Live.afterRender.push(()=>{lastShown=state.screen});
+ // A background re-render (a load answering) rebuilds the page from server values: keep what the
+ // user typed in a form, and the focused field with its caret (the Library's search box), so
+ // typing is never lost. A save that reloads after a conflict sets P.dropDrafts to show the reload.
+ let kept=null;
+ (Live.beforeRender||=[]).push(()=>{
+  const was=root.querySelector?.('.workspace')?.dataset?.screen;if(!was||!root.querySelectorAll){kept=null;return}
+  const changed=el=>el.tagName==='SELECT'?[...el.options].some(o=>o.selected!==o.defaultSelected):el.value!==el.defaultValue;
+  const fields=[...root.querySelectorAll('form[data-fp-form] input[id], form[data-fp-form] select[id]')].filter(changed).map(el=>[el.id,el.value]);
+  const a=document.activeElement,focus=a&&a!==document.body&&root.contains(a)&&a.id?{id:a.id,start:a.selectionStart??null,end:a.selectionEnd??null}:null;
+  kept={screen:was,fields,focus};
+ });
+ Live.afterRender.push(()=>{
+  const k=kept;kept=null;const drop=P.dropDrafts;P.dropDrafts=false;if(!k||drop||k.screen!==state.screen)return;
+  for(const [id,v] of k.fields){const el=root.querySelector('#'+CSS.escape(id));if(el?.closest('form[data-fp-form]'))el.value=v}
+  if(k.focus){const el=root.querySelector('#'+CSS.escape(k.focus.id));if(el&&document.activeElement!==el){el.focus({preventScroll:true});if(k.focus.start!=null)try{el.setSelectionRange(k.focus.start,k.focus.end)}catch{}}}
+ });
  const TITLES={dashboard:'Home',library:'Library',activity:'Activity',team:'Team',settings:'Settings'};
  Live.afterRender.push(()=>{if(TITLES[state.screen]&&Live.me?.())document.title='Basis · '+TITLES[state.screen]});
  Live.render();

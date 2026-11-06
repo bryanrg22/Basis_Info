@@ -240,3 +240,7 @@ html:has(dialog[open]){overflow:hidden}
 /* Laptop and desktop: the page at two thirds of its drawn size (Bryan prefers it at the browser's
    67 %). Phones and tablets keep full size; their own rules above are written for that width. */
 /* The page renders at 100%: an earlier html{zoom:.67} made every label 8-9px on a desktop. */
+
+/* ?api=sample: the page says its health is synthetic (sample-health.js). */
+.sample-banner{margin:0 0 16px;padding:10px 14px;border:1px solid #e3c98f;border-radius:8px;background:#fff8e8;color:#5b4410;font-size:14px}
+.sample-banner strong{font-weight:700}

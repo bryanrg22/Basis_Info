@@ -15,6 +15,9 @@
  // The page sends its token only to the trusted API origin; the sample is that origin here.
  scope.BASIS_CONFIG.apiBase=BASE;scope.BASIS_CONFIG_OVERRIDES={...(scope.BASIS_CONFIG_OVERRIDES||{}),apiBase:BASE};
  scope.BasisAuth={user:{uid:'sample-operator',email:'operator@example.test'},init:async()=>{},getToken:async()=>'sample-token',onChange(){return ()=>{}},signOut:async()=>{}};
+ // Say so on the page: these outages are invented (the live bar's System health link opens this view from the sample app).
+ const note=()=>{const main=scope.document?.querySelector('main');if(!main||main.querySelector('.sample-banner'))return;const p=scope.document.createElement('p');p.className='sample-banner';p.setAttribute('role','note');p.innerHTML=`<strong>Synthetic health.</strong> No service was contacted: every status here is invented for the “${scenario}” sample.`;main.prepend(p)};
+ if(scope.document?.readyState==='loading')scope.document.addEventListener('DOMContentLoaded',note);else note();
  const real=scope.fetch?.bind(scope);
  scope.fetch=async(url,options)=>{
   const u=new URL(String(url),scope.location.href);

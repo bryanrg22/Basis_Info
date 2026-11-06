@@ -58,9 +58,10 @@
   const legacy=study?.components_gate===false,labels=legacy?STEPS.filter(s=>s!=='Components'):STEPS;
   let at=AT[study?.current_stage]??0;if(legacy&&at>=3)at=Math.max(2,at-1);
   const status=study?.status;
-  const tone=status==='failed'||status==='stalled'?'danger':status==='waiting_review'?'review':status==='processing'?'progress':status==='draft'?'review':status==='completed'?(delivery?.tone==='done'?'done':delivery?.tone==='review'?'review':'progress'):status==='archived'?'done':'idle';
-  const finished=status==='archived'||status==='completed'&&delivery?.tone==='done';
-  return labels.map((label,i)=>({label,state:finished||i<at?'done':i===at?'current':'todo',tone:finished||i<at?'done':i===at?tone:'idle'}));
+  const tone=status==='failed'||status==='stalled'?'danger':status==='waiting_review'?'review':status==='processing'?'progress':status==='draft'?'review':status==='completed'?(delivery?.tone==='done'?'done':delivery?.tone==='review'?'review':'progress'):'idle';
+  // An archived study keeps where it stopped, in a neutral tone (an archived draft is not "done").
+  const finished=status==='completed'&&delivery?.tone==='done',archived=status==='archived';
+  return labels.map((label,i)=>({label,state:finished||i<at?'done':i===at?'current':'todo',tone:archived?'idle':finished||i<at?'done':i===at?tone:'idle'}));
  }
  const GATE_STEP={appraisal_review:['Appraisal','appraisal'],rooms_review:['Rooms','rooms'],components_review:['Components','components'],assets_review:['Assets','assets']};
  const WORKING={uploading:'Waiting for files',extracting:'Reading the appraisal',components_processing:'Counting components',assets_processing:'Pricing the assets',exporting:'Writing the report'};
@@ -91,11 +92,10 @@
   const needs=rows.filter(r=>r.next.action&&mine(r.study)).sort((a,b)=>rank(a)-rank(b)||byUpdate(a.study,b.study));
   const working=rows.filter(r=>r.study.status==='processing'&&mine(r.study)).sort((a,b)=>byUpdate(a.study,b.study));
   const finished=rows.filter(r=>r.study.status==='completed'&&r.next.tone==='done').sort((a,b)=>byUpdate(a.study,b.study));
-  const others=admin?[]:rows.filter(r=>r.next.action&&!mine(r.study)).sort((a,b)=>byUpdate(a.study,b.study));
   const recent=finished.filter(r=>now-Date.parse(r.study.updated_at)<=30*DAY);
-  return {needs,working,finished,others,signedThisMonth:recent.length,checking:rows.filter(r=>r.study.status==='completed'&&r.next.tone==='pending').length};
+  return {needs,working,finished,signedThisMonth:recent.length};
  }
- // Failures first, then what waits on a signature, then reviews (oldest wait first within each).
+ // Failures first, then what waits on a signature, then reviews, then drafts (latest update first within each).
  const rank=r=>r.next.tone==='danger'?0:r.next.label==='Sign report'||r.next.label==='Update the report'?1:r.study.status==='draft'?3:2;
 
  /* ---------- events as sentences ---------- */
@@ -115,8 +115,8 @@
    }
    case 'gate.opened':return {kind:'review',verb:`opened the ${step} review`,step,screen:gateScreen,detail:null,tone:'review',system:true};
    case 'report.signed':return {kind:'signature',verb:`signed revision ${e.revision}`,step:'Report & sign',screen:'report',detail:null,tone:'done'};
-   case 'export.written':return e.detail?.skipped?{kind:'signature',verb:'could not write the report',step:'Results',screen:'complete',detail:null,tone:'danger',system:true}:{kind:'signature',verb:`wrote the report for revision ${e.revision}`,step:'Report & sign',screen:'report',detail:null,tone:'progress',system:true};
-   case 'report_answers.saved':return {kind:'signature',verb:'updated the study details for the report',step:'Report & sign',screen:'report',detail:null,tone:'idle'};
+   case 'export.written':return (e.detail?.report?.skipped??e.detail?.skipped)?{kind:'signature',verb:'could not write the report',step:'Results',screen:'complete',detail:null,tone:'danger',system:true}:{kind:'signature',verb:`wrote the report for revision ${e.revision}`,step:'Report & sign',screen:'report',detail:null,tone:'progress',system:true};
+   case 'study.report_answers_set':return {kind:'signature',verb:'updated the study details for the report',step:'Report & sign',screen:'report',detail:null,tone:'idle'};
    case 'study.reopened':return {kind:'review',verb:`reopened ${step||'a step'}`,step,screen:gateScreen,detail:e.detail?.from_revision?`Revision ${e.detail.from_revision} → ${e.revision}`:null,tone:'review'};
    case 'study.archived':return {kind:'study',verb:'archived the study',step:null,screen:'processing',detail:null,tone:'idle'};
    case 'study.unarchived':return {kind:'study',verb:'restored the study from the archive',step:null,screen:'processing',detail:null,tone:'idle'};
@@ -176,7 +176,7 @@
  function byDay(entries,now=Date.now(),locale='en-US'){
   const key=t=>{const d=new Date(t);return `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`};
   const today=key(now),yesterday=key(now-DAY),groups=[];
-  for(const e of entries){const k=key(Date.parse(e.at));let g=groups[groups.length-1];if(!g||g.key!==k){g={key:k,label:k===today?'Today':k===yesterday?'Yesterday':new Intl.DateTimeFormat(locale,{weekday:'long',month:'short',day:'numeric'}).format(new Date(e.at)),entries:[]};groups.push(g)}g.entries.push(e)}
+  for(const e of entries){const k=key(Date.parse(e.at));let g=groups[groups.length-1];if(!g||g.key!==k){g={key:k,label:k===today?'Today':k===yesterday?'Yesterday':new Intl.DateTimeFormat(locale,{weekday:'long',month:'short',day:'numeric',...(new Date(e.at).getFullYear()!==new Date(now).getFullYear()?{year:'numeric'}:{})}).format(new Date(e.at)),entries:[]};groups.push(g)}g.entries.push(e)}
   return groups;
  }
  // "just now", "12 min ago", "3 h ago", "Yesterday", "Mon", "Oct 2".

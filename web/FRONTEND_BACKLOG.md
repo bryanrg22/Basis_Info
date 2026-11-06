@@ -306,8 +306,9 @@ proposed routes from the sample once the backend has them.
   `POST .../report/sign`, so the sign route itself needs no change (it could default `engineer` to
   the stored details and refuse 409 when there are none). The preview renders the firm profile's
   engineer of record today; the signer's details should replace it in the preview and the signed
-  PDF's signature block. Without P6 the app signs with the firm profile's engineer of record, which
-  only an admin edits (Settings shows it read-only to engineers and says so).
+  PDF's signature block. Without P6 nothing is stored per person: the sign dialog asks for the
+  signer's details each time, prefilled with their name (and with the firm profile's engineer of
+  record only when its email is theirs), and Settings says so instead of showing a form.
 * **P7. The firm's activity for every member.** `GET /v1/orgs/{org_id}/feed?since&until&actor_id&
   study_id&limit&cursor` → `{org_id, items, since, until, next_cursor}`: the `study_events` of every
   study of the firm, newest first, each item an `ActivityItemOut` plus `actor_name` and
@@ -329,7 +330,10 @@ proposed routes from the sample once the backend has them.
 
 ## Testing
 
-No automated test loads any live screen (`web/tests/*.test.cjs` cover the helper
-modules only; `live-smoke.mjs` walks the API without rendering). A screen-level harness
-(jsdom or Playwright against the local stack, `web/README.md` "Live mode, locally") is
-the gap to close alongside the forms above.
+`web/tests/firm-pages.test.cjs` renders the firm pages (Home, Library, Activity, Team,
+Settings), the join page and the sign dialog in a VM, on the sample API through the real API
+client, for each role and against the sample with its PROPOSED section removed (today's API).
+Those tests do not run a browser: what a render does to the DOM (typed values kept, focus,
+layout) is checked by the Playwright captures. The other live screens are covered by their
+helper modules' tests only; a browser harness against the local stack (`web/README.md`
+"Live mode, locally") is still the gap for them.

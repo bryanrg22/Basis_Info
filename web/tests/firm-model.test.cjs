@@ -28,7 +28,8 @@ test('search: every word must match somewhere; the field shown is the one that h
 test('highlight marks every word, escapes HTML, and leaves text whose length changes alone',()=>{
  assert.equal(M.highlight('Harbor House','har hou'),'<mark>Har</mark>bor <mark>Hou</mark>se');
  assert.equal(M.highlight('<b>Harbor</b>','harbor'),'&lt;b&gt;<mark>Harbor</mark>&lt;/b&gt;');
- assert.equal(M.highlight('Straße','strasse'),'Straße','no partial marks when normalization changes length');
+ assert.equal(M.highlight('ﬁle','file'),'ﬁle','no partial marks when normalization changes length (the ligature becomes two letters)');
+ assert.equal(M.highlight('Straße','stra'),'<mark>Stra</mark>ße','a length-keeping text is marked');
  assert.equal(M.highlight('Harbor',''),'Harbor');
 });
 
@@ -38,6 +39,10 @@ test('the strip: steps before the current one are done, the current one carries 
  assert.equal(tones(study({status:'processing',current_stage:'extracting'})),'d progress t t t t t');
  assert.equal(tones(study({status:'failed',current_stage:'extracting'})),'d danger t t t t t');
  assert.equal(tones(study({status:'draft',current_stage:'uploading'})),'review t t t t t t');
+ // An archived study keeps where it stopped, in a neutral tone: an archived draft is not "All 7 done".
+ const archived=M.strip(study({status:'archived',current_stage:'uploading'}));
+ assert.deepEqual(archived.map(x=>x.state),['current','todo','todo','todo','todo','todo','todo']);assert.ok(archived.every(x=>x.tone==='idle'));
+ assert.ok(M.strip(study({status:'archived',current_stage:'completed'})).every(x=>x.tone==='idle'),'an archived finished study is not green either');
  assert.equal(M.strip(study({status:'completed',current_stage:'completed'}),{tone:'done',label:'Signed'}).every(x=>x.state==='done'),true,'signed: all done');
  assert.equal(tones(study({status:'completed',current_stage:'completed'})),'d d d d d d progress','delivery unknown: the last step is still working');
  assert.equal(M.strip(study({components_gate:false,current_stage:'assets_review'})).length,6,'a legacy study has no Components step');
@@ -63,7 +68,7 @@ test('Home: an engineer’s own studies that wait on them, failures and signatur
  const deliveryOf=s=>s.id==='c'?{label:'Needs signature',tone:'review'}:s.id==='g'?{label:'Signed',tone:'done'}:null;
  const h=M.home(list,{id:'u1'},{deliveryOf,now:NOW});
  assert.deepEqual(h.needs.map(r=>r.study.id),['b','c','a'],'failed, then sign, then review; a colleague’s study is not mine');
- assert.deepEqual(h.others.map(r=>r.study.id),['d']);
+ assert.ok(![...h.needs,...h.working,...h.finished].some(r=>r.study.id==='d'),'a colleague’s waiting study is in none of my lists');
  assert.deepEqual(h.working.map(r=>r.study.id),['e']);
  assert.deepEqual(h.finished.map(r=>r.study.id),['g']);
  assert.equal(h.signedThisMonth,0,'signed in September is not this month');
@@ -111,8 +116,12 @@ test('firm events for admins name people and roles, not ids',()=>{
 test('days: Today, Yesterday, then dates, in the viewer’s time zone; relative times',()=>{
  const at=h=>new Date(NOW-h*3600000).toISOString();
  const g=M.byDay([{at:at(1)},{at:at(2)},{at:at(26)},{at:at(80)}],NOW);
- assert.deepEqual(g.map(x=>[x.label,x.entries.length]).slice(0,2).map(x=>x[0]).filter(l=>['Today','Yesterday'].includes(l)).length>=1,true);
+ // The expected labels are computed in the zone the test runs in, as the page does.
+ const day=t=>new Date(Date.parse(t)).toDateString(),label=(t,o={})=>new Intl.DateTimeFormat('en-US',{weekday:'long',month:'short',day:'numeric',...o}).format(new Date(t));
+ const expect=[at(1),at(26),at(80)].map(t=>day(t)===day(new Date(NOW).toISOString())?'Today':day(t)===day(new Date(NOW-86400000).toISOString())?'Yesterday':label(t));
+ assert.deepEqual(g.map(x=>x.label),[...new Set([at(1),at(2),at(26),at(80)].map(t=>expect[[at(1),at(26),at(80)].findIndex(u=>day(u)===day(t))]))]);
  assert.equal(g.reduce((n,x)=>n+x.entries.length,0),4);
+ assert.equal(M.byDay([{at:'2025-10-01T18:00:00Z'}],NOW)[0].label,label('2025-10-01T18:00:00Z',{year:'numeric'}),'another year says its year');
  assert.equal(M.ago(new Date(NOW-30000).toISOString(),NOW),'just now');
  assert.equal(M.ago(new Date(NOW-12*60000).toISOString(),NOW),'12 min ago');
  assert.equal(M.ago('not a date',NOW),'');
@@ -156,4 +165,17 @@ test('the sample firm’s feed (proposed P7): names, studies and steps, yesterda
  assert.ok(entries.every(e=>e.actor&&e.verb&&!/[0-9a-f]{8}-[0-9a-f]{4}/.test(`${e.actor} ${e.verb} ${e.study?.name}`)));
  const days=M.byDay(entries,NOW);assert.equal(days[0].label,'Today');assert.ok(days.some(d=>d.label==='Yesterday'&&d.entries.some(e=>e.actorId&&e.actor!=='Jordan Lee')),'a colleague did something yesterday');
  assert.ok(entries.some(e=>e.actor==='Alex Morgan'&&/approved Components/.test(e.verb)),'a decision by someone other than the study’s engineer is theirs');
+});
+
+// The backend's own event names and shapes (api/routes/report.py, activities/export_report.py):
+// the sample once used invented ones, so the feed passed its tests and missed the real events.
+test('the real report events: study details saved, and an export that wrote no report',()=>{
+ const e=over=>({at:'2026-11-05T20:00:00Z',actor_type:'engineer',actor_id:'u1',stage:'completed',revision:2,study_id:'s',property_name:'X',...over});
+ assert.match(M.studyEntry(e({event_type:'study.report_answers_set'})).verb,/updated the study details/);
+ const skipped=M.studyEntry(e({event_type:'export.written',actor_type:'system',actor_id:null,detail:{uri:'u',sha256:'h',report:{skipped:{code:'BASIS-REPORT-002',message:'No firm profile'}}}}));
+ assert.match(skipped.verb,/could not write the report/);
+ const written=M.studyEntry(e({event_type:'export.written',actor_type:'system',actor_id:null,detail:{uri:'u',sha256:'h',report:{files:{pdf:{uri:'p'}},draft:true}}}));
+ assert.doesNotMatch(written.verb,/could not/);
+ const sample=fs.readFileSync(path.join(__dirname,'../live/sample-api.js'),'utf8');
+ assert.doesNotMatch(sample,/report_answers\.saved/,'the sample emits the backend’s event name');
 });

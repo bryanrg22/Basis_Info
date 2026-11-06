@@ -320,7 +320,8 @@
    enterStage(S,'completed');S.status='completed';
    const r=S.result=resultOf(S),skipped=r.allocation?null:{code:E.INPUTS_MISSING,message:'The allocation was withheld: '+(r.missing.join(', ')||'see the result')};
    S.exports[S.revision]={uri:`sample://exports/${S.id}/rev-${S.revision}/summary.json`,sha256:digest(`export:${S.id}:${S.revision}:${JSON.stringify(r.schedule)}`),at:iso(S.clock()),skipped};
-   event(S,'export.written',{detail:{skipped}});
+   // The backend's shape (activities/export_report.py): the report written, or why it was not.
+   event(S,'export.written',{detail:{uri:S.exports[S.revision].uri,sha256:S.exports[S.revision].sha256,report:skipped?{skipped}:{files:{},draft:true}}});
    const run=S.runs[S.runs.length-1];if(run){run.ended_at=iso(S.clock());run.outcome='completed'}
    return;
   }
@@ -387,7 +388,7 @@
  const locationTrail=()=>({factor:COST.location.toFixed(3),from:'state',lookup:'state',zip:null,lookup_from:'appraisal',state:'CA',city:null,zip_prefixes:null,cities:null,low:null,high:null,pages:null,table_year:COST.baseYear,origin:'sample',citation:'Sample location factors (illustrative), California',store:null});
  const METHOD={cost_basis:'total_incl_op',rcn_source:'square_foot_model',modifications:false,overhead_allocation:'pro_rata',specialties_residual:'row'};
  const COST_HOOKS=[];// hooks: (asset, context) => void (the PROPOSED section applies a unit price override)
- function provenanceOf(edit,base){return edit?{origin:'engineer_modified',correction_id:edit.correction_id,review_id:edit.review_id,stage:'assets_review',revision:edit.revision,at:edit.at,by:edit.by||S.inst.me.id,before:edit.before,after:edit.after,changed:Object.keys(edit.after),carried_from:null}:base}
+ function provenanceOf(edit,base){return edit?{origin:'engineer_modified',correction_id:edit.correction_id,review_id:edit.review_id,stage:'assets_review',revision:edit.revision,at:edit.at,by:edit.by??null,before:edit.before,after:edit.after,changed:Object.keys(edit.after),carried_from:null}:base}
  function itemizedAssets(S){
   const out=[];
   for(const room of S.rooms)for(const item of room.inventory){
@@ -733,7 +734,7 @@
    if(stop>=3){at(3);decideSeed('approve')}
    if(stop>=4){
     at(4);decideSeed('approve');
-    S.answers=S.n===1?clone(ANSWERS):{...clone(ANSWERS),taxpayer_name:S.meta?.taxpayer||ANSWERS.taxpayer_name,photographed_by:S.owner.name};S.answersVersion=1;audit(S,'report_answers','added',{after:clone(S.answers)});event(S,'report_answers.saved',{actor:'engineer'});
+    S.answers=S.n===1?clone(ANSWERS):{...clone(ANSWERS),taxpayer_name:S.meta?.taxpayer||ANSWERS.taxpayer_name,photographed_by:S.owner.name};S.answersVersion=1;audit(S,'report_answers','added',{after:clone(S.answers)});event(S,'study.report_answers_set',{actor:'engineer'});
     if(['signed','update-required','archived'].includes(target)){
      at(5);const signer=person(S.signerId);S.actor=signer;
      const engineer=signer.signer?{...clone(signer.signer),email:signer.email}:clone(PROFILE.engineer);
@@ -744,7 +745,7 @@
      // Harbor House: the firm's letterhead changed since (every study's report shows it); another
      // study: its own answers changed (who photographed it).
      if(S.n===1){inst.profile.phone='(555) 010-0199';inst.profileVersion++;inst.profileUpdated=iso(S.clock())}
-     else{const before=clone(S.answers);S.answers={...S.answers,photographed_on:iso(S.clock()).slice(0,10),photographs:'taxpayer_supplied'};S.answersVersion++;audit(S,'report_answers','modified',{before,after:clone(S.answers)});event(S,'report_answers.saved',{actor:'engineer'})}
+     else{const before=clone(S.answers);S.answers={...S.answers,photographed_on:iso(S.clock()).slice(0,10),photographs:'taxpayer_supplied'};S.answersVersion++;audit(S,'report_answers','modified',{before,after:clone(S.answers)});event(S,'study.report_answers_set',{actor:'engineer'})}
     }
     if(target==='archived'){at(6);S.status='archived';event(S,'study.archived',{actor:'engineer',after:{status:'archived'}});audit(S,'archived','archived')}
    }
@@ -1003,7 +1004,7 @@
     const b=ctx.body,errs=checkShape(b,{taxpayer_name:TEXT,photographs:v=>v==='engineer_site_visit'||v==='taxpayer_supplied',photographed_by:TEXT,photographed_on:v=>typeof v==='string'&&/^\d{4}-\d{2}-\d{2}$/.test(v),interviews:v=>Array.isArray(v),prior_depreciation:v=>v===null||typeof v==='object'},['taxpayer_name','photographs','photographed_by','photographed_on']);
     if(errs.length)return invalid(errs);
     if(!ifMatchAllows(ctx.h['if-match'],S.answersVersion,Boolean(S.answers)))return new Problem(412,'precondition-failed','Precondition Failed',`The report answers changed since you read them (their ETag is now "${S.answersVersion}"); nothing was written.`,E.ANSWERS_412,undefined,{etag:`"${S.answersVersion}"`});
-    const before=clone(S.answers);S.answers={interviews:[],prior_depreciation:null,...clone(b)};S.answersVersion++;audit(S,'report_answers',before?'modified':'added',{before,after:clone(S.answers)});event(S,'report_answers.saved',{actor:'engineer'});
+    const before=clone(S.answers);S.answers={interviews:[],prior_depreciation:null,...clone(b)};S.answersVersion++;audit(S,'report_answers',before?'modified':'added',{before,after:clone(S.answers)});event(S,'study.report_answers_set',{actor:'engineer'});
     return json(200,{study_id:S.id,report_answers:clone(S.answers),report_answers_version:S.answersVersion},{etag:`"${S.answersVersion}"`});
    }));
    route('GET','/v1/studies/{study_id}/report/preview',withStudy(async(S,ctx)=>{const st=reportState(S,ctx.i);if(!st.exported||st.skipped)return conflict('conflict',`Revision ${S.revision} has no report to preview yet.`,E.NOT_SIGNABLE);return {status:200,bytes:await asset(ctx.i,REPORT_PATH),headers:{'content-type':'application/pdf','content-disposition':`inline; filename="study-${S.id.slice(0,8)}-rev-${S.revision}-report-preview.pdf"`,etag:`"${previewTag(S,ctx.i)}"`}}}));

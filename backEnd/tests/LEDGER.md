@@ -696,4 +696,17 @@ Code review of the branch (Sol on Codex), each fix with a test that fails on the
 | `web/tests/firm-pages.test.cjs` | Added: onboarding without personal signer details (today's API) still has a way on; a letterhead that could not be read is neither shown as an empty form nor saved over; a signer read that fails (503) is an error, never the engineer of record's details, while a missing route (404) still falls back; the fallback activity keeps to the firm on screen; a study's activity reads every page of its timeline; opening Activity again re-reads the feed once without re-rendering inside the render (it recursed without end and crashed the page) | 13 pass |
 | `web/tests/sample-api.test.cjs` | Added: the proposed directory carries each member's signer details before and after they are read or saved, and a stale signer version is refused (412) | 31 pass |
 
-The full `web/tests/*.test.cjs` suite passed 432 tests.
+Code review of the branch (Opus on Claude), each fix with a test that fails on the code before it:
+
+| Test file | Coverage | Result |
+| --- | --- | --- |
+| `web/tests/firm-pages.test.cjs` | Added: signing on today's API asks for the engineer's own details, prefilled with their name, and never sends the engineer of record's for someone else (the admin, whose email it is, gets it prefilled); signing while the signer details load waits instead of moving to Settings; the fallback reads the study's firm profile; a viewer is never asked for signer details; Settings reads the report state only of the studies its to-sign list can show; a Resend that revoked and then failed says both; the Library announces a count, not its table; Home with deliveries that are not signed puts Sign report and Update the report before reviews; Home and Activity read the feed once per visit (it was read twice). Changed: onboarding on today's API has no read-only form, it says the details are typed when signing (the join page itself is rendered, with live-team.js) | 21 pass |
+| `web/tests/firm-model.test.cjs` | Added: the backend's own events (`study.report_answers_set`, `export.written` with `detail.report.skipped`) and the sample emits them; an archived study's strip keeps where it stopped in a neutral tone; the length-change fallback of highlighting is exercised with a ligature; the day labels themselves, and another year's date says its year | 14 pass |
+
+The browser checks of the same fixes (`.ui-climb/scripts/verify-opus.mjs`, Playwright on the sample):
+Settings keeps a typed value, its focus and caret across a re-render; the Library's search box keeps
+focus and the next key lands at the caret; the sign dialog against today's API (signer route 404)
+has fields, prefilled with the engineer's name or the admin's own license; the developer page's
+sample mode says its health is synthetic. 12 of 12 pass.
+
+The full `web/tests/*.test.cjs` suite passed 441 tests.

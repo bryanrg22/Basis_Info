@@ -150,6 +150,7 @@
  }
  const baseRender=render;
  render=function(){
+  for(const fn of Live.beforeRender||[])fn();// what a re-render must keep (live/firm-pages.js: typed values, focus)
   parseHash();
   if(!L.authReady){root.innerHTML=liveBar()+`<main class="live-splash">${Live.loading('Connecting to sign-in…')}${L.authError?Live.failed({title:'Sign-in is unavailable',message:L.authError}):''}</main>`;return}
   if(!L.user&&!PUBLIC.has(state.screen)){L.returnTo=location.hash||'#dashboard';state.screen='login'}
@@ -185,7 +186,7 @@
   hydrateImages();
   Live.afterRender.forEach(fn=>fn());
  }
- Live.afterRender=[];
+ Live.afterRender=[];Live.beforeRender=[];
  function liveBar(){
   const host=(()=>{try{return new URL(C.apiBase).host}catch{return C.apiBase}})();
   const mock=new URL(location.href);mock.searchParams.delete('mode');

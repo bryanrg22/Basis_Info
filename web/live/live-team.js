@@ -66,9 +66,10 @@
   let cards='';
   if(T.joined){
    const label=F.roleLabel(T.joined.role),signs=T.joined.role!=='viewer'&&Live.signerForm&&Live.mySigner;
-   const sig=signs?Live.mySigner():null;
-   cards=signs&&sig.error?`<section class="invitation-card panel"><div class="panel-body">${logo()}<h2>You joined ${esc(T.joined.org_name)}</h2>${Live.failed(sig.error,'fp-reload')}<button class="button primary" data-live="open-firm">Open ${esc(T.joined.org_name)}</button></div></section>`:signs&&!sig.loading?`<section class="invitation-card panel fp-onboarding"><div class="panel-body">${logo()}<p class="fp-step-label">Step 2 of 2 · Your signer details</p><h2>You joined ${esc(T.joined.org_name)}</h2><p>Set the details printed in the signature of every report you sign. You enter them once; you can change them in Settings.</p>${Live.signerForm({...sig,signer:sig.signer||{name:me.user.display_name||''}},{onboarding:true})}</div></section>`
-    :`<section class="invitation-card panel"><div class="panel-body">${logo()}<h2>You joined ${esc(T.joined.org_name)}</h2><p>You are ${article(label)} ${esc(label.toLowerCase())}: ${esc((F.ROLE_SCOPE[T.joined.role]||'').replace(/^./,c=>c.toLowerCase()))}</p>${signs?Live.loading():`<button class="button primary" data-live="open-firm">Open ${esc(T.joined.org_name)}</button>`}</div></section>`;
+   // Step 2 only where Basis keeps signer details (P6); without them the engineer types them when signing.
+   const sig=signs?Live.mySigner(T.joined.org_id):null,step=signs&&!sig.loading&&!sig.error&&sig.own;
+   cards=signs&&sig.error?`<section class="invitation-card panel"><div class="panel-body">${logo()}<h2>You joined ${esc(T.joined.org_name)}</h2>${Live.failed(sig.error,'fp-reload')}<button class="button primary" data-live="open-firm">Open ${esc(T.joined.org_name)}</button></div></section>`:step?`<section class="invitation-card panel fp-onboarding"><div class="panel-body">${logo()}<p class="fp-step-label">Step 2 of 2 · Your signer details</p><h2>You joined ${esc(T.joined.org_name)}</h2><p>Set the details printed in the signature of every report you sign. You enter them once; you can change them in Settings.</p>${Live.signerForm({...sig,signer:sig.signer||{name:me.user.display_name||''}},{onboarding:true})}</div></section>`
+    :`<section class="invitation-card panel"><div class="panel-body">${logo()}<h2>You joined ${esc(T.joined.org_name)}</h2><p>You are ${article(label)} ${esc(label.toLowerCase())}: ${esc((F.ROLE_SCOPE[T.joined.role]||'').replace(/^./,c=>c.toLowerCase()))}</p>${signs&&sig.loading?Live.loading():`${signs?'<p>You enter your name, credentials and license when you sign a report.</p>':''}<button class="button primary" data-live="open-firm">Open ${esc(T.joined.org_name)}</button>`}</div></section>`;
   }else{
    const done=new Set(T.answered.map(a=>a.invitation.id));
    cards=T.answered.map(answeredCard).join('')+me.pending_invitations.filter(i=>!done.has(i.id)).map(i=>pendingCard(me,i)).join('');
@@ -86,7 +87,7 @@
   try{
    const result=await api.acceptInvitation(id);
    stored.set(result.membership?.org_id||inv.org_id);
-   T.joined={org_name:inv.org_name,role:result.membership?.role||inv.role};
+   T.joined={org_id:result.membership?.org_id||inv.org_id,org_name:inv.org_name,role:result.membership?.role||inv.role};
    Live.invalidate('studies');
   }catch(e){if(!e.status)throw e;T.answered.push({invitation:inv,state:F.answerState(e)})}
   await Live.refreshMe();Live.render();
