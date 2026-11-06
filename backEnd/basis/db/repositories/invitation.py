@@ -60,7 +60,7 @@ from basis.db.models import Invitation, Org, User
 from basis.db.repositories.org import OrgRepository
 from basis.db.repositories.org_event import OrgEventRepository
 from basis.db.repositories.outbox import INVITATION_NOTIFICATION, NOTIFICATION, OutboxRepository
-from basis.db.repositories.user import UserRepository
+from basis.db.repositories.user import UserRepository, normalize_email
 
 MAX_EMAIL_LENGTH: Final = 254  # RFC 5321 section 4.5.3.1.3 (a path is at most 256 octets)
 # Visible ASCII except "@" on both sides of exactly one "@", and a dot in the domain.
@@ -104,11 +104,6 @@ _CLOSED_DETAIL: Final = {
     InvitationStatus.REVOKED: "This invitation was revoked by the firm.",
     InvitationStatus.EXPIRED: "This invitation has expired. Ask the firm's owner for a new one.",
 }
-
-
-def normalize_email(raw: str) -> str:
-    """Trimmed and lower case: the stored and compared form."""
-    return raw.strip().lower()
 
 
 def valid_email(raw: str) -> str:

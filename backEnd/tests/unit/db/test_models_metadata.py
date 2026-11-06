@@ -35,6 +35,8 @@ VERSIONS = Path(__file__).resolve().parents[3] / "basis/db/alembic/versions"
 MIGRATION = VERSIONS / "0001_initial.py"
 
 SPEC_TABLES = {
+    # The library's search document, kept by triggers (migration 0034_study_search).
+    "study_search": "study_id document",
     # Retention (migration 0026_retention_alerts): orgs.retention_days, studies.purged_at.
     "orgs": "id name retention_days created_at",
     # Browser error capture (migration 0028_client_errors, docs/api/CLIENT_ERRORS.md).
@@ -45,6 +47,7 @@ SPEC_TABLES = {
     "status_set_by status_set_at status_build_sha occurrences first_seen_at last_seen_at "
     "last_build_sha created_at updated_at",
     "users": "id firebase_uid email display_name created_at last_seen_at",
+    "user_linked_accounts": "firebase_uid user_id email linked_by created_at",
     "org_members": "org_id user_id role",
     # v0.9: room_aliases added by migration 0005_room_grouping (EVAL_REPORT section 27).
     # v0.12: components_gate (migration 0009_components_gate).
@@ -111,9 +114,10 @@ SPEC_TABLES = {
     "model_version params image_width image_height predict_seconds cost_usd "
     "carried_from_revision",
     # Manual add (migration 0008_object_prompts): mask_source, mask_reason, prompt_id.
+    # Not counted (migration 0033_object_exclusion): excluded_at, excluded_by, exclusion_reason.
     "photo_objects": "id study_id document_id revision label phrase score x1 y1 x2 y2 mask "
     "area source counted derived_from carried_from created_by deleted_at deleted_by "
-    "mask_source mask_reason prompt_id",
+    "mask_source mask_reason prompt_id excluded_at excluded_by exclusion_reason",
     "object_prompts": "id study_id document_id revision label params status reason returned "
     "kept_score model_version predict_seconds cost_usd created_by",
     # Invite-only firms: migration 0007_invitations.
@@ -138,7 +142,10 @@ SPEC_TABLES = {
     "firm_profiles": "org_id profile version updated_by created_at updated_at",
     "report_signatures": "id study_id revision signed_by signed_at engineer statement_version "
     "export_sha256 reviewed_sha256 pdf_uri pdf_sha256 firm_profile_version "
-    "report_answers_version",
+    "report_answers_version signer_details_version letterhead",
+    # Each engineer's own signer details (migration 0032, EVAL_REPORT 91): one row per user.
+    "signer_details": "user_id name credentials license_number license_state version "
+    "created_at updated_at",
     # The latest heartbeat of each worker and relay process (migration 0021, ops health).
     "service_heartbeats": "id service build_sha state started_at heartbeat_at report",
     # The firm's own history (migration 0022_user_activity_org_events).
@@ -249,6 +256,7 @@ SPEC_SIMPLE_FKS = {
     ("photo_objects", "created_by", "users"),
     ("photo_objects", "deleted_by", "users"),
     ("photo_objects", "prompt_id", "object_prompts"),
+    ("photo_objects", "excluded_by", "users"),
     ("object_prompts", "created_by", "users"),
     ("invitations", "org_id", "orgs"),
     ("invitations", "created_by", "users"),
@@ -268,6 +276,7 @@ SPEC_SIMPLE_FKS = {
     ("cost_indices", "obtained_by", "users"),
     ("cost_indices", "run_id", "cost_index_runs"),
     ("cost_index_runs", "actor_id", "users"),
+    ("study_search", "study_id", "studies"),
 }
 
 SPEC_UNIQUES = {
@@ -297,6 +306,7 @@ SPEC_UNIQUES = {
 
 SPEC_PRIMARY_KEYS = {
     "org_members": ("org_id", "user_id"),
+    "user_linked_accounts": ("firebase_uid",),
     "document_pages": ("document_id", "page_no"),
     "photo_rooms": ("document_id", "revision"),
     "photo_localizations": ("document_id", "revision"),
@@ -304,8 +314,11 @@ SPEC_PRIMARY_KEYS = {
     "classification_cache": ("org_id", "key"),
     "idempotency_keys": ("key",),
     "firm_profiles": ("org_id",),
+    "signer_details": ("user_id",),
     # Browser error capture (0028): one issue per fingerprint.
     "client_error_issues": ("fingerprint",),
+    # The search document (0033): one per study.
+    "study_search": ("study_id",),
 }
 
 SPEC_CHECKS = {
@@ -326,6 +339,9 @@ SPEC_CHECKS = {
     "ck_photo_objects_deleted_by_whom",
     "ck_photo_objects_mask_source_valid",
     "ck_photo_objects_manual_has_mask_source",
+    "ck_photo_objects_excluded_by_whom",
+    "ck_photo_objects_exclusion_has_reason",
+    "ck_photo_objects_excluded_not_counted",
     "ck_object_prompts_status_valid",
     "ck_object_prompts_returned_nonnegative",
     "ck_invitations_role_valid",
@@ -415,6 +431,7 @@ STUDY_SCOPED = {
     "object_prompts",
     "study_events",
     "photo_room_answers",
+    "study_search",
 }
 
 
@@ -517,15 +534,17 @@ def test_migration_enum_labels_match_models() -> None:
 def test_migration_trigger_tables_match_models() -> None:
     migration = load_migration()
     # 0020 adds firm_profiles to the updated_at tables; 0024 adds review_drafts; 0028 adds
-    # client_error_issues.
+    # client_error_issues; 0032 adds signer_details.
     report = load_migration(VERSIONS / "0020_report_signing.py")
     drafts = load_migration(VERSIONS / "0024_review_drafts.py")
     issues = load_migration(VERSIONS / "0028_client_errors.py")
+    signers = load_migration(VERSIONS / "0032_signer_details.py")
     assert (
         *migration.UPDATED_AT_TABLES,
         *report.UPDATED_AT_TABLES,
         *drafts.UPDATED_AT_TABLES,
         *issues.UPDATED_AT_TABLES,
+        *signers.UPDATED_AT_TABLES,
     ) == UPDATED_AT_TABLES
     # 0013 adds study_events to the append-only tables (the same forbid_mutation() trigger).
     events = load_migration(VERSIONS / "0013_study_events.py")
@@ -665,8 +684,9 @@ def test_jsonb_columns_store_none_as_sql_null() -> None:
     # years_added / failures / detail; the report (0020): report_signatures.engineer;
     # ops health (0021): service_heartbeats.report; the firm's history (0022):
     # org_events.before/after/detail; gate drafts (0024): review_drafts.document;
-    # alerts (0026): alerts.payload; browser error capture (0028): client_errors.event
-    assert len(jsonb) == 38
+    # alerts (0026): alerts.payload; browser error capture (0028): client_errors.event;
+    # signer details (0032): report_signatures.letterhead
+    assert len(jsonb) == 39
     for name, column in jsonb:
         assert table(name).c[column].type.none_as_null, f"{name}.{column}"
 
@@ -678,6 +698,14 @@ def test_indexes() -> None:
         for index in t.indexes
     }
     assert indexes["ix_studies_org_id_created_at"] == ["studies.org_id", "created_at DESC"]
+    # 0033: the library search's pg_trgm GIN index, deleted with its study.
+    assert indexes["ix_study_search_document_trgm"] == ["study_search.document"]
+    search = table("study_search")
+    (trgm,) = search.indexes
+    assert trgm.dialect_options["postgresql"]["using"] == "gin"
+    assert trgm.dialect_options["postgresql"]["ops"] == {"document": "gin_trgm_ops"}
+    (fk,) = search.foreign_keys
+    assert fk.ondelete == "CASCADE"
     assert indexes["ix_chunks_corpus_version_id_doc_id"] == [
         "chunks.corpus_version_id",
         "chunks.doc_id",

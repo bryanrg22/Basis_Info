@@ -14,12 +14,13 @@ optional now and the body is a page object.
 from __future__ import annotations
 
 import uuid
+from collections.abc import Mapping
 from typing import Annotated, Final
 
 from fastapi import Depends, Query
 
 from basis.api.routes.common import problems, read_router
-from basis.api.routes.objects import object_out
+from basis.api.routes.objects import exclusion_names, object_out
 from basis.api.schemas.evidence import (
     AssetEvidenceOut,
     CitationEvidenceOut,
@@ -44,7 +45,9 @@ MAX_CURSOR_LENGTH: Final = 512
 reads = read_router(tags=["evidence"])
 
 
-def asset_evidence_out(item: AssetEvidence) -> AssetEvidenceOut:
+def asset_evidence_out(
+    item: AssetEvidence, names: Mapping[uuid.UUID, str | None] | None = None
+) -> AssetEvidenceOut:
     asset, component, room = item.asset, item.component, item.room
     return AssetEvidenceOut(
         asset_id=asset.id,
@@ -66,7 +69,7 @@ def asset_evidence_out(item: AssetEvidence) -> AssetEvidenceOut:
                     if photo.localization is not None
                     else None
                 ),
-                instances=[object_out(row) for row in photo.instances],
+                instances=[object_out(row, names) for row in photo.instances],
             )
             for photo in item.photos
         ],
@@ -110,8 +113,12 @@ async def list_evidence(
     page = await EvidenceRepository(session).page(
         access.study.id, access.study.revision, limit=limit, cursor=cursor, asset_id=asset_id
     )
+    names = await exclusion_names(
+        session,
+        [row for item in page.items for photo in item.photos for row in photo.instances],
+    )
     return EvidencePageOut(
         revision=page.revision,
-        items=[asset_evidence_out(item) for item in page.items],
+        items=[asset_evidence_out(item, names) for item in page.items],
         next_cursor=page.next_cursor,
     )

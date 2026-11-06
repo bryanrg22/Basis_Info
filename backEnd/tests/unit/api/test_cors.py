@@ -10,6 +10,9 @@
 * The intake's conditional write works from the browser: a ``PUT`` preflight with
   ``If-Match`` is allowed and ``ETag`` is exposed.
 * An unlisted origin gets no ``Access-Control-Allow-Origin``; its preflight is refused.
+* Every method a ``/v1`` route answers is allowed by the preflight: a route the browser cannot
+  reach is a route the app cannot use (``PATCH`` was missing, so neither the firm rename nor
+  Not counted worked from the web app; found driving the app against the API, 2026-11-06).
 """
 
 from __future__ import annotations
@@ -146,3 +149,27 @@ async def test_no_origins_configured_means_no_cors() -> None:
     # No CORS middleware: OPTIONS reaches the router, which has no OPTIONS route.
     assert preflight.status_code == 405
     assert "access-control-allow-methods" not in preflight.headers
+
+
+async def test_every_route_method_passes_a_browser_preflight(client: httpx.AsyncClient) -> None:
+    app = create_app(build(cors_allowed_origins=(FRONTEND,), temporal_address=""))
+    used = {
+        (method, path)
+        for path, methods in app.openapi()["paths"].items()
+        if path.startswith("/v1/")
+        for method in (m.upper() for m in methods)
+    }
+    assert {m for m, _ in used} >= {"GET", "POST", "PUT", "PATCH", "DELETE"}
+    for method in sorted({m for m, _ in used}):
+        path = next(p for m, p in sorted(used) if m == method)
+        response = await client.options(
+            path,
+            headers={
+                "Origin": FRONTEND,
+                "Access-Control-Request-Method": method,
+                "Access-Control-Request-Headers": "authorization,content-type",
+            },
+        )
+        assert response.status_code == 200, (method, path, response.text)
+        allowed = response.headers["access-control-allow-methods"].replace(" ", "").split(",")
+        assert method in allowed, (method, allowed)

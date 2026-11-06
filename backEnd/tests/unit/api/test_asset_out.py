@@ -155,7 +155,8 @@ def test_a_legacy_row_has_a_null_trail_and_its_old_fields_unchanged() -> None:
         formula="max(count=6, min_per_room=1)",
     )  # fmt: skip
     body = asset_out(row(takeoff, cost)).model_dump(mode="json", by_alias=True)
-    assert body["cost"] == {**OLD_COST, "trail": None, "trail_recorded": False}
+    # EVAL_REPORT 90 added `override` (null unless the engineer set the unit price).
+    assert body["cost"] == {**OLD_COST, "trail": None, "trail_recorded": False, "override": None}
     # A takeoff stored without inputs: the new members are empty, the old ones as before.
     assert body["takeoff"] == {
         "quantity": "6.0000",

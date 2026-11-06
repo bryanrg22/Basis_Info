@@ -217,6 +217,26 @@ class PhotoObjectRepository:
         await self._session.flush()
         return row
 
+    async def exclude(self, row: PhotoObject, user_id: uuid.UUID, reason: str) -> PhotoObject:
+        """Mark a counted row Not counted (migration 0033): who, when and why, and
+        ``counted`` false while it stays excluded. A row already excluded takes the new
+        reason, person and time (the event keeps the old ones)."""
+        row.counted = False
+        row.excluded_at = datetime.now(UTC)
+        row.excluded_by = user_id
+        row.exclusion_reason = reason
+        await self._session.flush()
+        return row
+
+    async def restore(self, row: PhotoObject) -> PhotoObject:
+        """Count an excluded row again: the exclusion is cleared (the event keeps it)."""
+        row.counted = True
+        row.excluded_at = None
+        row.excluded_by = None
+        row.exclusion_reason = None
+        await self._session.flush()
+        return row
+
     # ------------------------------------------------------------------ revisions
 
     async def carry(
@@ -233,7 +253,9 @@ class PhotoObjectRepository:
         A copied object keeps its geometry, score, source, author and mask source and
         names the row it came from (``carried_from``); a copied ``derived_from`` still names
         the candidate of ``from_revision`` (the selection's history), not its copy, and a
-        copied ``prompt_id`` the call that outlined it.
+        copied ``prompt_id`` the call that outlined it. An engineer's exclusion (Not
+        counted: who, when, why) is copied with the row, so it holds in every later
+        revision until someone counts the object again (EVAL_REPORT 90).
         """
         localizations = await self.localizations(study_id, from_revision)
         for document_id in sorted(localizations):
@@ -290,6 +312,9 @@ class PhotoObjectRepository:
                     mask_source=old_row.mask_source,
                     mask_reason=old_row.mask_reason,
                     prompt_id=old_row.prompt_id,
+                    excluded_at=old_row.excluded_at,
+                    excluded_by=old_row.excluded_by,
+                    exclusion_reason=old_row.exclusion_reason,
                 )
             )
             copied += 1

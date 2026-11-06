@@ -1,5 +1,5 @@
 # Reviewed waivers for tooling/check_no_client_data.py: <sha256>  <path>  # reason
-c131744abd1c5c7bfd66d4dd9a791a592e88d551aede9a35c04c7e3c91e76613  backEnd/.env.example  # settings names only, every value empty (re-pin after any edit)
+ae012dbd663551147f436091f9148ca1140546bea6b2432cf5fe3534c527efb8  backEnd/.env.example  # settings names only, every value empty (re-pin after any edit)
 1fb096ac6370c79367e00b7791d90a3608210ec16f61ade5a62448b905ec2f94  web/assets/basis-logo.png  # Basis logo, byte copy of tracked frontend/public/images/basis_logo.png
 273b3d78580345fb34e799ebd26baf5e5bdb44b70d5cf65482d5b69a1c784566  web/assets/basis-mark.png  # Basis mark, byte copy of tracked frontend/public/images/basis_logo_no_words.png
 5c7f0087f1d6812954f55e9105aa3f0b6d9b603793af67bb71cc48b11b5a6534  web/assets/harbor-house-sample-page-1.png  # page 1 of the fictional sample PDF (web/scripts/make-preview-pdf.py), no client data

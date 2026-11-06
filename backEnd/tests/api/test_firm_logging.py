@@ -51,11 +51,11 @@ def entries(stream: io.StringIO, message: str) -> list[dict[str, Any]]:
 
 
 async def test_creating_a_firm_at_debug_answers_201_and_logs_the_name(
-    invite_only_api: Api, log_stream: io.StringIO
+    self_serve_api: Api, log_stream: io.StringIO
 ) -> None:
     assert logging.getLogger("basis.api.routes.orgs").isEnabledFor(logging.INFO)
 
-    created = await invite_only_api.post("nina", "/v1/orgs", {"name": "Harbor Cost Seg"})
+    created = await self_serve_api.post("nina", "/v1/orgs", {"name": "Harbor Cost Seg"})
 
     assert created.status_code == 201, created.text
     firm = created.json()

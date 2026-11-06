@@ -285,14 +285,16 @@ def cost_out(cost: CostEstimate) -> CostOut:
     """The stored cost row and the trail recorded when it was priced (read as stored,
     never recomputed: a row priced before the trail existed has ``trail`` null)."""
     trail = cost.trail if isinstance(cost.trail, dict) else None
+    validated = None if trail is None else CostTrailOut.model_validate(trail)
     return CostOut(
         unit_cost=cost.unit_cost,
         total=cost.total,
         source_row=cost.source_row,
         location_factor=cost.location_factor,
         cost_year=cost.cost_year,
-        trail=None if trail is None else CostTrailOut.model_validate(trail),
+        trail=validated,
         trail_recorded=trail is not None,
+        override=None if validated is None else validated.override,
     )
 
 
