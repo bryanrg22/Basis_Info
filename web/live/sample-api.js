@@ -1109,7 +1109,7 @@
   STUDY_MATCH.push((S,q)=>{const m=S.meta;if(!m)return false;return [m.address,`${m.address}, ${m.city}, ${m.state} ${m.zip}`,m.city,m.county,m.apn,m.client,m.borrower,m.taxpayer,S.answers?.taxpayer_name,m.file,S.owner.name,S.owner.email].some(v=>v&&String(v).toLowerCase().includes(q))});
   // P5: every member reads the member list; each member carries their signer details.
   MEMBER_READERS.push('engineer','viewer');
-  MEMBER_OUT.push((out,p,I)=>{const s=I.signers?.[p.id]??p.signer;out.signer=s?{...s}:null});
+  MEMBER_OUT.push((out,p,I)=>{const r=I.signers?.[p.id],s=r?r.signer:p.signer;out.signer=s?{...s}:null});
   // P6: an engineer's own signer details.
   const signerOf=I=>{I.signers??={};if(!(I.me.id in I.signers))I.signers[I.me.id]={signer:I.me.signer?{...I.me.signer}:null,version:I.me.signer?1:0,updated_at:I.me.signer?iso(I.t0-20*86400000):null};return I.signers[I.me.id]};
   const signerBody=r=>({signer:r.signer?{...r.signer}:null,version:r.version,updated_at:r.updated_at});

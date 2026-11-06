@@ -37,7 +37,12 @@
  const profileEntry=org=>Live.load('firm-profile:'+org,()=>api.request('GET',`/v1/orgs/${encodeURIComponent(org)}/profile`,{expect:[404]}).catch(e=>{if(e.status===404)return null;throw e}));
  Live.signerEntry=signerEntry;Live.firmProfileEntry=profileEntry;
  // The signed-in engineer's signer details: their own (P6), else the firm profile's engineer of record.
- Live.mySigner=()=>{const s=signerEntry();if(!s.done)return {loading:true};if(!s.error)return {signer:s.data.signer,own:true,version:s.data.version};const f=Live.firm(),p=f?profileEntry(f.org_id):null;if(!p?.done)return {loading:true};return {signer:p.error?null:p.data?.profile?.engineer||null,own:false}};
+ // A route the API does not have answers 404 (or 405/501): only then fall back to what exists.
+ // Any other failure is an error to show, never a reason to use someone else's details.
+ const unsupported=e=>[404,405,501].includes(e?.status);
+ // The signed-in engineer's signer details: their own (P6), else, when the API has no such route,
+ // the firm profile's engineer of record. {loading} | {error} | {signer, own, version}.
+ Live.mySigner=()=>{const s=signerEntry();if(!s.done)return {loading:true};if(!s.error)return {signer:s.data.signer,own:true,version:s.data.version};if(!unsupported(s.error))return {error:s.error,signer:null};const f=Live.firm(),p=f?profileEntry(f.org_id):null;if(!p?.done)return {loading:true};if(p.error)return {error:p.error,signer:null};return {signer:p.data?.profile?.engineer||null,own:false}};
  const people=()=>{const f=Live.firm();if(!f)return [];const e=L.cache.get('members:'+f.org_id);return e?.done&&!e.error?e.data.items:[]};
  const nameOf=id=>{const me=Live.me();if(me&&id===me.user.id)return meName(me);const p=people().find(m=>m.user_id===id);if(p)return p.display_name||p.email;const s=(L.cache.get('studies-all')?.data||[]).find(x=>x.created_by===id);return s?.created_by_name||null};
  const deliveryOf=s=>s.status==='completed'?Live.deliveryPeek(s):null;
@@ -74,7 +79,10 @@
   const feed=feedEntry(f.org_id);if(!feed.done)return {done:false};
   let own=false,events=[];
   if(!feed.error)events=feed.data.items;
-  else{const mine=myActivityEntry();if(!mine.done)return {done:false};own=true;events=mine.error?[]:mine.data.items}
+  else if(!unsupported(feed.error))return {done:true,error:feed.error,entries:[]};
+  else{const mine=myActivityEntry();if(!mine.done)return {done:false};if(mine.error)return {done:true,error:mine.error,entries:[]};own=true;
+   // Your activity spans every firm you belong to: keep this firm's studies.
+   const ids=new Set(Live.firmStudies(studies).map(s=>s.id).filter(Boolean));events=mine.data.items.filter(e=>ids.has(e.study_id))}
   let firmEvents=[];
   if(F.isAdmin(f)){const o=firmActivityEntry(f.org_id);if(!o.done)return {done:false};firmEvents=o.error?[]:o.data.items}
   return {done:true,own,entries:M.feed(events,{firmEvents,name:nameOf,studies})};
@@ -113,7 +121,7 @@
   const working=h.working.length?`<section class="fp-card" aria-labelledby="fp-working-title"><header><h2 id="fp-working-title">Processing</h2><span>Basis is working; nothing to do yet</span></header>${list(h.working,'',4)}</section>`:'';
   const signed=h.finished.length?`<section class="fp-card fp-finished" aria-labelledby="fp-signed-title"><header><h2 id="fp-signed-title">Recently signed</h2><a href="#library" data-live="fp-lib-filter" data-value="signed">All signed ${icon('arrow',14)}</a></header><div class="fp-rows">${h.finished.slice(0,3).map(r=>studyRow(r,{owner:admin})).join('')}</div></section>`:'';
   const f=feedEntries();
-  const feed=`<section class="fp-card fp-feed" aria-labelledby="fp-feed-title"><header><h2 id="fp-feed-title">${f.own?'Your activity':'Firm activity'}</h2><a href="#activity">All activity ${icon('arrow',14)}</a></header>${!f.done?Live.loading():f.entries.length?`<ol class="fp-events is-compact">${f.entries.slice(0,6).map(x=>entryHtml(x,{compact:true})).join('')}</ol>`:'<p class="fp-empty">No activity yet.</p>'}</section>`;
+  const feed=`<section class="fp-card fp-feed" aria-labelledby="fp-feed-title"><header><h2 id="fp-feed-title">${f.own?'Your activity':'Firm activity'}</h2><a href="#activity">All activity ${icon('arrow',14)}</a></header>${!f.done?Live.loading():f.error?Live.failed(f.error,'fp-reload'):f.entries.length?`<ol class="fp-events is-compact">${f.entries.slice(0,6).map(x=>entryHtml(x,{compact:true})).join('')}</ol>`:'<p class="fp-empty">No activity yet.</p>'}</section>`;
   let team='';const setup=admin?setupChecklist(firm,all):'';
   if(admin&&!setup){const inv=invitationsEntry(firm.org_id),mem=membersEntry(firm.org_id);if(inv.done&&mem.done&&!inv.error&&!mem.error){const pending=inv.data.items.filter(i=>i.status==='pending').length,noSigner=mem.data.items.filter(m=>m.role!=='viewer'&&'signer' in m&&!m.signer);
    const lines=[pending&&`${pending} pending ${pending===1?'invitation':'invitations'}`,noSigner.length&&`${noSigner.map(m=>firstName(m.display_name||m.email)).join(', ')} ${noSigner.length===1?'has':'have'} no signer details`].filter(Boolean);
@@ -194,7 +202,7 @@
   const me=Live.me(),firm=Live.firm();if(!me||!firm)return Live.loading();
   const e=studiesEntry();if(!e.done)return Live.loading('Loading activity…');if(e.error)return Live.failed(e.error,'fp-reload');
   if(!people().length)membersEntry(firm.org_id);
-  const f=feedEntries();if(!f.done)return `<div class="fp fp-activity">${Live.loading('Loading activity…')}</div>`;
+  const f=feedEntries();if(!f.done)return `<div class="fp fp-activity">${Live.loading('Loading activity…')}</div>`;if(f.error)return `<div class="fp fp-activity">${Live.failed(f.error,'fp-reload')}</div>`;
   const admin=F.isAdmin(firm),types=TYPES.filter(([k])=>k!=='team'||admin);
   const who=P.act.who,mine=me.user.id;
   const shown=f.entries.filter(x=>(who==='everyone'||(who==='me'?x.actorId===mine:x.actorId===who))&&(P.act.type==='all'||x.kind===P.act.type||P.act.type==='review'&&x.kind==='study'));
@@ -262,22 +270,23 @@
  const input=(id,label,value,extra='',hint='')=>`<div class="fp-field"><label for="${id}">${label}</label><input id="${id}" value="${esc(value??'')}" ${extra}>${hint?`<p class="fp-hint">${hint}</p>`:''}</div>`;
  function signerForm(sig,{onboarding=false}={}){
   const s=sig.signer||{},ro=!sig.own;
-  return `<form class="fp-signer-form" data-fp-form="signer" novalidate><div class="fp-grid-2">${input('fp-signer-name','Name as signed',s.name,`autocomplete="name" maxlength="200" ${ro?'readonly':''}`)}${input('fp-signer-cred','Credentials',s.credentials,`maxlength="100" placeholder="PE" ${ro?'readonly':''}`)}${input('fp-signer-license','License number',s.license_number,`maxlength="50" ${ro?'readonly':''}`)}<div class="fp-field"><label for="fp-signer-state">License state</label>${sel('fp-signer-state',s.license_state,[['','Choose a state'],...M.STATES.map(x=>[x,x])],ro?'disabled':'')}</div></div>${ro?'':`<div class="fp-form-actions">${onboarding?'<button type="button" class="button quiet" data-live="fp-signer-later">Later</button>':''}<button type="submit" class="button primary">${onboarding?'Save and continue':'Save signer details'}</button></div>`}</form>`;
+  return `<form class="fp-signer-form" data-fp-form="signer" novalidate><div class="fp-grid-2">${input('fp-signer-name','Name as signed',s.name,`autocomplete="name" maxlength="200" ${ro?'readonly':''}`)}${input('fp-signer-cred','Credentials',s.credentials,`maxlength="100" placeholder="PE" ${ro?'readonly':''}`)}${input('fp-signer-license','License number',s.license_number,`maxlength="50" ${ro?'readonly':''}`)}<div class="fp-field"><label for="fp-signer-state">License state</label>${sel('fp-signer-state',s.license_state,[['','Choose a state'],...M.STATES.map(x=>[x,x])],ro?'disabled':'')}</div></div>${ro?(onboarding?`<p class="fp-hint">Your firm signs reports with its engineer of record for now; an admin keeps it in Settings.</p><div class="fp-form-actions"><button type="button" class="button primary" data-live="fp-signer-later">Continue to your studies</button></div>`:''):`<div class="fp-form-actions">${onboarding?'<button type="button" class="button quiet" data-live="fp-signer-later">Later</button>':''}<button type="submit" class="button primary">${onboarding?'Save and continue':'Save signer details'}</button></div>`}</form>`;
  }
  function settingsPage(){
   const me=Live.me(),firm=Live.firm();if(!me||!firm)return Live.loading();
   const admin=F.isAdmin(firm),sig=Live.mySigner(),prof=profileEntry(firm.org_id);
   if(sig.loading||!prof.done)return `<div class="fp fp-settings">${Live.loading('Loading your settings…')}</div>`;
   const p=prof.error?null:prof.data?.profile;
+  if(admin&&prof.error)P.profileError=prof.error;else P.profileError=null;
   const identity=`<section class="fp-card fp-settings-card" aria-labelledby="fp-you-title"><header><h2 id="fp-you-title">You</h2></header><dl class="fp-dl"><div><dt>Name</dt><dd>${esc(me.user.display_name||'—')}</dd></div><div><dt>Email</dt><dd>${esc(me.user.email||'—')} <span class="fp-muted">· sign-in</span></dd></div><div><dt>Firm</dt><dd>${esc(firm.org_name)}</dd></div><div><dt>Role</dt><dd>${pill(ROLE_LABEL(firm.role),'idle')}${admin?'':' <span class="fp-muted">· an admin changes roles</span>'}</dd></div></dl></section>`;
   const studies=Live.firmStudies(L.cache.get('studies-all')?.data||[]),toSign=studies.filter(x=>x.status==='completed'&&(admin||x.created_by===me.user.id)&&deliveryOf(x)?.tone==='review');
   if(!L.cache.get('studies-all'))studiesEntry();else Live.loadDeliveries(studies.filter(x=>x.status==='completed'));
   if(/^#report\//.test(lastHash)&&L.study&&lastHash.includes(L.study.id))P.backTo={hash:lastHash,name:L.study.property_name};
   const back=P.backTo?`<a class="button" href="${esc(P.backTo.hash)}">${icon('back',15)}Back to ${esc(P.backTo.name)}’s report</a>`:'';
   const next=sig.signer&&(back||toSign.length)?`<div class="fp-signer-next">${back}${toSign.length?`<p>${toSign.length===1?'One report waits':`${toSign.length} reports wait`} for ${admin?'a':'your'} signature</p><ul class="fp-to-sign">${toSign.slice(0,4).map(x=>`<li><span>${esc(x.property_name)}</span><a class="button small" href="${Live.route('report',x.id)}">Open report to sign</a></li>`).join('')}</ul>`:''}</div>`:'';
-  const signer=`<section class="fp-card fp-settings-card" aria-labelledby="fp-signer-title"><header><h2 id="fp-signer-title">Signer details</h2>${sig.signer?pill('Set','done'):pill('Not set','review')}</header><p class="fp-card-lead">${sig.own?'Printed in the signature block of every report you sign. A signed report keeps the details it was signed with.':admin?'Reports are signed with the firm profile’s engineer of record until each engineer can keep their own details. Edit it under Firm letterhead.':'Reports are signed with the firm profile’s engineer of record, which an admin edits.'}</p>${signerForm(sig)}${next}</section>`;
+  const signer=sig.error?`<section class="fp-card fp-settings-card" aria-labelledby="fp-signer-title"><header><h2 id="fp-signer-title">Signer details</h2></header>${Live.failed(sig.error,'fp-reload')}</section>`:`<section class="fp-card fp-settings-card" aria-labelledby="fp-signer-title"><header><h2 id="fp-signer-title">Signer details</h2>${sig.signer?pill('Set','done'):pill('Not set','review')}</header><p class="fp-card-lead">${sig.own?'Printed in the signature block of every report you sign. A signed report keeps the details it was signed with.':admin?'Reports are signed with the firm profile’s engineer of record until each engineer can keep their own details. Edit it under Firm letterhead.':'Reports are signed with the firm profile’s engineer of record, which an admin edits.'}</p>${signerForm(sig)}${next}</section>`;
   const letter=p?[p.name,p.address,p.phone].filter(Boolean):[];
-  const firmCard=admin?`<section class="fp-card fp-settings-card" aria-labelledby="fp-firm-title"><header><h2 id="fp-firm-title">Firm letterhead</h2>${p?'':pill('Not added','review')}</header><p class="fp-card-lead">Printed at the top of every report of ${esc(firm.org_name)}. Only admins edit it.</p><form data-fp-form="letterhead" novalidate><div class="fp-grid-2">${input('fp-firm-name','Firm name',p?.name||firm.org_name,'maxlength="200"')}${input('fp-firm-phone','Phone',p?.phone,'maxlength="100" autocomplete="tel"')}</div>${input('fp-firm-address','Address',p?.address,'maxlength="500" autocomplete="street-address"')}${sig.own?'':`<h3 class="fp-sub">Engineer of record</h3><div class="fp-grid-2">${input('fp-eng-name','Name',p?.engineer?.name,'maxlength="200"')}${input('fp-eng-cred','Credentials',p?.engineer?.credentials,'maxlength="100"')}${input('fp-eng-license','License number',p?.engineer?.license_number,'maxlength="50"')}<div class="fp-field"><label for="fp-eng-state">License state</label>${sel('fp-eng-state',p?.engineer?.license_state,[['','Choose a state'],...M.STATES.map(x=>[x,x])])}</div></div>`}<div class="fp-form-actions"><button type="submit" class="button primary">Save letterhead</button></div></form></section>`
+  const firmCard=admin&&prof.error?`<section class="fp-card fp-settings-card" aria-labelledby="fp-firm-title"><header><h2 id="fp-firm-title">Firm letterhead</h2></header>${Live.failed(prof.error,'fp-reload')}<p class="fp-card-lead">The letterhead could not be read, so it cannot be edited until it loads.</p></section>`:admin?`<section class="fp-card fp-settings-card" aria-labelledby="fp-firm-title"><header><h2 id="fp-firm-title">Firm letterhead</h2>${p?'':pill('Not added','review')}</header><p class="fp-card-lead">Printed at the top of every report of ${esc(firm.org_name)}. Only admins edit it.</p><form data-fp-form="letterhead" novalidate><div class="fp-grid-2">${input('fp-firm-name','Firm name',p?.name||firm.org_name,'maxlength="200"')}${input('fp-firm-phone','Phone',p?.phone,'maxlength="100" autocomplete="tel"')}</div>${input('fp-firm-address','Address',p?.address,'maxlength="500" autocomplete="street-address"')}${sig.own?'':`<h3 class="fp-sub">Engineer of record</h3><div class="fp-grid-2">${input('fp-eng-name','Name',p?.engineer?.name,'maxlength="200"')}${input('fp-eng-cred','Credentials',p?.engineer?.credentials,'maxlength="100"')}${input('fp-eng-license','License number',p?.engineer?.license_number,'maxlength="50"')}<div class="fp-field"><label for="fp-eng-state">License state</label>${sel('fp-eng-state',p?.engineer?.license_state,[['','Choose a state'],...M.STATES.map(x=>[x,x])])}</div></div>`}<div class="fp-form-actions"><button type="submit" class="button primary">Save letterhead</button></div></form></section>`
    :`<section class="fp-card fp-settings-card" aria-labelledby="fp-firm-title"><header><h2 id="fp-firm-title">Firm letterhead</h2></header><p class="fp-card-lead">Printed at the top of every report. An admin edits it.</p>${letter.length?`<address class="fp-letterhead">${letter.map(esc).join('<br>')}</address>`:'<p class="fp-empty">Not added yet.</p>'}</section>`;
   const links=admin?`<nav class="fp-settings-links" aria-label="Firm administration"><a href="#team">${icon('users',16)}Team and invitations</a><a href="#cost-indices">${icon('file',16)}Cost indices</a></nav>`:'';
   return `<div class="fp fp-settings"><header class="fp-head"><div><h1>Settings</h1><p>Your details and ${admin?'your firm’s':'your firm'}</p></div></header><div class="fp-settings-grid"><div class="fp-col">${signer}${firmCard}</div><div class="fp-col">${identity}${links}</div></div></div>`;
@@ -292,7 +301,10 @@
   Live.invalidate('me-signer');Live.invalidate('members:');toast(onboarding?'Signer details saved.':'Signer details saved. Reports you sign from now on use them.');return true;
  }
  async function saveLetterhead(form){
-  const firm=Live.firm(),v=id=>form.querySelector(id)?.value||'',e=profileEntry(firm.org_id),cur=e.error?null:e.data;
+  const firm=Live.firm(),v=id=>form.querySelector(id)?.value||'',e=profileEntry(firm.org_id);
+  // Never replace a profile this page could not read: the save would erase what it did not show.
+  if(!e.done||e.error){toast('The letterhead could not be read. Reload it before saving.');return}
+  const cur=e.data;
   const sig=Live.mySigner();
   const eng=sig.own?cur?.profile?.engineer||null:{name:v('#fp-eng-name'),credentials:v('#fp-eng-cred'),license_number:v('#fp-eng-license'),license_state:v('#fp-eng-state')};
   const name=v('#fp-firm-name').trim();if(!name){toast('Enter the firm’s name.');return}
@@ -339,7 +351,8 @@
   return `<section class="panel fp-deliver" aria-labelledby="fp-deliver-title"><header><h2 id="fp-deliver-title">Report and schedule</h2>${final.tone==='done'?'':pill(final.label,final.tone==='review'?'review':'idle')}</header>${lead}<div class="fp-deliver-row">${dl('pdf','report.pdf',sig?`Signed report · revision ${s.revision}`:'Draft report',true)}${dl('csv','schedule.csv','Schedule CSV')}${dl('xlsx','schedule.xlsx','Schedule XLSX')}</div>${table}</section>`;
  };
  Live.studyActivity=s=>{
-  const t=Live.load('fp-timeline:'+s.id+':'+s.updated_at,()=>api.timeline(s.id,{limit:200}));
+  // The timeline is in recorded order, a page at a time: read every page, then take the latest.
+  const t=Live.load('fp-timeline:'+s.id+':'+s.updated_at,()=>api.listAll(`/v1/studies/${encodeURIComponent(s.id)}/timeline`,{},{limit:200}));
   if(!t.done)return `<section class="panel fp-study-activity">${Live.loading('Loading activity…')}</section>`;if(t.error)return '';
   const f=Live.firm();if(f&&!people().length)membersEntry(f.org_id);
   const entries=M.feed(t.data.items.map(e=>({...e,study_id:s.id,property_name:s.property_name,actor_name:e.actor_name||nameOf(e.actor_id)})),{studies:[s]});
@@ -355,6 +368,9 @@
  /* ---------- register ---------- */
  Object.assign(Live.screens,{dashboard:homePage,library:libraryPage,activity:activityPage,team:teamPage,settings:settingsPage});
  Live.signerForm=signerForm;Live.firmAvatar=avatar;Live.firmEntryHtml=entryHtml;Live.firmPill=pill;
+ // Home and Activity read the feed again each time they are opened (a decision elsewhere changed it).
+ let shown=null;
+ Live.afterRender.push(()=>{const now=state.screen;if(now!==shown&&['dashboard','activity'].includes(now)&&shown!==null){for(const k of ['feed:','me-activity','org-activity:'])Live.invalidate(k);Live.render()}shown=now});
  const TITLES={dashboard:'Home',library:'Library',activity:'Activity',team:'Team',settings:'Settings'};
  Live.afterRender.push(()=>{if(TITLES[state.screen]&&Live.me?.())document.title='Basis · '+TITLES[state.screen]});
  Live.render();

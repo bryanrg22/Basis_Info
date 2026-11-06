@@ -152,6 +152,7 @@
   // The signer's details come from Settings (their own, or the firm profile's engineer of record);
   // they are shown here, not typed.
   const who=Live.mySigner?Live.mySigner():{signer:profileEntry(s).data?.profile?.engineer||null};
+  if(who.error){toast('Your signer details could not be read. Reload the page, then sign.');return}
   const e=who.signer;if(!e){toast('Add your signer details in Settings first.');location.hash='#settings';return}
   const line=[`${e.name}${e.credentials?', '+e.credentials:''}`,[e.license_state,e.license_number].filter(Boolean).join(' ')].filter(Boolean).join(' · ');
   const m=modal('Sign the report',`<p>You are signing revision ${s.revision} of ${esc(s.property_name)}: the report in the preview you opened, with your signature added. A signature is never replaced; a later revision is signed on its own.</p><div class="live-report-signer"><span>Signing as</span><strong>${esc(line)}</strong><a href="#settings" data-close>Edit in Settings</a></div><div class="live-report-cert"><p class="strong">I certify that, to the best of my knowledge and belief:</p><ul>${R.certification(answers).map(t=>`<li>${esc(t)}</li>`).join('')}</ul></div><label class="live-report-attest"><input type="checkbox" id="live-sign-attest"> I have reviewed the report and I sign it.</label>`,`${closeBtn}<button class="button primary" id="live-sign-go">Sign report</button>`);

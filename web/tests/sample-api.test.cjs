@@ -493,3 +493,13 @@ test('If-Match on the report answers reads as the real API does: * needs existin
  const y=instance('components'),Q=S(y.id)+'/report-answers',none=(await y.a.call('GET',Q)).body;
  if(!none.report_answers){problem(await y.a.call('PUT',Q,{body:{taxpayer_name:'T',photographs:'taxpayer_supplied',photographed_by:'T',photographed_on:'2026-10-01'},headers:{'If-Match':'*'}}),412)}
 });
+
+test('the proposed directory carries each member’s signer details, before and after they are read or saved (P5, P6)',async()=>{
+ const a=A.create({now:()=>Date.parse('2026-11-05T22:30:00Z'),role:'engineer',fetchAsset}),org=(await a.call('GET','/v1/me')).body.memberships[0].org_id;
+ const jordan=async()=>(await a.call('GET',`/v1/orgs/${org}/members`)).body.items.find(m=>m.user_id==='sample-user-2').signer;
+ assert.deepEqual(await jordan(),{name:'Jordan Lee',credentials:'PE',license_number:'PE-77120',license_state:'CA'});
+ const r=(await a.call('GET','/v1/me/signer'));assert.equal(r.status,200);assert.deepEqual(await jordan(),r.body.signer,'reading Settings leaves the directory’s shape alone');
+ const put=await a.call('PUT','/v1/me/signer',{body:{name:'Jordan Lee',credentials:'PE',license_number:'PE-90001',license_state:'NV'},headers:{'If-Match':`"${r.body.version}"`}});assert.equal(put.status,200);
+ assert.deepEqual(await jordan(),{name:'Jordan Lee',credentials:'PE',license_number:'PE-90001',license_state:'NV'});
+ assert.equal((await a.call('PUT','/v1/me/signer',{body:{name:'J',credentials:'PE'},headers:{'If-Match':'"1"'}})).status,412,'a stale version is refused');
+});
