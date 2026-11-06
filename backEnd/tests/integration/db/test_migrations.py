@@ -54,6 +54,11 @@
   one context across releases merges when the answer agrees, the latest approval keeps the
   key when it does not, unknown versions and malformed keys are left alone; it downgrades
   back to the version keys;
+* ``0032_signer_details`` creates ``signer_details`` (one row per user, a license number only
+  with its state, a two-letter state, version >= 1, its ``updated_at`` trigger) and adds
+  ``report_signatures.signer_details_version`` and ``letterhead`` (NULL on existing
+  signatures, which keep every value), nothing backfilled; it downgrades back to ``0030``
+  exactly;
 * ``0030_operator_document_access`` lets ``study_events.actor_type`` be ``operator`` (Basis
   support opened a firm's file) and downgrades back to ``0029`` only while no such row exists
   (access records are append-only and never deleted);
@@ -120,8 +125,10 @@ pytestmark = pytest.mark.integration
 # 0025_invitation_email lands after 0022 (user activity), 0023 (rate-limit hits) and 0024
 # (review drafts); 0026 (retention and alerts) revises 0025, and 0027_signature_input_versions
 # revises 0026 (it was 0024, then 0026, until the branches before it landed).
-HEAD = "0030"
-HISTORY = [f"{n:04d}" for n in range(30, 0, -1)]  # "0030" .. "0001"
+# 0032_signer_details revises 0030 while 0031 is on another branch in flight; it is re-chained
+# onto 0031 when both merge (HEAD stays 0032, HISTORY gains 0031).
+HEAD = "0032"
+HISTORY = ["0032", *(f"{n:04d}" for n in range(30, 0, -1))]  # "0032", "0030" .. "0001"
 EXPECTED_TRIGGERS = (
     {(f"{table}_set_updated_at", table) for table in UPDATED_AT_TABLES}
     | {(f"{table}_append_only", table) for table in APPEND_ONLY_TABLES}
@@ -1679,3 +1686,75 @@ async def test_0030_operator_actor_and_a_downgrade_that_keeps_access_records(
         await connection.close()
     with pytest.raises(Exception, match="operator access records"):
         await downgrade(url, "0029")
+
+
+# --------------------------------------------------------------------------- 0032
+
+
+async def test_0032_signer_details_and_signature_columns_and_downgrade(
+    empty_database_url: str,
+) -> None:
+    """``signer_details``: one row per user, a license number only with its state, the state a
+    two-letter upper-case code, ``updated_at`` maintained. ``report_signatures`` gains two
+    nullable columns; an existing signature keeps every value and reads NULL in both (the
+    append-only trigger does not fire on ``ADD COLUMN``). Back to 0030 exactly."""
+    url = empty_database_url
+    await upgrade(url, "0030")
+    connection = await asyncpg.connect(plain_dsn(url))
+    try:
+        study, _, user = await _photo(connection)
+        await connection.execute(
+            "INSERT INTO report_signatures (study_id, revision, signed_by, signed_at, engineer, "
+            "statement_version, export_sha256, reviewed_sha256, pdf_uri, pdf_sha256, "
+            "firm_profile_version, report_answers_version) "
+            "VALUES ($1, 1, $2, now(), '{\"name\": \"A\"}', 1, $3, $3, 'gs://b/r.pdf', $3, 1, 1)",
+            study,
+            user,
+            "a" * 64,
+        )
+    finally:
+        await connection.close()
+    at_0030 = await snapshot(url)
+    await upgrade(url)
+    connection = await asyncpg.connect(plain_dsn(url))
+    try:
+        kept = await connection.fetchrow("SELECT * FROM report_signatures")
+        assert json.loads(kept["engineer"]) == {"name": "A"}
+        assert kept["firm_profile_version"] == 1
+        assert kept["signer_details_version"] is None and kept["letterhead"] is None
+        assert await connection.fetchval("SELECT count(*) FROM signer_details") == 0
+        insert = (
+            "INSERT INTO signer_details (user_id, name, credentials, license_number, "
+            "license_state) VALUES ($1, 'A. Engineer', 'PE', $2, $3)"
+        )
+        with pytest.raises(asyncpg.CheckViolationError, match="license_pair"):
+            await connection.execute(insert, user, "123", None)
+        with pytest.raises(asyncpg.CheckViolationError, match="license_pair"):
+            await connection.execute(insert, user, None, "NY")
+        with pytest.raises(asyncpg.CheckViolationError, match="license_state_code"):
+            await connection.execute(insert, user, "123", "ny")
+        await connection.execute(insert, user, "123", "NY")
+        with pytest.raises(asyncpg.UniqueViolationError):  # one row per user
+            await connection.execute(insert, user, None, None)
+        with pytest.raises(asyncpg.ForeignKeyViolationError):
+            await connection.execute(insert, uuid.uuid4(), None, None)
+        with pytest.raises(asyncpg.CheckViolationError, match="version_positive"):
+            await connection.execute("UPDATE signer_details SET version = 0")
+        before = await connection.fetchval("SELECT updated_at FROM signer_details")
+        await connection.execute("UPDATE signer_details SET version = 2")
+        assert await connection.fetchval("SELECT updated_at FROM signer_details") >= before
+        with pytest.raises(asyncpg.CheckViolationError, match="letterhead_is_object"):
+            await connection.execute(
+                "INSERT INTO report_signatures (study_id, revision, signed_by, signed_at, "
+                "engineer, statement_version, export_sha256, reviewed_sha256, pdf_uri, "
+                "pdf_sha256, letterhead) VALUES ($1, 2, $2, now(), '{}', 1, $3, $3, 'u', $3, "
+                "'[1]')",
+                study,
+                user,
+                "a" * 64,
+            )
+        await connection.execute("DELETE FROM signer_details")
+    finally:
+        await connection.close()
+    await downgrade(url, "0030")
+    assert await snapshot(url) == at_0030

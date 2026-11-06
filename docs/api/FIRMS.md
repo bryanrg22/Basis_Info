@@ -22,7 +22,7 @@ Rules, and why:
 | Any signed-in user may create a firm; there is no sign-up queue. | The pitch is "here is the link"; a queue needs an operator. Abuse is bounded by the per-user mutation rate limit; a firm with no studies costs nothing. |
 | A user may belong to, and own, several firms. | The code allowed it before this change and a consultant does work for two firms. `POST /v1/studies` already requires `org_id` from a member of several (422 `org-required`). This is the product rule; a cap would need a reason. |
 | Firm names are not unique. | Two "Smith Engineering" exist in the world. Refusing a name another firm took would also tell a stranger that firm exists. The operator CLI keeps refusing duplicates by default because an operator cannot tell them apart in `list-firms`. |
-| `PATCH /v1/orgs/{org_id}` (owner only) renames; nothing else about a firm is editable here. | The firm's report profile (address, logo, engineer of record) is `PUT /v1/orgs/{org_id}/profile`, docs/api/REPORT.md. |
+| `PATCH /v1/orgs/{org_id}` (owner only) renames; nothing else about a firm is editable here. | The firm's report profile (address, logo, limiting conditions) is `PUT /v1/orgs/{org_id}/profile`, docs/api/REPORT.md; each engineer's name, credentials and license are their own (`PUT /v1/me/signer`, docs/api/SIGNERS.md). |
 | The operator CLI `python -m basis.admin create-firm` remains. | For firms Basis sets up on a customer's behalf. It takes the same path: the owner invitation it creates is emailed too. |
 
 Both are on the firm's history (`org_events`, `GET /v1/orgs/{org_id}/activity`,
@@ -142,6 +142,11 @@ next to `created_by` (from `users`: the display name and email the creator's sig
 carried; null when unknown). The report signature (`POST .../report/sign`,
 `GET .../report/state`) carries `signed_by_name` and `signed_by_email` next to `signed_by`;
 the name the engineer attested to stays in `engineer`. One `users` read per response.
+
+`GET /v1/orgs/{org_id}/members` (owners), and the answers of the role change and the removal,
+carry each member's `signer_details` (the name, credentials and license they sign with; null
+when they saved none). Read-only: only the member writes their own (`PUT /v1/me/signer`,
+docs/api/SIGNERS.md). One `signer_details` read per response.
 
 ## 6. Settings
 

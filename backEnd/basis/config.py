@@ -146,6 +146,13 @@ class Settings(BaseSettings):
     # that predate the intake's ETag) or 428 Precondition Required (true); a stale If-Match
     # is 412 either way (docs/api/STUDY_RESULT.md).
     intake_require_if_match: bool = False
+    # POST .../report/sign by an engineer who has saved no signer details (PUT /v1/me/signer):
+    # signed with the `engineer` the request names, as every signing was before (false, the
+    # default, while the web app still asks for the details at signing), or refused with 409
+    # E.REPORT_SIGNER_DETAILS_MISSING (true: a report is signed only with the signer's own saved
+    # details). Saved details are always used when they exist (EVAL_REPORT 91;
+    # docs/api/SIGNERS.md).
+    report_signer_details_required: bool = False
     study_budget_usd: float = Field(default=25.0, gt=0)
     relay_poll_seconds: float = Field(default=2.0, gt=0)
     gcs_bucket: str | None = None

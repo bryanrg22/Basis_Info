@@ -30,7 +30,14 @@ from basis.db.models import FirmProfileRow, ReportSignature, Study
 from basis.db.repositories.org import OrgRepository
 from basis.db.repositories.org_event import OrgEventRepository
 from basis.db.repositories.study import IntakePrecondition
-from basis.report.inputs import FirmProfile, ReportInputs, Signature, StudyAnswers
+from basis.report.inputs import (
+    Engineer,
+    FirmProfile,
+    ReportInputs,
+    Signature,
+    SignerDetails,
+    StudyAnswers,
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -179,10 +186,14 @@ class ReportRepository:
         pdf_sha256: str,
         firm_profile_version: int,
         report_answers_version: int,
+        signer_details_version: int | None = None,
+        letterhead: dict[str, Any] | None = None,
     ) -> ReportSignature:
         """Insert the revision's signature. Call under :meth:`lock_study`; a revision that
         already has one is ``ConflictError``. The two versions are the inputs' at signing
-        (:meth:`changed_since_signing` compares them with the current ones)."""
+        (:meth:`changed_since_signing` compares them with the current ones);
+        ``signer_details_version`` the signer's saved details printed (None: typed at
+        signing) and ``letterhead`` the firm profile's letterhead as signed (EVAL_REPORT 91)."""
         if await self.signature(study_id, revision) is not None:
             raise ConflictError(f"revision {revision} of study {study_id} is already signed")
         row = ReportSignature(
@@ -199,6 +210,8 @@ class ReportRepository:
             pdf_sha256=pdf_sha256,
             firm_profile_version=firm_profile_version,
             report_answers_version=report_answers_version,
+            signer_details_version=signer_details_version,
+            letterhead=letterhead,
         )
         self._session.add(row)
         await self._session.flush()
@@ -206,13 +219,22 @@ class ReportRepository:
 
     @staticmethod
     def changed_since_signing(
-        signature: ReportSignature, *, firm_profile_version: int, report_answers_version: int
+        signature: ReportSignature,
+        *,
+        firm_profile_version: int,
+        report_answers_version: int,
+        signer_now: SignerDetails | None = None,
     ) -> list[str] | None:
-        """Which inputs were written after the signature: ``firm`` (the firm's profile),
-        ``study`` (the report answers), in that order; ``None`` when the signature predates
-        the record of the versions it was signed with (migration 0027). The signed PDF is
-        unchanged either way; the state tells the engineer that the stored inputs no longer
-        match it (docs/api/REPORT.md, "After signing")."""
+        """Which inputs changed after the signature: ``firm`` (the firm's profile written),
+        ``study`` (the report answers written), ``signer`` (the signer's saved details now
+        differ from the ones the signature printed), in that order; ``None`` when the
+        signature predates the record of the versions it was signed with (migration 0027).
+        The signed PDF is unchanged either way; the state tells the engineer that the stored
+        inputs no longer match it (docs/api/REPORT.md, "After signing").
+
+        ``signer`` compares values, not versions: the signature keeps the values it printed
+        (``engineer``), so an edit that is undone, or a first save of the very details typed
+        at signing, is not a change. Without saved details now there is nothing to compare."""
         if signature.firm_profile_version is None or signature.report_answers_version is None:
             return None
         changed: list[str] = []
@@ -220,18 +242,28 @@ class ReportRepository:
             changed.append("firm")
         if report_answers_version != signature.report_answers_version:
             changed.append("study")
+        if signer_now is not None and not signer_now.matches(signature.engineer):
+            changed.append("signer")
         return changed
 
     # ------------------------------------------------------------------ the inputs
 
-    async def inputs(self, study: Study, *, signature: Signature | None = None) -> ReportInputs:
-        """What the report renders with: the firm's profile, the study's answers and the
-        given signature (none: a draft)."""
+    async def inputs(
+        self,
+        study: Study,
+        *,
+        signature: Signature | None = None,
+        preparer: Engineer | None = None,
+    ) -> ReportInputs:
+        """What the report renders with: the firm's profile, the study's answers, the given
+        signature (none: a draft) and, unsigned, the preparer it names (none: the firm's
+        deprecated engineer, or a placeholder)."""
         firm = await self.firm_profile(study.org_id)
         return ReportInputs(
             firm=firm.profile if firm else None,
             study=study.report_answers,
             signature=signature,
+            preparer=preparer,
         )
 
     async def now(self) -> datetime:

@@ -22,7 +22,7 @@ Numbers are never reused. Source of truth: `backEnd/basis/errors/catalogue.py` (
 rendered from it: `uv run python -m basis.errors.catalogue --write`; a test fails while it is
 stale).
 
-295 codes in 23 areas.
+298 codes in 23 areas.
 
 ## API: API: request plumbing (authentication, idempotency, limits, dependencies)
 
@@ -399,6 +399,9 @@ stale).
 | `BASIS-REPORT-011` | refusal | `PUT /v1/orgs/{id}/profile`; `basis.api.routes.report` | The `If-Match` entity tag is not the profile's current one, or `If-Match: *` on a firm with no profile. | 412 `precondition-failed`; the response's `ETag` is the current tag. Nothing was written. (type `precondition-failed`) | Read the profile again, reapply the change, and send the new `ETag` as `If-Match`. | yes |
 | `BASIS-REPORT-012` | refusal | `PUT .../report-answers`; `basis.api.routes.report` | The `If-Match` entity tag is not the answers' current one, or `If-Match: *` on a study with no answers. | 412 `precondition-failed`; the response's `ETag` is the current tag. Nothing was written. (type `precondition-failed`) | Read the answers again, reapply the change, and send the new `ETag` as `If-Match`. | yes |
 | `BASIS-REPORT-013` | refusal | `GET /v1/orgs/{id}/profile`; `basis.api.routes.report` | The firm has no profile yet. | 404 `not-found` with the code. (type `not-found`) | An owner saves it with `PUT /v1/orgs/{id}/profile`. | after fix |
+| `BASIS-REPORT-014` | refusal | `POST .../report/sign`; `basis.api.routes.report` | The signer has saved no signer details (their name, credentials and license) and the signing names none, or the deployment requires saved details (`REPORT_SIGNER_DETAILS_REQUIRED`). A report is signed with the signer's own details, never the firm's. | 409 `conflict` with the code; nothing is signed. (type `conflict`) | The signer saves their details once in their account (`PUT /v1/me/signer`), opens the preview again (it now names them) and signs. | after fix |
+| `BASIS-REPORT-015` | refusal | `POST .../report/sign`; `basis.api.routes.report` | The signing sent an `engineer` whose name, credentials or license differ from the signer's saved details, which are what the report prints. | 409 `conflict` with the code; nothing is signed. (type `conflict`) | Sign with the saved details (send them, or leave `engineer` out), or change the saved details first (`PUT /v1/me/signer`), open the preview again and sign. | after fix |
+| `BASIS-REPORT-016` | refusal | `PUT /v1/me/signer`; `basis.api.routes.signer` | The `If-Match` entity tag is not the signer details' current one, or `If-Match: *` while none are saved. | 412 `precondition-failed`; the response's `ETag` is the current tag. Nothing was written. (type `precondition-failed`) | Read the details again, reapply the change, and send the new `ETag` as `If-Match`. | yes |
 
 ## INF: Infrastructure: worker start-up and the outbox relay
 
