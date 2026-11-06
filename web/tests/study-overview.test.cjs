@@ -134,4 +134,7 @@ test('the report notice appears once: not above Report & sign, not on a finished
  ctx.state.screen='processing';assert.match(live.steps(s),/Report needs updating/);// once, on Study progress, with its action
  for(const screen of ['complete','files','structure','history'])ctx.state.screen=screen,assert.doesNotMatch(live.steps(s),/study-status/,screen);// the header badge and step bar say it there
  ctx.state.screen='components';const html=live.steps(s);assert.doesNotMatch(html,/study-status/);assert.match(html,/step-tone-review[^>]*>[\s\S]*?Update required/);
+ // The next step after approval (sign the report) keeps its strip on Results: it is where the engineer goes next.
+ live.reportStateEntry=()=>({done:true,data:{study_id:s.id,revision:3,exported:true,skipped:null,missing_for_final:['signature'],signature:null,changed_since_signing:null}});
+ ctx.state.screen='complete';assert.match(live.steps(s),/study-status/);
 });

@@ -390,9 +390,10 @@
   if(view==='report')return '';
   if(s.status==='completed'&&['appraisal','rooms','components','assets','asset-detail','viewer'].includes(view))return '';
   const context=G.reviewContext(s,view,Live.reportStateEntry?.(s));if(!context)return '';
-  // r26: report work left on a finished study is said once, on Study progress (with its action);
-  // elsewhere the header badge (a link to Report & sign) and the step bar already say it.
-  if(s.status==='completed'&&context.tone!=='complete'&&view!=='processing')return '';
+  // r26: "Update required" (a signed report is out of date) is said once, on Study progress with its
+  // action; elsewhere the header badge (a link to Report & sign) and the step bar already say it.
+  // The next step after approval (add details, sign) keeps its strip: it is where the engineer goes next.
+  if(s.status==='completed'&&view!=='processing'&&Live.delivery(s).label==='Update required')return '';
   return `<section class="study-status study-status--${context.tone}" aria-label="Study status"><span class="study-status-symbol" aria-hidden="true">${icon(context.tone==='complete'?'check':context.tone==='attention'?'help':'eye',18)}</span><div class="study-status-copy"><div class="study-status-title"><h2>${esc(context.title)}</h2></div><p>${esc(context.detail)}</p></div>${context.action?`<a class="button study-status-action" href="${Live.route(context.action,s.id)}">${esc(context.actionLabel||'Study progress')}${icon('arrow',16)}</a>`:''}</section>`;
  };
  // This page's own access, next to its title: read-only (approved, or not open yet) and, on a
