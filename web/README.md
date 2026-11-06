@@ -42,13 +42,50 @@ current server.
   search box that hides non-matching room cards; drafts and drag and drop are untouched.
 * **Reopening forwards**: after Change <step> or Start a new revision, Study progress opens
   the reopened review as soon as it is ready.
-* **New design** (Settings > New design, off by default, `design-flag.js`, saved in this
-  browser): `live/new-design.js` and `new-design.css` replace the Assets, Results and Report
-  & sign pages while the switch is on, with the same data, corrections and decisions. Assets is
-  one schedule grouped by recovery class or room with Edit on every row; Results leads with the
-  reconciliation verdict, the allocation by class and the checks to review; Report & sign shows
-  the report PDF inline beside one status and its next step. With the switch off nothing
-  changes.
+* **The new design** (`live/new-design.js`, `new-design.css`) is the only design for Assets,
+  Results and Report & sign since the firm pages work below; the Settings switch and
+  `design-flag.js` are gone. Assets is one schedule grouped by recovery class or room with Edit on
+  every row; Results leads with the reconciliation verdict, the allocation by class and the checks
+  to review; Report & sign shows the report PDF inline beside one status and its next step.
+
+## The firm pages: Home, Library, Activity, Team, Settings, onboarding (November 2026)
+
+Every page that is not a workflow step, for two roles (`live/firm-pages.js`, rules in
+`live/firm-model.js`, `firm-pages.css`). Try them on the sample firm:
+`index.html?mode=live&api=sample&role=admin` (Alex Morgan, the owner) or `&role=engineer` (Jordan
+Lee); `&onboarding=invited`, `nofirm` or `new-firm` for the first-run states.
+
+* **Home**: what needs you (an admin: what needs anyone, with its engineer), each study's stage as
+  a seven-segment strip and one status pill (review, sign, failed, processing, signed), what Basis
+  is processing, what was signed, and the firm's latest activity. An admin's new firm gets a setup
+  checklist (letterhead, signer details, invitations, first study); a newly joined engineer a
+  welcome card.
+* **Library**: every study of the firm. One search box (press /) matches every word against the
+  property, address, client, taxpayer, file number, parcel number, county, borrower and engineer,
+  marks the words and says which field matched; status chips with counts, an engineer filter,
+  three sorts; a row opens the study where it waits.
+* **A study's page** (Study progress): its address, client and file number, its status, the report
+  and schedule downloads, who signed each revision (with that revision's PDF), its own activity,
+  and the details the appraisal identifies it by. On a finished study the step list folds into the
+  strip above.
+* **Activity**: who did what, on which study (name and address) and step, grouped by day, each
+  entry a link to that step; filters for everyone, me or a colleague, and the kind of activity. No
+  ids or run names: bookkeeping events are left out.
+* **Team**: an admin manages members (role, signer details, open studies, last active, remove) and
+  invitations (pending, expired, answered; resend, revoke); an engineer sees colleagues, read-only.
+* **Settings**: your firm and role (read-only), your signer details (editable), the firm letterhead
+  (admins edit it; engineers read it).
+* **Report & sign**: the letterhead and "Signing as" come from Settings, read-only with "Edit in
+  Settings"; the sign dialog shows who signs instead of asking.
+* **Onboarding**: an invitation (step 1), then the signer details once (step 2, or Later), then
+  Home; the no-firm screen also offers "Create a firm" (`POST /v1/orgs`).
+* **The developer page** runs on synthetic health with `developer/?api=sample&health=partial`
+  (or `healthy`, `stale`, `missing`, `forbidden`, `offline`) and renders at full size (it was
+  zoomed to 67 %).
+
+What the API lacks for these pages (study identity and search, the directory for engineers,
+signer details, the firm feed) is in `FRONTEND_BACKLOG.md` section 15, built in the sample API's
+`PROPOSED` section; against today's API each page falls back and says so.
 
 ## UAD 3.6 frontend integration (PR #75)
 
@@ -343,8 +380,8 @@ before. `live/gates.js` holds these rules without the DOM (`web/tests/gates.test
 |---|---|
 | Sign in | Firebase Auth (official JS SDK 10.14.1); the ID token is the API bearer token |
 | Firm access | `GET /v1/me` after sign-in decides the screen: no firm and no invitation is "Not a member of a firm yet" (signed in as, sign out / another account); invitations show the join page (`POST /v1/invitations/{id}/accept` or `/decline`; expired, revoked, declined, wrong-account and unverified-email states from the API's problem types). The sidebar names the firm and the role (Admin / Employee / Viewer for the API's owner / engineer / viewer); several firms get a switcher in the top bar, and the studies list and Start a study use the current firm (`org_id`) |
-| Team & invitations (`#team`, admins only) | `GET …/orgs/{id}/members` with role change (`POST …/members/{user}/role`) and removal (`DELETE`), `GET …/orgs/{id}/invitations` with create (email and role, each role's scope shown next to it) and revoke (`DELETE`). The last-admin, existing-member and pending-invitation refusals are shown as the API answers them. Anyone else opening `#team` sees "Admin access required" |
-| Studies, Library | `GET /v1/studies` (all pages). Search by name, status filters and sort run in the browser |
+| Team (`#team`; admins manage, engineers see colleagues) | `GET …/orgs/{id}/members` with role change (`POST …/members/{user}/role`) and removal (`DELETE`), `GET …/orgs/{id}/invitations` with create (email and role, each role's scope shown next to it) and revoke (`DELETE`). The last-admin, existing-member and pending-invitation refusals are shown as the API answers them. Anyone else opening `#team` sees "Admin access required" |
+| Home, Library | `GET /v1/studies?include_archived=true` (all pages). Search (every identity a study has, P4), status filters and sort run in the browser |
 | Start a study | `POST /v1/studies`; per file: SHA-256 in the browser, `POST …/documents`, `PUT` to the signed URL (with progress), `POST …/complete`; then `POST …/start`. A retry after a failure reuses the study, the confirmed files and the idempotency keys |
 | Progress | `GET …/workflow`, polled with backoff (1.5 s doubling to 15 s while unchanged, paused in a hidden tab); `POST …/retry`, `POST …/cancel`. After the rooms review is approved the study is at `components_processing`: "Preparing components" until the components review opens |
 | Appraisal review | `GET …/fields` (by section, page, confidence, critical); the cited page drawn inline with PDF.js from `GET …/documents/{id}/content`; `extraction_field` corrections |
@@ -394,7 +431,8 @@ Marked in the UI with a "Mock" or "Not saved" tag, or hidden:
 * The owner overview (`#admin`) and its workload figures (`team-review.js`, `workspace-review.js`)
 * Editing presence and leases (the banner is hidden in live mode)
 * Study drafts saved in the browser (their leave-page guard is off in live mode)
-* Activity history
+* The firm's activity across studies needs the proposed feed (`FRONTEND_BACKLOG.md` section 15);
+  without it Activity shows your own (`GET /v1/me/activity`) and, for an admin, the firm's events
 * Client name and property address on Start a study (shown, not sent)
 * Workspace settings and cost sources
 
@@ -418,7 +456,8 @@ Fields the design shows that the API does not have:
 * "Reviewed" marks per field, photo or asset (the gate decision is the only review state).
 * Field locations on the page (a field has a page number, no box).
 * A client-facing PDF report document (not supplied by the result JSON/CSV).
-* Cross-study activity history. Per-study timeline and engineer audit are connected in Study history.
+* The firm-wide activity feed for every member, the member directory below owner, signer details
+  per engineer, and search beyond the property name (section 15 of the backlog; built in the sample).
 
 API data the design does not show yet:
 

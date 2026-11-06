@@ -269,6 +269,64 @@ in-browser sample API (`index.html?mode=live&api=sample`, `web/live/sample-api.j
   signature (or `GET .../report/state`) carries the signed profile's `name`, `address` and
   `phone`, or a `GET /v1/orgs/{org_id}/profile?version=<n>` for a past version.
 
+## 15. Firm pages: what the app needs from the API (November 2026)
+
+Home, Library, Activity, Team, Settings, Report & sign and onboarding are built for an admin and an
+engineer against the in-browser sample API (`index.html?mode=live&api=sample&role=admin|engineer`,
+`&onboarding=invited|nofirm|new-firm`; `web/live/sample-api.js`, its `PROPOSED` section, P4 to P7).
+Against today's API each page shows what exists and says what it cannot (noted per item). Delete the
+proposed routes from the sample once the backend has them.
+
+* **P4. What identifies a study, and search over it.** `StudyOut` (list and detail) carries
+  `summary: {address, city, state, zip, county, parcel_number, client, borrower, taxpayer,
+  file_number}` or `null`: the appraisal's subject address, county and assessor's parcel number
+  (`subject.property_address`, `subject.city`, `subject.state`, `subject.zip`, `subject.county`,
+  `subject.assessors_parcel`, UAD36_INTAKE / `uad36_map.py`), its lender/client and borrower
+  (`subject.lender_client`, `subject.borrower`), the taxpayer from the report answers, and a new
+  firm file number (one optional line on the study, settable at Start a study and afterwards; the
+  app's Start a study already shows a Client field it cannot send). `GET /v1/studies?q=` matches
+  every word, case- and accent-insensitive, against the property name, each of those fields and the
+  creator's name and email (today `q` is a substring of the property name only, STUDY_LIBRARY.md
+  section 1). The app reads the whole list and matches in the browser
+  (`web/live/firm-model.js` `match`), showing which field matched; with `q` on the server the same
+  rule is one `ILIKE` per word over a generated search column. Without `summary` the Library
+  searches the name and the engineer and its placeholder says so.
+* **P5. The member directory for every member.** `GET /v1/orgs/{org_id}/members` answers every
+  member, read-only below owner (today owners only, `OwnedOrg`), and each member carries `signer`
+  (P6's details, or `null`). The engineer's Team page lists colleagues with their role, signer
+  credentials and open studies; today it falls back to the people the firm's studies name, and
+  says the full list is shown to admins. Activity and Home resolve actor names from it.
+* **P6. Each engineer's signer details.** `GET /v1/me/signer` → `{"signer": {"name",
+  "credentials", "license_number", "license_state"} | null, "version", "updated_at"}` with
+  `ETag: "<version>"`; `PUT /v1/me/signer` with `If-Match` (412 with the current ETag when it
+  changed; a new code, `BASIS-FIRM-011` in the sample). Name and credentials 1 to 200 / 100
+  characters; the license number up to 50 and its two-letter state go together. Settings edits it;
+  onboarding asks for it once after an invitation is accepted; Report & sign shows it read-only
+  ("Signing as … Edit in Settings") and signs with it: the app sends it as `engineer` in
+  `POST .../report/sign`, so the sign route itself needs no change (it could default `engineer` to
+  the stored details and refuse 409 when there are none). The preview renders the firm profile's
+  engineer of record today; the signer's details should replace it in the preview and the signed
+  PDF's signature block. Without P6 the app signs with the firm profile's engineer of record, which
+  only an admin edits (Settings shows it read-only to engineers and says so).
+* **P7. The firm's activity for every member.** `GET /v1/orgs/{org_id}/feed?since&until&actor_id&
+  study_id&limit&cursor` → `{org_id, items, since, until, next_cursor}`: the `study_events` of every
+  study of the firm, newest first, each item an `ActivityItemOut` plus `actor_name` and
+  `property_address`, default window 30 days, 200 a page. Today `/v1/me/activity` is the caller's
+  own events and `/v1/orgs/{id}/activity` is owners only and about the firm, not its studies; the
+  app falls back to "Your activity" and an admin also gets the firm events. The app shows decisions,
+  gate openings, signatures, the report written, uploads (a creation, its uploads and its start read
+  as one entry), reopenings, archive and retries; it leaves out activities, stage moves and the
+  corrections a decision already counts (`firm-model.js` `studyEntry`).
+* **Delivery state on the study list** (section 13): Home, the Library and the study page read
+  `GET .../report/state` once per finished study, six at a time; 14 studies is fine, a firm's year
+  is not.
+* **Invitations: resend.** An invitation is emailed once (FIRMS.md 3.1); the Team page's Resend
+  revokes and invites again, which is a new invitation row. A `POST .../invitations/{id}/resend`
+  that re-queues the email on the same row would keep one row per person.
+* **A firm's own name in Settings**: `PATCH /v1/orgs/{org_id}` exists; the letterhead form saves the
+  report profile (`PUT .../profile`), whose `name` is printed on reports. Renaming the firm itself
+  is not on the page yet.
+
 ## Testing
 
 No automated test loads any live screen (`web/tests/*.test.cjs` cover the helper
