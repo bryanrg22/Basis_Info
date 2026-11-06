@@ -85,6 +85,10 @@
   ``report_signatures.signer_details_version`` and ``letterhead`` (NULL on existing
   signatures, which keep every value), nothing backfilled; it downgrades back to ``0031``
   exactly;
+* ``0033_object_exclusion`` adds ``photo_objects.excluded_at``, ``excluded_by`` and
+  ``exclusion_reason`` (an engineer's Not counted, EVAL_REPORT 90): the three go together and
+  an excluded row is never counted; it downgrades back to ``0032`` exactly, and refuses while
+  any row is excluded (who and why would be lost);
 * upgrading at head is a no-op; offline (``--sql``) rendering works.
 
 Each test that changes the schema gets its own throwaway database in the shared
@@ -99,6 +103,7 @@ import io
 import json
 import uuid
 from collections.abc import AsyncIterator
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -127,8 +132,8 @@ pytestmark = pytest.mark.integration
 # 0025_invitation_email lands after 0022 (user activity), 0023 (rate-limit hits) and 0024
 # (review drafts); 0026 (retention and alerts) revises 0025, and 0027_signature_input_versions
 # revises 0026 (it was 0024, then 0026, until the branches before it landed).
-HEAD = "0032"
-HISTORY = [f"{n:04d}" for n in range(32, 0, -1)]  # "0032" .. "0001"
+HEAD = "0033"
+HISTORY = [f"{n:04d}" for n in range(33, 0, -1)]  # "0033" .. "0001"
 EXPECTED_TRIGGERS = (
     {(f"{table}_set_updated_at", table) for table in UPDATED_AT_TABLES}
     | {(f"{table}_append_only", table) for table in APPEND_ONLY_TABLES}
@@ -1786,3 +1791,51 @@ async def test_0032_signer_details_and_signature_columns_and_downgrade(
         await connection.close()
     await downgrade(url, "0031")
     assert await snapshot(url) == at_0031
+
+
+async def test_0033_object_exclusion_constraints_and_a_downgrade_that_keeps_them(
+    empty_database_url: str,
+) -> None:
+    url = empty_database_url
+    await upgrade(url, "0032")
+    connection = await asyncpg.connect(plain_dsn(url))
+    try:
+        study, document, user = await _photo(connection)
+        await connection.execute(
+            "INSERT INTO photo_objects (study_id, document_id, revision, label, score, "
+            "x1, y1, x2, y2, area, source) "
+            "VALUES ($1, $2, 1, 'window', 0.9, 0.1, 0.1, 0.5, 0.5, 0.16, 'model')",
+            study,
+            document,
+        )
+    finally:
+        await connection.close()
+    at_0032 = await snapshot(url)
+    await upgrade(url)
+    await downgrade(url, "0032")  # nothing excluded: back to 0032 exactly
+    assert await snapshot(url) == at_0032
+    await upgrade(url)
+    connection = await asyncpg.connect(plain_dsn(url))
+    try:
+        row = await connection.fetchrow(
+            "SELECT id, excluded_at, excluded_by, exclusion_reason FROM photo_objects"
+        )
+        assert tuple(row)[1:] == (None, None, None)  # nothing backfilled
+        exclude = (
+            "UPDATE photo_objects SET counted = $2, excluded_at = $3, excluded_by = $4, "
+            "exclusion_reason = $5 WHERE id = $1"
+        )
+        at = datetime.now(UTC)
+        for counted, when, who, why, check in (
+            (False, at, None, "a reflection", "excluded_by_whom"),
+            (False, at, user, None, "exclusion_has_reason"),
+            (False, None, None, "a reflection", "exclusion_has_reason"),
+            (True, at, user, "a reflection", "excluded_not_counted"),
+        ):
+            with pytest.raises(asyncpg.CheckViolationError, match=check):
+                await connection.execute(exclude, row["id"], counted, when, who, why)
+        await connection.execute(exclude, row["id"], False, at, user, "a reflection")
+    finally:
+        await connection.close()
+    with pytest.raises(Exception, match="marked Not counted"):
+        await downgrade(url, "0032")

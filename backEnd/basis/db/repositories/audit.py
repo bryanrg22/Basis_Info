@@ -72,6 +72,9 @@ EVENT_KINDS: Final[dict[str, tuple[str, str]]] = {
     # docs/api/REVISIONS.md: a completed study reopened at a gate, a revision restored.
     "study.reopened": ("reopened", "reopened"),
     "revision.restored": ("restored", "restored"),
+    # EVAL_REPORT 90: a photo object marked Not counted, and counted again.
+    "object.excluded": ("object_excluded", "excluded"),
+    "object.restored": ("object_restored", "restored"),
 }
 _PRODUCING_EVENTS: Final = ("entity.corrected", "entity.added", "entity.moved", "entity.merged")
 _VERSIONED: Final = ("intake", "report_answers")

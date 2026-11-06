@@ -112,9 +112,10 @@ SPEC_TABLES = {
     "model_version params image_width image_height predict_seconds cost_usd "
     "carried_from_revision",
     # Manual add (migration 0008_object_prompts): mask_source, mask_reason, prompt_id.
+    # Not counted (migration 0033_object_exclusion): excluded_at, excluded_by, exclusion_reason.
     "photo_objects": "id study_id document_id revision label phrase score x1 y1 x2 y2 mask "
     "area source counted derived_from carried_from created_by deleted_at deleted_by "
-    "mask_source mask_reason prompt_id",
+    "mask_source mask_reason prompt_id excluded_at excluded_by exclusion_reason",
     "object_prompts": "id study_id document_id revision label params status reason returned "
     "kept_score model_version predict_seconds cost_usd created_by",
     # Invite-only firms: migration 0007_invitations.
@@ -253,6 +254,7 @@ SPEC_SIMPLE_FKS = {
     ("photo_objects", "created_by", "users"),
     ("photo_objects", "deleted_by", "users"),
     ("photo_objects", "prompt_id", "object_prompts"),
+    ("photo_objects", "excluded_by", "users"),
     ("object_prompts", "created_by", "users"),
     ("invitations", "org_id", "orgs"),
     ("invitations", "created_by", "users"),
@@ -332,6 +334,9 @@ SPEC_CHECKS = {
     "ck_photo_objects_deleted_by_whom",
     "ck_photo_objects_mask_source_valid",
     "ck_photo_objects_manual_has_mask_source",
+    "ck_photo_objects_excluded_by_whom",
+    "ck_photo_objects_exclusion_has_reason",
+    "ck_photo_objects_excluded_not_counted",
     "ck_object_prompts_status_valid",
     "ck_object_prompts_returned_nonnegative",
     "ck_invitations_role_valid",

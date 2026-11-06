@@ -184,6 +184,7 @@ def view(report: StudyReport, photos: tuple[ExhibitPhoto, ...] = ()) -> dict[str
                 "asset_class": i.asset_class or "",
                 "estimated": i.estimated,
                 "contested": i.contested,
+                "engineer_price": i.engineer_price or "",
             }
             for i in report.items
         ],
@@ -237,6 +238,7 @@ def view(report: StudyReport, photos: tuple[ExhibitPhoto, ...] = ()) -> dict[str
             {"severity": f.severity, "code": f.code, "message": f.message} for f in report.flags
         ],
         "contested": str(report.contested),
+        "engineer_prices": str(sum(1 for i in report.items if i.engineer_price)),
         "conventions_used": str(report.conventions_used),
         "photograph_count": str(report.photographs),
         "limiting": list(firm.limiting_conditions) if firm and firm.limiting_conditions else None,

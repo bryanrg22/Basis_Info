@@ -172,7 +172,8 @@ def year_from_trail(block: Mapping[str, Any]) -> YearFactor:
 
 def recorded_pricing(trails: Iterable[Any], concealed_inputs: Iterable[Any] = ()) -> Pricing | None:
     """The pricing recorded on a revision's cost rows; None when no row has a trail. The
-    first itemized (``unit_price``/``unpriced``) trail names the year and location every
+    first itemized (``unit_price``/``unpriced``/``engineer_price``, which records the study's
+    index as an unpriced row does) trail names the year and location every
     row was priced with (one ``TakeoffPlan`` per revision); a revision with only
     structure rows takes a residual trail's."""
     chosen: Mapping[str, Any] | None = None
@@ -184,7 +185,7 @@ def recorded_pricing(trails: Iterable[Any], concealed_inputs: Iterable[Any] = ()
         any_trail = any_trail or trail
         if trail.get("year") is None:
             continue
-        if trail.get("kind") in ("unit_price", "unpriced") and chosen is None:
+        if trail.get("kind") in ("unit_price", "unpriced", "engineer_price") and chosen is None:
             chosen = trail
         fallback = fallback or trail
     picked = chosen or fallback

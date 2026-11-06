@@ -18,9 +18,9 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime
-from typing import Annotated, Literal
+from typing import Annotated, Any, Final, Literal
 
-from pydantic import ConfigDict, Field, StrictBool
+from pydantic import ConfigDict, Discriminator, Field, StrictBool, Tag
 
 from basis.api.schemas.common import JSON_NUMBER, RequestModel, ResponseModel
 from basis.vision.schemas import ComponentLabel
@@ -45,6 +45,18 @@ class MaskOut(ResponseModel):
     )
 
 
+MAX_EXCLUSION_REASON: Final = 500
+
+
+class ObjectExclusionOut(ResponseModel):
+    """Who marked a counted instance Not counted, when and why (EVAL_REPORT 90)."""
+
+    by: uuid.UUID = Field(description="The engineer who excluded it.")
+    by_name: str | None = Field(description="Their display name now (null when they have none).")
+    at: datetime = Field(description="When it was excluded.")
+    reason: str = Field(description="Why, as the engineer wrote it (1 to 500 characters).")
+
+
 class PhotoObjectOut(ResponseModel):
     id: uuid.UUID
     document_id: uuid.UUID
@@ -58,7 +70,8 @@ class PhotoObjectOut(ResponseModel):
     source: Literal["model", "manual"]
     counted: bool = Field(
         description="Counted in `counts`: a model instance whose score clears its class's "
-        "threshold, or any manual instance. Uncounted model instances are candidates."
+        "threshold, or any manual instance, unless an engineer marked it Not counted "
+        "(`exclusion`). Uncounted model instances without an exclusion are candidates."
     )
     derived_from: uuid.UUID | None = Field(
         description="For a manual instance: the candidate the tap or box resolved to."
@@ -77,6 +90,11 @@ class PhotoObjectOut(ResponseModel):
         default=None,
         description="Why a manual instance has no outline (`mask_source` is `none`): "
         "nothing matched the box, the call failed or timed out, or no localizer.",
+    )
+    exclusion: ObjectExclusionOut | None = Field(
+        default=None,
+        description="Set while an engineer has marked the instance Not counted (`counted` "
+        "is then false and it is in no count); null otherwise (EVAL_REPORT 90).",
     )
 
 
@@ -174,3 +192,42 @@ class ManualSelectionOut(ResponseModel):
         "(intersection over the smaller of the two outlines, or of the boxes); 1 when the "
         "selection resolved to that instance itself.",
     )
+
+
+class ExcludeIn(RequestModel):
+    """Mark the instance Not counted: the reason is required."""
+
+    counted: Literal[False] = Field(description="false: exclude it from every count.")
+    reason: str = Field(
+        min_length=1,
+        max_length=MAX_EXCLUSION_REASON,
+        pattern=r"\S",
+        description="Why, 1 to 500 characters and not blank (kept as written, trimmed).",
+    )
+
+
+class CountAgainIn(RequestModel):
+    """Count an excluded instance again; a reason is optional (kept on the timeline)."""
+
+    counted: Literal[True] = Field(description="true: count it again.")
+    reason: str | None = Field(
+        default=None, max_length=MAX_EXCLUSION_REASON, description="Why, optional."
+    )
+
+
+def _counted_tag(value: Any) -> str | None:
+    counted = value.get("counted") if isinstance(value, dict) else getattr(value, "counted", None)
+    if counted is False:
+        return "not_counted"
+    if counted is True:
+        return "counted"
+    return None
+
+
+# ``PATCH .../objects/{object_id}`` (EVAL_REPORT 90): the body by its ``counted`` (a JSON
+# boolean; anything else is 422), so the published schema says a reason is required to
+# exclude, and a client generating bodies from it never sends one the route refuses.
+ObjectCountedIn = Annotated[
+    Annotated[ExcludeIn, Tag("not_counted")] | Annotated[CountAgainIn, Tag("counted")],
+    Discriminator(_counted_tag),
+]

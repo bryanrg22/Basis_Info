@@ -164,7 +164,8 @@ def readable(trail: dict[str, Any]) -> None:
     stored = json.loads(json.dumps(trail))
     assert stored == trail
     sent = CostTrailOut.model_validate(stored).model_dump(mode="json", by_alias=True)
-    assert sent == stored
+    # EVAL_REPORT 90: `override` and `replaced` are null unless the engineer priced the row.
+    assert sent == {"override": None, "replaced": None, **stored}
 
 
 # --------------------------------------------------------------------------- the base row

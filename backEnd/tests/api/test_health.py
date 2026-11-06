@@ -153,6 +153,8 @@ def test_only_known_routes_exist(app: FastAPI) -> None:
         "GET /v1/studies/{study_id}/photos/{document_id}/objects",
         "POST /v1/studies/{study_id}/photos/{document_id}/objects",
         "DELETE /v1/studies/{study_id}/photos/{document_id}/objects/{object_id}",
+        # Not counted (tests/api/test_engineer_overrides.py, docs/api/OVERRIDES.md)
+        "PATCH /v1/studies/{study_id}/photos/{document_id}/objects/{object_id}",
         # S2 (tests/api/test_workflow_routes.py)
         "POST /v1/studies/{study_id}/start",
         "GET /v1/studies/{study_id}/workflow",
@@ -192,6 +194,8 @@ def test_only_known_routes_exist(app: FastAPI) -> None:
         "GET /v1/orgs/{org_id}/activity",
         # invite-only firms (tests/api/test_firms.py)
         "GET /v1/me",
+        # engineer overrides offered (tests/api/test_engineer_overrides.py)
+        "GET /v1/capabilities",
         "GET /v1/me/signer",
         "PUT /v1/me/signer",
         "POST /v1/orgs",  # a verified user creates a firm and owns it (docs/api/FIRMS.md)
