@@ -138,6 +138,8 @@ client-data guard on every commit.
 
 - `README.md`: architecture, stages, security and data handling.
 - `docs/DEVELOPING.md`: setup, the method, the recipes, the definition of done.
+- `docs/LOCAL_SIGN_IN.md`: seeing the web app locally: mock mode, signing in to a live stack
+  from an agent's browser, and why sessions get stuck at the sign-in page.
 - `docs/api/WORKFLOW.md`, `STUDY_RESULT.md`, `TIMELINE_AND_AUDIT.md`, `REPORT.md`: the API.
 - `docs/review_2026-10-15/EVAL_REPORT.md`: what was measured, section by section; read the
   section a default cites before changing it.

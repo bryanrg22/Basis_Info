@@ -101,6 +101,8 @@ uv run --offline uvicorn basis.api.main:app --reload --port 8000
 Auth emulator (`firebase emulators:start --only auth --project demo-basis`, then
 `http://127.0.0.1:3100/?mode=live`); `web/README.md` "Live mode, locally" has the exact steps.
 The API accepts emulator tokens only with `BASIS_ENV=dev`.
+Signing in from an agent's browser, a firm for a new test account, and the causes of a
+session stuck at the sign-in page are in `docs/LOCAL_SIGN_IN.md`.
 
 **A full study by hand** is walked through in `docs/review_2026-10-15/S2_RUNBOOK.md`.
 
