@@ -709,4 +709,10 @@ focus and the next key lands at the caret; the sign dialog against today's API (
 has fields, prefilled with the engineer's name or the admin's own license; the developer page's
 sample mode says its health is synthetic. 12 of 12 pass.
 
-The full `web/tests/*.test.cjs` suite passed 441 tests.
+Firms are set up by Basis, not self-serve (`POST /v1/orgs` off by default; `python -m basis.admin create-firm`):
+
+| Test file | Coverage | Result |
+| --- | --- | --- |
+| `web/tests/firm-pages.test.cjs` | Added: the no-firm screen, for an admin, an engineer and a viewer sign-in, says to ask the firm's admin for an invitation or contact Basis, offers only Check for an invitation and Use another account, and has no form or create control; a create-firm form submitted anyway sends nothing, and the sample API creates no firm (fails on the code before the change) | 22 pass |
+
+The full `web/tests/*.test.cjs` suite passed 442 tests.

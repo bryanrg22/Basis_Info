@@ -339,7 +339,6 @@
   const f=e.target.closest?.('form[data-fp-form]');if(!f)return;e.preventDefault();e.stopImmediatePropagation();
   if(f.dataset.fpForm==='signer')Live.guarded('signer-save',async()=>{const onboarding=f.closest('.fp-onboarding');if(await saveSigner(f,{onboarding:Boolean(onboarding)})){if(onboarding){L.justJoined=true;Live.finishJoin?.();Live.invalidate('studies');location.hash='#dashboard'}Live.render()}});
   if(f.dataset.fpForm==='letterhead')Live.guarded('letterhead-save',()=>saveLetterhead(f));
-  if(f.dataset.fpForm==='create-firm')Live.guarded('firm-create',async()=>{const name=f.querySelector('#fp-new-firm').value.trim();if(!name){toast('Enter your firm’s name.');return}await api.request('POST','/v1/orgs',{body:{name}});Live.invalidate('');await Live.refreshMe();location.hash='#dashboard';Live.render()});
  },true);
  Live.actions['fp-signer-later']=()=>{L.justJoined=true;Live.finishJoin?.();location.hash='#dashboard';Live.render()};
 

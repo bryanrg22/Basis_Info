@@ -81,8 +81,9 @@ Lee); `&onboarding=invited`, `nofirm` or `new-firm` for the first-run states.
   prefilled with their own name (and with the firm's engineer of record only when that is them,
   by email); it never signs one engineer with another's license.
 * **Onboarding**: an invitation (step 1), then the signer details once (step 2, or Later), then
-  Home; the no-firm screen also offers "Create a firm" (`POST /v1/orgs`). Viewers, who never sign,
-  are not asked for signer details anywhere.
+  Home. The no-firm screen offers no way to create a firm (Basis sets firms up with
+  `python -m basis.admin create-firm`): it says to ask for an invitation or contact Basis.
+  Viewers, who never sign, are not asked for signer details anywhere.
 * **The developer page** runs on synthetic health with `developer/?api=sample&health=partial`
   (or `healthy`, `stale`, `missing`, `forbidden`, `offline`), says so in a banner, and renders at
   full size (it was zoomed to 67 %).

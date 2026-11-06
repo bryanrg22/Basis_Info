@@ -95,6 +95,8 @@ test('Settings: firm and role read-only, signer details editable, no New design 
 test('the admin of a new firm gets the setup checklist; nothing else is invented',async()=>{
  const a=await boot({role:'admin',onboarding:'new-firm'}),h=await a.page('dashboard');
  assert.match(h,/Set up Hale Cost Engineering/);assert.match(h,/0 of 4 done/);assert.match(h,/has no studies yet/);
+ // Basis set the firm up and invited its owner: the activity says so, not that Morgan created it.
+ assert.match(h,/<strong>Basis<\/strong> <a [^>]*>created Hale Cost Engineering/);assert.match(h,/<strong>Morgan Hale<\/strong> <a [^>]*>joined the firm as an admin/);assert.doesNotMatch(h,/Morgan Hale<\/strong> <a [^>]*>created/);
 });
 
 test('against today’s API (no PROPOSED section) each page falls back and says so',async()=>{
@@ -208,4 +210,22 @@ test('Home with deliveries that are not signed: Sign report and Update the repor
  assert.match(needs,/Linden Avenue Townhomes[\s\S]*?is-sign">Sign report</);assert.match(needs,/href="#report\/[^"]+"/,'a signature opens Report & sign');
  assert.match(needs,/Redwood Commons[\s\S]*?is-update">Update the report</);
  assert.ok(needs.indexOf('Sign report')<needs.indexOf('Review '),'signatures before reviews');
+});
+// Firms are set up by Basis (python -m basis.admin create-firm); POST /v1/orgs is off by default.
+test('the no-firm screen offers no way to create a firm, for every role; it says to ask for an invitation or contact Basis',async()=>{
+ for(const role of ['admin','engineer','viewer']){
+  const e=await boot({role,onboarding:'nofirm',team:true});e.g.state.screen='dashboard';
+  let html;for(let i=0;i<4;i++){html=e.Live.gate();const open=[...e.Live.state.cache.values()].filter(x=>!x.done);if(!open.length)break;await Promise.all(open.map(x=>x.promise))}
+  assert.match(html,/You’re not in a firm yet/,role);
+  assert.match(html,/You are signed in as <strong>taylor\.brooks@example\.test<\/strong>\. If your firm uses Basis, ask its admin to invite this address: the invitation appears here\. Setting up a new firm\? Contact Basis\./);
+  assert.match(html,/data-live="reload-me">Check for an invitation</);assert.match(html,/data-live="sign-out">Use another account</);
+  assert.doesNotMatch(html,/<form|<input|create-firm|Create firm|Start your firm|Firm name/i,'no form and no create control');
+  assert.equal((html.match(/<button/g)||[]).length,2,'only the two buttons');
+  // Nothing in the pages answers a create-firm form, and the sample API has no POST /v1/orgs.
+  const sent=[];const req=e.api.request;e.api.request=(m,p,o)=>{sent.push([m,p]);return req(m,p,o)};
+  for(const fn of e.events.submit||[])fn({target:{closest:()=>({dataset:{fpForm:'create-firm'},querySelector:()=>({value:'Harbor Cost Engineering'}),closest:()=>null})},preventDefault(){},stopImmediatePropagation(){}});
+  await new Promise(r=>setTimeout(r,10));assert.deepEqual(sent,[],'no request is sent');
+  const r=await e.sample.fetch(e.sample.base+'/v1/orgs',{method:'POST',headers:{'content-type':'application/json',authorization:'Bearer sample-token','idempotency-key':'k1'},body:JSON.stringify({name:'Harbor Cost Engineering'})});
+  assert.notEqual(r.status,201,'the sample creates no firm');
+ }
 });

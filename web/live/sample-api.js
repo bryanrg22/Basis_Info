@@ -24,8 +24,9 @@
  * Who is signed in (&role=): admin (Alex Morgan, the owner; the default) | engineer (Jordan Lee)
  * | viewer (Sam Rivera). The real API's rules apply: team, invitations and the firm profile are
  * owner-only, a viewer cannot decide or sign. Onboarding (&onboarding=): invited (Casey Nguyen,
- * no firm, one invitation to accept) | nofirm (Taylor Brooks: nothing yet, can create a firm) |
- * new-firm (Morgan Hale, the owner of a firm just created: no studies, no letterhead).
+ * no firm, one invitation to accept) | nofirm (Taylor Brooks: no firm and no invitation; firms are
+ * set up by Basis, so there is nothing to create) | new-firm (Morgan Hale, the owner of a firm Basis
+ * just set up, the owner invitation accepted: no studies, no letterhead).
  *
  * Decisions, reopen, objects, the report answers, the firm profile, signing, invitations, roles
  * and removals all work and change what the next GET answers; a decision reruns for about two
@@ -654,10 +655,15 @@
   inst.invitations=seedInvitations(inst);inst.orgEvents=seedOrgEvents(inst);
   inst.studies=STUDIES.map(spec=>seed(makeStudy(spec,inst),spec.main?state:spec.state,inst));
   if(inst.onboarding){
-   // Not a member of Alder & Pine (yet): their own person, and for new-firm their own empty firm.
+   // Not a member of Alder & Pine (yet): their own person, and for new-firm the empty firm Basis set up for them.
    const p=NEWCOMERS[inst.onboarding];inst.me={...clone(p),role:null,joined_at:null,last_seen_at:iso(inst.t0),signer:null};
    // invited: Casey's invitation (sent three days ago by Alex Morgan) is already in the firm's list.
-   if(inst.onboarding==='new-firm'){inst.me.role='owner';inst.me.joined_at=iso(inst.t0-HOUR);inst.org={id:NEW_ORG_ID,name:'Hale Cost Engineering (sample)',created_at:iso(inst.t0-HOUR)};inst.people=[inst.me];inst.studies=[];inst.invitations=[];inst.orgEvents=[orgEvent(inst,'org.created',{actor:inst.me.id,subject:inst.me.id,after:{name:inst.org.name},at:inst.t0-HOUR})];inst.profile=null;inst.profileVersion=0}
+   if(inst.onboarding==='new-firm'){inst.me.role='owner';inst.me.joined_at=iso(inst.t0-HOUR);inst.org={id:NEW_ORG_ID,name:'Hale Cost Engineering (sample)',created_at:iso(inst.t0-2*HOUR)};inst.people=[inst.me];inst.studies=[];
+    // As python -m basis.admin create-firm does: Basis creates the firm (org.created by the system)
+    // and invites its first owner (an invitation with no inviter); Morgan accepted it an hour ago.
+    const inv=invitation(inst,{id:'5a3d0000-0000-4000-8000-0000000000a1',email:inst.me.email,role:'owner',by:null,days:2/24,status:'accepted',answered:1/24});inst.invitations=[inv];
+    inst.orgEvents=[orgEvent(inst,'org.created',{actor:null,after:{name:inst.org.name},at:inst.t0-2*HOUR}),orgEvent(inst,'invitation.created',{actor:null,entity:['invitation',inv.id],after:{email:inv.email,role:inv.role,expires_at:inv.expires_at},at:inst.t0-2*HOUR}),orgEvent(inst,'invitation.accepted',{actor:inst.me.id,subject:inst.me.id,entity:['invitation',inv.id],after:{email:inv.email,role:inv.role},detail:{role_before:null},at:inst.t0-HOUR})].map((e,i)=>({...e,seq:i+1}));
+    inst.profile=null;inst.profileVersion=0}
    else inst.people=inst.people.slice();// Alder & Pine stays as it is; they are not in it
   }
   return api(inst);
@@ -904,13 +910,6 @@
     if(accept){inv.status='accepted';inv.accepted_at=at;inv.accepted_by=I.me.id;I.me={...I.me,role:inv.role,joined_at:at,last_seen_at:at};I.people=[...I.people.filter(p=>p.id!==I.me.id),I.me];I.orgEvents.push({...orgEvent(I,'invitation.accepted',{actor:I.me.id,subject:I.me.id,entity:['invitation',inv.id],after:{email:inv.email,role:inv.role},detail:{role_before:null},at:I.now()}),seq:I.orgEvents.length+1})}
     else{inv.status='declined';inv.declined_at=at;I.orgEvents.push({...orgEvent(I,'invitation.declined',{actor:I.me.id,subject:I.me.id,entity:['invitation',inv.id],before:{email:inv.email,role:inv.role,expires_at:inv.expires_at},at:I.now()}),seq:I.orgEvents.length+1})}
     return json(200,{invitation:inviteeOut(inv),membership:accept?{org_id:I.org.id,org_name:I.org.name,role:inv.role}:null});
-   });
-   route('POST','/v1/orgs',ctx=>{
-    const I=ctx.i,b=ctx.body,errs=checkShape(b,{name:v=>typeof v==='string'&&v.trim().length>=1&&v.trim().length<=200&&!/[\r\n]/.test(v)},['name']);if(errs.length)return invalid(errs);
-    if(isMember(I))return conflict('conflict','The sample API holds one firm per session; this account already belongs to one.');
-    const at=I.now();I.org={id:NEW_ORG_ID,name:b.name.trim(),created_at:iso(at)};I.me={...I.me,role:'owner',joined_at:iso(at)};I.people=[I.me];I.studies=[];I.invitations=[];I.profile=null;I.profileVersion=0;
-    I.orgEvents=[{...orgEvent(I,'org.created',{actor:I.me.id,subject:I.me.id,after:{name:I.org.name},at}),seq:1}];
-    return json(201,{id:I.org.id,name:I.org.name,created_at:I.org.created_at,role:'owner'},{location:`/v1/orgs/${I.org.id}`});
    });
    route('GET','/v1/orgs/{org_id}/profile',ctx=>!inFirm(ctx)?notFound('Firm not found.'):!ctx.i.profile?notFound('The firm has no report profile yet.','BASIS-REPORT-013'):json(200,{org_id:ctx.i.org.id,profile:clone(ctx.i.profile),version:ctx.i.profileVersion,updated_at:ctx.i.profileUpdated},{etag:`"${ctx.i.profileVersion}"`}));
    route('PUT','/v1/orgs/{org_id}/profile',ctx=>{

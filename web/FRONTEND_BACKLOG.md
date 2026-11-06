@@ -64,9 +64,12 @@ of truth. Items are in the order they matter for a first firm.
 
 ## 4. Firm onboarding
 
-- **Create a firm** (`POST /v1/orgs`, any verified sign-in) and **rename**
-  (`PATCH /v1/orgs/{id}`, owner): the "not a member" screen should offer "Create your
-  firm" instead of only "wait for an invitation". `docs/api/FIRMS.md`.
+- **Firms are set up by Basis, not self-serve.** `POST /v1/orgs` is being turned off by default
+  on the backend; firms are created with `python -m basis.admin create-firm`, which also invites
+  their first owner. The "not a member" screen offers no way to create a firm: it says to ask the
+  firm's admin for an invitation, or to contact Basis to set up a new firm, with "Check for an
+  invitation" and "Use another account" (`web/live/live-team.js`). The sample API has no
+  `POST /v1/orgs`. **Rename** (`PATCH /v1/orgs/{id}`, owner) is unchanged; see section 15.
 - **Invitations are emailed** now; the list shows `emailed_at` and the last error. Show
   it on the Team page.
 - **Firm profile form:** add `limiting_conditions` (editable list) and the engineer's

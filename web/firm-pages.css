@@ -221,8 +221,6 @@
 #app .fp-invite-facts dd{margin:0}
 #app .fp-nofirm{display:grid;gap:18px;justify-items:center}
 #app .fp-nofirm .invitation-card{width:100%;max-width:600px;margin:0}
-#app .fp-create-firm{display:flex;align-items:flex-end;gap:10px;margin-top:14px}
-#app .fp-create-firm .fp-field{flex:1;margin:0}
 #app .fp-onboarding .fp-signer-form{margin-top:16px}
 #app .fp-lib-name{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 #app .fp-lib-sub{white-space:normal;overflow-wrap:anywhere;line-height:1.4}
