@@ -14083,3 +14083,21 @@ provider and the person at the keyboard is the developer, so the convenience is 
 Verified: the sign-in and members paths above, on Postgres, with the setting on and off.
 Not verified: the operator path against a real (non-emulator) Firebase project; nothing is
 deployed.
+
+## 94. Firms are set up by Basis, not self-serve (2026-11-06)
+
+Bryan's decision while reviewing #160: for now Basis sets up each firm by hand, and the firm's
+admin invites its engineers; nobody creates a firm from the app. #160 removed the "Start your
+firm on Basis" card from the no-firm screen, but `POST /v1/orgs` (#111) still let any signed-in
+user with a verified email create one, so the rule held only on the screen.
+
+What changed: `FIRM_SELF_SERVE` (default false). Off, `POST /v1/orgs` answers 403
+`firm-self-serve-off` (`BASIS-FIRM-011`) before anything else and writes nothing; firms are
+created with `python -m basis.admin create-firm`, which invites the owner, who accepts like any
+member. On, the route behaves exactly as before. Nothing was measured (a product rule, not a
+method choice); there is no paid run and no migration.
+
+Tests: `tests/api/test_firms.py` gains the default refusal (a verified user, twice with one
+Idempotency-Key: 403 `firm-self-serve-off`, no firm, no membership); the seven tests of
+self-serve creation run with the setting on through a `self_serve_api` fixture and pass
+unchanged. A mutation check (the default flipped on) makes the new test fail.

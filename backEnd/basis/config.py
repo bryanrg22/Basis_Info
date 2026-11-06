@@ -122,6 +122,10 @@ class Settings(BaseSettings):
     review_deadline_days: int = Field(default=30, ge=1)
     # How long a firm invitation can be accepted (basis.db.repositories.invitation).
     invitation_ttl_days: int = Field(default=14, ge=1, le=90)
+    # Whether a signed-in user may create a firm with POST /v1/orgs (docs/api/FIRMS.md section
+    # 1). Off by default: Basis sets each firm up (python -m basis.admin create-firm invites
+    # its owner), and the firm's admin invites its engineers (Bryan, 2026-11-06). EVAL_REPORT 94.
+    firm_self_serve: bool = False
     # A first sign-in whose verified email a firm member already has joins that member's
     # user instead of creating a second user (basis.db.repositories.user, docs/api/FIRMS.md
     # "One person, one user"). Off by default: a verified email shows who held the address

@@ -58,6 +58,10 @@ from basis.db.session import SessionDep
 from basis.errors.codes import E
 
 ADMIN_ROLE = OrgRole.OWNER
+DETAIL_SELF_SERVE_OFF = (
+    "Basis sets up each firm. Ask Basis to set up yours; the owner's invitation then appears "
+    "here when they sign in."
+)
 DETAIL_CREATE_UNVERIFIED = (
     "Creating a firm needs a sign-in that confirms your email address (Google sign-in "
     "does): the firm's owner must be reachable at a verified address."
@@ -110,16 +114,27 @@ async def get_me(user: CurrentUserDep, session: SessionDep) -> MeOut:
 @writes.post(
     "/orgs",
     status_code=status.HTTP_201_CREATED,
-    summary="Create a firm; you become its owner",
-    description="How a new customer starts: any signed-in user whose sign-in confirms their "
-    "email creates a firm and is its first owner (403 `email-unverified` otherwise). You may "
-    "own or belong to several firms; names are not unique. Invite the rest of the firm with "
-    "`POST /v1/orgs/{org_id}/invitations`.",
+    summary="Create a firm; you become its owner (when firms are self-serve)",
+    description="Off by default (`FIRM_SELF_SERVE`): Basis sets each firm up with "
+    "`python -m basis.admin create-firm`, which invites its owner, and the owner invites the "
+    "engineers; this route then answers 403 `firm-self-serve-off`. With it on, any signed-in "
+    "user whose sign-in confirms their email creates a firm and is its first owner (403 "
+    "`email-unverified` otherwise). You may own or belong to several firms; names are not "
+    "unique. Invite the rest of the firm with `POST /v1/orgs/{org_id}/invitations`.",
     responses=problems(403),
 )
 async def create_firm(
-    body: FirmCreate, user: CurrentUserDep, session: SessionDep, response: Response
+    body: FirmCreate,
+    user: CurrentUserDep,
+    session: SessionDep,
+    response: Response,
+    request: Request,
 ) -> FirmOut:
+    settings: Settings = request.app.state.settings
+    if not settings.firm_self_serve:
+        raise Forbidden(
+            DETAIL_SELF_SERVE_OFF, type_suffix="firm-self-serve-off", code=E.FIRM_SELF_SERVE_OFF
+        )
     principal = user.principal
     if not principal.email or not principal.email_verified:
         raise Forbidden(

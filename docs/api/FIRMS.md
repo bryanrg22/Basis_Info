@@ -7,23 +7,35 @@ the data rules in `basis/db/repositories/org.py` and `invitation.py`; the email 
 
 ## 1. How a new customer starts
 
-1. Someone at the firm signs in to the app with a sign-in that confirms their email (Google
-   sign-in does; an email-and-password account only after the address is confirmed).
-2. `POST /v1/orgs` with `{"name": "Harbor Cost Seg"}` creates the firm and makes the caller its
-   **owner**. 201 with `{id, name, created_at, role: "owner"}` and a `Location` header.
+Basis sets each firm up (Bryan, 2026-11-06; `FIRM_SELF_SERVE` off, the default):
+
+1. An operator runs `python -m basis.admin create-firm --name "Harbor Cost Seg" --owner-email
+   admin@harbor.example`, which creates the firm and invites its owner (the invitation is
+   emailed, section 3).
+2. The owner signs in with that address (a sign-in that confirms the email) and accepts on the
+   join screen; they are the firm's **owner** (shown as admin in the app).
 3. The owner invites the rest of the firm (`POST /v1/orgs/{org_id}/invitations`, section 3).
    Each invitee receives an email, signs in with that address and accepts on the join screen.
+
+Anyone who signs in before being invited sees "You're not in a firm yet": the app offers no
+way to create a firm, and `POST /v1/orgs` answers 403 `firm-self-serve-off`
+(`BASIS-FIRM-011`), so the rule holds at the API, not only on the screen.
+
+With `FIRM_SELF_SERVE=true`, self-serve comes back: `POST /v1/orgs` with
+`{"name": "Harbor Cost Seg"}` creates the firm and makes a caller with a verified email its
+owner. 201 with `{id, name, created_at, role: "owner"}` and a `Location` header. The rules
+below describe that route.
 
 Rules, and why:
 
 | Rule | Why |
 |---|---|
 | Creating a firm needs a verified email (403 `email-unverified`, `BASIS-FIRM-003`). | The owner is who Basis and the firm's members reach about the firm; an unconfirmed address is nobody. The same rule already governs answering an invitation. |
-| Any signed-in user may create a firm; there is no sign-up queue. | The pitch is "here is the link"; a queue needs an operator. Abuse is bounded by the per-user mutation rate limit; a firm with no studies costs nothing. |
+| With `FIRM_SELF_SERVE` on, any signed-in user may create a firm; there is no sign-up queue. Off (the default), only the operator does. | Off: Basis onboards each firm by hand for now, so a firm is never created by an engineer who meant to join one. On: the pitch is "here is the link"; abuse is bounded by the per-user mutation rate limit; a firm with no studies costs nothing. |
 | A user may belong to, and own, several firms. | The code allowed it before this change and a consultant does work for two firms. `POST /v1/studies` already requires `org_id` from a member of several (422 `org-required`). This is the product rule; a cap would need a reason. |
 | Firm names are not unique. | Two "Smith Engineering" exist in the world. Refusing a name another firm took would also tell a stranger that firm exists. The operator CLI keeps refusing duplicates by default because an operator cannot tell them apart in `list-firms`. |
 | `PATCH /v1/orgs/{org_id}` (owner only) renames; nothing else about a firm is editable here. | The firm's report profile (address, logo, limiting conditions) is `PUT /v1/orgs/{org_id}/profile`, docs/api/REPORT.md; each engineer's name, credentials and license are their own (`PUT /v1/me/signer`, docs/api/SIGNERS.md). |
-| The operator CLI `python -m basis.admin create-firm` remains. | For firms Basis sets up on a customer's behalf. It takes the same path: the owner invitation it creates is emailed too. |
+| The operator CLI `python -m basis.admin create-firm` is how firms are made. | It invites the owner instead of adding them, so the owner joins exactly like every other member; the owner invitation is emailed too. |
 
 Both are on the firm's history (`org_events`, `GET /v1/orgs/{org_id}/activity`,
 docs/api/TIMELINE_AND_AUDIT.md "Firm activity"): `org.created` by the creator (by the
@@ -158,6 +170,7 @@ docs/api/SIGNERS.md). One signer-details read per response.
 | `SMTP_HOST`, `SMTP_PORT` | unset, `587` | relay | The relay's SMTP server. Required with `smtp`. 465 means implicit TLS. |
 | `SMTP_USERNAME`, `SMTP_PASSWORD` | unset | relay | Credentials when the server wants them. The password is a secret (never in `repr`, never logged). |
 | `SMTP_STARTTLS` | `true` | relay | Off only for a local test server. |
+| `FIRM_SELF_SERVE` | `false` | API | Whether a signed-in user may create a firm with `POST /v1/orgs` (section 1). Off: Basis sets firms up with `python -m basis.admin create-firm`. |
 | `INVITATION_TTL_DAYS` | `14` | API, CLI | Unchanged: how long an invitation can be accepted (the email states the date). |
 | `AUTH_LINK_VERIFIED_EMAIL` | `false` | API | A first sign-in whose verified email a firm member already has joins that member's user (section 6.1). On in `docker-compose.web.yml` for local stacks. |
 

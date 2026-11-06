@@ -668,6 +668,13 @@ upload slow tests 142 passed.
 | `web/tests/live-photos.test.cjs` | A photo on screen is fetched from `/image` and the original from `/content`, separately cached; each copy once for concurrent asks; a fetched photo renders with its `src` at once and the original never replaces it | 2 tests, pass |
 | `web/tests/api-client.test.cjs` | Added: `documentImage` requests `.../documents/{id}/image` with the ids URL-encoded | 1 test, pass |
 
+## Firms are set up by Basis, not self-serve (2026-11-06; EVAL_REPORT 94)
+
+| File | What it tests | Result |
+|---|---|---|
+| `tests/api/test_firms.py` | Added: `POST /v1/orgs` with `FIRM_SELF_SERVE` off (the default) is 403 `firm-self-serve-off` for a verified user, twice under one Idempotency-Key, and writes no firm or membership. Changed: the self-serve creation tests run with the setting on (`self_serve_api`) | pass |
+| `tests/api/test_firm_logging.py` | Changed: creating a firm at debug runs with the setting on | pass |
+| `tests/api/conftest.py` | Added: the `self_serve_api` fixture | (support) |
 ## Library search beyond the property name (2026-11-06; EVAL_REPORT 92)
 
 | File | What it checks | Result |
