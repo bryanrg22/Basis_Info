@@ -13381,3 +13381,155 @@ sweep exactly. Not verified: a live study on the fixed code (the location flag a
 mid-quarter note on a real run are covered by tests with synthetic studies only); the wainscot
 height on any property but this one; whether firms want the location flag on every priced row
 or once on the study (it follows the cost-index flag's precedent).
+
+## 90. Engineer overrides: Not counted on a photo object, and the engineer's unit price (2026-11-05)
+
+**Question.** The engineer must be able to override what Basis drafts (Bryan, 2026-11-05).
+The app (web/FRONTEND_BACKLOG.md section 14, the PROPOSED section of `web/live/sample-api.js`)
+already draws two overrides the API lacked: marking a detected object Not counted, and setting
+a unit price. How should each be recorded so the model's or the table's value is never lost,
+the dollars stay traceable and fail-safe (section 78), and a study nobody overrides prices
+exactly as before?
+
+**Setup.** Branch `claude/engineer-overrides` from main `3b4eed8`. No model was called and
+nothing was deployed (cost $0). Contract: docs/api/OVERRIDES.md.
+
+### 90.1 The standard
+
+* **A unit price from a source, documented.** The IRS Cost Segregation Audit Techniques Guide
+  (Publication 5653, Rev. 2-2025) describes the detailed engineering cost estimate approach as
+  the detailed cost approach "except for Step 7 (in which costs come from contractor estimates
+  or estimating guides)", with "the sources of estimating data ... clearly referenced" (ch. 3
+  C.2, p.20); "where estimation is the only option, the methodology and the source of any cost
+  data should be clearly documented" and estimates "reconciled back to actual costs or
+  purchase price" (ch. 3 D, p.22); a quality study's take-offs "show derived unit costs" and it
+  documents "the methodology used to assign costs to each asset" (ch. 4 C.8, p.28). So an
+  engineer's price (a contractor's quote, an invoice, another guide's line) is a legitimate
+  cost source when its source is named, and it still goes through the reconciliation to the
+  price. Built: `unit_cost_source` is required with a price, the correction's reason is
+  required, and the priced row stays inside the structure model's carve-out, the
+  reconciliation and the allocation.
+* **Changes never hide what was there.** The audit-trail rule of electronic records (21 CFR
+  11.10(e)): time-stamped trails of "operator entries and actions that create, modify, or
+  delete electronic records", and "record changes shall not obscure previously recorded
+  information". Built: the table's own pricing is kept in the trail (`replaced`), the model's
+  detection keeps its row (`counted: false` with who, when and why; nothing deleted), and
+  every change is an event with before and after.
+* **Not verified.** How commercial estimating tools (RSMeans Data Online, estimating suites)
+  and annotation tools (CVAT, Label Studio) record a user's price override or a rejected
+  detection: the one search run returned nothing usable, and no vendor's documentation was
+  read. The design above rests on the ATG and the records rule, and on the house's own
+  precedent (the engineer's measured quantity of section 78, which requires its source).
+
+### 90.2 What was built
+
+* `GET /v1/capabilities`: `object_exclusion` (`OBJECT_EXCLUSION`), `unit_cost_override`
+  (`UNIT_COST_OVERRIDE`), `room_create` always false. Both settings default true (this section):
+  each override keeps the original beside the engineer's, and turning a setting off returns
+  its route to the behaviour before (the PATCH answers 409, a price on a correction 422).
+* **Not counted**, `PATCH .../photos/{document_id}/objects/{object_id}` (migration 0031:
+  `photo_objects.excluded_at`, `excluded_by`, `exclusion_reason`, with checks that the three
+  go together and an excluded row is never counted). Stored as `counted: false` plus the
+  exclusion, so every existing reader of counted instances (the per-label counts, the rooms'
+  suggested counts, the report's photo exhibit, the duplicate guard) leaves it out with no
+  change of its own; counting it again restores `counted: true`. Only a counted instance can
+  be excluded (a candidate counts nothing: 409). Carried into later revisions with the row.
+  Events `object.excluded` and `object.restored`; audit kinds `object_excluded`,
+  `object_restored`.
+* **The unit price**, `unit_cost` and `unit_cost_source` on `component` (components review)
+  and `asset` (assets review) corrections, with the reason. `apply_corrections` stores it on
+  the component's copy (`components.raw`), so every later copy carries it; `process_assets`
+  prices with it (the asset's over the component's), the trail kind `engineer_price` with the
+  table's pricing as `replaced`; the asset's `cost.override` reads it back. A price on a
+  concealed row is refused (its total is a share of the building's cost, not a unit price). A
+  price never prices a missing quantity (section 78: the row stays unpriced with its blocker).
+  The report marks the line with its price and source and counts the lines in the methodology.
+* No Temporal patch: the workflow's code is unchanged; the activities read and write the
+  prices. The relevant lifecycle suites and the recorded-history replays pass (90.4).
+
+### 90.3 An untouched study prices exactly as before
+
+**How to read this table.** The same fixture study priced by main's code (`3b4eed8`, the tree
+extracted with `git archive`) and by this branch's, with the branch's environment, and the
+outputs compared.
+
+- **What**: the fixture and what was compared. The pricing fixture is
+  `tests/unit/activities/test_process_assets.py`'s stub study with the synthetic cost table,
+  the appraisal's measured and structure fields and an intake: `process_assets` at revision 1,
+  then a components rejection and an assets rejection with no corrections (revisions 2 and 3).
+  Every cost row's unit cost, total, source text, factors, cost year, takeoff, review reasons
+  and trail are compared as a multiset per revision. One input is set aside: which of the two
+  roof rows (counts 1 and 2) carries the measured roof area follows the order of their random
+  ids, so it changed between three runs of the branch alone; the row's `count` is dropped
+  before comparing.
+- **Models**: none; the classifier is off (residual components flagged as without one).
+- **Result**: identical or not; for the report, the sha256 of each file.
+- **Tokens (input / output)**: none.
+
+| What | Models (provider, effort, temperature) | main 3b4eed8 | this branch | Result | Tokens (input / output) |
+|---|---|---|---|---|---|
+| 75 cost rows: 25 per revision x 3 revisions (unit_price, unpriced and structure_residual trails) | No AI model | 1 run | 3 runs | identical in all three | None |
+| The report PDF of the synthetic export (`tests/unit/report/support.py`), draft and with every input | No AI model | e55eca25..., 642f0914... | e55eca25..., 642f0914... | byte-identical | None |
+| The depreciation schedule CSV and XLSX of the same | No AI model | 018de8c7..., e0d47100... | 018de8c7..., e0d47100... | byte-identical (and the vendor test's pinned hashes still hold) | None |
+
+Within the branch, `test_price_overrides.py` also checks that every row without a price is
+priced identically to its revision-1 row after a rejection that prices other rows.
+
+### 90.4 Tests, and the mutations they catch
+
+Unit and API tests (Postgres where marked): `tests/api/test_engineer_overrides.py` 48,
+`tests/unit/activities/test_price_overrides.py` 11, `tests/unit/domain/test_price_overrides.py`
+33, `tests/unit/report/test_engineer_prices.py` 5, `tests/unit/config/test_override_settings.py`
+9, one migration test (the LEDGER lists what each protects). Existing suites run against the
+change: the API suites of the objects, decisions, drafts, timeline, evidence, outputs,
+revisions, reprice and result routes and the Schemathesis contract (`test_openapi_contract.py`,
+which found the PATCH body's first schema let `{"counted": false, "reason": null}` through: the
+body is now a union by `counted`, so the published schema requires the reason); the lifecycle
+suites `test_versioning` (the recorded histories replay), `test_reject_paths`,
+`test_manual_add`, `test_reopen`, `test_components_gate`, `test_timeline_audit`,
+`test_happy_path` (36 passed, 5 re-record helpers skipped).
+
+**How to read this table.** Each row breaks the code on purpose and runs the test that should
+fail.
+
+- **Mutation**: what was changed in the code.
+- **Caught by**: the test that failed; "survived" when every test passed.
+
+| Mutation | Caught by |
+|---|---|
+| The revision copy drops the exclusion (`PhotoObjectRepository.carry`) | `test_the_exclusion_is_carried_into_the_next_revision_and_history_is_kept` |
+| The component's price wins over the asset's (`price_overrides.active`) | `test_the_assets_own_price_wins_over_its_components`, `test_the_assets_price_wins_carries_and_clears_...` |
+| The index flags written on the engineer's row too | survived the first round; caught by `test_the_index_flags_are_the_tables_not_the_engineers`, added for it |
+| A price prices a missing quantity | `test_a_price_does_not_price_a_missing_quantity` |
+| A candidate may be excluded | `test_a_candidate_cannot_be_excluded_or_restored` |
+
+### 90.5 Shapes that differ from the app's sample API
+
+`cost.override.unit_cost` is a decimal string, as every money value of the API (the sample
+sends the number back); `cost.override` adds `level`, `correction_id`, `revision`; a
+price-only override does not clear the asset's classification or quantity review reasons (the
+sample clears them all); `unit_cost` is limited to two decimals; a body error is located under
+the union's tag (`["body", "not_counted", "reason"]`, not `["body", "reason"]`); excluding a
+candidate is 409 `not-counted` (the sample allows it); `room_create` is false. docs/api/OVERRIDES.md
+section 4.
+
+**Verdict.** Both overrides are built behind settings that default on, each keeps the
+original beside the engineer's with who, when and why, the dollars of an untouched study and
+its report are byte-identical to main's, and every path listed is tested.
+
+**Open.**
+* Not run end to end on the stack or on a live study: the paths were exercised through the
+  activities and the API against Postgres, not through a running workflow with the app.
+* An inventory row of a room the rejection rebuilds (a photo flagged for re-analysis, a merge,
+  or a reopen before the components review) loses its price, as it loses a count correction
+  today; the decision route does not refuse such a price yet (it refuses a removal of such a
+  row).
+* A component's label changed after its price was set keeps the price (the engineer clears it).
+* The inventory items at the components review do not show a component's price before the
+  assets are built (its `provenance` names the correction).
+* The schedule CSV has no price-source column: the generic file is pinned byte-identical for
+  the vendor imports (`test_vendors.py`); the report carries the source.
+* `UNIT_COST_OVERRIDE` must be on only once every worker runs this release (OVERRIDES.md
+  section 6).
+* How commercial estimating and annotation tools record overrides was not researched from
+  their documentation (90.1).

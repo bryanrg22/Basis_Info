@@ -650,6 +650,14 @@ class PhotoObject(Base):
     ``candidate`` (a stored candidate promoted), ``sam_box_prompt`` (SAM 3 prompted with the
     engineer's box, ``prompt_id`` names the call) or ``none`` (the box alone; ``mask_reason``
     says why: nothing matched, the call failed or timed out, no localizer).
+
+    Migration 0031 (EVAL_REPORT 90): an engineer may mark a counted instance, model or
+    manual, Not counted (``PATCH .../objects/{id}``): ``excluded_at``/``excluded_by``/
+    ``exclusion_reason`` say who, when and why, and ``counted`` is false while it is
+    excluded, so every reader of counted instances (the per-label counts, the rooms'
+    suggested counts, the report's photo exhibit) leaves it out. Counting it again clears
+    the three and sets ``counted`` back to true. Nothing is deleted; the copy into the next
+    revision keeps the exclusion.
     """
 
     __tablename__ = "photo_objects"
@@ -673,6 +681,11 @@ class PhotoObject(Base):
         CheckConstraint(
             "(source = 'manual') = (mask_source IS NOT NULL)", name="manual_has_mask_source"
         ),
+        CheckConstraint("(excluded_at IS NULL) = (excluded_by IS NULL)", name="excluded_by_whom"),
+        CheckConstraint(
+            "(excluded_at IS NULL) = (exclusion_reason IS NULL)", name="exclusion_has_reason"
+        ),
+        CheckConstraint("excluded_at IS NULL OR NOT counted", name="excluded_not_counted"),
     )
 
     id: Mapped[uuid.UUID] = _uuid_pk()
@@ -698,6 +711,9 @@ class PhotoObject(Base):
     mask_source: Mapped[str | None]
     mask_reason: Mapped[str | None]
     prompt_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("object_prompts.id"))
+    excluded_at: Mapped[datetime | None]
+    excluded_by: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id"))
+    exclusion_reason: Mapped[str | None]
     created_at: Mapped[datetime] = _created_at()
 
 

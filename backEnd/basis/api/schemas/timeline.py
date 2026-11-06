@@ -122,6 +122,8 @@ AuditKind = Literal[
     "correction",
     "object_added",
     "object_deleted",
+    "object_excluded",
+    "object_restored",
     "intake",
     "report_answers",
     "document",
@@ -139,7 +141,8 @@ AuditKind = Literal[
 class AuditItemOut(ResponseModel):
     kind: AuditKind = Field(
         description="What the engineer did: a review `decision`, a `correction`, a manual "
-        "photo object (`object_added`, `object_deleted`), the `intake` or the "
+        "photo object (`object_added`, `object_deleted`), a photo object marked Not counted "
+        "or counted again (`object_excluded`, `object_restored`), the `intake` or the "
         "`report_answers` set, a `document` upload confirmed, the study `started`, a "
         "`retry` or `cancel` requested, the study `archived` or `unarchived`, the report "
         "signed (`report_signed`), the completed study `reopened` at a gate or a revision "

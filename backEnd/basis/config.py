@@ -527,6 +527,22 @@ class Settings(BaseSettings):
     # (EVAL_REPORT section 65).
     client_errors_retention_days: int = Field(default=180, ge=1, le=3650)
 
+    # Engineer overrides (docs/api/OVERRIDES.md, EVAL_REPORT section 90), both reported by
+    # GET /v1/capabilities so the app offers only what the API accepts. OBJECT_EXCLUSION:
+    # an engineer may mark a photo's detected object Not counted (PATCH .../objects/{id})
+    # at the components review; false answers that route 409 object-exclusion-off.
+    # UNIT_COST_OVERRIDE: `asset` and `component` corrections may carry `unit_cost` and
+    # `unit_cost_source` (the engineer's unit price, which replaces the cost table's on the
+    # next revision with the table's price kept in the cost trail); false refuses them at
+    # the decision route (422), the behaviour before section 90. Section 90 turned both on:
+    # each keeps the model's or the table's value beside the engineer's, with who, when and
+    # why. Turn UNIT_COST_OVERRIDE on only once every worker runs section 90's release (an
+    # older worker refuses the rejection's corrections; docs/api/OVERRIDES.md section 6).
+    # Overrides already recorded keep pricing when it is turned off: they are the
+    # engineer's decisions, not this setting's.
+    object_exclusion: bool = True
+    unit_cost_override: bool = True
+
     @property
     def vision_output_budget(self) -> int:
         """The per-photo calls' output budget: ``VISION_MAX_TOKENS`` when set, else the

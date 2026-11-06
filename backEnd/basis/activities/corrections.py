@@ -16,6 +16,11 @@ A ``component_remove`` correction removes a component row from the next revision
 ``extraction_field_add`` correction adds a field the extraction is missing
 (:mod:`basis.extraction.added_fields`), with a required reason too: removing or adding a row
 is engineer evidence, so it must say why.
+
+A unit price (EVAL_REPORT 90, :mod:`basis.domain.price_overrides`): an ``asset`` or
+``component`` correction may carry ``unit_cost`` and ``unit_cost_source`` with a required
+reason (:func:`check_unit_cost`); ``apply_corrections`` stores it on the component row and
+``process_assets`` prices with it.
 """
 
 from __future__ import annotations
@@ -26,6 +31,7 @@ from typing import Any, Final
 
 from basis.activities._support import validation_error
 from basis.db.enums import Bucket
+from basis.domain import price_overrides
 from basis.domain.counts import count_problem, room_component_problems
 from basis.domain.validators import (
     VALID_SECTION_BUCKETS,
@@ -40,7 +46,9 @@ ROOM_FIELDS: Final = frozenset({"name", "room_type", "floor", "merge_into"})
 # A ``room`` correction ``{"merge_into": "<room id>"}`` merges the room into another room of
 # the same revision (its photos and per-photo rows move there); it takes no other field.
 MERGE_INTO: Final = "merge_into"
-COMPONENT_FIELDS: Final = frozenset({"label", "material", "attachment", "count"})
+COMPONENT_FIELDS: Final = frozenset(
+    {"label", "material", "attachment", "count", *price_overrides.FIELDS}
+)
 ASSET_FIELDS: Final = frozenset(
     {
         "category",
@@ -52,6 +60,8 @@ ASSET_FIELDS: Final = frozenset(
         "quantity",
         "quantity_unit",
         "quantity_source",
+        # EVAL_REPORT 90: the engineer's unit price and where it comes from.
+        *price_overrides.FIELDS,
     }
 )
 QUANTITY_FIELDS: Final = frozenset({"quantity", "quantity_unit", "quantity_source"})
@@ -125,6 +135,14 @@ def check_component(after: dict[str, Any]) -> None:
     problem = count_problem(after["count"]) if "count" in after else None
     if problem is not None:
         raise validation_error(problem, E.CORRECT_COUNT)
+
+
+def check_unit_cost(after: dict[str, Any], reason: str | None) -> None:
+    """A unit price on an ``asset`` or ``component`` correction
+    (:func:`basis.domain.price_overrides.problems`), or nothing when it carries none."""
+    problems = price_overrides.problems(after, reason)
+    if problems:
+        raise validation_error("; ".join(problems), E.CORRECT_UNIT_COST)
 
 
 def check_photo_room(after: dict[str, Any]) -> None:

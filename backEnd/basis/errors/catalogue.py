@@ -1408,6 +1408,42 @@ ENTRIES: Final[tuple[Entry, ...]] = (
         "Nothing required; delete the box and draw it again to try another outline.",
         "yes",
     ),
+    _e(
+        E.OBJECT_NOT_COUNTED,
+        "refusal",
+        "`PATCH .../objects/{id}` (`counted: false`)",
+        "basis.api.routes.objects",
+        "The instance is an uncounted candidate (a model instance under its class's count "
+        "threshold): it is not counted, so there is nothing to exclude (EVAL_REPORT 90).",
+        "409 `not-counted`.",
+        "Nothing required; to count a candidate, add it (`POST .../objects`, `candidate`).",
+        "no",
+        problem="not-counted",
+    ),
+    _e(
+        E.OBJECT_NOT_EXCLUDED,
+        "refusal",
+        "`PATCH .../objects/{id}` (`counted: true`)",
+        "basis.api.routes.objects",
+        "The instance is an uncounted candidate that was never excluded: restoring counts "
+        "back only what an engineer excluded (EVAL_REPORT 90).",
+        "409 `not-excluded`.",
+        "To count a candidate, add it (`POST .../objects`, `candidate`).",
+        "no",
+        problem="not-excluded",
+    ),
+    _e(
+        E.OBJECT_EXCLUSION_OFF,
+        "refusal",
+        "`PATCH .../objects/{id}`",
+        "basis.api.routes.objects",
+        "Marking a photo object Not counted is turned off on this deployment "
+        "(`OBJECT_EXCLUSION=false`; `GET /v1/capabilities` says `object_exclusion: false`).",
+        "409 `object-exclusion-off`.",
+        "An operator turns the setting on; until then the app does not offer it.",
+        "no",
+        problem="object-exclusion-off",
+    ),
     # ------------------------------------------------------------------ WF
     _e(
         E.WF_HEARTBEAT_TIMEOUT,
@@ -2165,6 +2201,36 @@ ENTRIES: Final[tuple[Entry, ...]] = (
         "measured (EVAL_REPORT 78).",
         "`ValidationError: ... [BASIS-CORRECT-043]`.",
         "Send all three: the measured quantity, its unit and where it was measured.",
+        "no",
+        temporal_type="ValidationError",
+    ),
+    _e(
+        E.CORRECT_UNIT_COST,
+        "error",
+        "corrections",
+        "basis.activities.corrections",
+        "A unit price override on an `asset` or `component` correction is invalid: "
+        "`unit_cost` is dollars to the cent above 0 and at most 10,000,000 per takeoff unit "
+        "(or null to clear an override), `unit_cost_source` (1 to 300 characters) says where "
+        "the price comes from and goes with a number only, and the correction's `reason` is "
+        "required (EVAL_REPORT 90). The decision route refuses the same with a 422.",
+        "`ValidationError: ... [BASIS-CORRECT-044]`; the rejection's corrections are refused.",
+        "Send the price, its source and a reason together.",
+        "no",
+        temporal_type="ValidationError",
+    ),
+    _e(
+        E.CORRECT_UNIT_COST_CONCEALED,
+        "error",
+        "corrections",
+        "basis.activities.corrections",
+        "A unit price override names a concealed row of the structure model (an asset with no "
+        "component): its total is a share of the building's replacement cost new, not a unit "
+        "price, so a unit price cannot set it (EVAL_REPORT 90). The decision route refuses "
+        "the same with a 422.",
+        "`ValidationError: ... [BASIS-CORRECT-045]`; the rejection's corrections are refused.",
+        "Correct the square-foot model instead (`structure_model` through "
+        "`POST .../assets/reprice`).",
         "no",
         temporal_type="ValidationError",
     ),
