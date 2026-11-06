@@ -11,6 +11,8 @@ the client's view of that; the workflow's own contract is `basis/workflow/study_
 the revision history and restoring a revision are docs/api/REVISIONS.md (`POST .../reopen`,
 `GET .../revisions`, `POST .../revisions/{n}/restore`): a completed execution is never
 continued; a new one starts under the same workflow id and opens the gate on a copied revision.
+What is flagged at each gate, what approving does and what going back redoes, in plain words:
+[REVIEW_RULES.md](REVIEW_RULES.md).
 
 ## `GET /v1/studies/{id}/workflow` (viewer)
 
