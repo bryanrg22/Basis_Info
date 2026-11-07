@@ -68,10 +68,10 @@
  }
  function liveObjectActions(s){
   const caps=Live.caps||{},rows=[];
-  if(s.exclusion)return caps.objectExclusion?`<div class="vision-action-row vision-edit">${act('restore',s.source==='manual'?'Count it again':'Reset to AI')}</div>`:'';
+  if(s.exclusion)return caps.objectExclusion?`<div class="vision-action-row vision-edit">${act('restore',s.source==='manual'?'Count it again':'Reset to Basis AI')}</div>`:'';
   if(s.source==='manual'&&view.newId===s.id)rows.push(act('confirm','Keep addition','','class="vision-primary"'));
   if(caps.objectExclusion)rows.push(act('retype','Change type'),act('exclude','Not counted'));
-  if(s.source==='manual'&&caps.objectExclusion&&replacedBy(s))rows.push(act('reset-type','Reset to AI'));
+  if(s.source==='manual'&&caps.objectExclusion&&replacedBy(s))rows.push(act('reset-type','Reset to Basis AI'));
   if(s.source==='manual')rows.push(act('delete','Delete','','class="vision-danger"'));
   return rows.length?`<div class="vision-action-row vision-edit">${rows.join('')}</div>`:'';
  }
@@ -244,33 +244,33 @@
   async function setCounted(s,body){await Live.api.setObjectCounted(c.id,c.doc,s.id,body);await refresh()}
   function exclude(){
    const s=current();if(!s||!caps()||!c.open||view.busy)return;const n=ordinal(s);
-   const m=modal(`Mark ${esc(name(s.label))} ${n} not counted`,`<p>It leaves this room’s count. The AI’s outline stays on the photo, crossed out, with your name and reason.</p><div class="field"><label for="vision-exclude-reason">Reason</label><textarea id="vision-exclude-reason" rows="2" maxlength="500" placeholder="e.g. A reflection in the window, not a second fixture"></textarea></div>`,`${closeBtn}<button class="button primary" id="vision-exclude-save">Mark not counted</button>`);
+   const m=modal(`Mark ${esc(name(s.label))} ${n} not counted`,`<p>It leaves this room’s count. Basis AI’s outline stays on the photo, crossed out, with your name and reason.</p><div class="field"><label for="vision-exclude-reason">Reason</label><textarea id="vision-exclude-reason" rows="2" maxlength="500" placeholder="e.g. A reflection in the window, not a second fixture"></textarea></div>`,`${closeBtn}<button class="button primary" id="vision-exclude-save">Mark not counted</button>`);
    m.querySelector('#vision-exclude-save').onclick=async()=>{const reason=m.querySelector('#vision-exclude-reason').value.trim();if(!reason){toast('Say why it should not count.');m.querySelector('#vision-exclude-reason').focus();return}
     m.remove();view.busy=true;view.error=false;paint();
     try{await setCounted(s,{counted:false,reason});selection(c.items.find(i=>i.id===s.id)||null);view.notice=''}catch(e){await fail(e)}finally{view.busy=false;paint()}};
   }
   async function resetType(){
    const s=current(),ai=s&&replacedBy(s);if(!ai||!caps()||!c.open||view.busy)return;view.busy=true;view.error=false;paint();
-   try{await Live.api.deleteObject(c.id,c.doc,s.id,BasisApi.newKey());await Live.api.setObjectCounted(c.id,c.doc,ai.id,{counted:true});await refresh();selection(c.items.find(i=>i.id===ai.id)||null);view.notice=`Back to the AI’s ${name(ai.label).toLowerCase()}.`}catch(e){await fail(e)}finally{view.busy=false;paint()}
+   try{await Live.api.deleteObject(c.id,c.doc,s.id,BasisApi.newKey());await Live.api.setObjectCounted(c.id,c.doc,ai.id,{counted:true});await refresh();selection(c.items.find(i=>i.id===ai.id)||null);view.notice=`Back to Basis AI’s ${name(ai.label).toLowerCase()}.`}catch(e){await fail(e)}finally{view.busy=false;paint()}
   }
   async function restore(){
    const s=current();if(!s?.exclusion||!caps()||!c.open||view.busy)return;view.busy=true;view.error=false;paint();
    // Reset on a retyped AI detection undoes the whole Change type: the object drawn in its place
    // goes too, or the same thing would count twice (once per type).
    const drawn=replacementOf(s);
-   try{if(drawn)await Live.api.deleteObject(c.id,c.doc,drawn.id,BasisApi.newKey());await setCounted(s,{counted:true});selection(c.items.find(i=>i.id===s.id)||null);view.notice=drawn?`Back to the AI’s ${name(s.label).toLowerCase()}.`:`${name(s.label)} counts again.`}catch(e){await fail(e)}finally{view.busy=false;paint()}
+   try{if(drawn)await Live.api.deleteObject(c.id,c.doc,drawn.id,BasisApi.newKey());await setCounted(s,{counted:true});selection(c.items.find(i=>i.id===s.id)||null);view.notice=drawn?`Back to Basis AI’s ${name(s.label).toLowerCase()}.`:`${name(s.label)} counts again.`}catch(e){await fail(e)}finally{view.busy=false;paint()}
   }
   function retype(){
    const s=current();if(!s||!caps()||!c.open||view.busy)return;const n=ordinal(s),options=[...new Set([...labels,...counted().map(i=>i.label)])].filter(l=>l!==s.label).sort();
-   const m=modal(`Change the type of ${esc(name(s.label))} ${n}`,`<p>The AI’s ${esc(name(s.label).toLowerCase())} outline stays, crossed out as not counted, and an object of the new type is drawn at the same box.</p><div class="field"><label for="vision-retype-label">New type</label><select id="vision-retype-label"><option value="">Choose the right type</option>${options.map(l=>`<option value="${esc(l)}">${esc(name(l))}</option>`).join('')}</select></div><div class="field"><label for="vision-retype-reason">Reason</label><textarea id="vision-retype-reason" rows="2" maxlength="400" placeholder="e.g. Built-in shelving, not loose furniture"></textarea></div>`,`${closeBtn}<button class="button primary" id="vision-retype-save">Change type</button>`);
+   const m=modal(`Change the type of ${esc(name(s.label))} ${n}`,`<p>Basis AI’s ${esc(name(s.label).toLowerCase())} outline stays, crossed out as not counted, and an object of the new type is drawn at the same box.</p><div class="field"><label for="vision-retype-label">New type</label><select id="vision-retype-label"><option value="">Choose the right type</option>${options.map(l=>`<option value="${esc(l)}">${esc(name(l))}</option>`).join('')}</select></div><div class="field"><label for="vision-retype-reason">Reason</label><textarea id="vision-retype-reason" rows="2" maxlength="400" placeholder="e.g. Built-in shelving, not loose furniture"></textarea></div>`,`${closeBtn}<button class="button primary" id="vision-retype-save">Change type</button>`);
    m.querySelector('#vision-retype-save').onclick=async()=>{const label=m.querySelector('#vision-retype-label').value,reason=m.querySelector('#vision-retype-reason').value.trim();if(!label){toast('Choose the right type.');m.querySelector('#vision-retype-label').focus();return}if(!reason){toast('Say why the type is wrong.');m.querySelector('#vision-retype-reason').focus();return}
     m.remove();view.busy=true;view.error=false;view.notice='Changing the type and finding the new outline…';paint();let excluded=false;
     try{
      await Live.api.setObjectCounted(c.id,c.doc,s.id,{counted:false,reason:`Type changed to ${name(label).toLowerCase()}: ${reason}`});excluded=true;
      const r=await Live.api.addObject(c.id,c.doc,{kind:'box',label,box:s.box},BasisApi.newKey());await refresh();
      const added=c.items.find(i=>i.id===(r.object?.id||r.duplicate_of));Object.assign(view,V.select(view,added||null));
-     view.notice=r.created===false?`${name(label)} was already counted there; the AI’s ${name(s.label).toLowerCase()} is not counted.`:`Now a ${name(label).toLowerCase()}. The AI’s ${name(s.label).toLowerCase()} outline stays, not counted.`;
-    }catch(e){if(excluded){view.error=true;view.notice=`The AI’s ${name(s.label).toLowerCase()} is not counted, but the new object could not be added. Use Draw missing object.`;try{await refresh()}catch{}}else await fail(e)}
+     view.notice=r.created===false?`${name(label)} was already counted there; Basis AI’s ${name(s.label).toLowerCase()} is not counted.`:`Now a ${name(label).toLowerCase()}. Basis AI’s ${name(s.label).toLowerCase()} outline stays, not counted.`;
+    }catch(e){if(excluded){view.error=true;view.notice=`Basis AI’s ${name(s.label).toLowerCase()} is not counted, but the new object could not be added. Use Draw missing object.`;try{await refresh()}catch{}}else await fail(e)}
     finally{view.busy=false;paint()}};
   }
   function unavailable(title,text){modal(esc(title),`<p>${esc(text)}</p><p class="vision-unavailable">Not available in live mode yet. This action did not change the study.</p>`,closeBtn)}

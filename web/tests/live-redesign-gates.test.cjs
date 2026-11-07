@@ -224,7 +224,7 @@ test('inventory overrides: the AI value struck beside the engineer value, Edited
   ['component_remove:c2',{key:'component_remove:c2',entity_type:'component_remove',entity_id:'c2',before:{label:'light_fixture',count:6},after:{},reason:'Double counted from the mirror'}]]);
  let html=live.componentsScreen();
  assert.match(html,/<s class="live-ai"[^>]*>1<\/s> <span class="live-engineer">3<\/span>/);assert.match(html,/<s class="live-ai"[^>]*>metal<\/s> <span class="live-engineer">brass<\/span>/);
- assert.match(html,/Edited by you/);assert.match(html,/Removed by you/);assert.match(html,/Double counted from the mirror/);assert.match(html,/data-value="component_remove:c2">Reset to AI/);
+ assert.match(html,/Edited by you/);assert.match(html,/Removed by you/);assert.match(html,/Double counted from the mirror/);assert.match(html,/data-value="component_remove:c2">Reset to Basis AI/);
  assert.doesNotMatch(html,/Unit price/,'no price column without unit_cost_override');
  live.caps={unitCostOverride:true};html=live.componentsScreen();assert.match(html,/<th class="num">Unit price<\/th>/);
 });
@@ -233,9 +233,9 @@ test('the inventory row dialog offers type, count stepper, material, attachment,
  ctx.modal=(title,body,actions)=>{seen={title,body,actions};return {querySelector:()=>({value:'',focus(){},addEventListener(){}}),querySelectorAll:()=>[],remove(){}}};
  live.state.corrections[stage]=new Map();live.actions['edit-component']({dataset:{room:'kitchen'}},'c1');
  assert.match(seen.title,/Correct room inventory · Kitchen/);for(const id of ['live-comp-label','live-comp-count','live-comp-material','live-comp-attachment','live-comp-reason'])assert.match(seen.body,new RegExp(`id="${id}"`));
- assert.match(seen.body,/data-step="-1"/);assert.match(seen.body,/AI: 1/);assert.match(seen.actions,/Remove row/);assert.doesNotMatch(seen.actions,/Reset to AI/);assert.doesNotMatch(seen.body,/live-comp-price/);
+ assert.match(seen.body,/data-step="-1"/);assert.match(seen.body,/Basis AI: 1/);assert.match(seen.actions,/Remove row/);assert.doesNotMatch(seen.actions,/Reset to Basis AI/);assert.doesNotMatch(seen.body,/live-comp-price/);
  live.state.corrections[stage].set('component:c1',{key:'component:c1',after:{count:2}});live.caps={unitCostOverride:true};live.actions['edit-component']({dataset:{room:'kitchen'}},'c1');
- assert.match(seen.actions,/Reset to AI/);assert.match(seen.body,/id="live-comp-price"/);assert.match(seen.body,/id="live-comp-price-source"/);
+ assert.match(seen.actions,/Reset to Basis AI/);assert.match(seen.body,/id="live-comp-price"/);assert.match(seen.body,/id="live-comp-price-source"/);
 });
 test('sent room corrections read as room names, recovery classes by name, never as ids',()=>{
  const {live}=boot(true,'components_review'),lines=c=>[...live.correctionLines(c)];// arrays from the sandbox realm
