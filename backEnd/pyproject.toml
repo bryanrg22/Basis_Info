@@ -18,13 +18,13 @@ dependencies = [
     "google-cloud-storage>=3.17.1",
     "httpx>=0.28.1",
     "numpy>=2",
-    "openai>=3.41.0",
+    "openai>=3.46.0",
     "openpyxl>=3.1,<4",
     "pdfplumber>=0.11.10",
     "pgvector>=0.5.1",
     "pi-heif>=1.4.0",
     "pillow>=13.0.0",
-    "pydantic>=2.14.2",
+    "pydantic>=2.14.3",
     "pydantic-settings>=2.16.2",
     "pymupdf>=1.26",
     "rank-bm25>=0.2.2",
@@ -33,7 +33,7 @@ dependencies = [
     "temporalio==1.35.0",
     "tiktoken>=0.9",
     "torch>=2.15.0",
-    "typst==0.15.0",
+    "typst==0.15.2",
     "uvicorn[standard]>=0.54.0",
 ]
 
@@ -50,8 +50,8 @@ dev = [
     "pytest-cov>=7.1.0",
     "pytest-timeout>=2.4.0",
     "reportlab>=5.1.0",
-    "ruff>=0.17.3",
-    "schemathesis>=4.32.7",
+    "ruff>=0.17.4",
+    "schemathesis>=4.33.1",
     "testcontainers[postgres]>=4.15.0",
 ]
 # Load testing (tooling/load, docs/perf/LOAD_TESTING.md): uv sync --group load
