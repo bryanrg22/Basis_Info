@@ -45,8 +45,10 @@ IDEMPOTENCY_KEY_PATTERN: Final = rf'^("[!#-~]{{1,{MAX_KEY_LENGTH}}}"|[!#-~]{{1,{
 DESCRIPTION: Final = """\
 Basis cost segregation API.
 
-**Authentication.** Every `/v1` route needs `Authorization: Bearer <Firebase ID token>`.
-A user is created on first sight, in no organization: firms are invite-only.
+**Authentication.** Every `/v1` route needs `Authorization: Bearer <Firebase ID token>`,
+except `POST /v1/demo-requests`, the public site's demo form (rate limited per client
+address instead). A user is created on first sight, in no organization: firms are
+invite-only.
 `GET /v1/me` lists your firms and the invitations waiting for your verified email; until
 you accept one, the study list and study creation answer 403 `no-firm`.
 

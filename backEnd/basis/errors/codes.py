@@ -5,7 +5,8 @@ Format ``BASIS-<AREA>-<nnn>``: the area names the step or component the failure 
 ``PROVIDER``, ``BUDGET``, ``INGEST``, ``EXTRACT``, ``PHOTO``, ``LOCALIZE``, ``ROOMS``,
 ``CORRECT``, ``ASSETS``, ``EXPORT``, ``CHECK`` for the validators' flags, ``COST`` for
 the cost index store, ``REPORT`` for the study report, ``RETENTION`` for the client-data
-purge, ``ALERT`` for the operator alerts, ``CLIENT`` for the browser error capture) and the
+purge, ``ALERT`` for the operator alerts, ``CLIENT`` for the browser error capture, ``DEMO``
+for the public site's demo requests) and the
 number is stable once published: a code is never renumbered or reused, a retired one is
 marked retired in the catalogue.
 
@@ -384,6 +385,14 @@ class E:
     # ---------------------------------------------------------------- browser error capture
     CLIENT_ERROR_RECORDED = "BASIS-CLIENT-001"
     CLIENT_ERROR_PURGED = "BASIS-CLIENT-002"
+
+    # ---------------------------------------------------------------- demo requests (public site)
+    DEMO_REQUEST_RECORDED = "BASIS-DEMO-001"
+    DEMO_REQUEST_DUPLICATE = "BASIS-DEMO-002"
+    DEMO_REQUEST_TRAPPED = "BASIS-DEMO-003"
+    DEMO_REQUEST_NO_RECIPIENT = "BASIS-DEMO-004"
+    DEMO_REQUEST_EMAIL_FAILED = "BASIS-DEMO-005"
+    DEMO_REQUEST_PURGED = "BASIS-DEMO-006"
 
 
 def tag(code: str, message: str) -> str:

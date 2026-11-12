@@ -7,6 +7,7 @@
     python -m basis.retention purge                      # purge it
     python -m basis.retention purge --org-id UUID --limit 20
     python -m basis.retention purge-client-errors [--dry-run] [--days 180]   # browser error records
+    python -m basis.retention purge-demo-requests [--dry-run] [--days 365]   # demo requests
 
 Reads ``BASIS_ENV``, ``DATABASE_URL`` (or ``CLOUD_SQL_INSTANCE``) and ``GCS_BUCKET`` like
 every process; without ``GCS_BUCKET`` it uses the local storage directory the API uses in
@@ -26,7 +27,7 @@ import json
 import logging
 import sys
 import uuid
-from collections.abc import Sequence
+from collections.abc import Awaitable, Callable, Sequence
 from datetime import datetime
 from typing import Any, Final
 
@@ -37,6 +38,7 @@ from basis.db.engine import create_engine
 from basis.db.session import create_sessionmaker, session_scope
 from basis.obs.logging import configure_logging
 from basis.retention.client_errors import cutoff_for, purge_client_errors
+from basis.retention.demo_requests import purge_demo_requests
 from basis.retention.purge import DEFAULT_LIMIT, purge_study, select_candidates
 from basis.storage import Storage
 
@@ -117,10 +119,38 @@ async def run_client_error_purge(
     now: datetime | None = None,
 ) -> int:
     """Delete the browser error records older than ``days`` (one JSON summary line); 0."""
+    return await _run_dated_purge(
+        sessionmaker, purge_client_errors, days=days, dry_run=dry_run, out=out, now=now
+    )
+
+
+async def run_demo_request_purge(
+    sessionmaker: async_sessionmaker[AsyncSession],
+    *,
+    days: int,
+    dry_run: bool,
+    out: Any = None,
+    now: datetime | None = None,
+) -> int:
+    """Delete the demo requests older than ``days`` (one JSON summary line); 0."""
+    return await _run_dated_purge(
+        sessionmaker, purge_demo_requests, days=days, dry_run=dry_run, out=out, now=now
+    )
+
+
+async def _run_dated_purge(
+    sessionmaker: async_sessionmaker[AsyncSession],
+    purge: Callable[..., Awaitable[int]],
+    *,
+    days: int,
+    dry_run: bool,
+    out: Any = None,
+    now: datetime | None = None,
+) -> int:
     out = out or sys.stdout
     cutoff = cutoff_for(days, now)
     async with session_scope(sessionmaker) as session:
-        count = await purge_client_errors(session, cutoff=cutoff, dry_run=dry_run)
+        count = await purge(session, cutoff=cutoff, dry_run=dry_run)
     print(
         json.dumps(
             {
@@ -143,6 +173,12 @@ async def _main(args: argparse.Namespace, settings: Settings) -> int:
             return await run_client_error_purge(
                 create_sessionmaker(engine),
                 days=args.days or settings.client_errors_retention_days,
+                dry_run=args.dry_run,
+            )
+        if args.command == "purge-demo-requests":
+            return await run_demo_request_purge(
+                create_sessionmaker(engine),
+                days=args.days or settings.demo_requests_retention_days,
                 dry_run=args.dry_run,
             )
         storage, bucket = default_storage(settings)
@@ -173,6 +209,14 @@ def build_parser() -> argparse.ArgumentParser:
     errors.add_argument(
         "--days", type=int, default=None, help="override CLIENT_ERRORS_RETENTION_DAYS"
     )
+    demos = sub.add_parser(
+        "purge-demo-requests",
+        help="delete the site's demo requests older than DEMO_REQUESTS_RETENTION_DAYS",
+    )
+    demos.add_argument("--dry-run", action="store_true", help="count; change nothing")
+    demos.add_argument(
+        "--days", type=int, default=None, help="override DEMO_REQUESTS_RETENTION_DAYS"
+    )
     return parser
 
 
@@ -181,7 +225,11 @@ def main(argv: Sequence[str] | None = None) -> int:
     if args.command == "purge" and args.limit < 1:
         print("--limit must be positive", file=sys.stderr)
         return 2
-    if args.command == "purge-client-errors" and args.days is not None and args.days < 1:
+    if (
+        args.command in ("purge-client-errors", "purge-demo-requests")
+        and args.days is not None
+        and args.days < 1
+    ):
         print("--days must be positive", file=sys.stderr)
         return 2
     settings = get_settings()

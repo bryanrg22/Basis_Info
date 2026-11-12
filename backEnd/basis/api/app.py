@@ -30,7 +30,8 @@ Wiring (all on ``app.state``):
 
 Middleware, innermost first: the 1 MiB body limit for ``/v1/``, the 500 handler, request
 ids, the security headers (``nosniff``, ``no-store`` on ``/v1``, HSTS when deployed;
-:mod:`basis.api.headers`), and CORS for ``CORS_ALLOWED_ORIGINS`` (:func:`install_cors`).
+:mod:`basis.api.headers`), and CORS for ``CORS_ALLOWED_ORIGINS`` (:func:`install_cors`; the
+public demo form's route also for ``DEMO_REQUEST_ALLOWED_ORIGINS``, :mod:`basis.api.cors`).
 The OpenAPI document is built by :func:`basis.api.openapi.build_openapi`.
 """
 
@@ -44,13 +45,13 @@ from pathlib import Path
 from typing import Final
 
 from fastapi import FastAPI
-from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from basis import __version__
 from basis.api import health
 from basis.api import local_uploads as local_uploads_route
 from basis.api.bodylimit import BodySizeLimitMiddleware
+from basis.api.cors import CorsPolicy, PathScopedCORSMiddleware
 from basis.api.errors import install_error_handlers
 from basis.api.headers import SecurityHeadersMiddleware
 from basis.api.idempotency import (
@@ -65,6 +66,7 @@ from basis.api.preconditions import ETAG_HEADER, IF_MATCH_HEADER
 from basis.api.ratelimit import InMemoryRateLimiter
 from basis.api.ratelimit_pg import PostgresRateLimiter
 from basis.api.routes import api_routers
+from basis.api.routes import demo_requests as demo_requests_route
 from basis.api.routes import eval_runs as eval_runs_route
 from basis.api.routes import ops as ops_route
 from basis.auth.firebase import FirebaseTokenVerifier
@@ -104,6 +106,11 @@ CORS_EXPOSE_HEADERS: Final = (
     "Content-Disposition",
 )
 CORS_MAX_AGE_S: Final = 600
+# The public site's form (POST /v1/demo-requests): a JSON POST without a token, so the
+# preflight asks for Content-Type only; the page reads the status, and on 429 Retry-After.
+DEMO_CORS_METHODS: Final = ("POST",)
+DEMO_CORS_HEADERS: Final = ("Content-Type", REQUEST_ID_HEADER)
+DEMO_CORS_EXPOSE_HEADERS: Final = (REQUEST_ID_HEADER, "Retry-After")
 
 logger = logging.getLogger(__name__)
 
@@ -137,28 +144,51 @@ def local_uploads_enabled(app: FastAPI, settings: Settings) -> bool:
 
 
 def install_cors(app: FastAPI, settings: Settings, *, local_uploads: bool = False) -> None:
-    """Answer browser preflights and tag responses for ``CORS_ALLOWED_ORIGINS``.
+    """Answer browser preflights and tag responses for ``CORS_ALLOWED_ORIGINS``, and on
+    ``POST /v1/demo-requests`` for the public site's origins too.
 
     Outermost, so error responses (401, 413, 429, 5xx problems) carry the headers too and
     the browser shows the frontend the problem instead of an opaque CORS failure. Bearer
     tokens, not cookies, so credentials stay off. With ``local_uploads`` the browser's
     upload to the dev upload route (a ``PUT`` with the signed content-length range header,
     as on GCS) is allowed too; deployed stacks never allow that header.
+
+    The demo route has its own policy (:mod:`basis.api.cors`): the site's origins
+    (:attr:`~basis.config.Settings.demo_request_origins`) and the app's, ``POST`` with
+    ``Content-Type`` only. The site's origins reach no other route.
     """
-    if not settings.cors_allowed_origins:
+    app_origins = settings.cors_allowed_origins
+    site_origins = tuple(dict.fromkeys((*settings.demo_request_origins, *app_origins)))
+    if not app_origins and not site_origins:
         return
-    methods, headers = list(CORS_ALLOW_METHODS), list(CORS_ALLOW_HEADERS)
+    headers = list(CORS_ALLOW_HEADERS)
     if local_uploads:
         headers.append(CONTENT_LENGTH_RANGE_HEADER)
-    app.add_middleware(
-        CORSMiddleware,
-        allow_origins=list(settings.cors_allowed_origins),
-        allow_methods=methods,
-        allow_headers=headers,
-        expose_headers=list(CORS_EXPOSE_HEADERS),
-        allow_credentials=False,
-        max_age=CORS_MAX_AGE_S,
+    default = (
+        CorsPolicy(
+            origins=app_origins,
+            methods=CORS_ALLOW_METHODS,
+            headers=tuple(headers),
+            expose=CORS_EXPOSE_HEADERS,
+            max_age=CORS_MAX_AGE_S,
+        )
+        if app_origins
+        else None
     )
+    paths = (
+        {
+            demo_requests_route.PATH: CorsPolicy(
+                origins=site_origins,
+                methods=DEMO_CORS_METHODS,
+                headers=DEMO_CORS_HEADERS,
+                expose=DEMO_CORS_EXPOSE_HEADERS,
+                max_age=CORS_MAX_AGE_S,
+            )
+        }
+        if site_origins
+        else {}
+    )
+    app.add_middleware(PathScopedCORSMiddleware, default=default, paths=paths)
 
 
 def default_storage(settings: Settings) -> tuple[Storage, str]:

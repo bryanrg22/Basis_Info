@@ -68,6 +68,8 @@ AREA_TITLES: Final[dict[str, str]] = {
     "RETENTION": "Client-data retention: the purge job (basis.retention)",
     "ALERT": "Operator alerts: a failed study, a stale heartbeat (basis.notify)",
     "CLIENT": "Browser error capture: `POST /v1/client-errors` (docs/api/CLIENT_ERRORS.md)",
+    "DEMO": "Demo requests from the public site: `POST /v1/demo-requests` "
+    "(docs/api/DEMO_REQUESTS.md)",
 }
 
 
@@ -3744,6 +3746,87 @@ ENTRIES: Final[tuple[Entry, ...]] = (
         "Fix the sender configuration or the address; revoke and invite again (a new "
         "invitation is a new email). The invitee can still accept in the app meanwhile.",
         "yes",
+    ),
+    # ------------------------------------------------------------------ DEMO
+    _e(
+        E.DEMO_REQUEST_RECORDED,
+        "outcome",
+        "`POST /v1/demo-requests`",
+        "basis.api.routes.demo_requests",
+        "A visitor to the public site asked for a demo (name, work email, company, role, an "
+        "optional note) and the API stored it and queued one notification email "
+        "(docs/api/DEMO_REQUESTS.md).",
+        "A `demo_requests` row (`GET /v1/ops/demo-requests`, operators); a `notification` "
+        "outbox row of `type: demo_request`; the API log line `demo request recorded` with "
+        "`demo_request_id` and the role (no name, email or note in the log).",
+        "Follow up with the visitor; the row stays until the demo-request retention purge.",
+        "no",
+    ),
+    _e(
+        E.DEMO_REQUEST_DUPLICATE,
+        "outcome",
+        "`POST /v1/demo-requests`",
+        "basis.api.routes.demo_requests",
+        "The same email asked for a demo again within ten minutes (a double click, a resubmit, "
+        "a retry after a lost response): the API answered with the first request's id, "
+        "stored nothing new and queued no second email.",
+        "202 with the first request's `id`; the API log line `demo request duplicate` with "
+        "`demo_request_id`.",
+        "Nothing. A request after the window is stored and emailed as a new one.",
+        "no",
+    ),
+    _e(
+        E.DEMO_REQUEST_TRAPPED,
+        "outcome",
+        "`POST /v1/demo-requests`",
+        "basis.api.routes.demo_requests",
+        "The form's hidden `website` field (a spam trap people never see) was filled in: the "
+        "API answered exactly as for a stored request and stored nothing.",
+        "202 with an id that names no row; the API log line `demo request trapped` with the "
+        "client address (nothing the sender typed).",
+        "Nothing for a bot. If a real visitor reports a lost request, their browser filled the "
+        "hidden field: ask them to send it again.",
+        "no",
+    ),
+    _e(
+        E.DEMO_REQUEST_NO_RECIPIENT,
+        "outcome",
+        "the outbox relay (a `demo_request` notification)",
+        "basis.relay.delivery",
+        "`DEMO_REQUEST_NOTIFY_EMAIL` is not set on the relay: the demo request was stored but "
+        "nobody was emailed, and the outbox row was marked delivered.",
+        "Relay log line `demo request not emailed` at WARNING with `demo_request_id`; the "
+        "request's `notify_error` in `GET /v1/ops/demo-requests`.",
+        "Set `DEMO_REQUEST_NOTIFY_EMAIL` on the relay; read the requests stored meanwhile in "
+        "`GET /v1/ops/demo-requests`.",
+        "no",
+    ),
+    _e(
+        E.DEMO_REQUEST_EMAIL_FAILED,
+        "error",
+        "the outbox relay, sending a demo request's email",
+        "basis.relay.delivery",
+        "The email sender (`EMAIL_PROVIDER`) failed or refused the demo request's notification: "
+        "SMTP unreachable, authentication refused, the recipient rejected. The visitor's "
+        "request was answered and stored before; only the email is late.",
+        "Relay log `demo request email failed` with `error_code`; the request's `notify_error` "
+        "in `GET /v1/ops/demo-requests`; the outbox row retried with backoff, `dead` after 50 "
+        "attempts or at once for a rejected recipient.",
+        "Fix the sender configuration or `DEMO_REQUEST_NOTIFY_EMAIL`; the request is in "
+        "`GET /v1/ops/demo-requests` meanwhile.",
+        "automatic",
+    ),
+    _e(
+        E.DEMO_REQUEST_PURGED,
+        "outcome",
+        "`python -m basis.retention purge-demo-requests`",
+        "basis.retention.demo_requests",
+        "Demo requests older than `DEMO_REQUESTS_RETENTION_DAYS` (365) were deleted: they are "
+        "a visitor's contact details, kept long enough to follow up and to recognise a "
+        "returning firm, and no longer.",
+        "The purge's JSON summary line (`deleted`, `cutoff`).",
+        "Nothing; a firm that became a customer is in the firm records, not here.",
+        "no",
     ),
 )
 

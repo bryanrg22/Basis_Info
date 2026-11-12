@@ -2,7 +2,7 @@
   "openapi": "3.1.0",
   "info": {
     "title": "Basis API",
-    "description": "Basis cost segregation API.\n\n**Authentication.** Every `/v1` route needs `Authorization: Bearer <Firebase ID token>`.\nA user is created on first sight, in no organization: firms are invite-only.\n`GET /v1/me` lists your firms and the invitations waiting for your verified email; until\nyou accept one, the study list and study creation answer 403 `no-firm`.\n\n**Authorization.** Studies belong to organizations (firms). A study or firm you are not a\nmember of is 404, not 403; one you can see but whose action needs a higher role\n(viewer < engineer < owner) is 403. Owners administer their firm under\n`/v1/orgs/{org_id}`: members, roles and invitations.\n\n**Idempotency.** `POST` and `DELETE` need an `Idempotency-Key` header (a UUID is\nrecommended). Retrying with the same key and body replays the stored response with\n`Idempotent-Replayed: true` for 24 hours; the same key with a different body is 422; a\nretry while the first request is still running is 409. Keys are scoped per user.\n\n**Rate limits.** Per user, by default 240 reads and 60 mutations per minute; 429 with\n`Retry-After`.\n\n**Errors.** Every 4xx/5xx is `application/problem+json` (RFC 9457): `type`, `title`,\n`status`, `detail`, `instance`, `request_id` (equal to the `X-Request-Id` response\nheader), and `errors` (one entry per field) on validation failures.\n\n**Limits.** JSON bodies up to 1 MiB (413 beyond). Files are never sent to the API: request\na signed URL, upload to it, then confirm.\n",
+    "description": "Basis cost segregation API.\n\n**Authentication.** Every `/v1` route needs `Authorization: Bearer <Firebase ID token>`,\nexcept `POST /v1/demo-requests`, the public site's demo form (rate limited per client\naddress instead). A user is created on first sight, in no organization: firms are\ninvite-only.\n`GET /v1/me` lists your firms and the invitations waiting for your verified email; until\nyou accept one, the study list and study creation answer 403 `no-firm`.\n\n**Authorization.** Studies belong to organizations (firms). A study or firm you are not a\nmember of is 404, not 403; one you can see but whose action needs a higher role\n(viewer < engineer < owner) is 403. Owners administer their firm under\n`/v1/orgs/{org_id}`: members, roles and invitations.\n\n**Idempotency.** `POST` and `DELETE` need an `Idempotency-Key` header (a UUID is\nrecommended). Retrying with the same key and body replays the stored response with\n`Idempotent-Replayed: true` for 24 hours; the same key with a different body is 422; a\nretry while the first request is still running is 409. Keys are scoped per user.\n\n**Rate limits.** Per user, by default 240 reads and 60 mutations per minute; 429 with\n`Retry-After`.\n\n**Errors.** Every 4xx/5xx is `application/problem+json` (RFC 9457): `type`, `title`,\n`status`, `detail`, `instance`, `request_id` (equal to the `X-Request-Id` response\nheader), and `errors` (one entry per field) on validation failures.\n\n**Limits.** JSON bodies up to 1 MiB (413 beyond). Files are never sent to the API: request\na signed URL, upload to it, then confirm.\n",
     "version": "0.4.0"
   },
   "paths": {
@@ -7262,6 +7262,201 @@
           },
           "404": {
             "description": "Not found, or not visible to you (the two are indistinguishable).",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/demo-requests": {
+      "post": {
+        "tags": [
+          "demo-requests"
+        ],
+        "summary": "Ask for a demo (the public site's form; no authentication)",
+        "description": "Name, work email, company and role, an optional note and the page the form was on. No token: the route is rate limited per client address (`DEMO_REQUESTS_PER_HOUR`, 10 by default, then 429). The answer is 202 with the request's id. The same email again within ten minutes gets the first request's id and nothing new is stored or emailed; a filled-in `website` (the page's hidden spam trap) gets an id and nothing is stored. Each new request is emailed once to `DEMO_REQUEST_NOTIFY_EMAIL` by the outbox relay, so a slow mail server never fails the request. Browsers may call it from `DEMO_REQUEST_ALLOWED_ORIGINS` (docs/api/DEMO_REQUESTS.md).",
+        "operationId": "post_demo_request_v1_demo_requests_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DemoRequestIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DemoRequestAcceptedOut"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The body could not be parsed (not UTF-8 JSON).",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "The request body is larger than 1 MiB.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation failed (`errors` lists each field), or an `Idempotency-Key` was reused with a different request.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Rate limit exceeded; see `Retry-After`.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "A dependency (the database) is unavailable; see `Retry-After`.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/ops/demo-requests": {
+      "get": {
+        "tags": [
+          "ops"
+        ],
+        "summary": "Demo requests from the public site, newest first (platform operators)",
+        "description": "Every stored request with what the visitor sent, when, from which address, and whether its email went out (`notification`). `next_cursor` continues with older requests. Operators only (`OPS_OPERATOR_UIDS`); a firm role never grants it (docs/api/DEMO_REQUESTS.md).",
+        "operationId": "list_demo_requests_v1_ops_demo_requests_get",
+        "security": [
+          {
+            "FirebaseIdToken": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 200,
+              "minimum": 1,
+              "description": "Requests per page.",
+              "default": 50,
+              "title": "Limit"
+            },
+            "description": "Requests per page."
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 32
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Opaque `next_cursor` of the previous page.",
+              "title": "Cursor"
+            },
+            "description": "Opaque `next_cursor` of the previous page."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DemoRequestPageOut"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing, malformed, expired or revoked bearer token.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation failed (`errors` lists each field), or an `Idempotency-Key` was reused with a different request.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Rate limit exceeded; see `Retry-After`.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "A dependency (the database) is unavailable; see `Retry-After`.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Your role is too low for this action (the study or firm is visible to you); `no-firm`: you are not a member of any firm; `email-unverified`: your sign-in does not verify the invited email.",
             "content": {
               "application/problem+json": {
                 "schema": {
@@ -17924,6 +18119,296 @@
             "stage": "appraisal_review"
           }
         ]
+      },
+      "DemoRequestAcceptedOut": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id",
+            "description": "The request's id."
+          }
+        },
+        "type": "object",
+        "required": [
+          "id"
+        ],
+        "title": "DemoRequestAcceptedOut"
+      },
+      "DemoRequestIn": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "maxLength": 200,
+            "minLength": 1,
+            "pattern": "^[^\\x00-\\x1f\\x7f-\\x9f]*[^\\x00-\\x1f\\x7f-\\x9f\\s][^\\x00-\\x1f\\x7f-\\x9f]*$",
+            "title": "Name",
+            "description": "The visitor's name. One line; trimmed."
+          },
+          "email": {
+            "type": "string",
+            "maxLength": 254,
+            "pattern": "^[ \\t]*[!-?A-~]+@[!-?A-~]+\\.[!-?A-~]+[ \\t]*$",
+            "title": "Email",
+            "description": "Their work email. Trimmed and lower-cased."
+          },
+          "company": {
+            "type": "string",
+            "maxLength": 200,
+            "minLength": 1,
+            "pattern": "^[^\\x00-\\x1f\\x7f-\\x9f]*[^\\x00-\\x1f\\x7f-\\x9f\\s][^\\x00-\\x1f\\x7f-\\x9f]*$",
+            "title": "Company",
+            "description": "Their firm. One line; trimmed."
+          },
+          "role": {
+            "type": "string",
+            "enum": [
+              "owner_partner",
+              "engineer",
+              "analyst_staff",
+              "other"
+            ],
+            "title": "Role",
+            "description": "What they do at the firm."
+          },
+          "note": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 4000,
+                "pattern": "^[^\\x00-\\x08\\x0b\\x0c\\x0e-\\x1f\\x7f]*$"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Note",
+            "description": "Optional free text; line breaks allowed."
+          },
+          "page": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 2000,
+                "pattern": "^[^\\x00-\\x1f\\x7f-\\x9f]*$"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Page",
+            "description": "The page the form was on (the browser's location)."
+          },
+          "website": {
+            "type": "string",
+            "maxLength": 2000,
+            "pattern": "^[^\\x00]*$",
+            "title": "Website",
+            "description": "A field people never see; the page always sends it empty. Anything in it is answered as a success and stored nowhere.",
+            "default": ""
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "name",
+          "email",
+          "company",
+          "role"
+        ],
+        "title": "DemoRequestIn",
+        "examples": [
+          {
+            "company": "Acme Engineering",
+            "email": "dana@acme-eng.example",
+            "name": "Dana Whitfield",
+            "note": "We do about forty studies a year.",
+            "page": "https://basis.example/demo.html",
+            "role": "engineer",
+            "website": ""
+          }
+        ]
+      },
+      "DemoRequestOut": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id"
+          },
+          "seq": {
+            "type": "integer",
+            "title": "Seq",
+            "description": "Newest first; the keyset cursor."
+          },
+          "received_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Received At",
+            "description": "The database clock when it was stored."
+          },
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "email": {
+            "type": "string",
+            "title": "Email"
+          },
+          "company": {
+            "type": "string",
+            "title": "Company"
+          },
+          "role": {
+            "type": "string",
+            "enum": [
+              "owner_partner",
+              "engineer",
+              "analyst_staff",
+              "other"
+            ],
+            "title": "Role"
+          },
+          "note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Note"
+          },
+          "page": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Page"
+          },
+          "remote_addr": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Remote Addr",
+            "description": "The client address the rate limit keyed on."
+          },
+          "user_agent": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "User Agent"
+          },
+          "request_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Request Id",
+            "description": "The API request that stored it."
+          },
+          "notification": {
+            "type": "string",
+            "enum": [
+              "queued",
+              "sent",
+              "failed"
+            ],
+            "title": "Notification",
+            "description": "The email to `DEMO_REQUEST_NOTIFY_EMAIL`: `queued` (the relay has not handled it yet), `sent` (handed to the sender at `notified_at`), `failed` (the last attempt did not send it and `notify_error` says why: no recipient configured, or the sender failed, which the relay retries)."
+          },
+          "notified_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Notified At"
+          },
+          "notify_error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Notify Error"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "seq",
+          "received_at",
+          "name",
+          "email",
+          "company",
+          "role",
+          "note",
+          "page",
+          "remote_addr",
+          "user_agent",
+          "request_id",
+          "notification",
+          "notified_at",
+          "notify_error"
+        ],
+        "title": "DemoRequestOut"
+      },
+      "DemoRequestPageOut": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/DemoRequestOut"
+            },
+            "type": "array",
+            "title": "Items",
+            "description": "Newest first (`seq` descending)."
+          },
+          "next_cursor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Cursor",
+            "description": "Pass as `cursor` to get the next (older) page; null on the last page."
+          }
+        },
+        "type": "object",
+        "required": [
+          "items",
+          "next_cursor"
+        ],
+        "title": "DemoRequestPageOut"
       },
       "DepreciationOut": {
         "properties": {

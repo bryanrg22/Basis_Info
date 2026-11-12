@@ -94,6 +94,9 @@
   ``studies``, ``extraction_fields``, ``report_signatures`` and ``users``, and downgrades
   back to ``0033``
   exactly (``pg_trgm`` and ``unaccent`` dropped with it);
+* ``0035_demo_requests`` creates ``demo_requests`` (the public site's demo form: a role in
+  the four the form offers, ``seq`` unique and generated), nothing backfilled; it downgrades
+  back to ``0034`` exactly;
 * upgrading at head is a no-op; offline (``--sql``) rendering works.
 
 Each test that changes the schema gets its own throwaway database in the shared
@@ -137,8 +140,8 @@ pytestmark = pytest.mark.integration
 # 0025_invitation_email lands after 0022 (user activity), 0023 (rate-limit hits) and 0024
 # (review drafts); 0026 (retention and alerts) revises 0025, and 0027_signature_input_versions
 # revises 0026 (it was 0024, then 0026, until the branches before it landed).
-HEAD = "0034"
-HISTORY = [f"{n:04d}" for n in range(34, 0, -1)]  # "0034" .. "0001"
+HEAD = "0035"
+HISTORY = [f"{n:04d}" for n in range(35, 0, -1)]  # "0035" .. "0001"
 EXPECTED_TRIGGERS = (
     {(f"{table}_set_updated_at", table) for table in UPDATED_AT_TABLES}
     | {(f"{table}_append_only", table) for table in APPEND_ONLY_TABLES}
@@ -1915,3 +1918,36 @@ async def test_0034_backfills_every_study_and_downgrades_exactly(empty_database_
         await connection.close()
     await downgrade(url, "0033")
     assert await snapshot(url) == at_0033  # the extensions it installed are gone too
+
+
+async def test_0035_demo_requests_role_check_and_an_exact_downgrade(
+    empty_database_url: str,
+) -> None:
+    url = empty_database_url
+    await upgrade(url, "0034")
+    at_0034 = await snapshot(url)
+    await upgrade(url, "0035")
+    connection = await asyncpg.connect(plain_dsn(url))
+    insert = (
+        "INSERT INTO demo_requests (name, email, company, role) "
+        "VALUES ('Dana', 'dana@acme.example', 'Acme', $1) RETURNING seq, created_at, notified_at"
+    )
+    try:
+        first = await connection.fetchrow(insert, "engineer")
+        second = await connection.fetchrow(insert, "owner_partner")
+        assert second["seq"] > first["seq"]  # generated, ordered
+        assert first["created_at"] is not None and first["notified_at"] is None
+        with pytest.raises(asyncpg.CheckViolationError, match="role_valid"):
+            await connection.execute(
+                insert.replace(" RETURNING seq, created_at, notified_at", ""), "ceo"
+            )
+        with pytest.raises(asyncpg.exceptions.GeneratedAlwaysError):
+            await connection.execute(
+                "INSERT INTO demo_requests (seq, name, email, company, role) "
+                "VALUES (99, 'x', 'x@x.example', 'x', 'other')"
+            )
+        await connection.execute("DELETE FROM demo_requests")
+    finally:
+        await connection.close()
+    await downgrade(url, "0034")
+    assert await snapshot(url) == at_0034
