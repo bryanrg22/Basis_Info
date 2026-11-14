@@ -265,19 +265,33 @@ h1 em{font-style:normal;color:var(--accent)}
 @media (max-width:980px){
   .hero{grid-template-columns:1fr;padding-top:124px}
   .rail{border-left:0;border-top:1px solid var(--line);padding:24px 0 28px}
-  /* stacked, the sources read as a derivation: a rule through the three numbers, filled in green
-       down to the source that is lit (paper.js measures it) */
-  .rail ol{position:relative;justify-content:flex-start}
-  .rail ol::before,.rail ol::after{content:'';position:absolute;z-index:0;left:var(--trail-x,25px);top:var(--trail-top,0);width:2px;height:var(--trail-height,0);margin-left:-1px;border-radius:1px;pointer-events:none}
-  .rail ol::before{background:#cfdacf}
-  .rail ol::after{background:var(--accent);transform:scaleY(var(--trail-fill,0));transform-origin:top;transition:transform .7s cubic-bezier(.22,.61,.36,1)}
-  .rail li{position:relative;z-index:1}
-  .rail .n{position:relative;background:var(--bg)}
-  .rail li.is-on .n{background:var(--accent)}
+  .rail ol{justify-content:flex-start}
   /* the underline that draws under the lit source's working answers the line from the sentence on
        desktop; stacked there is no such line, and a half-drawn underline reads as a stray mark */
   .rail-d,.rail li.is-on .rail-d{background:none;transition:none}
+  /* stacked, the sources are one card (paper.js): the three numbers as tabs naming each source,
+       over a panel that shows one source at a time; the panels share one grid cell, so the card is
+       as tall as the tallest source and nothing under it moves as they change */
+  .rail.is-tabs{gap:12px;max-width:620px;padding:22px 0 26px}
+  .rail.is-tabs .rail-fig b{transition:color .4s}
+  .rail.is-tabs.is-sum .rail-fig b{color:var(--accent)} /* the appraisal's sum is the figure */
+  .rail.is-tabs .rail-tabs{position:relative;display:grid;grid-template-columns:repeat(3,minmax(0,1fr));padding:4px;border-radius:14px;background:#e7e9e0;box-shadow:inset 0 0 0 1px #13261c0d}
+  .rail-tabs::before{content:'';position:absolute;top:4px;bottom:4px;left:4px;width:calc((100% - 8px) / 3);border-radius:10px;background:#fff;box-shadow:0 1px 2px #13261c1f,0 6px 14px -8px #13261c40;transform:translateX(calc(var(--at,0) * 100%));transition:transform .45s cubic-bezier(.22,.61,.36,1)}
+  .rail-tabs button{position:relative;z-index:1;display:flex;align-items:center;justify-content:center;gap:7px;min-width:0;min-height:44px;padding:0 6px;border:0;border-radius:10px;background:none;font-family:inherit;font-size:14px;font-weight:500;line-height:1.2;color:var(--muted);cursor:pointer;-webkit-tap-highlight-color:transparent;transition:color .3s}
+  .rail-tabs button[aria-selected="true"]{color:var(--ink)}
+  .rail-tabs button:focus-visible{outline:2px solid var(--focus);outline-offset:-2px}
+  .t-n{display:grid;place-items:center;flex:none;width:20px;height:20px;border-radius:6px;border:1px solid #bcd0c0;font:500 11px/1 var(--mono);color:var(--accent);transition:background .3s,color .3s,border-color .3s}
+  .rail-tabs button[aria-selected="true"] .t-n{background:var(--accent);border-color:var(--accent);color:#fff}
+  .t-l{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .t-bar{position:absolute;left:14px;right:14px;bottom:5px;height:2px;border-radius:1px;background:var(--accent);opacity:.55;transform:scaleX(0);transform-origin:left}
+  .rail.is-tabs ol{display:grid;gap:0;border-radius:16px;background:#fff;box-shadow:0 1px 0 #00000008,0 18px 40px -20px #13261c40;touch-action:pan-y}
+  .rail.is-tabs li{grid-area:1/1;display:block;margin:0;padding:18px 18px 20px;font-size:15px;border-radius:16px;background:none;box-shadow:none;visibility:hidden}
+  .rail.is-tabs li.is-on{visibility:visible}
+  .rail.is-tabs li .n{display:none}
+  .rail.is-tabs .rail-k{margin-bottom:4px}
+  .rail.is-tabs .rail-d{display:block;margin-top:10px;padding-top:10px;border-top:1px dashed #d8d4c8}
 }
+.rail-tabs{display:none}
 @media (max-width:700px){
   .hero{order:0}
   .lede{font-size:17px}
@@ -298,7 +312,7 @@ h1 em{font-style:normal;color:var(--accent)}
   .hero{width:calc(100% - 32px);padding-top:108px}
 }
 @media (prefers-reduced-motion:reduce){
-  .rail ol::after{transition:none!important}
+  .rail-tabs::before{transition:none}
 }
 .cites{white-space:nowrap} /* the hero's source chips never part from the sentence's last word */
 
