@@ -134,3 +134,7 @@ web/assets/exterior.webp
 web/assets/kitchen.webp
 web/assets/kitchen-detail.webp
 web/assets/living.webp
+web/assets/thumbs/
+
+# landing site static build (web/site/landing/tools/build_static.mjs)
+web/site/landing/dist/
