@@ -23,7 +23,14 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Annotated, Final, Literal, get_args
 
-from pydantic import AliasChoices, Field, SecretStr, field_validator, model_validator
+from pydantic import (
+    AliasChoices,
+    Field,
+    SecretStr,
+    ValidationInfo,
+    field_validator,
+    model_validator,
+)
 from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
 from basis.llm.families import (
@@ -63,8 +70,13 @@ _APP_URL: Final = re.compile(
     r"https?://[A-Za-z0-9](?:[A-Za-z0-9.-]*[A-Za-z0-9])?(?::\d{1,5})?(?:/[^\s?#]*[^\s?#/])?"
 )
 _LOCAL_URL: Final = re.compile(r"http://(?:localhost|127\.0\.0\.1)(?::\d{1,5})?(?:/|$)")
+# Where the public site's pages are served locally (`python3 -m http.server 8752` in web/site):
+# the origins allowed to post the demo form in dev and test when DEMO_REQUEST_ALLOWED_ORIGINS
+# is unset.
+LOCAL_SITE_ORIGINS: Final = ("http://127.0.0.1:8752", "http://localhost:8752")
 
-# One bare address for ALERT_EMAIL_TO: no display name, no list (the relay sends one message).
+# One bare address for ALERT_EMAIL_TO and DEMO_REQUEST_NOTIFY_EMAIL: no display name, no list
+# (the relay sends one message).
 _EMAIL: Final = re.compile(r"[^@\s,;<>]+@[A-Za-z0-9](?:[A-Za-z0-9.-]*[A-Za-z0-9])?")
 
 _REQUIRED_IN_DEPLOYED: Final = ("database_url", "gcs_bucket", "firebase_project_id")
@@ -546,6 +558,28 @@ class Settings(BaseSettings):
     # (EVAL_REPORT section 65).
     client_errors_retention_days: int = Field(default=180, ge=1, le=3650)
 
+    # Demo requests from the public site's "Book a demo" form (POST /v1/demo-requests,
+    # docs/api/DEMO_REQUESTS.md, EVAL_REPORT section 95).
+    # DEMO_REQUEST_NOTIFY_EMAIL: the one address the relay emails each new request to
+    # (user@domain, no name part); unset (the default: no address is written into the code),
+    # requests are stored and listed at GET /v1/ops/demo-requests but nobody is emailed
+    # (E.DEMO_REQUEST_NO_RECIPIENT on the relay).
+    # DEMO_REQUEST_ALLOWED_ORIGINS: the site's browser origins allowed to post the form (CORS
+    # on that one route), comma-separated, with the CORS_ALLOWED_ORIGINS rules; the
+    # CORS_ALLOWED_ORIGINS are allowed there too. Unset: the local static server
+    # (LOCAL_SITE_ORIGINS, http://127.0.0.1:8752 and http://localhost:8752) in dev and test,
+    # nothing in staging and prod, where it must name the site's https origin (empty is unset).
+    # DEMO_REQUESTS_PER_HOUR: requests per client address per hour (10: a person sends one or
+    # two; an office behind one address a few). Behind a proxy that hides the client address
+    # (uvicorn without --proxy-headers) every visitor shares one budget: raise it, or run
+    # with --proxy-headers. DEMO_REQUESTS_RETENTION_DAYS: requests are a visitor's contact
+    # details, deleted by `python -m basis.retention purge-demo-requests` after this many
+    # days (365: a sales cycle and a returning firm, no longer).
+    demo_request_notify_email: str | None = None
+    demo_request_allowed_origins: Annotated[tuple[str, ...] | None, NoDecode] = None
+    demo_requests_per_hour: int = Field(default=10, ge=1, le=10_000)
+    demo_requests_retention_days: int = Field(default=365, ge=1, le=3650)
+
     # Engineer overrides (docs/api/OVERRIDES.md, EVAL_REPORT section 90), both reported by
     # GET /v1/capabilities so the app offers only what the API accepts. OBJECT_EXCLUSION:
     # an engineer may mark a photo's detected object Not counted (PATCH .../objects/{id})
@@ -607,6 +641,15 @@ class Settings(BaseSettings):
         return "off" if self.env == "test" else "on"
 
     @property
+    def demo_request_origins(self) -> tuple[str, ...]:
+        """The origins allowed to post the demo form, besides ``cors_allowed_origins``:
+        ``DEMO_REQUEST_ALLOWED_ORIGINS`` when set, else the local static server in dev and
+        test and nothing in staging and prod."""
+        if self.demo_request_allowed_origins is not None:
+            return self.demo_request_allowed_origins
+        return LOCAL_SITE_ORIGINS if self.env in ("dev", "test") else ()
+
+    @property
     def rate_limit_backend(self) -> RateLimitStore:
         """``RATE_LIMIT_STORE`` when set, else ``postgres`` in staging and prod (one budget
         per caller across the API's instances), ``memory`` in dev and test."""
@@ -636,6 +679,16 @@ class Settings(BaseSettings):
             return tuple(part.strip() for part in value.split(",") if part.strip())
         return value
 
+    @field_validator("demo_request_allowed_origins", mode="before")
+    @classmethod
+    def _split_site_origins(cls, value: object) -> object:
+        # Empty is unset (the default origins), so the empty line .env.example ships keeps
+        # the local site working; there is no way to say "none" in dev, nor a need to.
+        if isinstance(value, str):
+            parts = tuple(part.strip() for part in value.split(",") if part.strip())
+            return parts or None
+        return value
+
     @field_validator("ops_operator_uids", mode="before")
     @classmethod
     def _split_uids(cls, value: object) -> object:
@@ -643,25 +696,28 @@ class Settings(BaseSettings):
             return tuple(part.strip() for part in value.split(",") if part.strip())
         return value
 
-    @field_validator("alert_email_to")
+    @field_validator("alert_email_to", "demo_request_notify_email")
     @classmethod
-    def _check_alert_email(cls, value: str | None) -> str | None:
+    def _check_one_email(cls, value: str | None, info: ValidationInfo) -> str | None:
         if value is None or not value.strip():
             return None
         value = value.strip()
         if not _EMAIL.fullmatch(value):
+            name = (info.field_name or "").upper()
             raise ConfigError(
-                f"ALERT_EMAIL_TO {value!r} is not one email address (user@domain, no name part)"
+                f"{name} {value!r} is not one email address (user@domain, no name part)"
             )
         return value
 
-    @field_validator("cors_allowed_origins")
+    @field_validator("cors_allowed_origins", "demo_request_allowed_origins")
     @classmethod
-    def _check_origins(cls, value: tuple[str, ...]) -> tuple[str, ...]:
-        for origin in value:
+    def _check_origins(
+        cls, value: tuple[str, ...] | None, info: ValidationInfo
+    ) -> tuple[str, ...] | None:
+        for origin in value or ():
             if origin != "*" and not _ORIGIN.fullmatch(origin):
                 raise ConfigError(
-                    f"CORS_ALLOWED_ORIGINS entry {origin!r} is not an origin: use "
+                    f"{(info.field_name or '').upper()} entry {origin!r} is not an origin: use "
                     "scheme://host[:port] with no path or trailing slash"
                 )
         return value
@@ -712,17 +768,21 @@ class Settings(BaseSettings):
                 "(the default: leave RATE_LIMIT_STORE unset)"
             )
         if self.env not in ("dev", "test"):
-            for origin in self.cors_allowed_origins:
-                if origin == "*":
-                    raise ConfigError(
-                        f"CORS_ALLOWED_ORIGINS=* is for dev and test only, not {ENV_VAR}="
-                        f"{self.env}; list the frontend's origins"
-                    )
-                if origin.startswith("http://") and not _LOCAL_ORIGIN.fullmatch(origin):
-                    raise ConfigError(
-                        f"CORS_ALLOWED_ORIGINS entry {origin!r} is plain http; outside dev "
-                        "and test only https origins and http://localhost are allowed"
-                    )
+            for name, origins in (
+                ("CORS_ALLOWED_ORIGINS", self.cors_allowed_origins),
+                ("DEMO_REQUEST_ALLOWED_ORIGINS", self.demo_request_allowed_origins or ()),
+            ):
+                for origin in origins:
+                    if origin == "*":
+                        raise ConfigError(
+                            f"{name}=* is for dev and test only, not {ENV_VAR}="
+                            f"{self.env}; list the frontend's origins"
+                        )
+                    if origin.startswith("http://") and not _LOCAL_ORIGIN.fullmatch(origin):
+                        raise ConfigError(
+                            f"{name} entry {origin!r} is plain http; outside dev "
+                            "and test only https origins and http://localhost are allowed"
+                        )
         if self.local_upload_base_url is not None:
             if self.env not in ("dev", "test"):
                 raise ConfigError(

@@ -20,6 +20,8 @@ A ``service_heartbeats`` row (:func:`relay_heartbeat`) every ``OPS_HEARTBEAT_SEC
 
 Invitation emails are sent from here, by the sender ``EMAIL_PROVIDER`` names
 (``basis.email``), with ``APP_URL`` in the text; the API only enqueues them.
+So are the demo request emails (docs/api/DEMO_REQUESTS.md), to
+``DEMO_REQUEST_NOTIFY_EMAIL``.
 
 Operator alerts (``basis.notify``, docs/api/RETENTION_AND_ALERTS.md): the relay is the one
 process that sends them (``ALERT_EMAIL_TO``, through the configured email sender), and it
@@ -143,6 +145,7 @@ async def run(settings: Settings, *, health_port: int, once: bool = False) -> in
             app_url=settings.app_url,
             alert_to=settings.alert_email_to,
             env=settings.env,
+            demo_request_to=settings.demo_request_notify_email,
         )
         monitor = HeartbeatMonitor(
             sessionmaker,

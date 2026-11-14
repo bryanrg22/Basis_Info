@@ -205,6 +205,11 @@ gcloud scheduler jobs create http staging-basis-retention-daily --location us-ce
 and the noncurrent versions cover the same window. A local stack runs the same command from
 cron or `docker compose run --rm worker python -m basis.retention purge`.
 
+The fixed-period purges run the same way, on the same schedule, with the job's `--args`
+changed: `-m,basis.retention,purge-client-errors` (browser error records, 180 days,
+docs/api/CLIENT_ERRORS.md section 6) and `-m,basis.retention,purge-demo-requests` (the public
+site's demo requests, 365 days, docs/api/DEMO_REQUESTS.md section 6).
+
 ## 4. Alerts
 
 ### 4.1 From Cloud Monitoring (`alerts.tf`, plan only)

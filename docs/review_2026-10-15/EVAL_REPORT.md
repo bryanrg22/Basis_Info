@@ -14101,3 +14101,90 @@ Tests: `tests/api/test_firms.py` gains the default refusal (a verified user, twi
 Idempotency-Key: 403 `firm-self-serve-off`, no firm, no membership); the seven tests of
 self-serve creation run with the setting on through a `self_serve_api` fixture and pass
 unchanged. A mutation check (the default flipped on) makes the new test fail.
+
+## 95. Demo requests from the public site (2026-11-12)
+
+**Question.** The public landing page's "Book a demo" form (`web/site/directions/demo.html`,
+on the landing branch) needs somewhere to send a visitor's name, work email, company, role
+and note, so the founder can follow up. What is the smallest backend that records each
+request once, tells the founder once, survives a mail outage, resists casual spam, keeps a
+visitor's details no longer than needed, and fits the API's existing patterns?
+
+**The standard, and what was taken from it.**
+
+* *Status code.* RFC 9110 section 15.3.3: 202 Accepted means the request was accepted for
+  processing that has not completed, with no promise of a resource the client can fetch.
+  The email is sent later by the relay, the visitor cannot read the request back, and the
+  spam trap and a duplicate must be indistinguishable from a new request, so 202 with the
+  id (as `POST /v1/client-errors`, section 65), not 201 with a `Location`.
+* *Cross-origin.* The Fetch standard's CORS-safelisted request headers allow `Content-Type`
+  only for `application/x-www-form-urlencoded`, `multipart/form-data` and `text/plain`; the
+  page posts `application/json`, so every submission is preflighted. Starlette's
+  `CORSMiddleware` answers every preflight itself and refuses unlisted origins with 400
+  before any inner middleware runs, so two stacked instances cannot widen one path; one
+  middleware per path (`basis.api.cors`) is the smallest correct shape. The site's origins
+  get `POST` with `Content-Type` on this path only.
+* *Spam.* A hidden field people never fill (the "honeypot" of `django-honeypot`, Rails'
+  `invisible_captcha`, most form services), answered exactly as success so a bot learns
+  nothing; a per-address rate limit through the existing limiter; no CAPTCHA (a third-party
+  script on the public page, for a volume that does not call for one yet).
+* *Duplicates.* A double click, a back-button resubmit or a retry after a lost response is
+  the same request. With no user to scope an `Idempotency-Key` to, the key is the email
+  (lower-cased) within ten minutes, made race-proof with a transaction-scoped advisory lock
+  on it (the pattern of `UserRepository`'s uid lock and `PostgresRateLimiter`).
+* *Notification.* The transactional outbox the invitation emails use (section 59): the row
+  and its outbox message commit together, the relay sends through `EMAIL_PROVIDER` with the
+  key `demo-request-{id}` as the SMTP `Message-ID`, and records `notified_at` so a redelivered
+  message sends nothing. A slow or failing mail server delays the email, never the answer.
+* *Email length.* RFC 5321 section 4.5.3.1.3 limits a path to 256 octets including the
+  angle brackets, so an address is at most 254 characters (RFC 3696 erratum 1690); the
+  often-quoted 320 (64 + 1 + 255) cannot be carried. The API's existing `EMAIL_PATTERN` and
+  `MAX_EMAIL_LENGTH` (254) are reused.
+* *Retention.* A visitor's contact details given for one purpose are kept while that purpose
+  lasts (GDPR Article 5(1)(e), storage limitation; the CCPA asks a business to state each
+  category's retention). 365 days covers a professional-services sales cycle and a firm
+  writing again a season later; `DEMO_REQUESTS_RETENTION_DAYS` makes it explicit, and the
+  purge follows `purge-client-errors` (section 65).
+
+**What was built.** `POST /v1/demo-requests` (public, 202 `{"id"}`), `GET
+/v1/ops/demo-requests` (operators, newest first, keyset cursor, each request's email
+outcome), the `demo_requests` table (migration 0035), the relay's `demo_request`
+notification, `python -m basis.retention purge-demo-requests`, codes `BASIS-DEMO-001` to
+`006`, and four settings: `DEMO_REQUEST_NOTIFY_EMAIL` (unset: stored, nobody emailed),
+`DEMO_REQUEST_ALLOWED_ORIGINS` (unset: `http://127.0.0.1:8752` and `http://localhost:8752` in
+dev and test, nothing in staging and prod), `DEMO_REQUESTS_PER_HOUR` (10),
+`DEMO_REQUESTS_RETENTION_DAYS` (365). Contract: docs/api/DEMO_REQUESTS.md. Nothing paid,
+nothing deployed; no model is involved, so there was nothing to compare side by side.
+
+**Results.**
+
+No accuracy, cost or latency to compare (no model, no paid call). What was verified:
+
+| check | how | result |
+|---|---|---|
+| the route, validation, trap, window, limit, CORS, operator read | `tests/api/test_demo_requests.py`, real app on Postgres | 46 tests pass |
+| the email through the outbox and relay | `tests/integration/relay/test_demo_request_emails.py` | 10 pass |
+| repository, purge, CLI | `tests/integration/db/test_demo_request_records.py` | 5 pass |
+| settings, rendering, CORS without a database | three unit files | 12 + 3 + 5 pass |
+| migration 0035 (head, role check, exact downgrade, `alembic check`) | `tests/integration/db/test_migrations.py` | pass |
+| two identical requests at once | both queued behind the email's advisory lock (`queued_behind_a_lock`) | one row, one email; with the lock removed the test fails |
+| the trap | mutation: the trap check disabled | the trap test fails |
+| contract fuzz | Schemathesis over the committed document | first run found an undocumented 400 (bytes that are not UTF-8 JSON); documented, tested, passes |
+| the docker compose stack | `docker compose up --build` on its own ports, migration to 0035, curl as the browser sends | preflight from `http://127.0.0.1:8752` 200 with `POST` and `Content-Type`; from another origin 400; post 202 `{"id"}` with `Access-Control-Allow-Origin`; the same email again the same id; the trap a fresh id and no row; the fifth request at a limit of 4 429 `Retry-After: 3600`; two rows, two outbox rows delivered, the relay's log sender wrote both emails. One log field named `email_key` was masked by the logging redaction (it contains "key") and was renamed |
+
+The client address under Docker Desktop is the VM's gateway (`192.168.65.1`) for every
+request, so locally the per-address limit is one budget.
+
+**Open.**
+
+* The page itself was not driven in a browser against this API (it lives on the landing
+  branch and points at port 8000); the browser's side was verified at the HTTP level
+  (preflight and response headers exactly as a browser sends and reads them).
+* No real SMTP send: the relay's SMTP path is the invitation emails' (section 59), unchanged;
+  this change was verified with the log sender and a recording sender.
+* Deployed, `request.client.host` is the front end's address unless uvicorn runs with
+  `--proxy-headers` (the Dockerfile does not), so every visitor would share one
+  `DEMO_REQUESTS_PER_HOUR` budget; docs/api/DEMO_REQUESTS.md section 8 lists it with the
+  other release steps.
+* A browser that autofills the hidden field loses that visitor's request; the log line
+  `demo request trapped` is the only trace (by design it keeps nothing they typed).

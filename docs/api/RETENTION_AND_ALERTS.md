@@ -103,6 +103,14 @@ application, not a client file: it names a user, a firm and a study id, never a 
 a price. It is kept a fixed `CLIENT_ERRORS_RETENTION_DAYS` (180) and deleted by
 `python -m basis.retention purge-client-errors`, run on the same schedule as the purge.
 
+### 1.6 Not under the firm's rule: demo requests
+
+`demo_requests` (docs/api/DEMO_REQUESTS.md section 6) holds the public site's demo requests:
+a visitor's name, work email, firm, role and note, given to be contacted about a demo. A
+visitor belongs to no firm, so the firm's rule cannot apply; they are kept a fixed
+`DEMO_REQUESTS_RETENTION_DAYS` (365) and deleted by
+`python -m basis.retention purge-demo-requests`, run on the same schedule as the purge.
+
 ## 2. Alerts
 
 ### 2.1 What raises one

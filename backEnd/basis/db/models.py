@@ -1768,3 +1768,46 @@ class ClientErrorIssue(Base):
     last_build_sha: Mapped[str | None]
     created_at: Mapped[datetime] = _created_at()
     updated_at: Mapped[datetime] = _updated_at()
+
+
+DEMO_REQUEST_ROLES: Final = ("owner_partner", "engineer", "analyst_staff", "other")
+
+
+class DemoRequest(Base):
+    """A request for a demo from the public site's "Book a demo" form (migration
+    ``0035_demo_requests``, docs/api/DEMO_REQUESTS.md).
+
+    What the visitor typed (``name``, ``email`` trimmed and lower-cased, ``company``,
+    ``role``, the optional ``note``, the ``page`` the form was on) and what the server saw
+    (``created_at`` by the database's clock, ``remote_addr`` the client address the rate
+    limit keys on, ``user_agent``, the API ``request_id``). ``notified_at`` is set when the
+    relay handed the notification email to the sender, ``notify_error`` says why it has not
+    been (no recipient configured, the sender failed); both are written only by the relay.
+    ``seq`` orders the operator listing's keyset cursor. Personal data: deleted by
+    ``python -m basis.retention purge-demo-requests`` after ``DEMO_REQUESTS_RETENTION_DAYS``.
+    """
+
+    __tablename__ = "demo_requests"
+    __table_args__ = (
+        CheckConstraint(
+            "role IN ('owner_partner', 'engineer', 'analyst_staff', 'other')", name="role_valid"
+        ),
+        UniqueConstraint("seq"),
+        Index(None, "email", "created_at"),
+        Index(None, "created_at"),
+    )
+
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    seq: Mapped[int] = mapped_column(BigInteger, Identity(always=True), nullable=False)
+    name: Mapped[str]
+    email: Mapped[str]
+    company: Mapped[str]
+    role: Mapped[str]
+    note: Mapped[str | None]
+    page: Mapped[str | None]
+    remote_addr: Mapped[str | None]
+    user_agent: Mapped[str | None]
+    request_id: Mapped[str | None]
+    notified_at: Mapped[datetime | None]
+    notify_error: Mapped[str | None]
+    created_at: Mapped[datetime] = _created_at()

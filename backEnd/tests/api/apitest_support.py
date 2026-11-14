@@ -66,7 +66,8 @@ from basis.temporal.service import WorkflowService
 from basis.vision.localize import Localizer
 
 TOKEN_PREFIX = "uid:"
-UNAUTHENTICATED_OPERATIONS = frozenset({"GET /health", "GET /"})
+# The public site's demo form needs no token (docs/api/DEMO_REQUESTS.md).
+UNAUTHENTICATED_OPERATIONS = frozenset({"GET /health", "GET /", "POST /v1/demo-requests"})
 _PATH_PARAM = re.compile(r"\{(\w+)\}")
 # Nothing listens on port 1: connecting fails at once with "connection refused".
 REFUSED_DATABASE_URL = "postgresql://basis:x@127.0.0.1:1/none"  # pragma: allowlist secret
@@ -79,6 +80,8 @@ def api_settings(database_url: str, **overrides: Any) -> Settings:
     values: dict[str, Any] = {
         "rate_limit_reads_per_min": UNLIMITED,
         "rate_limit_mutations_per_min": UNLIMITED,
+        # The demo form's per-address limit (its own tests set it low; the setting's bound).
+        "demo_requests_per_hour": 10_000,
         **overrides,
     }
     return db_settings(database_url, **values)

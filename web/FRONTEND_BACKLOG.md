@@ -21,6 +21,13 @@ of truth. Items are in the order they matter for a first firm.
   the failed request; a screen reports its own with `Basis.reportError(err, context)`
   (`docs/api/CLIENT_ERRORS.md`). The operator page `developer/client-errors.html` lists
   them; the system-health page (not in the repository yet) should link to it.
+- **Demo requests (operators).** `GET /v1/ops/demo-requests` lists the public site's
+  "Book a demo" requests newest first (name, email, company, role, note, page, when, from
+  which address, and whether the email went out: `notification` queued, sent or failed with
+  `notify_error`), operators only, with a keyset cursor (`docs/api/DEMO_REQUESTS.md`
+  section 5). The developer page could list them beside the client errors; nothing in the
+  app reads them yet. The public form (`web/site/directions/demo.html`, on the landing branch) posts
+  to `POST /v1/demo-requests`; on release its `basis-api` meta must name the deployed API.
 
 ## 1. Blocking: nothing can start a study
 

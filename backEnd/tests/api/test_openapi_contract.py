@@ -132,6 +132,9 @@ def operations() -> Iterator[tuple[str, str, dict[str, Any]]]:
 
 # Its 503 is the health document itself, like /health's (docs/api/OPS_HEALTH.md section 2).
 HEALTH_DOCUMENT_503 = {("GET", "/v1/ops/health")}
+# The public site's demo form (docs/api/DEMO_REQUESTS.md): no token, so no 401, and no
+# Idempotency-Key (a visitor has no user to scope keys by; the duplicate window stands in).
+PUBLIC_WRITES = {("POST", "/v1/demo-requests")}
 
 
 @pytest.mark.parametrize(("method", "path", "operation"), list(operations()))
@@ -139,7 +142,10 @@ def test_every_error_response_is_a_problem(
     method: str, path: str, operation: dict[str, Any]
 ) -> None:
     errors = {code: spec for code, spec in operation["responses"].items() if code[0] in "45"}
-    if path.startswith("/v1/"):
+    if (method, path) in PUBLIC_WRITES:
+        assert {"422", "429", "503"} <= set(errors), f"{method} {path}"
+        assert "401" not in errors, f"{method} {path} needs no token"
+    elif path.startswith("/v1/"):
         assert {"401", "422", "429", "503"} <= set(errors), f"{method} {path}"
     for code, spec in errors.items():
         if code == "503" and (method, path) in HEALTH_DOCUMENT_503:
@@ -156,7 +162,9 @@ def test_idempotency_key_is_required_on_mutations(
     method: str, path: str, operation: dict[str, Any]
 ) -> None:
     headers = {p["name"]: p for p in operation.get("parameters", []) if p["in"] == "header"}
-    if method in ENFORCED_METHODS:
+    if (method, path) in PUBLIC_WRITES:
+        assert IDEMPOTENCY_HEADER not in headers
+    elif method in ENFORCED_METHODS:
         key = headers[IDEMPOTENCY_HEADER]
         assert key["required"] is True
         assert key["schema"]["maxLength"] == 130  # 128 characters, or 128 in double quotes

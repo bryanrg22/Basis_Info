@@ -43,6 +43,9 @@ SPEC_TABLES = {
     "client_errors": "id seq event_id occurred_at user_id org_id study_id revision stage route "
     "screen kind error_type message code http_status request_id build_sha web_version "
     "user_agent fingerprint event created_at",
+    # The public site's demo requests (migration 0035_demo_requests, docs/api/DEMO_REQUESTS.md).
+    "demo_requests": "id seq name email company role note page remote_addr user_agent request_id "
+    "notified_at notify_error created_at",
     "client_error_issues": "fingerprint kind error_type title route code http_status status note "
     "status_set_by status_set_at status_build_sha occurrences first_seen_at last_seen_at "
     "last_build_sha created_at updated_at",
@@ -302,6 +305,7 @@ SPEC_UNIQUES = {
     ("study_events", ("seq",)),
     ("org_events", ("seq",)),
     ("cost_indices", ("source", "series", "year", "region", "version")),
+    ("demo_requests", ("seq",)),
 }
 
 SPEC_PRIMARY_KEYS = {
@@ -372,9 +376,11 @@ SPEC_CHECKS = {
     "ck_photo_room_answers_room_confidence_range",
     "ck_orgs_retention_days_positive",
     "ck_alerts_kind_valid",
+    "ck_demo_requests_role_valid",
 }
 
 SPEC_NOT_NULL = {
+    "demo_requests": "seq name email company role",
     "orgs": "name",
     "users": "firebase_uid",
     "studies": "org_id created_by property_name status current_stage",

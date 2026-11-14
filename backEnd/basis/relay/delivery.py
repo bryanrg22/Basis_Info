@@ -29,6 +29,14 @@ One :meth:`Relay.run_once` is one transaction:
    alert, recipient refused for good (5xx)      ``dead`` at once (``E.ALERT_EMAIL_FAILED``)
    alert, no ``ALERT_EMAIL_TO``                 logged at WARNING, ``delivered``
                                                 (``E.ALERT_NO_RECIPIENT``)
+   demo request handed to the email sender      ``delivered``; ``demo_requests.notified_at``
+   demo request, sender failed (SMTP down, 4xx) retried as transient; ``notify_error`` set
+                                                (``E.DEMO_REQUEST_EMAIL_FAILED``)
+   demo request, recipient refused (5xx)        ``dead`` at once; ``notify_error`` set
+   demo request, no ``DEMO_REQUEST_NOTIFY_EMAIL`` logged at WARNING, ``delivered``;
+                                                ``notify_error`` set
+                                                (``E.DEMO_REQUEST_NO_RECIPIENT``)
+   demo request emailed before, or purged       ``delivered``, nothing sent
    ===========================================  =======================================
 
 If the process dies mid-batch the transaction rolls back: nothing is marked and every
@@ -44,8 +52,13 @@ invitation in the same transaction that marks the outbox row.
 ``alert`` is an operator alert (``basis.db.repositories.alert``: a failed study, a stale
 heartbeat): the relay renders it (``basis.notify.render``) and calls the same sender with
 ``ALERT_EMAIL_TO`` as the recipient and the alert's key as the idempotency key, so a
-redelivered row cannot become a second email at a provider that honours the key. Any
-other type is delivered to the log, as before.
+redelivered row cannot become a second email at a provider that honours the key.
+``demo_request`` is a request for a demo from the public site
+(``basis.db.repositories.demo_request``): the relay loads the row (the payload carries only
+its id), skips it when it was already emailed or has been purged, else renders it
+(``basis.email.demo_request``) and sends it to ``DEMO_REQUEST_NOTIFY_EMAIL`` under the key
+``demo-request-{id}``; the outcome is recorded on the row in the transaction that marks the
+outbox row. Any other type is delivered to the log, as before.
 
 **Catching up before deciding.** The API moves the study in the database the moment a
 decision is recorded, but the workflow reaches the next review stage only after it has
@@ -77,6 +90,7 @@ from basis.db.enums import Stage
 from basis.db.errors import NotVisibleError
 from basis.db.models import OutboxMessage
 from basis.db.repositories.alert import ALERT_NOTIFICATION
+from basis.db.repositories.demo_request import DEMO_REQUEST_NOTIFICATION, DemoRequestRepository
 from basis.db.repositories.invitation import InvitationRepository, InvitationStatus
 from basis.db.repositories.outbox import (
     INVITATION_NOTIFICATION,
@@ -85,6 +99,7 @@ from basis.db.repositories.outbox import (
     OutboxRepository,
 )
 from basis.db.session import session_scope
+from basis.email.demo_request import render_demo_request
 from basis.email.invitation import render_invitation
 from basis.email.sender import (
     EmailRejectedError,
@@ -175,8 +190,9 @@ class Result:
     message_id: uuid.UUID
     outcome: Outcome
     error: str | None = None
-    # An invitation email was handed to the sender in this delivery (``emailed_at`` is
-    # recorded); False for a redelivered row whose email had already gone.
+    # An invitation's or a demo request's email was handed to the sender in this delivery
+    # (``emailed_at``/``notified_at`` is recorded); False for a redelivered row whose email
+    # had already gone.
     emailed: bool = False
 
 
@@ -230,6 +246,7 @@ class Relay:
         app_url: str | None = None,
         alert_to: str | None = None,
         env: str | None = None,
+        demo_request_to: str | None = None,
     ) -> None:
         if batch_size < 1 or max_attempts < 1 or poll_seconds <= 0 or delivery_timeout <= 0:
             raise ValueError("relay limits must be positive")
@@ -240,6 +257,7 @@ class Relay:
         self.app_url = app_url
         self.alert_to = alert_to
         self.env = env
+        self.demo_request_to = demo_request_to
         self.poll_seconds = poll_seconds
         self.batch_size = batch_size
         self.max_attempts = max_attempts
@@ -258,8 +276,15 @@ class Relay:
                 return BatchReport(claimed=0)
             results = await self._deliver_all(messages)
             invitations = InvitationRepository(session)
+            demo_requests = DemoRequestRepository(session)
             for message, result in zip(messages, results, strict=True):
-                await self._record(outbox, message, result, invitations=invitations)
+                await self._record(
+                    outbox,
+                    message,
+                    result,
+                    invitations=invitations,
+                    demo_requests=demo_requests,
+                )
         return BatchReport(
             claimed=len(messages),
             delivered=sum(r.outcome is Outcome.DELIVERED for r in results),
@@ -312,6 +337,8 @@ class Relay:
                 return await self._deliver_invitation(message)
             if message.payload.get("type") == ALERT_NOTIFICATION:
                 return await self._deliver_alert(message)
+            if message.payload.get("type") == DEMO_REQUEST_NOTIFICATION:
+                return await self._deliver_demo_request(message)
             # Other notifications (review reminders) are delivered to the log until a channel
             # for them exists.
             logger.info("notification", extra={"payload": dict(message.payload)})
@@ -398,6 +425,61 @@ class Relay:
         )
         return Result(message.id, Outcome.DELIVERED)
 
+    async def _deliver_demo_request(self, message: OutboxMessage) -> Result:
+        """Render the request and send it to ``DEMO_REQUEST_NOTIFY_EMAIL``, once."""
+        try:
+            demo_request_id = uuid.UUID(str(message.payload["demo_request_id"]))
+        except (KeyError, ValueError, TypeError) as exc:
+            return Result(message.id, Outcome.DEAD, f"malformed payload: {_describe(exc)}")
+        # Read outside the claim transaction, as for an invitation: the row's notification
+        # columns are written only by ``_record``, in the claim transaction, after this returns.
+        async with self.sessionmaker() as session:
+            request = await DemoRequestRepository(session).get(demo_request_id)
+        if request is None:
+            return Result(
+                message.id, Outcome.DELIVERED, "not sent: the demo request was purged first"
+            )
+        if request.notified_at is not None:
+            return Result(message.id, Outcome.DELIVERED)  # already sent: never twice
+        if self.demo_request_to is None:
+            logger.warning(
+                "demo request not emailed (no DEMO_REQUEST_NOTIFY_EMAIL)",
+                extra={
+                    "error_code": E.DEMO_REQUEST_NO_RECIPIENT,
+                    "demo_request_id": str(demo_request_id),
+                },
+            )
+            return Result(
+                message.id, Outcome.DELIVERED, "not sent: DEMO_REQUEST_NOTIFY_EMAIL is not set"
+            )
+        try:
+            email = render_demo_request(request, self.demo_request_to)
+        except ValueError as exc:  # the message rules refused it: retrying cannot help
+            return Result(message.id, Outcome.DEAD, f"cannot render: {exc}")
+        fields = {
+            "demo_request_id": str(demo_request_id),
+            "email_idempotency": email.idempotency_key,
+        }
+        try:
+            sent = await self.email_sender.send(email)
+        except EmailRejectedError as exc:
+            logger.error(
+                "demo request email refused",
+                extra={**fields, "error_code": E.DEMO_REQUEST_EMAIL_FAILED},
+            )
+            return Result(message.id, Outcome.DEAD, f"email rejected: {exc}")
+        except EmailSendError as exc:
+            logger.warning(
+                "demo request email failed; will retry",
+                extra={**fields, "error_code": E.DEMO_REQUEST_EMAIL_FAILED},
+            )
+            raise TransientDeliveryError(f"demo request email failed: {exc}") from exc
+        logger.info(
+            "demo request emailed",
+            extra={**fields, "provider": sent.provider, "message_id": sent.message_id},
+        )
+        return Result(message.id, Outcome.DELIVERED, emailed=True)
+
     async def _deliver_decision(self, message: OutboxMessage) -> Result:
         try:
             workflow_id, decision = decision_from_payload(message.payload)
@@ -421,6 +503,7 @@ class Relay:
         result: Result,
         *,
         invitations: InvitationRepository | None = None,
+        demo_requests: DemoRequestRepository | None = None,
     ) -> None:
         fields = {
             "outbox_id": str(message.id),
@@ -430,6 +513,8 @@ class Relay:
         attempts = message.attempts + 1
         if invitations is not None:
             await self._record_email(invitations, message, result, attempts)
+        if demo_requests is not None:
+            await self._record_demo_request_email(demo_requests, message, result)
         if result.outcome is Outcome.DELIVERED:
             await outbox.mark_delivered(message.id, last_error=result.error)
             logger.info("outbox message delivered", extra={**fields, "attempts": attempts})
@@ -494,6 +579,21 @@ class Relay:
                 },
             )
 
+    async def _record_demo_request_email(
+        self, demo_requests: DemoRequestRepository, message: OutboxMessage, result: Result
+    ) -> None:
+        """The demo request's own record of its email, next to the outbox row's."""
+        if message.kind != NOTIFICATION or message.payload.get("type") != DEMO_REQUEST_NOTIFICATION:
+            return
+        try:
+            demo_request_id = uuid.UUID(str(message.payload.get("demo_request_id")))
+        except (ValueError, TypeError):
+            return  # dead as malformed; there is no row to annotate
+        if result.emailed:
+            await demo_requests.record_notified(demo_request_id)
+        elif result.error is not None:
+            await demo_requests.record_notify_error(demo_request_id, result.error)
+
     # ------------------------------------------------------------------ the loop
 
     async def run(self, stop: asyncio.Event) -> None:
@@ -505,6 +605,7 @@ class Relay:
                 "email_provider": self.email_sender.provider,
                 "app_url": self.app_url,
                 "alert_recipient_set": self.alert_to is not None,
+                "demo_request_recipient_set": self.demo_request_to is not None,
             },
         )
         while not stop.is_set():
