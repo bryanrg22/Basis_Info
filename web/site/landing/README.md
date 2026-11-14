@@ -40,8 +40,9 @@ mobile file. The breakpoints are listed at the top of `paper.css`: 980px (tablet
 header folds into the menu), 700px (phones) and 560px (small phones).
 
 Where a desktop figure depends on side-by-side layout, the phone version is redesigned rather than
-stacked: the hero's sources become a derivation trail joined by a line, and the record keeps the
-group chat as a bubble on each row with a connector into its answer.
+stacked, and a part that only earns its place beside the copy is left out: the hero's sources show on
+desktop only (stacked, the three chips stay in the sentence as marks), and the record shows its
+finished rows at once (the group chat story plays on desktop only).
 
 ## Running it locally
 

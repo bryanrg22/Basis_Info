@@ -264,29 +264,18 @@ h1 em{font-style:normal;color:var(--accent)}
 }
 @media (max-width:980px){
   .hero{grid-template-columns:1fr;padding-top:124px}
-  .rail{border-left:0;border-top:1px solid var(--line);padding:24px 0 28px}
-  /* stacked, the sources read as a derivation: a rule through the three numbers, filled in green
-       down to the source that is lit (paper.js measures it) */
-  .rail ol{position:relative;justify-content:flex-start}
-  .rail ol::before,.rail ol::after{content:'';position:absolute;z-index:0;left:var(--trail-x,25px);top:var(--trail-top,0);width:2px;height:var(--trail-height,0);margin-left:-1px;border-radius:1px;pointer-events:none}
-  .rail ol::before{background:#cfdacf}
-  .rail ol::after{background:var(--accent);transform:scaleY(var(--trail-fill,0));transform-origin:top;transition:transform .7s cubic-bezier(.22,.61,.36,1)}
-  .rail li{position:relative;z-index:1}
-  .rail .n{position:relative;background:var(--bg)}
-  .rail li.is-on .n{background:var(--accent)}
-  /* the underline that draws under the lit source's working answers the line from the sentence on
-       desktop; stacked there is no such line, and a half-drawn underline reads as a stray mark */
-  .rail-d,.rail li.is-on .rail-d{background:none;transition:none}
+  /* stacked there are no sources: beside the copy a line runs to them from the sentence; under it
+       they are a list that fills a phone's screen and shows nothing of the product. The chips stay
+       in the sentence as quiet marks (paper.js makes them inert here). */
+  .rail,.hero .link-layer{display:none}
+  .cite,.cite:hover,.cite.is-on{pointer-events:none;background:#e3ebe2;color:var(--accent);transform:none}
 }
 @media (max-width:700px){
   .hero{order:0}
   .lede{font-size:17px}
-  /* the chips: in the sentence, after its last word, as one unit; 34 pt to see, 44 to tap */
-  .cite-set{display:inline-flex;gap:6px;margin-left:6px;vertical-align:middle}
-  .cite{position:relative;min-width:34px;height:34px;margin:0;border-radius:10px;font-size:14px;vertical-align:0}
-  .cite::after{content:'';position:absolute;inset:-5px -3px}
-  .rail li{margin:0;padding:14px 12px;border-radius:14px} /* the lit card stays inside the 16 pt gutter */
-  .rail-d{font-size:13px}
+  /* the chips: in the sentence, after its last word, as one unit (marks here, not buttons) */
+  .cite-set{display:inline-flex;gap:5px;margin-left:6px;vertical-align:.2em}
+  .cite{margin:0;vertical-align:0}
   /* the team: four logos in two equal columns */
   .creds-row{padding:22px 0 8px}
   .creds-label{font-size:21px;width:100%}
@@ -296,9 +285,6 @@ h1 em{font-style:normal;color:var(--accent)}
 }
 @media (max-width:560px){
   .hero{width:calc(100% - 32px);padding-top:108px}
-}
-@media (prefers-reduced-motion:reduce){
-  .rail ol::after{transition:none!important}
 }
 .cites{white-space:nowrap} /* the hero's source chips never part from the sentence's last word */
 
