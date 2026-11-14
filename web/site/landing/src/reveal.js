@@ -25,19 +25,25 @@ function countUp(el) {
   requestAnimationFrame(step);
 }
 
+// Stacked (tablets and phones) a section is taller than the screen and a reader scrolls through it
+// in a second or two, so the motion there is shorter and starts just before the section enters,
+// never leaving a reader in front of content that has not arrived yet.
+const stacked = matchMedia('(max-width: 980px)').matches;
+const T = stacked ? { ms: 450, step: 60, scale: 0.35, margin: '0px 0px 10% 0px' } : { ms: 800, step: 160, scale: 1, margin: '0px 0px -12% 0px' };
+
 if (root.classList.contains('rv')) {
   const rise = (el, delay) => el.animate(
-    [{ opacity: 0, transform: 'translateY(22px)' }, { opacity: 1, transform: 'none' }],
-    { duration: 800, delay, easing: EASE, fill: 'backwards' });
+    [{ opacity: 0, transform: `translateY(${stacked ? 12 : 22}px)` }, { opacity: 1, transform: 'none' }],
+    { duration: T.ms, delay, easing: EASE, fill: 'backwards' });
   const reveal = (sec) => {
-    [...sec.children].forEach((el, i) => rise(el, i * 160));
-    sec.querySelectorAll('[data-rv]').forEach((el) => rise(el, Number(el.dataset.rv)));
+    [...sec.children].forEach((el, i) => rise(el, i * T.step));
+    sec.querySelectorAll('[data-rv]').forEach((el) => rise(el, Number(el.dataset.rv) * T.scale));
     sec.querySelectorAll('[data-count]').forEach(countUp);
     sec.classList.add('is-in');
   };
   const io = new IntersectionObserver((es) => {
     for (const e of es) if (e.isIntersecting) { io.unobserve(e.target); reveal(e.target); }
-  }, { rootMargin: '0px 0px -12% 0px' });
+  }, { rootMargin: T.margin });
   document.querySelectorAll('main > .sec, main > .closing').forEach((s) => io.observe(s));
 }
 
@@ -48,10 +54,11 @@ if (speed && !reduce.matches && 'IntersectionObserver' in window && speed.animat
   const sio = new IntersectionObserver(([e]) => {
     if (!e.isIntersecting) return;
     sio.disconnect();
-    long.animate([{ transform: 'scaleX(0)' }, { transform: 'none' }], { duration: 1800, delay: 500, easing: EASE, fill: 'backwards' });
-    short.animate([{ transform: 'scaleX(0)' }, { transform: 'none' }], { duration: 500, delay: 2300, easing: EASE, fill: 'backwards' });
+    const [ld, lm, sm] = stacked ? [150, 1000, 400] : [500, 1800, 500];
+    long.animate([{ transform: 'scaleX(0)' }, { transform: 'none' }], { duration: lm, delay: ld, easing: EASE, fill: 'backwards' });
+    short.animate([{ transform: 'scaleX(0)' }, { transform: 'none' }], { duration: sm, delay: ld + lm, easing: EASE, fill: 'backwards' });
     speed.classList.remove('is-hold');
-  }, { threshold: 0.5 });
+  }, { threshold: stacked ? 0.25 : 0.5 });
   sio.observe(speed);
 }
 
