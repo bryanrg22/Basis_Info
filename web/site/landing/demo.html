@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="robots" content="noindex,nofollow">
+<meta name="theme-color" content="#f5f3ec">
+<title>Book a demo · basis</title>
+<meta name="description" content="Book a demo of basis, cost segregation superpowered by AI.">
+<meta name="basis-api" content="http://127.0.0.1:8000"><!-- where demo requests go (POST /v1/demo-requests); set to the deployed API on release -->
+<link rel="icon" href="../../assets/basis-mark.png">
+<link rel="preload" href="../../assets/inter-latin.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="preload" href="../assets/fonts/newsreader-latin-opsz-400-500.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="preload" href="../assets/fonts/ibm-plex-mono-latin-400-normal.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="stylesheet" href="src/paper.css">
+<link rel="stylesheet" href="src/entry.css">
+<script type="module" src="src/entry.js"></script>
+</head>
+<body>
+<div class="entry-top"><a class="entry-top-home" href="index.html" aria-label="Basis home"><img src="../../assets/basis-logo.png" alt="basis" width="617" height="177"></a><a class="entry-top-link" href="signin.html">Sign in</a></div>
+<div class="entry">
+  <aside class="entry-side">
+    <a class="entry-brand" href="index.html" aria-label="Basis home"><img src="../../assets/basis-logo.png" alt="basis" width="617" height="177"></a>
+    <div class="entry-copy">
+      <h2>See it on a study like yours.</h2>
+      <p>Tell us about your firm and we’ll set up a time to walk through a study together.</p>
+    </div>
+    <div class="ovw dock" data-overview role="img" aria-label="A finished study in basis: appraisal read, photos sorted into rooms, assets priced, reconciled to the price and signed, with the basis split into 5-, 7-, 15- and 39-year property."></div>
+  </aside>
+  <main class="entry-main" id="main">
+    <div class="entry-form" data-demo-form>
+      <h1>Book a demo</h1>
+      <p class="sub">We’ll reach out to set up a time.</p>
+      <form data-demo novalidate>
+        <div class="trap" aria-hidden="true"><label for="website">Website</label><input id="website" name="website" tabindex="-1" autocomplete="off"></div>
+        <div class="field"><label for="name">Full name</label><input id="name" name="name" autocomplete="name" required data-need="Enter your name."></div>
+        <div class="field"><label for="email">Work email</label><input id="email" name="email" type="email" autocomplete="email" required data-need="Enter your work email." placeholder="you@firm.com"></div>
+        <div class="row2">
+          <div class="field"><label for="company">Company</label><input id="company" name="company" autocomplete="organization" required data-need="Enter your company."></div>
+          <div class="field"><label for="role">Your role</label><select id="role" name="role" required data-need="Choose your role."><option value="">Choose…</option><option value="owner_partner">Owner or partner</option><option value="engineer">Engineer</option><option value="analyst_staff">Analyst or staff</option><option value="other">Other</option></select></div>
+        </div>
+        <div class="field"><label for="note">Anything we should know? <i>Optional</i></label><textarea id="note" name="note" rows="3"></textarea></div>
+        <button class="btn-wide" type="submit">Request a demo</button>
+        <p class="entry-note">Already working with us? <a href="signin.html">Sign in</a></p>
+      </form>
+    </div>
+    <div class="entry-form done" data-demo-done hidden>
+      <span class="tick" aria-hidden="true"><svg width="22" height="22" viewBox="0 0 24 24"><path d="M5 12.5l4.5 4.5L19 7.5" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
+      <h1 tabindex="-1">Thanks, <span data-first></span>.</h1>
+      <p class="sub">We’ll be in touch at <b data-email></b> to set up a time.</p>
+      <p class="entry-note"><a href="index.html">Back to basis</a></p>
+    </div>
+  </main>
+</div>
+</body>
+</html>

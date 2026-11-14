@@ -1,0 +1,217 @@
+/* The two entry pages (signin.html, demo.html): a pale green panel on the left with the headline
+   and a screen of the product docked into the panel's lower right corner (it runs to the panel's
+   right and bottom edges, so it reads as part of the panel, not a card on it); the form on the
+   right. Sign-in docks a terminal pricing a real study's schedule (terminal.js); the demo page docks
+   a light overview of the same finished study (overview.js). Both are the product's own arithmetic
+   on the Harbor House sample (src/data/*.json, written by tools/terminal_data.cjs). Built on
+   paper.css's tokens and fonts.
+
+   Organisation: one section per component; each holds its base rules, then its responsive and
+   preference rules (@media, @container) directly beneath. Breakpoints (max-width): 960px, the two
+   columns stack and the phone top bar appears; 700px, phone sizes and the product screen inside
+   the gutter. The overview's own layout answers to its width (@container), not the page's. */
+
+/* -----------------------------------------------------------------------------------------------
+   Layout: the panel, the form column and the phone top bar
+   ----------------------------------------------------------------------------------------------- */
+.entry{min-height:100vh;display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);background:var(--surface)}
+.entry-side{--px:clamp(28px,4.5vw,72px);--pb:48px;position:relative;display:flex;flex-direction:column;gap:36px;padding:40px var(--px) var(--pb);background:#e4ece3;overflow:hidden}
+.dock{margin:12px calc(-1 * var(--px)) calc(-1 * var(--pb)) 0;border-radius:14px 0 0 0}
+.entry-brand{display:inline-flex;align-self:flex-start;min-height:44px;align-items:center}
+.entry-brand img{display:block;height:34px;width:auto}
+.entry-copy{margin-top:auto}
+.entry-copy h2{font-family:var(--display);font-weight:400;font-variation-settings:'opsz' 72;font-size:clamp(34px,3.6vw,54px);line-height:1.02;letter-spacing:-.03em;color:var(--ink);text-wrap:balance;max-width:13em}
+.entry-copy p{margin-top:16px;font-size:17px;line-height:1.6;color:#3a4c41;max-width:30em;text-wrap:pretty}
+.entry-main{display:flex;align-items:center;justify-content:center;padding:48px clamp(24px,5vw,80px)}
+@media (max-width:960px){
+  .entry{grid-template-columns:minmax(0,1fr)}
+  .entry-main{order:-1;padding:28px 20px 40px;align-items:flex-start}
+  .entry-side{--px:20px;--pb:32px;padding:28px var(--px) var(--pb);gap:24px}
+  .entry-side .entry-brand{display:none}
+}
+.entry-top{display:none}
+@media (max-width:960px){
+  .entry-top{position:sticky;top:max(8px,calc(env(safe-area-inset-top) + 6px));z-index:10;display:flex;align-items:center;justify-content:space-between;height:56px;margin:8px 12px 0;padding:0 6px 0 16px;border-radius:999px;
+      background:linear-gradient(180deg,#ffffff8c,#ffffff59);backdrop-filter:blur(18px) saturate(1.9) brightness(1.04);-webkit-backdrop-filter:blur(18px) saturate(1.9) brightness(1.04);
+      box-shadow:inset 0 1px 0 #ffffffe6,inset 0 -1px 0 #ffffff59,inset 0 0 0 .5px #ffffff8c,0 0 0 .5px #13261c14,0 8px 24px -6px #13261c26,0 2px 6px #13261c0d}
+  .entry-top-home{display:flex;align-items:center;min-height:44px}
+  .entry-top img{height:28px;width:auto}
+  .entry-top-link{position:relative;display:flex;align-items:center;min-height:40px;padding:0 16px;border-radius:999px;font-size:15px;font-weight:600;line-height:1;color:var(--ink);background:#13261c12;text-decoration:none}
+  .entry-top-link::after{content:'';position:absolute;inset:-2px -2px} /* 44 pt to tap, 40 to see */
+  /* the scroll-edge effect under the status bar, as on the landing page */
+  body::before{content:'';position:fixed;inset:0 0 auto;z-index:9;height:calc(env(safe-area-inset-top) + 76px);background:linear-gradient(#f5f3ecf2 0%,#f5f3ecc7 45%,#f5f3ec00 100%);pointer-events:none}
+}
+@media (max-width:960px) and (prefers-reduced-transparency:reduce){
+  .entry-top{background:#fbfaf6;backdrop-filter:none;-webkit-backdrop-filter:none}
+}
+@media (max-width:700px){
+  .entry-main{padding:24px 16px 40px}
+  .entry-side{--px:16px;--pb:28px;padding:32px var(--px) var(--pb)}
+  .entry-copy h2{font-size:32px;line-height:1.06}
+  .entry-copy p{font-size:17px}
+  .dock{margin:4px 0 0;border-radius:18px}
+}
+
+/* -----------------------------------------------------------------------------------------------
+   Forms: sign-in buttons, fields and notices
+   ----------------------------------------------------------------------------------------------- */
+.entry-form{width:min(100%,420px)}
+.entry-form h1{font-family:var(--display);font-weight:400;font-variation-settings:'opsz' 48;font-size:clamp(32px,2.8vw,42px);line-height:1.08;letter-spacing:-.025em;color:var(--ink)}
+.entry-form .sub{margin-top:10px;font-size:16.5px;line-height:1.55;color:#3a4c41}
+.entry-form form{margin-top:30px;display:grid;gap:18px}
+/* buttons and fields */
+.sso{display:grid;gap:10px}
+.sso button,.btn-wide{display:flex;align-items:center;justify-content:center;gap:12px;width:100%;min-height:48px;padding:0 18px;border-radius:10px;font:600 15.5px/1 Inter,system-ui,sans-serif;cursor:pointer;transition:background .15s,border-color .15s,box-shadow .15s}
+.sso button{background:#fff;color:var(--ink);border:1px solid #cdc8ba}
+.sso button:hover{border-color:var(--ink);box-shadow:0 1px 0 #13261c0d}
+.sso svg{flex:none;width:19px;height:19px}
+.or{display:flex;align-items:center;gap:14px;font-size:14px;color:var(--muted)}
+.or::before,.or::after{content:"";flex:1;border-top:1px solid var(--line)}
+.field{display:grid;gap:7px}
+.field label{font-size:14.5px;font-weight:600;color:var(--ink)}
+.field label i{font-style:normal;font-weight:400;color:var(--muted)}
+.field input,.field select,.field textarea{width:100%;min-height:48px;padding:12px 14px;border:1px solid #cdc8ba;border-radius:10px;background:#fff;color:var(--ink);font:400 16px/1.4 Inter,system-ui,sans-serif;transition:border-color .15s,box-shadow .15s}
+.field textarea{min-height:96px;resize:vertical}
+.field select{appearance:none;background:#fff url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath d='M1 1.5l5 5 5-5' fill='none' stroke='%2353665a' stroke-width='1.6'/%3E%3C/svg%3E") no-repeat right 14px center;padding-right:38px}
+.field input:focus,.field select:focus,.field textarea:focus{outline:none;border-color:var(--accent);box-shadow:0 0 0 3px #2c674b26}
+.field input[aria-invalid=true],.field select[aria-invalid=true]{border-color:#a3402f}
+.field .err{font-size:14px;color:#9a3b2b}
+.row2{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:14px}
+.btn-wide{background:var(--ink);color:var(--bg);border:1px solid var(--ink)}
+.btn-wide:hover{background:#21382b}
+.btn-wide[disabled]{opacity:.6;cursor:progress}
+.entry-note{font-size:15px;line-height:1.55;color:#3a4c41}
+.entry-note a{color:var(--accent);font-weight:600;text-underline-offset:3px}
+.notice{padding:14px 16px;border-radius:10px;background:#eef4ec;border:1px solid #c9dccb;font-size:15px;line-height:1.55;color:var(--ink)}
+.notice a{color:var(--accent);font-weight:600}
+.done{display:grid;gap:14px}
+.done .tick{width:44px;height:44px;border-radius:50%;display:grid;place-items:center;background:#e3ebe2;color:var(--accent)}
+.done h1{margin-top:4px}
+@media (max-width:960px){
+  .row2{grid-template-columns:minmax(0,1fr)}
+}
+@media (max-width:700px){
+  .sso button,.btn-wide{border-radius:999px;min-height:50px;font-size:16px}
+  .field input,.field select,.field textarea{border-radius:14px;min-height:54px;font-size:16px}
+  .field label{font-size:15px}
+  .field textarea{resize:none}
+  .entry-note a{display:inline-block;padding:12px 2px;margin:-12px -2px}
+  .entry-form h1{font-size:34px}
+}
+.sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
+/* the demo form's spam trap: off screen, out of the tab order, empty for people */
+.trap{position:absolute;left:-9999px;width:1px;height:1px;overflow:hidden}
+
+/* -----------------------------------------------------------------------------------------------
+   The sign-in terminal: a real schedule priced line by line
+   ----------------------------------------------------------------------------------------------- */
+/* the terminal */
+.term{--n:11;height:calc(147px + var(--n) * 27px);background:#0f1d16;box-shadow:0 0 0 1px #13261c;color:#d9e6dc;font:400 12.5px/1 var(--mono);overflow:hidden}
+.term-bar{display:flex;align-items:center;gap:14px;height:37px;padding:0 16px;white-space:nowrap;border-bottom:1px solid #22382b;color:#8fae9b;letter-spacing:.04em;text-transform:uppercase;font-size:11.5px}
+.term-bar b{font-weight:500;color:#e8f0ea}
+.term-bar span:not(.live){min-width:0;overflow:hidden;text-overflow:ellipsis}
+.term-bar .live{margin-left:auto;display:flex;align-items:center;gap:7px;color:#9fd8b5}
+.term-bar .live::before{content:"";width:7px;height:7px;border-radius:50%;background:#5fcf8f;box-shadow:0 0 0 3px #5fcf8f22}
+.term-head,.term-row{display:grid;align-items:center;gap:10px;padding:0 16px;white-space:nowrap}
+.term-head{height:30px;color:#6f8e7c;font-size:11px;letter-spacing:.06em;text-transform:uppercase;border-bottom:1px solid #1b2f24}
+.term-rows{position:relative;height:calc(var(--n) * 27px);overflow:hidden} /* the panel's height is fixed (.term), so filling it moves nothing */
+.term-row{height:27px;color:#cfdcd3}
+.term-row span{overflow:hidden;text-overflow:ellipsis}
+.term-row .r{text-align:right;font-variant-numeric:tabular-nums}
+.term-row .amt{color:#f3efe2}
+.term-row .y5{color:#9fd8b5}
+.term-row .y7{color:#b9d98f}
+.term-row .y15{color:#e2c98a}
+.term-row .y39{color:#8fae9b}
+.term-row.is-new{background:#1b3527}
+.term-row.is-new .amt{color:#fff}
+.term-row.is-new::after{content:"";position:absolute;right:6px;width:6px;height:13px;background:#9fd8b5}
+.term-row{position:relative}
+.term-foot{display:grid;gap:10px;padding:13px 16px 15px;border-top:1px solid #22382b;background:#0c1712}
+.term-tot{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px}
+.term-tot div{display:grid;gap:5px}
+.term-tot i{font-style:normal;font-size:10.5px;letter-spacing:.06em;text-transform:uppercase;color:#6f8e7c}
+.term-tot b{font-weight:500;font-size:13.5px;color:#f3efe2;font-variant-numeric:tabular-nums}
+.term-status{display:flex;justify-content:space-between;gap:12px;font-size:11.5px;letter-spacing:.04em;text-transform:uppercase;color:#6f8e7c}
+.term-status .ok{color:#9fd8b5}
+/* the schedule's columns */
+.term[data-feed=schedule] .term-head,.term[data-feed=schedule] .term-row{grid-template-columns:minmax(0,1.7fr) 11ch 13ch 6ch 5ch}
+@media (max-width:960px){
+  .term{font-size:11.5px}
+  .term{--n:8;height:calc(186px + var(--n) * 27px)}
+  .term[data-feed=schedule] .term-head,.term[data-feed=schedule] .term-row{grid-template-columns:minmax(0,1.4fr) 12ch 5ch}
+  .term[data-feed=schedule] .c-line,.term[data-feed=schedule] .c-irs{display:none}
+  .term[data-feed=math] .term-head,.term[data-feed=math] .term-row{grid-template-columns:minmax(0,1fr) 9ch 10ch}
+  .term[data-feed=math] .c-idx,.term[data-feed=math] .c-loc,.term[data-feed=math] .c-qty,.term[data-feed=math] .c-unit{display:none}
+  .term-tot{grid-template-columns:repeat(2,minmax(0,1fr))}
+}
+@media (max-width:700px){
+  .term{box-shadow:0 0 0 1px #13261c,0 20px 40px -24px #13261c80}
+  /* the terminal on a phone: each asset on two lines, its name whole at 14 pt and its total,
+       class and code under it, so no column is squeezed or cut; six assets, then the totals */
+  .term{--n:6;--rh:54px;height:calc(156px + var(--n) * var(--rh));font-size:13.5px}
+  .term-bar{font-size:12px;color:#a9c4b2}
+  .term-head{display:none}
+  .term-rows{height:calc(var(--n) * var(--rh))}
+  .term[data-feed=schedule] .term-row{height:var(--rh);grid-template-columns:6ch 7ch minmax(0,1fr);grid-template-areas:"n n n" "k s t";align-content:center;row-gap:6px;column-gap:12px;white-space:nowrap}
+  .term-row span:nth-child(1){grid-area:n;font-size:15px;color:#eef3ef}
+  .term-row span:nth-child(n+3){font-size:14px}
+  .term-row span:nth-child(2){display:none}
+  .term-row span:nth-child(3){grid-area:t;text-align:right} /* amounts right-aligned, so the column scans */
+  .term-row span:nth-child(4){grid-area:k}
+  .term[data-feed=schedule] .term-row span:nth-child(5){grid-area:s;display:block;color:#b4cbbb}
+  .term-row span:nth-child(5):not(:empty)::before{content:'§'}
+  .term-row.is-new::after{top:12px;right:16px}
+  .term[data-feed=schedule] .term-row{padding-right:16px}
+  .term-tot i{font-size:11.5px;color:#8fae9b}
+  .term-tot b{font-size:15px}
+  .term-status{font-size:13px;color:#a9c4b2}
+  .term-tot i{color:#a9c4b2}
+}
+
+/* -----------------------------------------------------------------------------------------------
+   The demo study overview
+   ----------------------------------------------------------------------------------------------- */
+/* the study overview (demo page): a light screen in the page's own paper */
+.ovw{container-type:inline-size;display:flex;flex-direction:column;height:414px;background:var(--surface);box-shadow:0 0 0 1px #c9d6c8,0 30px 60px -40px #13261c66;color:var(--ink);overflow:hidden}
+.ovw-bar{display:flex;align-items:center;gap:14px;height:44px;flex:none;padding:0 22px;border-bottom:1px solid var(--line);font-size:14px;white-space:nowrap}
+.ovw-bar .wm{font-size:17px}
+.ovw-name{min-width:0;overflow:hidden;text-overflow:ellipsis;color:var(--muted)}
+.ovw-state{margin-left:auto;display:flex;align-items:center;gap:7px;min-width:11ch;justify-content:flex-end;font-size:13px;font-weight:600;color:var(--muted)}
+.ovw-state::before{content:"";width:7px;height:7px;border-radius:50%;background:#b9b5a8}
+.ovw-state.is-done{color:var(--accent)}
+.ovw-state.is-done::before{background:#3f8f64;box-shadow:0 0 0 3px #3f8f6422}
+.ovw-steps{list-style:none;margin:0;padding:10px 22px;flex:none}
+.ovw-steps li{display:grid;grid-template-columns:20px 13ch minmax(0,1fr);align-items:center;gap:12px;height:40px;border-bottom:1px solid #e6e2d7;font-size:14.5px}
+.ovw-steps li:last-child{border-bottom:0}
+.ovw-dot{display:grid;place-items:center;width:20px;height:20px;border-radius:50%;background:var(--accent);box-shadow:inset 0 0 0 1.5px var(--accent)}
+.ovw-dot svg{width:12px;height:12px;fill:none;stroke:#fff;stroke-width:1.9;stroke-linecap:round;stroke-linejoin:round}
+.ovw-k{font-weight:600}
+.ovw-v{color:#3a4c41;font-variant-numeric:tabular-nums;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.ovw-alloc{margin-top:auto;padding:18px 22px 24px;border-top:1px solid var(--line);background:#f7f5ee}
+.ovw-lede{display:flex;flex-wrap:wrap;align-items:baseline;column-gap:10px;row-gap:2px}
+.ovw-cap{flex-basis:100%;font-size:13.5px;color:var(--muted)}
+.ovw-lede b{font-family:var(--display);font-weight:400;font-variation-settings:'opsz' 48;font-size:34px;line-height:1.1;letter-spacing:-.02em;font-variant-numeric:tabular-nums}
+.ovw-of{font-size:14px;color:var(--muted)}
+.ovw-track{display:flex;gap:2px;height:12px;margin-top:12px;border-radius:3px;overflow:hidden}
+.ovw-track .seg{flex-basis:0;min-width:3px;transform-origin:left center}
+.seg.y5,.sw.y5{background:#2c674b}
+.seg.y7,.sw.y7{background:#5f9478}
+.seg.y15,.sw.y15{background:#9cc0a3}
+.seg.y39,.sw.y39{background:#d3cfc2}
+.ovw-key{list-style:none;margin:12px 0 0;padding:0;display:grid;grid-template-columns:repeat(4,max-content);justify-content:space-between;gap:6px 16px;font-size:13px;color:var(--muted)}
+.ovw-key li{display:flex;align-items:center;gap:6px;white-space:nowrap}
+.ovw-key b{font-weight:600;color:var(--ink);font-variant-numeric:tabular-nums}
+.ovw-key .sw{width:9px;height:9px;border-radius:2px}
+.ovw.is-hold .ovw-dot{background:transparent;box-shadow:inset 0 0 0 1.5px #c3bfb2}
+.ovw.is-hold .ovw-dot svg,.ovw.is-hold .ovw-v,.ovw.is-hold .seg,.ovw.is-hold .ovw-key{opacity:0}
+@media (max-width:960px){
+  .ovw-key{grid-template-columns:repeat(2,max-content);justify-content:start;column-gap:22px}
+  .ovw{height:456px}
+}
+@media (max-width:700px){
+  .ovw-cap{font-size:15px}
+  .ovw{box-shadow:0 0 0 1px #c9d6c8,0 20px 40px -28px #13261c59}
+}
+@container (max-width:470px){.ovw-x{display:none}.ovw-steps li{grid-template-columns:20px 7.6em minmax(0,1fr);gap:10px;font-size:14px}}
+@container (max-width:340px){.ovw-steps li{font-size:13.5px}.ovw-v{white-space:normal;line-height:1.25}}
