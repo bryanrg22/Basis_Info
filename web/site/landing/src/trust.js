@@ -20,9 +20,13 @@ function count(el, delay, ms) {
   };
   requestAnimationFrame(step);
 }
+// Stacked (tablets and phones) the row is taller than the screen: shorter motion that starts just
+// before it enters, so a reader scrolling through never meets an empty card (reveal.js does the same).
+const stacked = matchMedia('(max-width: 980px)').matches;
+const K = stacked ? 0.4 : 1;
 const rise = (el, delay, ms = 750) => el.animate(
   [{ opacity: 0, transform: 'translateY(14px)' }, { opacity: 1, transform: 'none' }],
-  { duration: ms, delay, easing: EASE, fill: 'backwards' });
+  { duration: Math.max(400, ms * (stacked ? 0.6 : 1)), delay: delay * K, easing: EASE, fill: 'backwards' });
 
 const row = document.querySelector('.trust-row');
 if (row && !reduce.matches && 'IntersectionObserver' in window && row.animate) {
@@ -42,10 +46,10 @@ if (row && !reduce.matches && 'IntersectionObserver' in window && row.animate) {
       const delay = 250 + i * 150;
       rise(li, delay);
       const n = li.querySelector('.r-n[data-to]');
-      if (n) count(n, delay, 1300);
+      if (n) count(n, delay * K, 1300);
     });
     row.classList.remove('is-hold');
-  }, { threshold: 0.35 });
+  }, stacked ? { rootMargin: '0px 0px 10% 0px' } : { threshold: 0.35 });
   io.observe(row);
 
   // switching to reduced motion mid-page: everything to its end state at once
