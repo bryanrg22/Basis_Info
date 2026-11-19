@@ -6,7 +6,7 @@
 # Run the API:          docker run --rm -e BASIS_ENV=staging ... basis-backend
 # Run the worker:       docker run --rm -e BASIS_ENV=staging ... basis-backend python -m basis.worker
 
-FROM python:3.12-slim
+FROM python:3.15-slim
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
