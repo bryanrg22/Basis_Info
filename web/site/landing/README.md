@@ -66,6 +66,29 @@ images of unknown licence); `web/README.md` says where to copy them from.
 
 `tools/crop_check.py` checks that the kitchen figure's labels sit on empty wall or floor.
 
+## Link previews
+
+Each page's head carries Open Graph tags, so a link pasted into Messages, Slack, LinkedIn, WhatsApp or X
+shows the basis card instead of whatever large image the page happens to load first. It follows Apple's
+TN3156 ("Create rich previews for Messages"): the title is the page's own (`og:title`), the brand goes in
+`og:site_name`, the image is graphical (the logo; the words are left to the title), at least 900 px wide,
+and there is a square touch icon of at least 108 px. The card is 1200 x 630 (1.91:1, LinkedIn's minimum
+1200 x 627) drawn at 2x.
+
+| File | What it is |
+| --- | --- |
+| `web/site/assets/share/card.png` | `og:image`, 2400 x 1260 |
+| `web/site/assets/share/apple-touch-icon.png` | the touch icon, 360 x 360 |
+| `tools/share_image.html`, `share_logo.svg`, `share_mark.svg` | what they are drawn from |
+
+`node web/site/landing/tools/share_image.mjs` redraws both (its header says what it needs); a redrawn PNG
+needs its line in `tooling/client_data_exceptions.txt` re-pinned (`shasum -a 256`). `og:url` and
+`og:image` are absolute and name the production address, `https://basis-landing-xi.vercel.app`, because
+crawlers do not all resolve relative URLs; a preview of any deployment's address then shows the same
+card. When the site moves to its own domain, change that address in the three pages. Messages caches a
+preview per link on each device, so a link already sent keeps its old preview; a new message with the
+link (or the link with a query such as `?v=2`) fetches the new one.
+
 ## Building for hosting
 
 ```sh
