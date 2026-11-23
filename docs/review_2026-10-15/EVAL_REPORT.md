@@ -14188,3 +14188,225 @@ request, so locally the per-address limit is one budget.
   other release steps.
 * A browser that autofills the hidden field loses that visitor's request; the log line
   `demo request trapped` is the only trace (by design it keeps nothing they typed).
+
+## 96. Reading the appraisal's sketch for the takeoff (2026-11-23)
+
+**Question.** The takeoff measures nothing: the footprint is GLA / stories plus the cost
+approach's garage line, and the perimeter is a 1.5:1 rectangle of it (section 35). Sections
+35.3 and 87.8 named the appraisal's sketch page as the first thing to read instead. Can it be
+read without a model call, what does it give, and what does using it change on the one
+property we have?
+
+**Setup.** The research and the design are in `SKETCH_READER.md`. The reader is
+`basis/extraction/sketch.py` (the sketch's "Area Calculations Summary" table, from Azure
+Document Intelligence's page lines or the PDF's text layer); the takeoff's side is the
+`sketch` readings of `basis/domain/measurements.py`; both sit behind `TAKEOFF_SKETCH`
+(default `off`) with `TAKEOFF_SKETCH_GLA_TOLERANCE` (default 0.01). Data: the 42 stored Azure
+analyses under `$BASIS_EVAL_DATA_DIR/appraisal/recordings/` (the client appraisal, its two
+UAD 3.6 rebuilds, the GSE's public sample reports, the synthetic forms) and the two stored
+client exports section 87 replayed (run 3A revision 5, 314 assets; run 3B revision 1, 381).
+No model call, no Azure call, no dollars: every number below is a replay. The client's
+figures are in the private report `reports/SKETCH_TAKEOFF_2026-11-23.md`; this section prints
+changes and shares only.
+
+**Method.** `python -m evals.sketch_takeoff` (component `sketch_takeoff`, version `v1`, run
+`sketch_takeoff_2026-11-23`): it reads the sketch from the appraisal's stored analysis, writes
+the `sketch` fields into each export as the extraction would have, and replays the takeoff
+under six setups through the production functions, then prices, carves and scores each as
+section 87 did (`evals.takeoff_constants.retakeoff`, `evals.reprice_export`,
+`evals.structure_replay` at the production variant, `evals.e2e_report`). Two private scripts
+complete it: one measures the outline from the client PDF's line work (96.4), one replays the
+same exports on unmodified main (96.5).
+
+**A correction to the hand check of 2026-11-22.** That check read one sketch page and
+concluded the second-floor page was missing. The appraisal has four sketch pages: the first
+floor with the garage and porch, two second-floor pages, and the basement. All four are in
+the stored analysis and in the text dump; the reader finds all six rows on them.
+
+### 96.1 What the reader reads
+
+**How to read this table.** One row per stored document that carries the table. *Rows* is the
+table rows found; *verified* is how many have rectangles whose printed results sum to the
+printed area (higher is better; an unverified row is never used). *Fields* is which of the
+four `sketch` fields the reading supports. Models: none. Tokens: 0. Cost: $0.
+
+| document | layout | sketch pages | rows | verified | fields written |
+|---|---|---|---|---|---|
+| client appraisal (1004) | TOTAL Sketch | 4 | 6 | 6 | living area, ground floor, garage |
+| client appraisal rebuilt as UAD 3.6 (two versions) | TOTAL Sketch | 4 each | 6 each | 6 each | living area, ground floor, garage |
+| public sample MH1 (manufactured home) | UAD 3.6 sample | 1 | 5 | 4 | living area, ground floor, garage |
+| public sample SF3 | UAD 3.6 sample | 1 | 6 | 6 | living area, ground floor, garage |
+| public sample SF4 | UAD 3.6 sample, no sub-headings | 1 | 6 | 6 | living area, ground floor, garage |
+| public sample TwoToFour2 (four units) | UAD 3.6 sample | 1 | 10 | 9 | living area, ground floor, patio |
+
+The other 35 analyses carry no table (the synthetic forms have no sketch; ten public sample
+pages show a sketch with no area table) and yield nothing. On the client appraisal the PDF's
+text layer gives the same six rows as Azure's lines. The two unverified rows are a summary
+line with no calculation (MH1) and a sample row whose own printed arithmetic does not add up
+(TwoToFour2); neither is a living, garage or patio row. The client's porch is under TOTAL's
+"Non-Calculated" label, which names nothing, and its deck is drawn but not in the table, so
+neither becomes a quantity; no client row is a patio.
+
+### 96.2 The cross-check, and which rows count as living area
+
+**How to read this table.** The sketch's living area against the GLA the same report prints
+(0 % is agreement). Two ways of deciding which rows are living area are compared: every row
+under a living heading, or only the rows whose label names a floor (the rule that shipped).
+*Accepted* is at the 1 % default.
+
+| report | every row under a living heading | rows that name a floor (shipped) | accepted at 1 % |
+|---|---|---|---|
+| public sample MH1 | +12.8 % (counts a rec room in the garage building) | 0.0 % | yes |
+| public sample SF3 | +14.0 % (counts the accessory unit) | 0.0 % | yes |
+| public sample SF4 | 0.0 % | 0.0 % | yes |
+| public sample TwoToFour2 | -9.9 % | -9.9 % (the form's figure includes common areas; ANSI does not cover 2-4 units) | no |
+| client appraisal | +12.5 % | +12.5 % | no |
+
+Naming a floor agrees to the square foot on all three single-family samples; counting every
+row agrees on one. The tolerance default rests on this table: agreement is exact where the
+report is consistent, the two disagreements are 10 % and 12.5 %, and 1 % leaves room for
+per-level rounding. It is a judgment on five reports, not a calibrated threshold, and no
+published tolerance exists (`SKETCH_READER.md` section 1).
+
+**The client's sketch and its GLA disagree by 12.5 %.** The sketch's three living rows sum
+to more than the form's GLA box. The appraisal truth notes of October
+(`appraisal/truth/client_notes.md`, item 5) reached the same finding from the form's side:
+the cost approach's total and the sales grid's arithmetic were computed with the sketch's
+figure, and the sketch's bedroom and bath counts match page 1, so the GLA box looks like the
+appraiser's error. The sketch's garage and basement equal the form's lines exactly. Basis
+sizes every room and the square-foot model on the GLA box today.
+
+### 96.3 What the sketch changes
+
+**How to read these tables.** Each setup is one way of running the takeoff on the same two
+exports. *today*: the setting off. *sketch on*: the setting on at 1 %; the sketch is refused.
+*check widened*: the setting on with the cross-check admitting any sketch, the GLA as printed
+(what the sketch's areas alone change). *GLA corrected*: the printed GLA replaced by the
+sketch's living area, as an engineer who agreed with the sketch would correct it at the
+appraisal gate, with the setting off and on. *outline*: the last, plus the perimeters measured
+from the drawing (96.4), which the reader does not produce. Geometry is identical on the two
+exports (one appraisal). Models: none; cost $0; 40 to 110 ms per cell.
+
+Geometry, change against today (0 % is no change):
+
+| quantity | sketch on (refused) | check widened | GLA corrected, sketch off | GLA corrected, sketch on | GLA corrected, sketch on, outline |
+|---|---|---|---|---|---|
+| dwelling footprint | 0 % | +8.8 % | +12.5 % | +8.8 % | +8.8 % |
+| ground footprint with the garage | 0 % | +5.6 % | +8.0 % | +5.6 % | +5.6 % |
+| ground perimeter | 0 % | +2.8 % | +3.9 % | +2.8 % | +45.5 % |
+| roof | 0 % | +5.4 % | +7.7 % | +5.4 % | +8.6 % |
+| siding | 0 % | +5.0 % | +4.9 % | +5.0 % | +57.0 % |
+| gutters | 0 % | +2.7 % | +3.8 % | +2.7 % | +2.7 % |
+| landscaping (upper bound) | 0 % | -0.2 % | -0.3 % | -0.2 % | -0.2 % |
+
+The same geometry against the drawing (the outline setup; 0 % is the drawing's own value,
+closer to 0 is better):
+
+| quantity | today | check widened or GLA corrected, sketch on | GLA corrected, sketch off |
+|---|---|---|---|
+| dwelling footprint | -8.0 % | 0 % | +3.4 % |
+| ground footprint with the garage | -5.3 % | 0 % | +2.3 % |
+| ground perimeter | -31.3 % | -29.4 % | -28.6 % |
+| roof | -7.9 % | -3.0 % | -0.8 % |
+| siding | -36.3 % | -33.1 % | -33.2 % |
+| gutters | -2.6 % | 0 % | +1.1 % |
+
+The schedule (run 3A / run 3B). *Rows moved*: assets whose quantity differs from today's.
+*Waiting*: site items still needing a reviewer's measurement (lower is better). *Priced
+total*: against today's. *Itemized class error*: mean absolute difference in points between
+the priced rows' class shares and the engineer's, before the structure model. *Scored class
+error*: the same after it (what the report shows; lower is better). *Gap*: the share of the
+price the schedule's cost is short of (positive) or over (negative).
+
+| setup | sketch | rows moved | waiting | priced total | itemized class error | scored class error | gap |
+|---|---|---|---|---|---|---|---|
+| today | not read | 0 / 0 | 8 / 13 | 1.000 / 1.000 | 12.50 / 9.19 | 1.62 / 3.04 | 2.0 % / 1.6 % |
+| sketch on | refused | 0 / 0 | 8 / 13 | 1.000 / 1.000 | 12.50 / 9.19 | 1.62 / 3.04 | 2.0 % / 1.6 % |
+| check widened | used | 4 / 4 | 8 / 13 | 1.004 / 1.004 | 12.40 / 9.10 | 1.62 / 3.04 | 2.0 % / 1.6 % |
+| GLA corrected, sketch off | not read | 71 / 70 | 8 / 13 | 1.035 / 1.028 | 12.70 / 9.27 | 1.82 / 3.28 | -5.2 % / -5.6 % |
+| GLA corrected, sketch on | used | 71 / 70 | 8 / 13 | 1.034 / 1.027 | 12.72 / 9.29 | 1.82 / 3.28 | -5.2 % / -5.6 % |
+| GLA corrected, sketch on, outline | used | 71 / 70 | 8 / 13 | 1.059 / 1.052 | 12.19 / 8.83 | 1.82 / 3.28 | -5.2 % / -5.6 % |
+
+Every cell reconciles. What the tables say:
+
+1. **At the default, nothing changes on this property.** The sketch is refused, no quantity
+   moves, and the roof, siding, gutter and landscaping rows carry the reason.
+2. **The sketch's areas fix the footprint and most of the roof, and almost none of the
+   wall.** The ground footprint goes from 5 % low to the drawing's own figure and the roof
+   from 8 % low to 3 % low. The perimeter goes from 31 % low to 29 % low and the siding from
+   36 % low to 33 % low: a better area under the same 1.5:1 rectangle is still a rectangle.
+3. **The outline is where the remaining error is.** With the drawing's perimeters the siding
+   is 57 % above today's and the priced total 5 to 6 % above; without them it is 5 % and 0.4 %.
+4. **The report's class shares do not move with the sketch.** Roof, siding and gutters are
+   39-year rows carved from the square-foot model, so sizing them moves dollars between rows of
+   the building and none between classes (section 87 found the same for every geometry
+   constant). The itemized error moves by a tenth of a point with the areas and by three to
+   five tenths with the outline.
+5. **Correcting the GLA is the larger change, and not in the report's favour on this score.**
+   It moves 70 rows (room areas scale with the GLA), raises the square-foot model, turns the
+   gap from 2 % short to 5 % over, and the scored class error rises by 0.2 points on both
+   exports. One property and one engineer's report cannot say whether that is the model or
+   the answer key.
+6. **No site item is answered here.** The sketch labels no patio, so the 8 and 13 items still
+   wait.
+
+### 96.4 The perimeter cannot come from the text; it can come from the drawing
+
+The first-floor page's edge labels sum to 7 % more than the ground outline and 53 % more than
+the dwelling's: Azure's lines carry 20 of the page's 22 labels (rotated ones are read as
+noise), the text layer prints the rotated ones reversed, the dwelling's, garage's and porch's
+labels are one list, and one wall has no label (`SKETCH_READER.md` section 2). The reader
+therefore stops at areas and the perimeter stays derived, which the takeoff records as before.
+
+The client PDF's sketch pages are vector drawings. A private script
+(`work/sketch_reader/outline_from_pdf.py`) traces the heavy strokes into closed loops: four
+loops on three pages, 41 walls, each loop's area equal to the table's printed area to a
+tenth of a square foot at one scale per page, every wall within 0.02 ft of a half foot, and
+the garage's loop sharing one wall with the dwelling's. Those are the perimeters of the
+outline setup. One caveat is carried in it: the two second-floor pages do not show whether
+the two upper blocks share a wall, so the upper perimeter is the sum of both outlines; if
+they share the wall the ground floor shares, the siding figure is 6 % lower.
+
+### 96.5 The unchanged path
+
+* Unit: the takeoff of five fabricated field sets is compared string for string to a snapshot
+  taken from main before the change (`tests/fixtures/sketch/measurements_before_sketch.json`),
+  with the setting off, with it on and no sketch, and with sketch fields present and it off.
+* The stored exports: `retakeoff` on unmodified main (a `git archive` of e885ca1) and on the
+  branch with the setting off give byte-identical assets on both exports, also with the
+  sketch fields written into the export. With the setting on and the sketch refused, four rows
+  per export differ from main, each only by the `sketch_check` input.
+* Four wainscoting rows per export differ from the quantities stored in October, on main and
+  on the branch alike (section 89 changed that formula after the runs); the harness reports
+  them as stored drift.
+* The extraction with the setting off is field for field the extraction before, with or
+  without a sketch in the document; on, the sketch fields are added after the review gate and
+  the gate's result is unchanged.
+
+**Verdict.** The area table can be read from text already paid for, with no model, and the
+rows check themselves. It gives the footprint and the garage exactly and a better roof; it
+does not give the wall length, which is the larger error and needs the outline. On the one
+client property the sketch disagrees with the printed GLA by 12.5 %, so at the default it is
+refused and nothing changes. `TAKEOFF_SKETCH` ships `off`: one property, whose sketch is
+refused, is not a measurement of the accepted path on real data. Everything said about the
+accepted path here is from the widened and corrected setups and from fabricated fixtures.
+
+**Open.**
+
+* **What Basis does when the sketch and the GLA disagree** (Bryan's decision). Built: refuse
+  and say why on the takeoff. Not built: telling the engineer at the appraisal gate, which is
+  where a wrong GLA box would be corrected (after which the sketch is accepted without
+  further code: the check runs against the corrected field). On this property the evidence
+  favours the sketch.
+* **The outline reader** (96.4): feasible on a born-digital TOTAL sketch, seen on one
+  document, not built.
+* **One property, two layouts.** No accepted sketch has been run on client data; the Apex
+  layout and tables without a calculation column yield nothing; a scanned sketch depends on
+  OCR of small rotated text.
+* **The sketch fields are outside the field catalogue**: they have no highlight regions, and
+  an engineer cannot add or correct one through the appraisal gate's field corrections.
+* **Gutters** still run on the rectangle's long side with an outline; an outline does not say
+  which edges are eaves. **A detached garage** on the sketch is not used, and the cost
+  approach's garage line is still assumed attached, as before.
+* Nothing was run live: no extraction with the setting on has run against the stack, and no
+  study was priced with it.

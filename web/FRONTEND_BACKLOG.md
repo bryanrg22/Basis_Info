@@ -380,6 +380,27 @@ proposed routes from the sample once the backend has them.
   report profile (`PUT .../profile`), whose `name` is printed on reports. Renaming the firm itself
   is not on the page yet.
 
+## 16. The appraisal's sketch (EVAL_REPORT 96; `TAKEOFF_SKETCH`, default off)
+
+Nothing here is visible until the setting is on. With it on:
+
+* **Sketch fields at the appraisal review.** The extraction's fields gain a `sketch` section:
+  `living_area_sqft`, `ground_floor_area_sqft`, `garage_area_sqft`, `patio_area_sqft`, each with
+  `page`, `source` (`azure` or `regex`) and confidence 0.80, and no `regions` (nothing to
+  highlight yet). They are not in the field catalogue, so the app has no label for them and the
+  "add a missing field" correction refuses their keys. The app does not show or group them.
+* **The sketch against the GLA.** When the sketch's living area and the printed GLA disagree,
+  the API says so only on the takeoff (`takeoff_inputs.sketch_check` on the roof, siding, gutter
+  and landscaping assets: "appraisal sketch not used: its living area is ... against ... GLA,
+  12.50 % apart (tolerance 1 %)"). The place an engineer would act on it is the appraisal review,
+  next to the GLA: correcting the GLA there makes the next revision's takeoff use the sketch.
+  No review flag is raised for it yet (not built; the decision is open in section 96).
+* **Where a quantity came from.** `takeoff_inputs.footprint_source: "sketch"` and formulas that
+  read "1200 SF ground floor on the appraisal sketch" on the roof, siding and gutter rows; a
+  patio the sketch dimensions arrives as a measured SF quantity instead of `needs_measurement`.
+* **The whole reading** (every row, its rectangles, why a field was withheld) is in the
+  extraction's `raw.sketch`, which no route returns.
+
 ## Testing
 
 `web/tests/firm-pages.test.cjs` renders the firm pages (Home, Library, Activity, Team,

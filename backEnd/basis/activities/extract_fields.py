@@ -262,6 +262,7 @@ class ExtractFields:
             previous_azure=reuse,
             heartbeat=heartbeat,
             method=settings.extraction_method,
+            sketch=settings.takeoff_sketch == "on",
             grounded=GroundedModel(
                 model=settings.extraction_grounded_model,
                 reasoning_effort=settings.extraction_grounded_reasoning_effort,
