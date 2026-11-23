@@ -27,7 +27,10 @@ matter). No client figure appears here; the one-property check is given in perce
 5. **The safest first build needs no imagery licence:** the engineer uploads an image or plan
    they have the right to use, sets the scale from one known length, and traces. The same tool
    reads a site plan, a survey, a floor plan or a blueprint.
-6. **What Basis would add that no product found does:** the AI's original kept beside the
+6. **A hands-on check on one property (section 11) found the free public sources match or beat
+   Google Earth for measuring** where a state flies sharp imagery, and that neither has a real
+   3D view of a small-town house.
+7. **What Basis would add that no product found does:** the AI's original kept beside the
    engineer's edit, a source record on every quantity that travels into the report, and the
    measuring and inspection evidence in one audit file.
 
@@ -320,6 +323,87 @@ Not verified:
   numbers is not known.
 * Whether a listing service would license its photos for this use.
 * Nothing in section 7 has been built or tested, and the sketch check is one property.
+
+## 11. Hands-on check: Google Earth and the alternatives on one property (2026-11-23)
+
+Done by hand on one client property in a small Wisconsin town, in Google Earth on the web (the
+free Standard plan), then with public sources only. The screenshots show the client's property
+and are kept in the private eval data (`$BASIS_EVAL_DATA_DIR/work/earth_research_2026-11-22/`),
+not here.
+
+### 11.1 What Google Earth gave
+
+* **History:** twelve dated images from 1992 to 2026. The earliest shows the lot before the
+  house was built, which is the "what existed on the purchase date" check.
+* **The newest image is the worst for measuring:** flown in August, with tree canopy over the
+  driveway. Two of the twelve dates are leaf-off and sharp; an engineer has to go looking for
+  them.
+* **Measuring:** click corners, get area, perimeter and an elevation estimate, and save the
+  shape to a project. Google states the results "are estimates, may not be 100% accurate, and
+  are not substitutes for onsite or survey-grade measurements".
+* **3D:** none. Google has no 3D buildings for this town; tilting the view tilts the flat
+  photo. The "3D view of the house" exists only where Google has flown its 3D mesh.
+* **Street View:** coverage on the street, with the house set back behind trees. No panorama
+  loaded in the capture browser, so there is no screenshot of it.
+* **Parcels and building outlines** are paid data layers ($75 and $150 per user per month), and
+  the terms say the customer will not "download, export or copy Data layers".
+* Google Earth Pro, the desktop program the cost segregation tutorials recommend, stops being
+  downloadable on 2027-06-25.
+
+### 11.2 What engineers use it for
+
+Sourcing is thin: one detailed cost segregation tutorial (a software vendor's), the rest from
+neighbouring trades. In order of how often each is mentioned: tracing paved areas for square
+feet; historical imagery for what existed when; Street View when there was no visit; lawn and
+landscaped area; perimeter and linear feet of curb and fence; lot boundary and acreage; roof
+features; and saving the named shapes so that, in the tutorial's words, "you can show how you
+measured it in Google Earth if the question comes up in an audit". No source was found for
+counting parking stalls, poles or trees in it, or for reading stories from it.
+
+The feature to match is therefore not the globe. It is a dated top-down image, a traced shape
+with its area and length, and the shape saved with the study.
+
+### 11.3 The same tasks without Google, on the same property
+
+| Task | Source tried | What it gave |
+|---|---|---|
+| A sharp current image | The state's public leaf-off aerial service | 6-inch pixels, flown leaf-off in 2020: sharper for the driveway than Google's current image |
+| The same, anywhere in the US | Federal NAIP (public domain) | 60 cm pixels: the house and drive are blurs; not usable for tracing a driveway |
+| History | The same state service by year (2005 to 2022, plus a 2010 leaf-off) and federal NAIP by year | A dated series back to 2005; older federal scans exist but are not corrected for measuring |
+| Measuring | Our own calculation on the clicked corners of the state image | Driveway about 5,800 SF and a fence line about 126 LF; pixel size puts the area within about 4 % |
+| Lot boundary | The state's public parcel map ("public domain. There are no use restrictions") | Two parcels under one owner whose acres sum exactly to the appraisal's site area |
+| Height and shape | Federal lidar (public domain), 2018 survey, 3.4 points per square metre | 27,000 points for the lot, roofs already labelled; roof peak about 10 m above ground; building length agrees with the appraisal's sketch |
+| Street level | Open street-photo services | No dependable coverage in small towns |
+| History, second opinion | Esri's imagery history viewer | Ten versions since 2014; not cleared for use outside Esri's products |
+
+The driveway and fence figures are a rough hand trace made to prove the path works, not a
+measurement of record. The state imagery service carries no licence statement, and the county
+owns the 6-inch source: confirm the terms with the state and the county before relying on it.
+
+### 11.4 Building our own 3D view
+
+| Route | Allowed? | What it looks like | Useful for measuring? |
+|---|---|---|---|
+| Rebuild 3D from another provider's imagery or screenshots | No. Google's terms name it ("create 3D building models from 45° Imagery"); Apple, Microsoft, Esri, Nearmap and EagleView bar extraction or derivative works; none of the standard terms read permits it | Would look best | Would be good |
+| Public lidar, public imagery and open building outlines | Yes | A dotted roof and tree shapes on terrain, or flat-topped boxes; no walls, windows or signs | Yes for footprint, height, roof form and slope |
+| The owner's own phone video or photos, rebuilt into 3D | Yes, on the permissively licensed tools (several popular ones are research-only) | A good look-around outside when the capture succeeds; interiors often fail | Poor unless the phone has lidar or a known length is given |
+| Guided phone scan with lidar (room scanner style) | Yes | Boxes, no appearance | Best of the owner routes indoors; needs a recent Pro iPhone and a native app |
+
+Taking screenshots of a different service does not change the answer: every commercial imagery
+licence read forbids deriving a model from it, and changing the capture method does not change
+the licence. The only sources free of that are government data and media the owner makes.
+
+### 11.5 What this changes in section 7
+
+* Add a **date slider** to the measuring image, always showing the capture date, with leaf-off
+  dates marked.
+* Add a **parcel outline** where the state publishes one, and compare its area with the
+  appraisal's site area as a check.
+* Add a **height panel** from public lidar where it exists: footprint, roof peak, slope.
+* Keep **Look** to owner-supplied media plus a link out to Street View. Do not promise a 3D
+  model of the house.
+* Imagery quality is per state and county. The first build step is a coverage table for the
+  states our design partners work in.
 
 ## Sources
 
