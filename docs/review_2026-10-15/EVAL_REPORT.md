@@ -14432,3 +14432,206 @@ accepted path here is from the widened and corrected setups and from fabricated 
   approach's garage line is still assumed attached, as before.
 * Nothing was run live: no extraction with the setting on has run against the stack, and no
   study was priced with it.
+
+## 100. Reading the sketch's outline from the appraisal PDF's line work (2026-11-23)
+
+**Question.** Section 96 read the sketch's area table and left the perimeter a 1.5:1
+rectangle: 31 % low on the one client property, which left the siding 33 % low even with the
+sketch's areas (96.3). Section 96.4 found the client PDF's sketch pages are vector drawings.
+Can a reader recover the outline from that line work with no model call, how does it know a
+loop is a floor and not something else, what does it do with every other stored PDF, and what
+does the takeoff look like with its perimeters?
+
+**Setup.** The research and the design are `SKETCH_READER.md` section 6. The reader is
+`basis/extraction/sketch_outline.py`; it writes `sketch.ground_perimeter_ft` and
+`sketch.upper_perimeter_ft` (source `drawing`), which `basis/domain/measurements.py` already
+read. Setting: `TAKEOFF_SKETCH_OUTLINE` (default `off`), effective only with
+`TAKEOFF_SKETCH=on`. Data: the 42 stored appraisal PDFs under `$BASIS_EVAL_DATA_DIR`
+(the client's 1004, its two UAD 3.6 rebuilds, 12 GSE sample reports, 27 synthetic forms),
+each with its stored Azure Document Intelligence analysis; the private outline section 96.4
+measured from the client PDF by a hand-checked script (`work/sketch_reader/outline.json`);
+and the two stored client exports of section 96. No model call, no Azure call, $0, 0 tokens.
+The client's figures are in the private report `reports/SKETCH_OUTLINE_2026-11-23.md`; this
+section prints counts, statuses and percentages only.
+
+**Method.** `python -m evals.sketch_outline` (component `sketch_outline`, version `v1`, run
+`sketch_outline_2026-11-23`): for each PDF, the table from the stored analysis, the line work
+of each sketch page, the reader's result, and the comparison to the private outline.
+`python -m evals.sketch_takeoff --read-outline` (component `sketch_takeoff`, version `v2`,
+run `sketch_takeoff_outline_2026-11-23`): section 96's replay with the reader's perimeters in
+place of the private file's, and two more setups for the one choice the reader makes. Both
+were run from `work/sketch_reader/run_outline.sh`.
+
+### 100.1 Which stored sketches are line work
+
+**How to read this table.** One row per kind of stored document. *Table read from*: where
+section 96's reader found the area table. *In the text layer*: whether the PDF's own text has
+it (an image sketch has it only through OCR). *Read / image*: sketch pages whose line work the
+reader believed, and sketch pages that are a picture. *Fields*: which perimeter fields were
+written. Seconds are the outline reader alone, per document.
+
+| documents | with an area table | table in the PDF's text layer | sketch pages | read | image | perimeter fields written | seconds |
+|---|---|---|---|---|---|---|---|
+| client appraisal (1004, printed by the forms software) | 1 of 1 | yes | 4 | 4 | 0 | ground and upper | 0.20 |
+| client appraisal rebuilt as UAD 3.6 (two versions) | 2 of 2 | no | 4 each | 0 | 4 each | none | 0.03 each |
+| GSE sample reports (UAD 3.6) | 4 of 12 | no | 1 each | 0 | 1 each | none | 0.03 each |
+| synthetic forms | 0 of 27 | - | 0 | - | - | none | 0 |
+
+One document of the seven with a table carries its sketch as line work. The other six carry a
+picture: the reader reports `raster` on every one of their twelve sketch pages, writes nothing,
+and the takeoff's perimeter stays derived. That matches the research: the redesigned URAR
+delivers its sketch as an image file (`SKETCH_READER.md` 6.1). The client's four pages take
+0.10 s to parse and 0.10 s of geometry; the extraction's text pass over the same 20-page PDF
+takes 0.9 s.
+
+### 100.2 The reader against the hand-checked outline
+
+**How to read this table.** One row per sketch page of the client PDF. *Strokes*: straight
+solid strokes above the table. *Loops*: closed loops found, over all stroke styles. *Rows*:
+verified table rows on the page. *Reproduced*: rows for which one loop has the printed area
+and shows the printed dimensions. Higher *reproduced* is better; every loop that is not a
+row's is rightly left alone.
+
+| page | strokes | stroke styles | loops | verified rows | rows reproduced | status |
+|---|---|---|---|---|---|---|
+| first floor, garage, porch | 491 | 7 | 143 | 3 | 2 (first floor, garage) | read |
+| second floor, block A | 13 | 4 | 2 | 1 | 1 | read |
+| second floor, block B | 23 | 4 | 2 | 1 | 1 | read |
+| basement | 27 | 4 | 2 | 1 | 1 | read |
+
+The third verified row of the first page is the porch, which is drawn dashed (as 89 short
+filled bars, each a loop of its own) and is rightly not reproduced by any loop. Against the private
+outline: the ground perimeter, the upper perimeter, the wall the garage shares with the
+house, and the area and perimeter of each of its four loops are **equal**. The reader counts
+40 walls on those four loops where the script counted 41 (the script counted a wall another
+outline's corner sits on as two); it also reads the basement's outline, which the script did
+not trace. All 58 walls of the five loops are within 0.012 ft of a half foot (0.03 to 0.06 pt
+at the four pages' scales, which is why lengths are compared in points), and
+every loop's area is within 0.02 % of the printed one. The private script relied on drawing
+order and a fixed width threshold; the reader uses neither, and the tests draw the same house
+in shuffled orders.
+
+### 100.3 Which check tells a floor from any other loop
+
+On a page every `(row, loop)` pair can be made to agree on area by choosing the scale, so
+area needs a second check. Three were compared on the same pairs of the client PDF, with the
+pairs the hand-checked outline confirms as the reference.
+
+**How to read this table.** *Pairs*: verified rows times loops on the page. Each column is
+one way of believing a pair, and its cell is how many pairs it accepts (fewer is better down
+to the real ones; anything above them is a wrong loop believed). The last column is the rule
+that shipped. Models: none.
+
+| page | pairs | real pairs | scales at which area alone reproduces two or more rows | pairs with every wall on the printed precision | pairs showing the row's printed dimensions (shipped) |
+|---|---|---|---|---|---|
+| first floor, garage, porch | 429 | 2 | 2 (the real scale and one from two small loops) | 18 (16 wrong) | 2 (0 wrong) |
+| second floor, block A | 2 | 1 | 0 | 1 | 1 |
+| second floor, block B | 2 | 1 | 0 | 1 | 1 |
+| basement | 2 | 1 | 0 | 1 | 1 |
+
+1. **Area at one scale is not enough.** The first version of the reader accepted a page
+   when two rows were reproduced by area at one scale; on the first page it found a second
+   such scale, from two small loops whose areas happen to be in the ratio of two rows, and
+   could not choose. With 143 loops, such coincidences are expected, not unlucky.
+2. **Walls on the printed precision is not enough either.** A loop has to be large on the
+   page for its wall lengths to mean anything; a small one lands "on the half foot" at the
+   scale its area implies. With lengths compared within 0.1 pt, capped at 0.05 ft, 16 wrong
+   pairs pass; with a flat 0.01 ft, 1 wrong pair passes of 3; with no cap, 407 of 409.
+3. **The printed dimensions hold only for the walls.** A row's calculation prints the
+   rectangles its area was summed from; requiring each of them to span the loop's corners
+   accepts the two real pairs and none of the other 427. This is the same idea as section
+   96's row check (the arithmetic is printed twice): the drawing has to contain the numbers
+   the table prints. It is a necessary condition, not a proof (`SKETCH_READER.md` 6.3).
+
+On the three one-loop pages all three checks agree, because there is nothing to confuse.
+
+### 100.4 The takeoff with the reader's perimeters
+
+The replay of section 96.3 with the perimeters written by the reader. The first six setups
+are section 96's, and every one of their cells (geometry, rows moved, priced total, class
+shares, class error, gap) equals the stored run of section 96, including the outline setup,
+whose perimeters then came from the private file and now come from the reader. The harness
+also compared the two sets of perimeters directly: equal.
+
+**How to read this table.** Geometry against today's takeoff (0 % is no change). *Outline
+(shipped)*: `TAKEOFF_SKETCH=on` and `TAKEOFF_SKETCH_OUTLINE=on` with the GLA corrected to the
+sketch's, the reader's two perimeters. The two columns after it change only how the second
+floor's two blocks, drawn on separate pages, are combined: *upper withheld* writes no upper
+perimeter (the upper floors stay a 1.5:1 rectangle of their area); *blocks adjoining* takes
+the blocks to share the wall the ground story shares. Models: none; cost $0; 40 to 140 ms per
+cell.
+
+| quantity | GLA corrected, sketch on (section 96, no outline) | outline (shipped: blocks summed) | outline, upper withheld | outline, blocks adjoining |
+|---|---|---|---|---|
+| ground perimeter | +2.8 % | +45.5 % | +45.5 % | +45.5 % |
+| roof | +5.4 % | +8.6 % | +8.6 % | +8.6 % |
+| siding | +5.0 % | +57.0 % | +28.7 % | +48.3 % |
+| siding against the shipped column | -33.1 % | 0 % | -18.0 % | -5.5 % |
+| gutters | +2.7 % | +2.7 % | +2.7 % | +2.7 % |
+
+The schedule (run 3A / run 3B; columns as in 96.3):
+
+| setup | rows moved | waiting | priced total | itemized class error | scored class error | gap |
+|---|---|---|---|---|---|---|
+| today | 0 / 0 | 8 / 13 | 1.000 / 1.000 | 12.50 / 9.19 | 1.62 / 3.04 | 2.0 % / 1.6 % |
+| GLA corrected, sketch on (no outline) | 71 / 70 | 8 / 13 | 1.034 / 1.027 | 12.72 / 9.29 | 1.82 / 3.28 | -5.2 % / -5.6 % |
+| outline (shipped) | 71 / 70 | 8 / 13 | 1.059 / 1.052 | 12.19 / 8.83 | 1.82 / 3.28 | -5.2 % / -5.6 % |
+| outline, upper withheld | 71 / 70 | 8 / 13 | 1.046 / 1.039 | 12.46 / 9.07 | 1.82 / 3.28 | -5.2 % / -5.6 % |
+| outline, blocks adjoining | 71 / 70 | 8 / 13 | 1.055 / 1.048 | 12.27 / 8.90 | 1.82 / 3.28 | -5.2 % / -5.6 % |
+
+1. **The reader closes the wall-length error section 96 left.** The ground perimeter is the
+   drawing's (it was 29 % short of it with the sketch's areas alone) and the siding moves
+   from 33 % under the drawing's figure to it.
+2. **How the upper blocks combine is worth 5 to 18 % of the siding and no class share.**
+   Summing is exact if the two blocks are separate masses and 5.5 % over if they adjoin along
+   the wall the ground story shares; withholding is 18 % under the sum and 13 % under the
+   adjoining figure, so it is the furthest from the truth whichever is true. The sum ships,
+   and the siding row says the blocks were counted as separate masses. The scored class error
+   and the gap do not move across the three (siding is a 39-year row carved from the
+   square-foot model, 96.3 point 4).
+3. **At the default nothing changes on this property**, as in section 96: the sketch
+   disagrees with the printed GLA by 12.5 %, the takeoff refuses it, the appraisal is flagged
+   (96.6), and a perimeter that was read is not used until the engineer corrects the GLA.
+
+### 100.5 The unchanged path
+
+* The extraction (three PDFs: the client's, a fabricated two-level sketch, the sample URAR;
+  each with the sketch off and with `TAKEOFF_SKETCH` on) and the takeoff (both stored
+  exports under five configurations: plain, sketch fields present with the setting off,
+  refused, accepted, accepted with perimeters a person supplied) were run on PR #177's head
+  (a `git archive` of ab25951) and on this branch with the outline setting off: 16 of 16
+  results are byte-identical (`work/sketch_reader/pr177_equality_2026-11-23.txt`).
+* Unit: with the outline off the PDF's line work is never opened (the functions are replaced
+  by ones that fail), and the stored trace has exactly the keys it had.
+* One change reaches a study with the outline off, deliberately narrow: none. The guard for
+  a garage the sketch does not draw and the sentence about upper blocks apply only to a
+  perimeter whose source is `drawing`; a perimeter from any other source is used as before
+  (the byte comparison above includes that case).
+
+**Verdict.** On a born-digital sketch the outline can be read from the PDF with no model, in
+0.2 s, and checked against the page's own table strongly enough to tell two real outlines
+from 141 other loops: the reader reproduces the hand-checked outline exactly, and with its
+perimeters the takeoff's wall length is the drawing's. `TAKEOFF_SKETCH_OUTLINE` ships `off`
+all the same. One document from one sketching tool has line work; the six other stored
+sketches are pictures, where the reader correctly writes nothing; and the redesigned URAR
+delivers pictures. On the one client property the perimeter is read but unused at the
+default, because the sketch itself is refused until the GLA is corrected. The accepted path
+has been run on fabricated PDFs and on a replay, not live.
+
+**Open.**
+
+* **Coverage is one tool.** Whether other forms software prints vector sketches is not known
+  (`SKETCH_READER.md` 6.4). An image sketch needs a different reader (a vision model or
+  raster vectorisation); nothing paid was run, so that is not measured.
+* **Blocks of one floor on separate pages** are summed (100.4). If a firm's engineers see
+  the sum overstate, the alternative is to ask at the appraisal gate; not built.
+* **Not read by design**: curved walls, a drawing turned off the page's axes, walls drawn in
+  more than one stroke style, a table above or beside its drawing. Each writes nothing.
+* **The printed-dimension check is necessary, not sufficient.** No wrong loop has passed it
+  on the data here; a sketch with many identical rectangles could.
+* **The perimeter fields are outside the field catalogue**, like the area fields of section
+  96: no highlight region, no correction through the gate, and the web app does not show
+  them or the outline the trace keeps (`web/FRONTEND_BACKLOG.md` 16).
+* **Gutters** still run on the rectangle's long side: an outline does not say which edges
+  are eaves. **Gable ends** are still not added to the siding.
+* Nothing was run live: no extraction with the setting on has run against the stack.

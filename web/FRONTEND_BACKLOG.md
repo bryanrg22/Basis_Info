@@ -406,6 +406,17 @@ Nothing here is visible until the setting is on. With it on:
   patio the sketch dimensions arrives as a measured SF quantity instead of `needs_measurement`.
 * **The whole reading** (every row, its rectangles, why a field was withheld) is in the
   extraction's `raw.sketch`, which no route returns.
+* **The outline** (EVAL_REPORT 100; `TAKEOFF_SKETCH_OUTLINE`, default off, with
+  `TAKEOFF_SKETCH`). When the appraisal PDF's sketch is line work, the `sketch` section gains
+  `ground_perimeter_ft` and `upper_perimeter_ft` with `source: "drawing"` (a new value of a
+  field's `source`), the page, confidence 0.80 and no `regions`; `raw_text` says which rows'
+  outlines were joined and whether parts of a floor on separate pages were summed. The roof
+  and siding rows then cite them (`takeoff_inputs.perimeter_field`, `ground_perimeter_field`,
+  `upper_perimeter_field`) and their assumptions say the perimeter was read from the sketch's
+  outline. The app shows none of it. `raw.sketch.outline` (no route returns it) also keeps each
+  believed outline as corner points in feet (`matched[].outline_ft`), enough to draw the
+  footprint beside the page, and the reason when nothing could be read (`raster` for a sketch
+  that is a picture).
 
 ## Testing
 
