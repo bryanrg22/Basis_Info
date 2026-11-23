@@ -373,12 +373,13 @@ def length_cases(latitudes: Sequence[int], lengths: Sequence[float]) -> list[dic
             m, n = traced.radii(lat)
             dlat = math.degrees(feet / FT / m)
             dlon = math.degrees(feet / FT / (n * math.cos(math.radians(lat))))
-            meridian = [(LON0, lat), (LON0, lat + dlat)]
+            start: tuple[float, float] = (LON0, float(lat))
+            meridian = [start, (LON0, lat + dlat)]
             key_m = meridian_arc_integrated_ft(lat, lat + dlat)
-            parallel = [(LON0, lat), (LON0 + dlon, lat)]
+            parallel = [start, (LON0 + dlon, float(lat))]
             key_p = parallel_arc_ft(lat, dlon)
             end_lat, end_lon = vincenty_direct(lat, LON0, 45.0, feet / FT)
-            diagonal = [(LON0, lat), (end_lon, end_lat)]
+            diagonal = [start, (end_lon, end_lat)]
             for kind, path, key in (
                 ("meridian", meridian, key_m),
                 ("parallel", parallel, key_p),
