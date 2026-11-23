@@ -596,6 +596,48 @@ class Settings(BaseSettings):
     object_exclusion: bool = True
     unit_cost_override: bool = True
 
+    # Property pictures (docs/review_2026-10-15/PROPERTY_CAPTURE.md, docs/api/PROPERTY_CAPTURE.md,
+    # EVAL_REPORT section 98): a separate worker (`python -m basis.capture`) opens the property in
+    # a headless browser and stores dated views of it. PROPERTY_CAPTURE: the API accepts
+    # captures (false, the default: 409 capture-off, and GET /v1/capabilities says false).
+    # CAPTURE_TASK_QUEUE: the capture workflow's own task queue, so a study worker never runs
+    # it. Gentleness (section 98; not measured against the site, chosen to stay far below a
+    # person's own use): one capture at a time across every worker (a lease in Postgres),
+    # CAPTURE_SPACING_MIN_S..MAX_S seconds at random between two navigations (8..20),
+    # CAPTURE_LOADS_PER_HOUR (6) and CAPTURE_LOADS_PER_DAY (30) page loads, and
+    # CAPTURE_MOVES_PER_HOUR (120) camera moves (a move changes the page's address without a
+    # load). A block signal opens the breaker for CAPTURE_BREAKER_MINUTES (60), doubled for
+    # each consecutive trip up to CAPTURE_BREAKER_MAX_HOURS (24); a capture waits for the
+    # breaker or the caps at most CAPTURE_MAX_WAIT_HOURS (48) before it gives up.
+    # CAPTURE_PAGE_TIMEOUT_S (60) bounds one load; CAPTURE_SETTLE_S (12) is the wait for the
+    # imagery to stream after a load or a move (section 98: 100 % streamed after 12 to 15 s).
+    # CAPTURE_PROFILE_DIR: the browser's persistent profile (unset: a fresh one per process).
+    # CAPTURE_CHROMIUM_ARGS: comma-separated Chromium flags (unset: Metal ANGLE on macOS, the
+    # default elsewhere). CAPTURE_RECENT_HOURS (12): a study captured this recently is not
+    # captured again unless the pin moved. CAPTURE_SOURCE_TEXT: the provenance line stored
+    # with every view and shown to the engineer; it must not name the imagery provider
+    # (AGENTS.md), and what it says is Bryan's decision (PROPERTY_CAPTURE.md section 6).
+    property_capture: bool = False
+    capture_task_queue: str = "basis-capture"
+    capture_spacing_min_s: float = Field(default=8.0, ge=0, le=600)
+    capture_spacing_max_s: float = Field(default=20.0, ge=0, le=600)
+    capture_loads_per_hour: int = Field(default=6, ge=1, le=1000)
+    capture_loads_per_day: int = Field(default=30, ge=1, le=10_000)
+    capture_moves_per_hour: int = Field(default=120, ge=1, le=10_000)
+    capture_breaker_minutes: float = Field(default=60.0, gt=0, le=10_080)
+    capture_breaker_max_hours: float = Field(default=24.0, gt=0, le=720)
+    capture_max_wait_hours: float = Field(default=48.0, gt=0, le=720)
+    capture_page_timeout_s: float = Field(default=60.0, gt=0, le=600)
+    capture_settle_s: float = Field(default=12.0, ge=0, le=300)
+    capture_profile_dir: str | None = None
+    capture_chromium_args: Annotated[tuple[str, ...] | None, NoDecode] = None
+    capture_recent_hours: float = Field(default=12.0, ge=0, le=720)
+    capture_source_text: str = Field(
+        default="Aerial imagery viewed online; date as the imagery shows it",
+        min_length=1,
+        max_length=200,
+    )
+
     @property
     def vision_output_budget(self) -> int:
         """The per-photo calls' output budget: ``VISION_MAX_TOKENS`` when set, else the
@@ -678,6 +720,36 @@ class Settings(BaseSettings):
         if isinstance(value, str):
             return tuple(part.strip() for part in value.split(",") if part.strip())
         return value
+
+    @field_validator("capture_chromium_args", mode="before")
+    @classmethod
+    def _split_chromium_args(cls, value: object) -> object:
+        if isinstance(value, str):
+            parts = tuple(part.strip() for part in value.split(",") if part.strip())
+            return parts or None
+        return value
+
+    @field_validator(
+        "capture_task_queue", "capture_source_text", "capture_profile_dir", mode="before"
+    )
+    @classmethod
+    def _blank_capture_text_is_unset(cls, value: object, info: ValidationInfo) -> object:
+        # .env.example ships these empty; empty means the default, as for the other settings.
+        if isinstance(value, str) and not value.strip():
+            field = cls.model_fields[str(info.field_name)]
+            return field.default
+        return value
+
+    @model_validator(mode="after")
+    def _check_capture_spacing(self) -> Settings:
+        if self.capture_spacing_min_s > self.capture_spacing_max_s:
+            raise ConfigError(
+                "CAPTURE_SPACING_MIN_S must not exceed CAPTURE_SPACING_MAX_S "
+                f"({self.capture_spacing_min_s} > {self.capture_spacing_max_s})"
+            )
+        if self.capture_loads_per_hour > self.capture_loads_per_day:
+            raise ConfigError("CAPTURE_LOADS_PER_HOUR must not exceed CAPTURE_LOADS_PER_DAY")
+        return self
 
     @field_validator("demo_request_allowed_origins", mode="before")
     @classmethod

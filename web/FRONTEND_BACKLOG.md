@@ -380,6 +380,61 @@ proposed routes from the sample once the backend has them.
   report profile (`PUT .../profile`), whose `name` is printed on reports. Renaming the firm itself
   is not on the page yet.
 
+## 18. Property pictures: what the API offers and the app does not use (EVAL_REPORT 98)
+
+The backend takes dated views of the study's property in the background
+(`docs/api/PROPERTY_CAPTURE.md`). How the Property area changes the engineer's work is in
+`docs/review_2026-10-15/PROPERTY_CAPTURE.md` section 7. The screens are the maintainer's design.
+Nothing below is built in the app.
+
+* **The capability.** `GET /v1/capabilities` has `property_capture` (setting
+  `PROPERTY_CAPTURE`, default false). Show the Property area only when it is true.
+* **The pin, at intake.** As soon as the study has an address:
+  - `PUT /v1/studies/{id}/property/pin` with `{address}` and `If-Match` (the `ETag` of
+    `GET .../property`, `"0"` before the first save);
+  - then `POST .../property/captures` (`{}`), which answers 202 and runs in the background.
+
+  A 412 carries the current `ETag`: read again and reapply. 422 `capture-no-address` means
+  there is no pin yet. 409 `capture-in-progress` means one is already running: poll instead.
+  409 `capture-off` means the setting is off.
+* **Confirming the house.** After the capture, `pin.source` is `search` and `pin.confirmed` is
+  false. Show `pin.place_label` and the point on `aerial-wide`. The engineer either confirms
+  (`PUT` with the same `lat`/`lon` and `confirmed: true`) or moves the point (`PUT` with the new
+  `lat`/`lon`, `confirmed: true`). Views with `stale: true` were taken around an earlier pin:
+  offer to take them again (`POST .../captures` with `{"force": true}`). Do not offer measuring
+  on an unconfirmed pin.
+* **Status.** Poll `GET .../property` while `capture.status` is `queued`, `waiting` or
+  `running` (every 10 to 30 s is plenty).
+  - Show `capture.message` as given. It never names the imagery provider.
+  - While `waiting`, show `resume_at` in the engineer's local time: "Property pictures are
+    paused until 3:00 pm; they will resume on their own."
+  - On `failed`, show the message and a "Take them again" action.
+  - `code` is for support, through the error catalogue.
+* **The views.** `capture.views[]`, each with `label`, `kind`, its camera, `pixel_size_m` (null
+  on tilted views), `imagery_date` (null today; the date is visible in the image's own status
+  bar), `source` (show it with the image) and `stale`. The image is at
+  `GET .../property/views/{view_id}/image` (PNG, `ETag`, 304). `aerial-close` is the one to
+  measure on, `aerial-wide` gives context, and `side-*` show each face.
+* **Measuring from a "needs measurement" row.** A row with a takeoff blocker for an area or a
+  length (driveway, walks, patio, fence) links to `aerial-close`. The engineer traces there.
+  Convert pixels to lon/lat around the view's `lat`/`lon` with `pixel_size_m`:
+  - east metres = `(x - width / 2) * pixel_size_m`;
+  - north metres = `(height / 2 - y) * pixel_size_m` (heading 0);
+  - longitude = `lon + east / (111320 * cos(lat))`, latitude = `lat + north / 110540`.
+
+  Send PR #178's `measurement` (section 17) with `space: lonlat` and `image.source` (the view's
+  `source`). Set `image.pixel_size_m` to the view's value, and `image.captured_on` to the
+  imagery date when known; leave it out when it is not, which flags `measure:IMAGE_UNDATED`.
+  Asked of the backend, not built: an `image.view_id` on the measurement, so the row links back
+  to the exact view.
+* **Not built in the API:**
+  - historical and leaf-off dates;
+  - Street View;
+  - reading the imagery date as text;
+  - prefilling the pin's address from the appraisal's subject address.
+
+  Design the area so those can join it.
+
 ## Testing
 
 `web/tests/firm-pages.test.cjs` renders the firm pages (Home, Library, Activity, Team,

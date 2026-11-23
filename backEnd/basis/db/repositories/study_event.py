@@ -89,6 +89,14 @@ Event vocabulary (``event_type``; the actor in brackets):
   docs/api/OPS_DOCUMENTS.md): ``actor_id`` the operator's ``users`` row, ``entity_id`` the
   document, ``detail`` the reason, ``client_error_id``, the file's name, kind, sha256 and
   size; recorded before the bytes are read (migration ``0030``).
+* ``property.pin_set`` [engineer]: ``PUT .../property/pin`` (``before``/``after`` the pin,
+  ``detail`` the versions); ``property.pin_placed`` [system]: the capture's search put the
+  found point on a pin that had only an address (docs/api/PROPERTY_CAPTURE.md);
+* ``capture.requested`` [engineer], ``capture.started`` / ``capture.completed`` [system]: a
+  capture of the property (``entity_id`` the capture; ``code`` ``E.CAPTURE_COMPLETED`` on
+  completion); ``capture.paused`` / ``capture.failed`` [system]: ``code`` the
+  ``BASIS-CAPTURE-<nnn>``, ``detail`` the engineer's sentence (``reason``), ``resume_at``, the
+  signal, its HTTP status and the evidence prefix (migration ``0036``).
 
 Durations: an ``activity.*`` end row carries ``started_at`` (the attempt's start on the
 worker's clock) and ``duration_ms`` (monotonic on the worker), so a step's duration never

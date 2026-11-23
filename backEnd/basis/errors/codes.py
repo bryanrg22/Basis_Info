@@ -6,7 +6,7 @@ Format ``BASIS-<AREA>-<nnn>``: the area names the step or component the failure 
 ``CORRECT``, ``ASSETS``, ``EXPORT``, ``CHECK`` for the validators' flags, ``COST`` for
 the cost index store, ``REPORT`` for the study report, ``RETENTION`` for the client-data
 purge, ``ALERT`` for the operator alerts, ``CLIENT`` for the browser error capture, ``DEMO``
-for the public site's demo requests) and the
+for the public site's demo requests, ``CAPTURE`` for the property pictures) and the
 number is stable once published: a code is never renumbered or reused, a retired one is
 marked retired in the catalogue.
 
@@ -381,6 +381,7 @@ class E:
     ALERT_HEARTBEAT_STALE = "BASIS-ALERT-002"
     ALERT_EMAIL_FAILED = "BASIS-ALERT-003"
     ALERT_NO_RECIPIENT = "BASIS-ALERT-004"
+    ALERT_CAPTURE_BLOCKED = "BASIS-ALERT-005"
 
     # ---------------------------------------------------------------- browser error capture
     CLIENT_ERROR_RECORDED = "BASIS-CLIENT-001"
@@ -393,6 +394,25 @@ class E:
     DEMO_REQUEST_NO_RECIPIENT = "BASIS-DEMO-004"
     DEMO_REQUEST_EMAIL_FAILED = "BASIS-DEMO-005"
     DEMO_REQUEST_PURGED = "BASIS-DEMO-006"
+
+    # ---------------------------------------------------------------- property pictures (capture)
+    CAPTURE_UNUSUAL_TRAFFIC = "BASIS-CAPTURE-001"
+    CAPTURE_RECAPTCHA = "BASIS-CAPTURE-002"
+    CAPTURE_WALL = "BASIS-CAPTURE-003"
+    CAPTURE_RATE_LIMITED = "BASIS-CAPTURE-004"
+    CAPTURE_BLANK_RENDER = "BASIS-CAPTURE-005"
+    CAPTURE_NO_PLACE = "BASIS-CAPTURE-006"
+    CAPTURE_TIMEOUT = "BASIS-CAPTURE-007"
+    CAPTURE_BROWSER_CRASH = "BASIS-CAPTURE-008"
+    CAPTURE_BREAKER_OPEN = "BASIS-CAPTURE-009"
+    CAPTURE_CAPS_SPENT = "BASIS-CAPTURE-010"
+    CAPTURE_GAVE_UP = "BASIS-CAPTURE-011"
+    CAPTURE_COMPLETED = "BASIS-CAPTURE-012"
+    CAPTURE_OFF = "BASIS-CAPTURE-013"
+    CAPTURE_IN_PROGRESS = "BASIS-CAPTURE-014"
+    CAPTURE_NO_ADDRESS = "BASIS-CAPTURE-015"
+    CAPTURE_PIN_PRECONDITION_FAILED = "BASIS-CAPTURE-016"
+    CAPTURE_UNAVAILABLE = "BASIS-CAPTURE-017"
 
 
 def tag(code: str, message: str) -> str:

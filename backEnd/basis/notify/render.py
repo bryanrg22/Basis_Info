@@ -13,7 +13,7 @@ from collections.abc import Mapping
 from datetime import UTC, datetime
 from typing import Any, Final
 
-from basis.db.repositories.alert import HEARTBEAT_STALE, STUDY_FAILED
+from basis.db.repositories.alert import CAPTURE_BLOCKED, HEARTBEAT_STALE, STUDY_FAILED
 from basis.email import EmailMessage
 
 SUBJECT_PREFIX: Final = "[Basis]"
@@ -90,6 +90,29 @@ def render_alert(payload: Mapping[str, Any], to: str, *, env: str | None = None)
             "worker, relay and cloud-sql-proxy container logs, then restart it. One alert is "
             "sent per stale period; the next is sent only after the service came back and "
             "went stale again.\n"
+        )
+        return EmailMessage(to=to, subject=subject, text=text, idempotency_key=key)
+    if kind == CAPTURE_BLOCKED:
+        trip = payload.get("trip")
+        code = payload.get("code")
+        if not isinstance(trip, int) or not code:
+            raise MalformedAlert("capture_blocked alert has no trip or code")
+        subject = f"{SUBJECT_PREFIX}{where} Property pictures paused: {code} (trip {trip})"
+        text = (
+            "A block signal opened the property-capture breaker. Every capture waits until "
+            "it closes and then resumes on its own; nothing needs resetting.\n\n"
+            f"Code:      {code} (docs/ERROR_CODES.md)\n"
+            f"Signal:    {_reason(payload.get('reason'))}\n"
+            f"Trip:      {trip} in a row (each doubles the wait)\n"
+            f"Opened:    {_when(payload.get('opened_at'))}\n"
+            f"Open until: {_when(payload.get('open_until'))}\n"
+            f"Study:     {payload.get('study_id') or 'none'}\n"
+            f"Page:      {payload.get('url') or 'unknown'} "
+            f"(HTTP {payload.get('http_status') or 'n/a'})\n"
+            f"Evidence:  {payload.get('evidence') or 'not stored'}\n\n"
+            "Next: read the evidence (screenshot, HTML, page record) from GET "
+            "/v1/ops/capture-incidents; if trips keep repeating, lower the CAPTURE_* caps or "
+            "set PROPERTY_CAPTURE=false. GET /v1/ops/health shows the breaker.\n"
         )
         return EmailMessage(to=to, subject=subject, text=text, idempotency_key=key)
     raise MalformedAlert(f"unknown alert kind {kind!r}")
