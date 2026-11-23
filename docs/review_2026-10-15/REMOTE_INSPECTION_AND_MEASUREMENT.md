@@ -405,6 +405,89 @@ the licence. The only sources free of that are government data and media the own
 * Imagery quality is per state and county. The first build step is a coverage table for the
   states our design partners work in.
 
+## 12. Public imagery and parcels by state: 32 states surveyed (2026-11-23)
+
+Question: section 11 found sharp, free, traceable imagery for one Wisconsin property. How common
+is that? Method: for the 30 most populous states plus Hawaii and Wisconsin, find the best
+publicly served aerial imagery and the statewide parcel layer, request an 80 m x 60 m image at
+a city point and a small-town point with no key or login, and read the pixel size and the use
+terms from the service or its metadata. Eight of the services were re-checked by a second
+request (pixel sizes matched). The other 18 states were not surveyed.
+
+"Sharp" means 6-inch (15 cm) pixels or better, which section 5 puts at roughly 3 to 7 % on a
+driveway. "Terms" is what the service or its metadata says, not legal advice; no agency was
+asked.
+
+### 12.1 Result
+
+| Group | States | Count |
+|---|---|---|
+| Sharp, statewide or nearly, permissive terms | CT, IL (outside the Chicago area), IN, KY, MA, MD, MO, NC, NJ, OH, PA | 11 |
+| Sharp but partial, or terms not stated or restrictive | FL, LA, MN, OK, SC, TN, TX, VA, WI | 9 |
+| 1 ft (30 cm) only for most of the state | MI, NY, OR | 3 |
+| Federal imagery only (30 to 60 cm) | AL, AZ, CA, CO, GA, HI, NV, UT, WA | 9 |
+
+The four largest states are not in the first group: California has only 60 cm federal imagery
+statewide, Texas is sharp in about 45 of 254 counties and not in its largest metros, Florida is
+served county by county up to 2021 with no stated terms, and New York is 1 ft for about 70 % of
+its area. Public imagery alone therefore covers about a third of the surveyed states well. The
+upload-and-trace tool (section 7.1) and a commercial imagery agreement are still needed for the
+rest, and for California first.
+
+### 12.2 State by state
+
+| State | Sharpest public imagery | Coverage | Leaf-off | Terms as stated | Open statewide parcels |
+|---|---|---|---|---|---|
+| AL | None from the state | Federal 60 cm | No | Public domain (federal) | No |
+| AZ | Federal 30 cm; one county's own | Statewide at 30 cm | No | None stated | No; two large counties |
+| CA | None from the state | Federal 60 cm | No | Public domain (federal) | Parcel numbers and addresses only |
+| CO | Federal 60 cm; Denver area 6 in | Denver area only | No | Denver set open with credit | 44 of 64 counties, totals only |
+| CT | 3 in, 2023 | Statewide | Yes | "No restrictions apply to these data" | Yes, public domain, with year built and living area |
+| FL | 6 in, by county, to 2021 | County by county | Not stated | None stated | Yes, with values, year built, living area |
+| GA | None from the state since 2010 | Federal 60 cm | No | Public domain (federal) | No |
+| HI | 60 cm satellite | Statewide | n/a | Commercial use prohibited | Yes, identifiers and acres |
+| IL | 6 in, 2025 | About 75 % of the state; not Chicago and its collar counties | Looks leaf-off | "in the public domain" | No |
+| IN | 6 in, some 3 in, 2022 to 2025 | Statewide | Looks leaf-off | Public domain (CC0) | Outlines and addresses only |
+| KY | 3 in, 2022 to 2024 | Statewide | Yes | Public domain | No |
+| LA | 6 in from 2010 everywhere; newer in places | Partial for recent years | Looks leaf-off | "For viewing and download purposes"; some layers viewing only | No |
+| MA | 15 cm, 2025 | Statewide | Yes | "No restrictions apply to these data" | Yes, with year built, building area, stories |
+| MD | 6 in statewide, 3 in in places | Statewide | Looks leaf-off | Free to distribute with credit | Yes, with year built, structure area, stories |
+| MI | 30 cm | Statewide | Not stated | "view only" | No |
+| MN | 2 to 9 in where a county contributes | About 20 of 87 counties, including the Twin Cities | Looks leaf-off | Use "for any purpose" (general disclaimer) | 60 of 87 counties, with year built and finished area |
+| MO | 6 in, 2023 to 2024 | Statewide | Yes | Open with credit (from a registry entry, not the service) | No |
+| NC | 6 in, four-year cycle | Statewide | Looks leaf-off | "free and unrestricted use policy" | Yes, with values and structure year |
+| NJ | 6 in, 2025, as files; 1 ft as a live service | Statewide | Yes | Open, credit requested | Yes, with values and year built |
+| NV | Federal 60 cm; Reno 6 in | Reno only | Not stated | None stated | Viewable, export forbidden |
+| NY | 1 ft; 6 in in about 30 % of the area | Statewide | Yes | Disclaimer only | 38 of 62 counties, rich building fields |
+| OH | 3 to 6 in, 2017 to 2026 | Statewide | Yes | "available for public use at the user's own risk" | Outlines and land use only |
+| OK | 15 cm, 2025 | Eastern 60 % | Yes | None stated | No |
+| OR | 1 ft, summer 2024 | Statewide | No | None stated | Not confirmed |
+| PA | 6 in, two cycles 2018 to 2023 | Statewide | Spring, mixed | "No restrictions apply to these data" | No |
+| SC | 6 in, 2023 | Statewide | Yes | Disclaimer only | No |
+| TN | 6 in in about a quarter of the state, 1 ft elsewhere | Statewide | Looks leaf-off | Copyrighted by the state; no resale | 86 of 95 counties, outlines only |
+| TX | 3 to 6 in regional flights | About 45 of 254 counties; not Houston, Dallas, San Antonio | Yes | Public domain (CC0) | Yes as a download, with values, year built, area |
+| UT | 15 cm exists but is licensed to public bodies | Federal 60 cm for us | n/a | "may not be used in publicly-available applications" | Yes, with building fields in some counties |
+| VA | 1 ft; 6 in and 3 in in about 7 % of the area | Statewide | Spring | None stated; a statutory notice is required on documents | Outlines only |
+| WA | Federal 60 cm; county imagery is vendor-sourced | Federal only | No | County sets unclear | Yes, with values, no building fields |
+| WI | 3 to 6 in by county, 2018 to 2025 | Statewide | Yes | None stated; counties own the source | Yes, public domain, values but no building fields |
+
+### 12.3 What the survey changes
+
+* **Per-state plumbing.** No two states serve imagery the same way: one image service, one layer
+  per county, tiles only, or files in a bucket. A measuring map needs a small registry of
+  sources (address, pixel size, year, terms) rather than one integration.
+* **History** is served in most of the sharp states, year by year, so the date slider of
+  section 11.5 is realistic there.
+* **Parcels with building facts** (year built, building area, sometimes stories) are open in
+  Connecticut, Florida, Maryland, Massachusetts, New Jersey, North Carolina, Texas and parts
+  of Minnesota, New York and Utah. That is a second source to check the appraisal against.
+* **Terms still need an answer in writing** wherever the table says "none stated", "disclaimer
+  only" or "view only", and one state (Virginia) regulates who may show measurements on a
+  document, which needs a legal read before a traced exhibit is produced there.
+* **Not verified:** the 18 states not surveyed; coverage shares, which are counts from index
+  layers rather than published figures; "looks leaf-off", which is read from test images; and
+  any agency's answer on commercial use.
+
 ## Sources
 
 * IRS, Cost Segregation Audit Technique Guide, Publication 5653 (rev. 2-2025).
