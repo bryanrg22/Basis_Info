@@ -190,7 +190,7 @@ def test_a_triangle_is_half_of_a_base_and_a_height() -> None:
 
 def test_the_printed_precision_is_the_coarsest_every_dimension_lands_on() -> None:
     assert printed_grid([row("a", "720", ("40", "18", "720"))]) == Decimal(1)
-    assert printed_grid([row("a", "901", ("26.5", "34", "901"))]) == Decimal("0.5")
+    assert printed_grid([row("a", "375", ("12.5", "30", "375"))]) == Decimal("0.5")
     assert printed_grid([row("a", "619", ("30.5", "20.3", "619"))]) == Decimal("0.1")
     assert printed_grid([row("a", "619", ("30.52", "20.3", "619"))]) is None
     assert printed_grid([row("a", "619")]) is None
