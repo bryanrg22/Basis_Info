@@ -380,6 +380,41 @@ proposed routes from the sample once the backend has them.
   report profile (`PUT .../profile`), whose `name` is printed on reports. Renaming the firm itself
   is not on the page yet.
 
+## 17. The traced measurement: what the API offers and the app does not use (EVAL_REPORT 97)
+
+The backend accepts a measurement the engineer **traced** instead of typed
+(`docs/api/OVERRIDES.md` section 4); the tracing screen is the maintainer's design
+(`docs/review_2026-10-15/REMOTE_INSPECTION_AND_MEASUREMENT.md` section 7.3 has the needs).
+Nothing below is built in the app.
+
+* **The capability.** `GET /v1/capabilities` has `traced_measurement` (setting
+  `TRACED_MEASUREMENT`, default true). Offer tracing only when it is true; the typed
+  quantity, unit and "where measured" fields (section 10) stay as they are.
+* **The correction.** An `asset` correction's `after.measurement`: `unit` (SF, SY, LF),
+  `space` (`lonlat` degrees, or `image` pixels with a `scale`: two clicked points and the
+  known length in ft or m), `shapes` (areas with optional cutouts, or lines; a wall face is
+  lines with `height_ft`), and `image` (`source` required; optional `document_id` of the
+  uploaded plan, `captured_on`, and `pixel_size_m` for aerial imagery). Never with
+  `quantity`, `quantity_unit` or `quantity_source`. A bad shape is a 422 at
+  `["body", "corrections", <i>, "after"]` whose `detail` names what is wrong and where
+  (`measurement.shapes[0].ring crosses or touches itself ...`): show it next to the shape.
+* **What comes back.** After the rejection, the asset's `takeoff_inputs.measurement` holds the
+  stored shape and the computed `quantity`, `area_sf` or `length_ft`, `method`,
+  `expected_error_pct` (a string, or null when unknown), `shape_count`, `corner_count`,
+  `cutout_count` and `scale_ft_per_px`; the takeoff's `formula` is a sentence for the row
+  ("800.00 SF traced by the engineer on ... (captured ...), 1 area of 4 corners; expected
+  error up to 7.00 %"). Showing the value, the image's date and pixel size and the expected
+  error next to the quantity is section 7.3's need.
+* **The flags.** `measure:IMAGE_UNDATED`, `measure:IMAGE_AFTER_SERVICE`,
+  `measure:ERROR_UNKNOWN`, `measure:COARSE` have their sentences in
+  `web/live/review-reasons.js` and their codes (BASIS-ASSETS-021 to 024) in the generated
+  catalogue; the review list shows them like any other reason.
+* **A later rejection.** Like a typed quantity, a traced one applies to the revision its
+  rejection builds; a later assets rejection that does not send it again recomputes the
+  takeoff (OVERRIDES.md section 4, "Not done"). Until the backend keeps it, the app would have
+  to send it again with every later assets rejection, or the maintainer decides to store it
+  on the component as the unit price is.
+
 ## Testing
 
 `web/tests/firm-pages.test.cjs` renders the firm pages (Home, Library, Activity, Team,

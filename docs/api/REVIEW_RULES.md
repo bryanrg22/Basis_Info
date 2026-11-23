@@ -46,7 +46,7 @@ the code" column names the place a developer can read to confirm it (paths are u
 | Appraisal | The fields read from the appraisal, above all the nine critical ones (section 4.1) | Correct a field's value; add a field the reading missed | the rooms gate (it opens when the photos are done) | `workflow/contracts.py` `CORRECTION_TYPES`; `db/repositories/review.py` `DECISION_TRANSITIONS` |
 | Rooms | How the photos are grouped into rooms: names, types, floors, which photo is in which room | Rename a room or change its type or floor; merge two rooms; move a photo to another room | building each room's inventory, then the components gate | same |
 | Components | Each room's components and counts, and the photos Basis was unsure of | Correct a component (label, material, attachment, count); remove a wrong row; add a component to a room; send a photo to be analyzed again; mark a found object Not counted; set a unit price on a component | classifying, measuring and pricing the assets, then the assets gate | same |
-| Assets | Each asset's class, recovery period, quantity and cost, and the study result | Correct an asset (category, bucket, recovery period, IRS section, measured quantity, unit price); reprice with the current inputs; set the building model | learning the firm's conventions, then the export (report and schedule) and `completed` | same |
+| Assets | Each asset's class, recovery period, quantity and cost, and the study result | Correct an asset (category, bucket, recovery period, IRS section, measured quantity typed or traced, unit price); reprice with the current inputs; set the building model | learning the firm's conventions, then the export (report and schedule) and `completed` | same |
 
 A study started before the components gate existed (patch `components-gate-v1`) has one
 rooms gate that takes both the grouping and the component changes
@@ -315,6 +315,10 @@ inconsistent class or an unverified citation (`_from_cache`, `errors_only=True`)
 | `cost:YEAR_INDEX_CONVERTED` | The year's index is converted from a public price series, not published by RSMeans | none | BASIS-COST-002 |
 | `cost:LOCATION_STATE_MISMATCH` | The study's ZIP is listed under another state; the state's average factor is used | none | BASIS-COST-006 |
 | `takeoff:upper_bound` | The quantity is an upper bound (landscaping: the whole unbuilt lot) | none | BASIS-ASSETS-010 |
+| `measure:IMAGE_UNDATED` | The engineer's traced measurement names no capture date for its image | none | BASIS-ASSETS-021 |
+| `measure:IMAGE_AFTER_SERVICE` | The traced image was captured more than **365 days** after the intake's placed-in-service date (it may show work done after the purchase; no intake, no check) | `MEASURE_IMAGE_AFTER_SERVICE_DAYS` | BASIS-ASSETS-022 |
+| `measure:ERROR_UNKNOWN` | A shape traced in lon/lat with no pixel size: its expected error is unknown | none | BASIS-ASSETS-023 |
+| `measure:COARSE` | The traced measurement's expected error (one pixel on every edge, plus the scale's) is above **10 %** | `MEASURE_ERROR_FLAG_PCT` | BASIS-ASSETS-024 |
 
 **Concealed building rows** (the structure model, setting `structure_step`, on by default;
 `domain/structure.py`):
@@ -335,10 +339,15 @@ unit unusual for its bucket, a cost that includes a year or location adjustment
 ### 7.2 What the engineer does
 
 * **Correct an asset** (`asset`): category, bucket, recovery period, IRS section, and a
-  measured quantity (`quantity`, `quantity_unit` EA/SF/LF/SY, `quantity_source`, given
-  together). The corrected asset is rebuilt with the engineer's values, no model call, and
-  goes through the class checks and the measuring and pricing checks again, so it can still be
-  flagged.
+  measured quantity: typed (`quantity`, `quantity_unit` EA/SF/LF/SY, `quantity_source`, given
+  together) or traced (`measurement`: the shape the engineer traced on an image, in lon/lat or
+  in pixels with a scale; the server computes the SF, SY or LF, keeps the shape, the image's
+  source, date and pixel size and an expected error, and raises the `measure:` flags above;
+  never both; docs/api/OVERRIDES.md section 4). The corrected asset is rebuilt with the
+  engineer's values, no model call, and goes through the class checks and the measuring and
+  pricing checks again, so it can still be flagged. A quantity-only correction, typed or
+  traced, is still an engineer's correction of the asset (`manual`), so at approval it
+  becomes the firm's convention for that component (7.4); a price-only one is not.
 * **Set a unit price** (`unit_cost` up to 10,000,000 USD per takeoff unit with
   `unit_cost_source`, and a reason, on an `asset` correction; it wins over a component's
   price): the asset is priced at it, with no year, location or overhead factor; the cost
@@ -351,8 +360,8 @@ unit unusual for its bucket, a cost that includes a year or location adjustment
 * **Set the building model** (`structure_model`): the building type or class the square-foot
   model uses.
 
-(`activities/corrections.py` `ASSET_FIELDS`; `activities/process_assets.py` `_write_manual`;
-`api/routes/reprice.py`.)
+(`activities/corrections.py` `ASSET_FIELDS`; `activities/process_assets.py` `_write_manual`,
+`traced_by_engineer`; `domain/traced.py`; `api/routes/reprice.py`.)
 
 ### 7.3 Flags and blockers are different
 

@@ -96,6 +96,19 @@ unpriced, its blocker stands, and its trail carries the override waiting for the
 An asset correction that carries only a price leaves the classification to the classifier
 (it is not a manual classification); one that carries both applies both.
 
+The engineer's traced measurement (EVAL_REPORT 97, :mod:`basis.domain.traced`): an asset
+correction's ``measurement`` replaces the takeoff as a typed ``quantity`` does
+(:func:`traced_by_engineer`, :func:`measured_by_engineer`): the quantity and unit computed from
+the shape, ``quantity_source`` ``engineer``, ``measured_by_engineer`` the image's source, the
+computed quantity kept, a missing input it supplies lifted; the shape with what was computed is
+written as ``inputs["measurement"]``. Its review flags (``measure:IMAGE_UNDATED``,
+``measure:IMAGE_AFTER_SERVICE`` against the intake's placed-in-service date and
+``MEASURE_IMAGE_AFTER_SERVICE_DAYS``, ``measure:ERROR_UNKNOWN``, ``measure:COARSE`` above
+``MEASURE_ERROR_FLAG_PCT``) are added to the asset's reasons and never change the quantity.
+Like a typed quantity, it makes the asset a manual correction. Of two corrections of the
+same asset, the later one's quantity wins, typed or traced. The geometry runs on a thread
+(``asyncio.to_thread``), off the worker's event loop.
+
 The structure model (docs/review_2026-10-15/STRUCTURE_MODEL.md, ``STRUCTURE_STEP=on``):
 after the components, one concealed row per building system from the appraisal's cost
 approach (or the RSMeans square-foot model) carved against the itemized assets, and the
@@ -129,7 +142,9 @@ from basis.activities._support import (
 )
 from basis.activities.apply_corrections import CARRIED_FROM
 from basis.activities.corrections import (
+    QUANTITY_FIELDS,
     check_asset,
+    check_measurement,
     check_quantity,
     parse_bucket,
     parse_recovery_period,
@@ -172,7 +187,7 @@ from basis.db.repositories.room import RoomRepository
 from basis.db.repositories.study import StudyRepository
 from basis.db.repositories.study_event import StudyEventRepository
 from basis.db.session import session_scope
-from basis.domain import price_overrides
+from basis.domain import price_overrides, traced
 from basis.domain.cost_table import CostTable, cost_table_for
 from basis.domain.cost_trail import (
     TrailContext,
@@ -262,9 +277,10 @@ CONVERTED_REASON: Final = "cost:YEAR_INDEX_CONVERTED"
 # The study's ZIP was skipped for a location factor because its row is in another state
 # (the catalogue's COST_LOCATION_STATE_MISMATCH, EVAL_REPORT 89).
 LOCATION_MISMATCH_REASON: Final = "cost:LOCATION_STATE_MISMATCH"
-# Review reasons the pricing and the structure model write: recomputed by every pricing,
-# so a carried classification (a reprice) drops them and keeps the classification's own.
-PRICING_REASON_PREFIXES: Final = ("cross:", "cost:", "takeoff:", "structure:")
+# Review reasons the pricing, the structure model and a traced measurement write:
+# recomputed by every pricing, so a carried classification (a reprice) drops them and keeps
+# the classification's own.
+PRICING_REASON_PREFIXES: Final = ("cross:", "cost:", "takeoff:", "structure:", "measure:")
 # Written on a carried asset's takeoff inputs: the asset its classification came from.
 CARRIED_CLASSIFICATION: Final = "carried_classification"
 # Written on the concealed rows' takeoff inputs when the engineer set the square-foot model.
@@ -671,7 +687,22 @@ async def _write(
             rule_key, extra_inputs = result.rule_key, {}
             citations = result.citations
         takeoff = _takeoff(component, room, rule_key, plan, measured, asset.id)
-        if override is not None and check_quantity(override.after) is not None:
+        measure_reasons: list[str] = []
+        if override is not None and traced.MEASUREMENT in override.after:
+            # The engineer's traced shape (EVAL_REPORT 97): geometry, so off the event loop.
+            shape = await asyncio.to_thread(check_measurement, override.after)
+            assert shape is not None
+            takeoff = traced_by_engineer(takeoff, shape)
+            extra_inputs = {**extra_inputs, traced.MEASUREMENT: shape.record()}
+            measure_reasons = traced.review_flags(
+                shape,
+                placed_in_service=None
+                if prepared.intake is None
+                else prepared.intake.placed_in_service_date,
+                after_service_days=settings.measure_image_after_service_days,
+                error_flag_pct=Decimal(str(settings.measure_error_flag_pct)),
+            )
+        elif override is not None and check_quantity(override.after) is not None:
             takeoff = measured_by_engineer(takeoff, override.after)
         cost, priced_per, not_priced = _cost(
             takeoff,
@@ -722,6 +753,9 @@ async def _write(
             # A derived quantity that is an upper bound (landscaping = the whole unbuilt
             # lot): priced, but the engineer must confirm or measure it.
             extra_reasons.append("takeoff:upper_bound")
+        # The traced measurement's flags (basis.domain.traced.review_flags): for the reviewer,
+        # never a change of the quantity.
+        extra_reasons += measure_reasons
         if extra_reasons:
             reasons = [r for r in (asset.review_reason or "").split("; ") if r]
             reasons += extra_reasons
@@ -1530,12 +1564,10 @@ UNIT_METHODS: Final[dict[str, Method]] = {
 }
 
 
-def measured_by_engineer(takeoff: Takeoff, after: dict[str, Any]) -> Takeoff:
-    """The takeoff with the engineer's measured quantity (an asset correction's
-    ``quantity``, ``quantity_unit``, ``quantity_source``: EVAL_REPORT 78) in place of the
-    computed one; a missing input it supplied no longer holds the row."""
-    quantity = Decimal(str(after["quantity"])).quantize(Decimal("0.01"))
-    unit, source = str(after["quantity_unit"]), str(after["quantity_source"]).strip()
+def _engineer_inputs(takeoff: Takeoff, source: str) -> dict[str, str | int | bool | None]:
+    """The takeoff's inputs once the engineer measured it: the missing input and the
+    measured-elsewhere markers go, the computed quantity is kept (None when it was a missing
+    input)."""
     inputs = {
         k: v
         for k, v in takeoff.inputs.items()
@@ -1550,6 +1582,16 @@ def measured_by_engineer(takeoff: Takeoff, after: dict[str, Any]) -> Takeoff:
             else f"{takeoff.quantity} {takeoff.unit}",
         }
     )
+    return inputs
+
+
+def measured_by_engineer(takeoff: Takeoff, after: dict[str, Any]) -> Takeoff:
+    """The takeoff with the engineer's measured quantity (an asset correction's
+    ``quantity``, ``quantity_unit``, ``quantity_source``: EVAL_REPORT 78) in place of the
+    computed one; a missing input it supplied no longer holds the row."""
+    quantity = Decimal(str(after["quantity"])).quantize(Decimal("0.01"))
+    unit, source = str(after["quantity_unit"]), str(after["quantity_source"]).strip()
+    inputs = _engineer_inputs(takeoff, source)
     return Takeoff(
         component=takeoff.component,
         quantity=quantity,
@@ -1557,6 +1599,24 @@ def measured_by_engineer(takeoff: Takeoff, after: dict[str, Any]) -> Takeoff:
         formula=f"{quantity} {unit} measured by the engineer ({source})",
         inputs=inputs,
         method=UNIT_METHODS[unit],
+        assumptions=(),
+    )
+
+
+def traced_by_engineer(takeoff: Takeoff, shape: traced.Traced) -> Takeoff:
+    """The takeoff with the quantity of the engineer's traced shape (EVAL_REPORT 97) in
+    place of the computed one, as :func:`measured_by_engineer` does for a typed one:
+    ``quantity_source`` ``engineer``, ``measured_by_engineer`` the image's source text, the
+    computed quantity kept; the formula says how it was traced. The shape itself is written
+    by the caller as ``inputs["measurement"]`` (a nested record, which the flat inputs of a
+    :class:`~basis.domain.takeoffs.Takeoff` do not hold)."""
+    return Takeoff(
+        component=takeoff.component,
+        quantity=shape.quantity,
+        unit=shape.unit,
+        formula=traced.formula(shape),
+        inputs=_engineer_inputs(takeoff, shape.source),
+        method=UNIT_METHODS[shape.unit],
         assumptions=(),
     )
 
@@ -1663,7 +1723,10 @@ async def _overrides(
             raise validation_error(
                 f"process_assets cannot apply a {correction.entity_type}", E.ASSETS_CORRECTION_TYPE
             )
-        check_asset(correction.after)
+        if traced.MEASUREMENT in correction.after:
+            await asyncio.to_thread(check_asset, correction.after)  # geometry: off the loop
+        else:
+            check_asset(correction.after)
         old = await assets.get(study_id, parse_uuid(correction.entity_id, "entity_id"))
         if old is None:
             raise validation_error(
@@ -1702,7 +1765,14 @@ async def _overrides(
                 f"asset {old.id} has no component in this revision", E.ASSETS_NO_COMPONENT
             )
         previous = overrides.get(component_id)
-        merged = {**(previous.after if previous else {}), **after}
+        base = dict(previous.after) if previous else {}
+        # A later correction's quantity replaces an earlier one's, typed or traced (EVAL_REPORT
+        # 97): the two ways of stating it never stand together.
+        if traced.MEASUREMENT in after:
+            base = {k: v for k, v in base.items() if k not in QUANTITY_FIELDS}
+        elif QUANTITY_FIELDS & set(after):
+            base.pop(traced.MEASUREMENT, None)
+        merged = {**base, **after}
         overrides[component_id] = Override(old=old, after=merged)
     return overrides, structure_overrides
 
