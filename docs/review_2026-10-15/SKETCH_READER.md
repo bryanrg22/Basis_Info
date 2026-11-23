@@ -153,6 +153,10 @@ and `measurements_from_fields` reads them.
   quantity instead of `needs_measurement`. A GLA and a story count are still required, as
   today. The perimeter is still the 1.5:1 rectangle, on the better footprint; the gutters still
   run on that rectangle's long side.
+* **Flagged at the appraisal gate.** The extraction raises `gla_vs_sketch` (a warning,
+  BASIS-CHECK-031) when the sketch's living area is outside the tolerance of the GLA box:
+  exactly the sketches the takeoff refuses. The engineer corrects the figure that is wrong;
+  the flag is judged again on the corrected fields.
 * **Refused.** Nothing changes except one input, `sketch_check`, on the roof, siding, gutter
   and landscaping takeoffs, which says the sketch was not used and prints the two figures and
   the tolerance. No substitute value is involved either way: both paths are published methods
@@ -171,7 +175,9 @@ and `measurements_from_fields` reads them.
 * The default area-type lists of TOTAL and Apex, any other tool's layout (RapidSketch,
   PhoenixSketch, CubiCasa), and whether tools always export line work as vectors.
 * The reader has seen one client appraisal and four public samples, all from two layouts.
-* What Basis should do when the sketch and the GLA disagree is not settled (section 96.6).
+* What Basis does when the sketch and the GLA disagree was decided on 2026-11-23: the
+  appraisal is flagged (`gla_vs_sketch`) and the engineer corrects the figure that is wrong
+  (EVAL_REPORT 96.6).
 
 ## Sources
 

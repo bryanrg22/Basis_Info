@@ -389,12 +389,18 @@ Nothing here is visible until the setting is on. With it on:
   `page`, `source` (`azure` or `regex`) and confidence 0.80, and no `regions` (nothing to
   highlight yet). They are not in the field catalogue, so the app has no label for them and the
   "add a missing field" correction refuses their keys. The app does not show or group them.
-* **The sketch against the GLA.** When the sketch's living area and the printed GLA disagree,
-  the API says so only on the takeoff (`takeoff_inputs.sketch_check` on the roof, siding, gutter
-  and landscaping assets: "appraisal sketch not used: its living area is ... against ... GLA,
-  12.50 % apart (tolerance 1 %)"). The place an engineer would act on it is the appraisal review,
-  next to the GLA: correcting the GLA there makes the next revision's takeoff use the sketch.
-  No review flag is raised for it yet (not built; the decision is open in section 96).
+* **The sketch against the GLA** (`gla_vs_sketch`, BASIS-CHECK-031; decided 2026-11-23). When
+  the sketch's living area and the GLA box differ by more than the tolerance, the extraction is
+  flagged: `review_reasons` gains `gla_vs_sketch:improvements.gla_sqft,sketch.living_area_sqft`,
+  `review_codes` gains BASIS-CHECK-031, and the issue's message gives both figures, the page of
+  the sketch and what to do. The app has no wording for this reason and does not show the
+  sketch fields beside the GLA, which is where the engineer would correct one of them (either is
+  an ordinary `extraction_field` correction by field id). The takeoff repeats the outcome on
+  `takeoff_inputs.sketch_check` of the roof, siding, gutter and landscaping assets.
+* **The browser's error catalogue is behind.** `web/live/error-catalogue.js` has 304 of the
+  backend's 311 codes: BASIS-DEMO-001 to 006 (section 95) and BASIS-CHECK-031 are missing.
+  `python3 web/scripts/sync-error-catalogue.py backEnd` adds exactly those seven and changes no
+  existing entry (checked 2026-11-23, not committed: the file is the app's).
 * **Where a quantity came from.** `takeoff_inputs.footprint_source: "sketch"` and formulas that
   read "1200 SF ground floor on the appraisal sketch" on the roof, siding and gutter rows; a
   patio the sketch dimensions arrives as a measured SF quantity instead of `needs_measurement`.

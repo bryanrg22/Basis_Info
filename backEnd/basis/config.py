@@ -437,7 +437,9 @@ class Settings(BaseSettings):
     # each with its page), and the takeoff uses the ground floor as the footprint and the
     # sketch's garage and patio when the sketch's living area is within
     # TAKEOFF_SKETCH_GLA_TOLERANCE of the printed GLA; outside it the takeoff is today's,
-    # with the reason on the roof, siding, gutter and landscaping rows. off (the default:
+    # with the reason on the roof, siding, gutter and landscaping rows, and the appraisal is
+    # flagged at its gate (the gla_vs_sketch reason) so the engineer corrects the
+    # figure that is wrong. off (the default:
     # section 96 measured one property, whose sketch and GLA disagree): no sketch field is
     # written or read. The tolerance is a fraction of the GLA, default 0.01 (the three public
     # sample reports of section 96 agree to the square foot; the client's differ by 12.5 %).

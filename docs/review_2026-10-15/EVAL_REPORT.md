@@ -14383,6 +14383,26 @@ they share the wall the ground floor shares, the siding figure is 6 % lower.
   without a sketch in the document; on, the sketch fields are added after the review gate and
   the gate's result is unchanged.
 
+### 96.6 The disagreement is flagged at the appraisal gate (decided 2026-11-23)
+
+Asked what Basis should do when the sketch and the GLA disagree, Bryan chose the flag
+("Yes, flag it"). With the setting on, a sketch whose living area is further from the GLA box
+than the tolerance now flags the appraisal with `gla_vs_sketch` (a warning naming both
+fields, catalogue code BASIS-CHECK-031, `docs/api/REVIEW_RULES.md` section 4.1). It is raised
+exactly when the takeoff refuses the sketch (one test runs both on the same pairs, including
+the boundary). The engineer corrects whichever figure is wrong; the flag is judged again on
+the corrected fields at the tolerance the extraction recorded, and once the two agree the
+next revision's takeoff uses the sketch with no further step. Approving without correcting
+stays possible: the takeoff then ignores the sketch and says so.
+
+Verified on fabricated data only: the rule case by case; the pipeline (an agreeing sketch
+leaves the gate exactly as it was, a disagreeing one adds one reason and one issue and
+changes nothing else); and the activity against Postgres, three revisions of one study
+(flagged; still flagged after a correction to another field; cleared after the GLA is
+corrected to the sketch's, at which point `measurements_from_fields` accepts the sketch).
+On the client appraisal this flag would be raised (96.2); no live extraction was run to see
+it there.
+
 **Verdict.** The area table can be read from text already paid for, with no model, and the
 rows check themselves. It gives the footprint and the garage exactly and a better roof; it
 does not give the wall length, which is the larger error and needs the outline. On the one
@@ -14393,11 +14413,13 @@ accepted path here is from the widened and corrected setups and from fabricated 
 
 **Open.**
 
-* **What Basis does when the sketch and the GLA disagree** (Bryan's decision). Built: refuse
-  and say why on the takeoff. Not built: telling the engineer at the appraisal gate, which is
-  where a wrong GLA box would be corrected (after which the sketch is accepted without
-  further code: the check runs against the corrected field). On this property the evidence
-  favours the sketch.
+* **The disagreement flag is not in the web app.** The API raises it (96.6); the app has no
+  wording for `gla_vs_sketch`, does not show the sketch fields, and its copy of the error
+  catalogue (`web/live/error-catalogue.js`) is seven codes behind the backend (the six demo
+  request codes of section 95 and this one): `web/FRONTEND_BACKLOG.md` section 16.
+* **Trusting the sketch over the form without the engineer** was not built and is not
+  proposed: on this property the evidence favours the sketch, and it is still the engineer's
+  call.
 * **The outline reader** (96.4): feasible on a born-digital TOTAL sketch, seen on one
   document, not built.
 * **One property, two layouts.** No accepted sketch has been run on client data; the Apex

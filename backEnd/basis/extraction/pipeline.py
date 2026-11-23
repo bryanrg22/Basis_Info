@@ -98,7 +98,7 @@ from basis.extraction.regions import field_regions, with_regions
 from basis.extraction.results import ExtractedField, ExtractionResult, Region, ValidationIssue
 from basis.extraction.sections import azure_candidates, merge
 from basis.extraction.sketch import read_document_sketch, sketch_fields
-from basis.extraction.validation import validate_fields
+from basis.extraction.validation import gla_vs_sketch, validate_fields
 from basis.llm import prompts
 from basis.llm.call import CallContext, step_entry
 from basis.llm.errors import ProviderBadResponse
@@ -162,8 +162,11 @@ class ExtractionContext:
     method: ExtractionMethod = "pipeline"
     grounded: GroundedModel | None = None
     # Whether the building sketch's area calculation table is read into ``sketch`` fields
-    # (``TAKEOFF_SKETCH=on``; :mod:`basis.extraction.sketch`, EVAL_REPORT 96).
+    # (``TAKEOFF_SKETCH=on``; :mod:`basis.extraction.sketch`, EVAL_REPORT 96), and how far
+    # its living area may be from the GLA box before the appraisal is flagged
+    # (``TAKEOFF_SKETCH_GLA_TOLERANCE``: the fraction the takeoff refuses the sketch at).
     sketch: bool = False
+    sketch_gla_tolerance: Decimal = Decimal("0.01")
 
 
 @dataclass
@@ -256,16 +259,28 @@ async def with_sketch(
     pdf_pages: Sequence[str],
 ) -> ExtractionResult:
     """``result`` with the building sketch's fields when ``ctx.sketch`` (module doc of
-    :mod:`basis.extraction.sketch`): added after the review gate, which they are not part
-    of, and never over a field the document's own reading produced. The whole reading (every
-    row, its rectangles, why a field was withheld) is kept in ``raw["sketch"]``."""
+    :mod:`basis.extraction.sketch`): added after the review gate, never over a field the
+    document's own reading produced, and never changing the gate's confidence. The whole
+    reading (every row, its rectangles, why a field was withheld) is kept in
+    ``raw["sketch"]`` with the tolerance in effect.
+
+    One thing reaches the gate: a sketch whose living area is further from the GLA box than
+    ``ctx.sketch_gla_tolerance`` flags the appraisal (``gla_vs_sketch``), because the takeoff
+    will refuse that sketch and only the engineer can say which figure is wrong."""
     if not ctx.sketch:
         return result
     ctx.heartbeat("sketch")
     fields, trace = await asyncio.to_thread(_sketch, azure, pdf_pages)
     for key, item in fields.items():
         result.fields.setdefault(key, item)
-    result.raw["sketch"] = trace
+    result.raw["sketch"] = {**trace, "gla_tolerance": str(ctx.sketch_gla_tolerance)}
+    for issue in gla_vs_sketch(result.fields, ctx.sketch_gla_tolerance):
+        reason = f"{issue.rule}:{','.join(issue.keys)}"
+        result.issues.append(issue)
+        result.review_reasons.append(reason)
+        result.needs_review = True
+        result.raw["issues"] = [*result.raw.get("issues", []), issue.model_dump(mode="json")]
+        result.raw["review_reasons"] = [*result.raw.get("review_reasons", []), reason]
     return result
 
 
