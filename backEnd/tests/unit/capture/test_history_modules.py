@@ -311,6 +311,13 @@ def test_street_addresses_parse_and_heading() -> None:
         "%2F%2Fstreetviewpixels-pa.clients6.google.com%2Fv1%2Fthumbnail%3Fpanoid%26yaw%3D0"
     )
     assert street.parse_pano(empty) is None
+    # EVAL_REPORT 99.1: the address a headed browser lands on gives the camera height as 278a.
+    headed = (
+        "https://www.google.com/maps/@43.0758883,-89.3846385,278a,90y,90t/data=!3m7!1e1!3m5"
+        "!1sAbCdEfGhIjKlMnOp!2e0!6shttps:%2F%2Fstreetviewpixels-pa.clients6.google.com"
+        "%2Fv1%2Fthumbnail%3Fpanoid%3DAbCdEfGhIjKlMnOp%26yaw%3D0!7i16384!8i8192?entry=ttu"
+    )
+    assert street.parse_pano(headed) == street.Pano("AbCdEfGhIjKlMnOp", 43.0758883, -89.3846385)
     assert street.heading_deg(0, 0, 1, 0) == pytest.approx(0)
     assert street.heading_deg(0, 0, 0, 1) == pytest.approx(90)
     assert street.heading_deg(0, 0, -1, 0) == pytest.approx(180)
@@ -329,3 +336,7 @@ def test_a_refusal_is_read_from_the_failed_responses() -> None:
     assert street.refused(page(lookup)) == "the panorama lookup failed (HTTP 500)"
     assert street.refused(page(other, tile, lookup)).startswith("the panorama's imagery")
     assert street.refused(page(other)) is None
+    # A headed browser's first lookup is a 400 before the 200 (EVAL_REPORT 99.1): not a refusal.
+    first = Response(400, "https://www.google.com/maps/photometa/si/v1?pb=x")
+    assert street.refused(page(first)) is None
+    assert street.refused(page(first, lookup)) == "the panorama lookup failed (HTTP 500)"

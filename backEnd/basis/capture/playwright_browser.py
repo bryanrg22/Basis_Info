@@ -257,7 +257,7 @@ def playwright_factory(settings: Settings) -> BrowserFactory:
 
         async with async_playwright() as playwright:
             options: dict[str, Any] = {
-                "headless": True,
+                "headless": settings.capture_headless,
                 "args": chromium_args(settings),
                 "viewport": layout_of(settings).viewport,
                 "device_scale_factor": 1,
@@ -269,7 +269,9 @@ def playwright_factory(settings: Settings) -> BrowserFactory:
                 )
                 browser = None
             else:
-                browser = await playwright.chromium.launch(headless=True, args=options.pop("args"))
+                browser = await playwright.chromium.launch(
+                    headless=options["headless"], args=options.pop("args")
+                )
                 options.pop("headless")
                 context = await browser.new_context(**options)
             try:

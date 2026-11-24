@@ -14542,6 +14542,7 @@ repository.
   the proxy); a real block signal from the site (none came); street level headed or with
   another identity (not tried, Bryan's decision); the date reading on a viewer redesign.
 
+<<<<<<< HEAD
 ## 101. Public geographic sources: government imagery, history, parcels and lidar per property (2026-11-23)
 
 **Question.** Can Basis gather, for a study's pin, the public records an engineer uses beside
@@ -14919,3 +14920,41 @@ outline where it did, and attached roofs merge. The heights are read only from c
 projects that label buildings otherwise (17, 1) give none even where the points reach the true
 height (the Washington Monument). Not changed and open: reading other classes for heights, a
 merge check against the parcel or the appraisal's living area, and the sparse fragments.
+=======
+### 99.1 Street level in a headed browser (2026-11-24)
+
+**Question.** Section 99 found the street-level service refuses a headless browser (lookup 500,
+tiles 403, a black panorama). Does it render in a headed one, a real Chromium window?
+
+**Method.** Chromium build 1248 through Playwright 1.64.1, `headless=False` (a window on the
+Mac), a fresh profile, signed out, 1440 x 900, `en-US`. One page load of the documented
+panorama address (`street.pano_lookup_address`) at a street beside the Wisconsin State Capitol
+(a public place, not a client property), then 15 s for the panorama to stream; every response
+from the lookup path (`/maps/photometa/`) and the tile host recorded; a screenshot. Run twice,
+20 s apart. The page-load ledger of the integration run no longer existed (its database was
+gone), so the loads were counted by hand: 16 and 17 of the day's 30.
+
+| Run | Lookup responses | Tile responses | Panorama | Seconds |
+|---|---|---|---|---|
+| Headless (section 99, three probes) | 500 | 403 | black | |
+| Headed 1 | 400, then 200 | 13 x 200 | renders (2 E Mifflin St, captured June 2025) | 16.2 |
+| Headed 2 | 400, then 200 | 13 x 200 | renders, same panorama | 16.0 |
+
+**Findings.**
+- The service serves a headed browser. Nothing about the browser was disguised: it is the same
+  Chromium with a window.
+- The page's address names the panorama as before (`!1s<id>!2e0`), but gives the camera height
+  as `278a` where section 99 saw `3a`, so `street.parse_pano` read no panorama. Fixed: any
+  number before `a`.
+- The first lookup answers 400 before the 200. `street.refused` called any lookup 4xx a refusal
+  and would have discarded a rendered panorama. Fixed: a lookup 5xx (what headless gets), a
+  401/403 on the tiles, or a black frame is a refusal; a lookup 4xx alone is not.
+
+**What changed.** `CAPTURE_HEADLESS` (true, the default: nothing changes until it is set false);
+street level needs it false. The capture image installs Xvfb and starts the worker under
+`xvfb-run` (a virtual display; harmless headless). `CAPTURE_STREET_VIEW` stays off by default.
+
+**Not verified.** The capture runner's whole street step headed (the camera turned to the house
+and the picture stored) and a headed run inside the capture image under Xvfb; a headed browser's
+standing over many captures (whether it keeps being served).
+>>>>>>> origin/claude/capture-history-streetview

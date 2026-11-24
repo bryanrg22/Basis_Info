@@ -1,5 +1,6 @@
 """Ground-level pictures of the front of the property, where the street-level imagery covers
-it (EVAL_REPORT 99). Off by default (``CAPTURE_STREET_VIEW``): it does not work headless yet.
+it (EVAL_REPORT 99, 99.1). Off by default (``CAPTURE_STREET_VIEW``); it needs a headed browser
+(``CAPTURE_HEADLESS=false``, under a virtual display on a server).
 
 The path, built and tried:
 
@@ -19,6 +20,13 @@ panorama is black. The top-down viewer's own street-level mode makes the same lo
 the same 500. The same panorama renders in a regular, headed browser. So the failure is the
 service refusing this browser, not its graphics; making it work would mean presenting the
 browser as something it is not, which is the maintainer's decision, not taken here.
+
+EVAL_REPORT 99.1 (2026-11-24): in a headed Chromium (a real window, signed out, the same
+address), the lookup answers 400 then 200, every imagery tile 200, and the panorama renders,
+twice in two page loads. Two things followed: the page's address now gives the camera height
+as ``278a`` where section 99 saw ``3a``, so :data:`_POSITION` takes any number before ``a``;
+and a lookup 4xx is no longer a refusal by itself (the headed browser's first lookup is a 400
+before the 200), only a 5xx is, as headless saw, or a 401/403 on the tiles, or a black frame.
 
 Each outcome has its own code and no retry: no panorama near the pin
 (``E.CAPTURE_STREET_NO_COVERAGE``), or the panorama refused or black
@@ -43,7 +51,8 @@ STREET_PITCH_DEG: Final = 90.0  # the address's ``t``: 90 looks at the horizon
 TILE_HOSTS: Final = ("streetviewpixels-pa.clients6.google.com",)
 LOOKUP_PATH: Final = "/maps/photometa/"
 _POSITION: Final = re.compile(
-    r"/@(?P<lat>-?\d+(?:\.\d+)?),(?P<lon>-?\d+(?:\.\d+)?),3a,(?:[\d.]+y,)?(?:(?P<h>[\d.]+)h,)?"
+    r"/@(?P<lat>-?\d+(?:\.\d+)?),(?P<lon>-?\d+(?:\.\d+)?),\d+(?:\.\d+)?a,(?:[\d.]+y,)?"
+    r"(?:(?P<h>[\d.]+)h,)?"
 )
 _PANO: Final = re.compile(r"!1s(?P<id>[A-Za-z0-9_-]{10,})!2e")
 
@@ -104,12 +113,13 @@ def distance_m(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
 
 def refused(page: PageRecord) -> str | None:
     """Why the service refused the panorama, from the failed responses; None when it did
-    not (a 403 on the imagery tiles, or a 4xx/5xx on the panorama lookup)."""
+    not (a 401/403 on the imagery tiles, or a 5xx on the panorama lookup; a 4xx lookup alone
+    is not: a headed browser's first lookup is a 400 before the 200, EVAL_REPORT 99.1)."""
     for response in page.failed:
         host = (urlsplit(response.url).hostname or "").lower()
         if host in TILE_HOSTS and response.status in (401, 403):
             return f"the panorama's imagery was refused (HTTP {response.status})"
     for response in page.failed:
-        if LOOKUP_PATH in urlsplit(response.url).path and response.status >= 400:
+        if LOOKUP_PATH in urlsplit(response.url).path and response.status >= 500:
             return f"the panorama lookup failed (HTTP {response.status})"
     return None

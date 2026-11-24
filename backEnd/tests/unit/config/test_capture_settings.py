@@ -30,6 +30,7 @@ def test_the_defaults_are_off_and_gentle() -> None:
         12.0,
     )
     assert s.capture_profile_dir is None and s.capture_chromium_args is None
+    assert s.capture_headless is True and s.capture_street_view is False
     assert "google" not in s.capture_source_text.lower()
 
 
