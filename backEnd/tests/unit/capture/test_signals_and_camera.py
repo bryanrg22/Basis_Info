@@ -36,6 +36,17 @@ def test_an_address_round_trips() -> None:
     assert ",150.00d,35y,90h,60t,0r" in side.address()
 
 
+def test_the_no_place_spot_is_not_a_place() -> None:
+    def at(lat: float, lon: float) -> camera.Camera:
+        return camera.Camera(lat, lon, 0.0, 165.0, 35.0)
+
+    assert camera.found_nothing(at(0.0, -0.2049))
+    assert camera.found_nothing(at(-0.5, 1.0)) and camera.found_nothing(at(0.5, -1.0))
+    assert not camera.found_nothing(at(0.51, 0.0)) and not camera.found_nothing(at(0.0, 1.01))
+    assert not camera.found_nothing(at(0.3365, 6.7273))  # Sao Tome, the nearest land
+    assert not camera.found_nothing(at(43.0747, -89.3841))
+
+
 def test_no_place_parses_to_none_and_bad_cameras_are_refused() -> None:
     assert camera.parse("https://earth.google.com/web/search/nowhere") is None
     assert camera.parse("https://earth.google.com/web/") is None

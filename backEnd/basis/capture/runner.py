@@ -34,7 +34,7 @@ from typing import Final
 from basis.capture import governor as gov
 from basis.capture import messages
 from basis.capture.browser import BrowserCrashed, BrowserFactory, CaptureBrowser
-from basis.capture.camera import Camera, parse, pixel_size_m, search_address
+from basis.capture.camera import Camera, found_nothing, parse, pixel_size_m, search_address
 from basis.capture.governor import GovernorConfig, NavigationKind
 from basis.capture.plan import PlannedView, plan
 from basis.capture.signals import Frame, PageRecord, Signal, detect, frame_stats
@@ -197,7 +197,7 @@ class CaptureRunner:
         landed = await browser.current()
         await self._check(row, browser, landed)
         camera = parse(landed.url)
-        if camera is None:
+        if camera is None or (not pin.has_point and found_nothing(camera)):
             await self._stop_failed(
                 row, browser, E.CAPTURE_NO_PLACE, "the page named no place", landed
             )
