@@ -19,6 +19,15 @@ Rules, applied to every checked file:
 5. Sensitive path: a ``credentials/`` directory, a ``.env``-style file, or a
    service-account key file name.
 
+6. Private term: the file's text contains a word or number from a private list kept
+   outside the repository (a client property's town, street address, business name,
+   coordinates). The list is ``--private-terms``, else ``$BASIS_PRIVATE_TERMS``, else
+   ``$BASIS_EVAL_DATA_DIR/private_terms.txt``, else ``~/basis-eval-data/private_terms.txt``;
+   one term per line, ``#`` starts a comment, matched case-insensitively. Where no list
+   exists (CI) the rule is skipped and the summary says so. The finding names the file, the
+   line and the term's line number in the list, never the term, so the output can be
+   shared. Never overridable.
+
 Rules 3-5 can be waived for one exact file by a pinned entry in
 ``client_data_exceptions.txt`` (``<sha256>  <path>``). The entry matches only
 while both the path and the content hash are unchanged, so editing an excepted
@@ -34,6 +43,7 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import os
 import subprocess
 import sys
 from collections.abc import Iterable, Sequence
@@ -298,6 +308,86 @@ def check_entries(
     return findings
 
 
+# -------------------------------------------------------------- private terms
+
+
+def private_terms_path(explicit: Path | None) -> Path | None:
+    """The private term list to use (module doc, rule 6), or None when there is none."""
+    if explicit is not None:
+        return explicit
+    env = os.environ.get("BASIS_PRIVATE_TERMS", "").strip()
+    if env:
+        return Path(env)
+    data_dir = os.environ.get("BASIS_EVAL_DATA_DIR", "").strip()
+    candidates = [Path(data_dir) / "private_terms.txt"] if data_dir else []
+    candidates.append(Path.home() / "basis-eval-data" / "private_terms.txt")
+    return next((c for c in candidates if c.exists()), None)
+
+
+def load_terms(path: Path) -> list[tuple[int, str]]:
+    """``[(line number in the list, lowercased term)]``; blank lines and comments skipped."""
+    terms = []
+    for number, raw in enumerate(path.read_text(encoding="utf-8").splitlines(), start=1):
+        term = raw.split("#", 1)[0].strip().lower()
+        if term:
+            terms.append((number, term))
+    return terms
+
+
+def read_blobs(repo: Path, blobs: Iterable[str], max_bytes: int) -> dict[str, bytes]:
+    """The content of each blob up to ``max_bytes`` (larger ones fail rule 4 anyway)."""
+    unique = sorted(set(blobs))
+    result: dict[str, bytes] = {}
+    if not unique:
+        return result
+    proc = subprocess.Popen(
+        ["git", "-C", str(repo), "cat-file", "--batch"],
+        stdin=subprocess.PIPE,
+        stdout=subprocess.PIPE,
+    )
+    assert proc.stdin is not None and proc.stdout is not None
+    try:
+        for blob in unique:
+            proc.stdin.write(blob.encode("ascii") + b"\n")
+            proc.stdin.flush()
+            header = proc.stdout.readline().decode("ascii").split()
+            if len(header) != 3:
+                raise RuntimeError(f"git cat-file: unexpected reply for {blob}: {header}")
+            size = int(header[2])
+            data = proc.stdout.read(size)
+            proc.stdout.read(1)  # trailing newline after the content
+            if size <= max_bytes:
+                result[blob] = data
+    finally:
+        proc.stdin.close()
+        proc.wait()
+    return result
+
+
+def check_terms(
+    entries: Sequence[Entry], contents: dict[str, bytes], terms: Sequence[tuple[int, str]]
+) -> list[Finding]:
+    """Rule 6: one finding per file, line and term; the term itself is never printed."""
+    findings = []
+    for entry in entries:
+        data = contents.get(entry.blob)
+        if data is None or b"\0" in data[:8192]:  # too large, or binary
+            continue
+        text = data.decode("utf-8", "replace").lower()
+        if not any(term in text for _, term in terms):
+            continue
+        for line_no, line in enumerate(text.splitlines(), start=1):
+            for number, term in terms:
+                if term in line:
+                    findings.append(
+                        Finding(
+                            f"{entry.path}:{line_no}",
+                            f"contains private term #{number} of the private list",
+                        )
+                    )
+    return findings
+
+
 # ----------------------------------------------------------------------- main
 
 
@@ -316,6 +406,13 @@ def run(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("--blocklist", type=Path, default=DEFAULT_BLOCKLIST)
     parser.add_argument("--exceptions", type=Path, default=DEFAULT_EXCEPTIONS)
     parser.add_argument("--repo", type=Path, default=Path.cwd(), help="path inside the repo")
+    parser.add_argument(
+        "--private-terms",
+        type=Path,
+        default=None,
+        help="private term list (rule 6); default: $BASIS_PRIVATE_TERMS, then "
+        "$BASIS_EVAL_DATA_DIR/private_terms.txt, then ~/basis-eval-data/private_terms.txt",
+    )
     args = parser.parse_args(argv)
 
     root = repo_root(args.repo)
@@ -339,8 +436,19 @@ def run(argv: Sequence[str] | None = None) -> int:
         list(DEFAULT_ALLOWED_DIRS) + list(args.allow_dir),
     )
 
+    terms_path = private_terms_path(args.private_terms)
+    terms = load_terms(terms_path) if terms_path is not None and terms_path.exists() else []
+    if terms:
+        contents = read_blobs(root, (e.blob for e in entries), MAX_BYTES)
+        findings += check_terms(entries, contents, terms)
+    terms_note = (
+        f"{len(terms)} private term(s) checked" if terms else "no private term list (rule 6 skipped)"
+    )
+
     if not findings:
-        print(f"client-data-guard: {len(entries)} {scope} file(s) checked, no problems.")
+        print(
+            f"client-data-guard: {len(entries)} {scope} file(s) checked, no problems; {terms_note}."
+        )
         return 0
 
     print(f"client-data-guard: {len(findings)} problem(s) in {scope} files:", file=sys.stderr)
