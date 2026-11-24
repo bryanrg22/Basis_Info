@@ -79,6 +79,31 @@ services:
         condition: service_started
     restart: unless-stopped
 
+  # The property capture worker (docs/review_2026-10-15/PROPERTY_CAPTURE.md): its own image
+  # with a headless Chromium. Off unless asked for: `docker compose --profile capture up`, and
+  # PROPERTY_CAPTURE=on in backEnd/.env for the API to start captures.
+  capture-worker:
+    profiles: ["capture"]
+    build:
+      context: ./backEnd
+      dockerfile: Dockerfile.capture
+    env_file:
+      - ./backEnd/.env
+    environment:
+      BASIS_ENV: dev
+      DATABASE_URL: postgresql+asyncpg://basis:basis@postgres:5432/basis  # pragma: allowlist secret
+      TEMPORAL_ADDRESS: temporal:7233
+      CAPTURE_PROFILE_DIR: /home/basis/capture-profile
+    volumes:
+      - localstorage:/tmp/basis-local-storage
+      - captureprofile:/home/basis/capture-profile
+    depends_on:
+      postgres:
+        condition: service_healthy
+      temporal:
+        condition: service_started
+    restart: unless-stopped
+
   # Delivers decisions recorded by the API (outbox rows) to the workflow as Temporal
   # updates. Without it a decision is stored but never reaches the study.
   relay:
@@ -102,3 +127,4 @@ volumes:
   pgdata:
   temporaldata:
   localstorage:
+  captureprofile:
