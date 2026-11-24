@@ -35,8 +35,12 @@ def git_env(tmp_path: Path) -> dict[str, str]:
             "GIT_AUTHOR_EMAIL": "test@example.invalid",
             "GIT_COMMITTER_NAME": "Test",
             "GIT_COMMITTER_EMAIL": "test@example.invalid",
+            # Rule 6 reads a private term list; the developer's real one must not leak into
+            # these tests, so each test gets an empty list unless it writes its own.
+            "BASIS_PRIVATE_TERMS": str(tmp_path / "private_terms.txt"),
         }
     )
+    (tmp_path / "private_terms.txt").write_text("")
     return env
 
 
@@ -413,3 +417,61 @@ def test_script_runs_on_this_repository() -> None:
     # Smoke test: the guard executes end to end against the real repo and
     # returns a defined status (0 clean, 1 findings) rather than crashing.
     assert _run_real_guard_ci(SCRIPT.parent) in (0, 1)
+
+
+# ------------------------------------------------------------- private terms (rule 6)
+
+
+def write_terms(repo: Repo, text: str) -> Path:
+    path = repo.root.parent / "terms.txt"
+    path.write_text(text)
+    return path
+
+
+def test_private_term_in_staged_text_is_blocked_by_line_without_naming_it(repo: Repo) -> None:
+    terms = write_terms(repo, "# a comment\n\nSecret Town\n")
+    repo.add("docs/note.md", b"line one\nWe drove to secret town today.\n")
+    code, out = repo.guard("--staged", "--private-terms", str(terms))
+    assert code == 1
+    assert blocked_lines(out) == [
+        "BLOCKED docs/note.md:2: contains private term #3 of the private list"
+    ]
+    assert "secret town" not in out.lower()
+
+
+def test_private_term_is_checked_in_ci_mode_too(repo: Repo) -> None:
+    terms = write_terms(repo, "12.3456\n")
+    repo.add("tests/test_x.py", b"LAT = 12.345678\n")
+    repo.commit()
+    code, out = repo.guard("--ci", "--private-terms", str(terms))
+    assert code == 1 and "tests/test_x.py:1" in out
+
+
+def test_private_term_cannot_be_waived_by_an_exception(repo: Repo) -> None:
+    terms = write_terms(repo, "secret town\n")
+    data = b"secret town\n"
+    repo.add("docs/a.md", data)
+    repo.exceptions.write_text(f"{sha256(data)}  docs/a.md  # waiver\n")
+    code, _ = repo.guard("--staged", "--private-terms", str(terms))
+    assert code == 1
+
+
+def test_binary_files_are_not_searched_for_terms(repo: Repo) -> None:
+    terms = write_terms(repo, "secret\n")
+    repo.add("backEnd/tests/fixtures/synthetic/blob.pdf", b"%PDF\x00\x00secret")
+    code, out = repo.guard("--staged", "--private-terms", str(terms))
+    assert code == 0, out
+
+
+def test_no_term_list_skips_the_rule_and_says_so(repo: Repo) -> None:
+    repo.add("docs/note.md", b"secret town\n")
+    code, out = repo.guard("--staged", "--private-terms", str(repo.root.parent / "missing.txt"))
+    assert code == 0 and "rule 6 skipped" in out
+
+
+def test_env_variable_names_the_list(repo: Repo) -> None:
+    terms = write_terms(repo, "secret town\n")
+    repo.env["BASIS_PRIVATE_TERMS"] = str(terms)
+    repo.add("docs/note.md", b"secret town\n")
+    code, out = repo.guard("--staged")
+    assert code == 1 and "1 problem" in out
