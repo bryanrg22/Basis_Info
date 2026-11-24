@@ -588,7 +588,10 @@ def _qty(value: Decimal) -> str:
 
 
 def retakeoff(
-    document: Mapping[str, Any], *, property_class: str | None = None
+    document: Mapping[str, Any],
+    *,
+    property_class: str | None = None,
+    sketch_tolerance: Decimal | None = None,
 ) -> tuple[dict[str, Any], dict[str, Any]]:
     """``(the export with its measured quantities recomputed under the constants in
     effect, a summary)``. Count-based rows, rows on a typical area, rows measured once
@@ -596,11 +599,13 @@ def retakeoff(
     row's total is its stored unit cost times the new quantity (the pricing is linear in
     the quantity; ``evals.reprice_export`` prices it again from the cost table anyway). A
     room that today's rules size as typical with a missing input (an ambiguous room type)
-    is written unpriced with the input named, as ``process_assets`` writes it."""
+    is written unpriced with the input named, as ``process_assets`` writes it.
+    ``sketch_tolerance``: what ``TAKEOFF_SKETCH=on`` hands the takeoff (EVAL_REPORT 96); None
+    leaves the export's ``sketch`` fields unread, as before."""
     rooms = [
         RoomStub(r["id"], str(r.get("room_type") or ""), r.get("floor")) for r in document["rooms"]
     ]
-    read = measurements_from_fields(field_rows(document))
+    read = measurements_from_fields(field_rows(document), sketch_tolerance=sketch_tolerance)
     if read.is_empty:
         raise ReplayError("the export has no extraction fields: nothing to measure from")
     takeoff = (document.get("summary") or {}).get("takeoff") or {}

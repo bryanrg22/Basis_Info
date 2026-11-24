@@ -148,6 +148,7 @@ class FieldRowView:
     value_text: str | None
     value_date: date | None
     source: str
+    page: int | None = None
 
 
 def field_rows(document: Mapping[str, Any]) -> list[FieldRowView]:
@@ -164,6 +165,7 @@ def field_rows(document: Mapping[str, Any]) -> list[FieldRowView]:
                     value_text=f.get("value_text"),
                     value_date=None if not when else date.fromisoformat(str(when)),
                     source=str(f.get("source") or "llm"),
+                    page=f.get("page"),
                 )
             )
     return rows
