@@ -164,6 +164,8 @@ test('the gather status says when the pin moved and when nothing came back',()=>
  assert.equal(M.gatherStatus(null).state,'none');
  assert.equal(M.gatherStatus({status:'running'}).polling,true);
  assert.equal(M.gatherStatus({status:'succeeded',stale:true,sources:[]}).tone,'review');
+ assert.equal(M.gatherStatus({status:'succeeded',stale:true,sources:[]}).stale,true);
+ assert.equal(M.gatherStatus({status:'succeeded',stale:false,sources:[]}).stale,false);
  assert.match(M.gatherStatus({status:'succeeded',stale:false,sources:[{status:'failed'}]}).text,/No public source answered/);
 });
 
@@ -216,12 +218,27 @@ test('the bracket orders the two dates and refuses equal or undated ones',()=>{
 
 /* ---------- what to measure, capabilities ---------- */
 test('an exterior row held for a measured length or area offers the aerial; an interior or counted one does not',()=>{
- const fence={room:{room_type:'exterior'},review_reasons:['cross:COST_NEEDS_QUANTITY'],takeoff:{unit:'EA'},cost:{trail:{base:{unit:'LF'}}}};
+ const fence={label:'fence',room:{room_type:'exterior'},review_reasons:['cross:COST_NEEDS_QUANTITY'],takeoff:{unit:'EA'},cost:{trail:{base:{unit:'LF'}}}};
  assert.deepEqual(M.needsMeasurement(fence),{needed:true,offer:true,reason:'cross:COST_NEEDS_QUANTITY',unit:'LF'});
  assert.equal(M.needsMeasurement({...fence,review_reasons:['input:exterior_area'],cost:{trail:{base:{unit:'SF'}}}}).unit,'SF');
  assert.equal(M.needsMeasurement({...fence,room:{room_type:'kitchen'}}).needed,false);
  assert.equal(M.needsMeasurement({room:{room_type:'exterior'},review_reasons:[],takeoff:{unit:'EA'},cost:{trail:{base:{unit:'EA'}}}}).offer,false);
- assert.equal(M.needsMeasurement({room:null,review_reasons:['input:room'],takeoff:{unit:'SF'}}).needed,true);
+ assert.equal(M.needsMeasurement({label:'driveway',room:null,review_reasons:['input:room'],takeoff:{unit:'SF'}}).needed,true);
+});
+test('the building-wide system rows and a duplicate of a measured row are never offered to trace',()=>{
+ // Live check 2026-11-24: the picker offered Electrical, Plumbing, HVAC, Painting (3,200 SF each,
+ // the structure model's building-wide rows: no room, no component label) and "Roof 0 SF" eight
+ // times (each pointing at the one roof row that holds the property's measurement).
+ const wiring={label:null,room:null,review_reasons:[],takeoff:{unit:'SF'},cost:{trail:{base:{unit:'SF'}}}};
+ assert.deepEqual(M.needsMeasurement(wiring),{needed:false,offer:false,reason:null,unit:'SF'});
+ assert.equal(M.needsMeasurement({...wiring,review_reasons:['unpriced']}).needed,false);
+ const roof={label:'roof',room:{room_type:'exterior'},review_reasons:[],takeoff:{unit:'SF',inputs:{}},cost:{trail:{base:{unit:'SF'}}}};
+ assert.equal(M.needsMeasurement(roof).offer,true);
+ const copy={...roof,takeoff:{unit:'SF',quantity:'0',inputs:{measured_with_asset:'0761a854-3e3c-432a-b1b3-000000000000'}}};
+ assert.deepEqual(M.needsMeasurement(copy),{needed:false,offer:false,reason:null,unit:'SF'});
+ assert.equal(M.needsMeasurement({...copy,review_reasons:['cross:COST_NEEDS_QUANTITY']}).needed,false);
+ // A labelled site item with no room (an engineer's manual add) is still offered.
+ assert.equal(M.needsMeasurement({label:'fence',room:null,review_reasons:[],cost:{trail:{base:{unit:'LF'}}}}).offer,true);
 });
 test('capabilities: only true is true, so today’s API hides everything',()=>{
  assert.deepEqual(M.caps(null),{propertyCapture:false,publicGeo:false,tracedMeasurement:false});

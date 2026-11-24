@@ -93,7 +93,7 @@
  function statusBlock(st,gs){
   const rows=[];
   if(caps().propertyCapture&&st&&(st.state!=='ready'||st.stale))rows.push(`<div class="pa-status is-${st.tone}" role="status"><span class="pa-dot" aria-hidden="true"></span><div><strong>Property pictures · ${esc(st.title)}</strong><p>${esc(st.text)}</p>${st.code&&['failed','paused'].includes(st.state)?`<p class="pa-code">For support: <code>${esc(st.code)}</code>${globalThis.BasisErrorHelp?.explain(st.code).known?` · ${esc(BasisErrorHelp.explain(st.code).what)}`:''}</p>`:''}</div></div>`);
-  if(caps().publicGeo&&gs&&gs.state!=='ready')rows.push(`<div class="pa-status is-${gs.tone}" role="status"><span class="pa-dot" aria-hidden="true"></span><div><strong>Public records · ${esc(gs.title)}</strong><p>${esc(gs.text)}</p></div></div>`);
+  if(caps().publicGeo&&gs&&(gs.state!=='ready'||gs.stale))rows.push(`<div class="pa-status is-${gs.tone}" role="status"><span class="pa-dot" aria-hidden="true"></span><div><strong>Public records · ${esc(gs.title)}</strong><p>${esc(gs.text)}</p></div></div>`);
   return rows.length?`<div class="pa-statuses">${rows.join('')}</div>`:'';
  }
  function actionButtons(s,prop,st,gs,u){
@@ -265,7 +265,7 @@ ${t.tool==='line'&&unit!=='LF'?`<label class="pa-height">Wall height (ft) <input
  const lastArea=t=>{for(let i=t.shapes.length-1;i>=0;i--)if(t.shapes[i].kind==='area')return i;return -1};
  function savedPanel(s,a,u){
   const sv=u.saved,texts=(globalThis.BasisReasons?.explainAll(sv.flags)||sv.flags.map(f=>({text:f}))).map(x=>x.text);
-  return `<section class="pa-card pa-measure is-saved"><header class="pa-measure-head"><h2>${esc(a.label?name(a.label):a.category)} measured</h2></header><p><strong>${fmt(sv.quantity,2)} ${esc(sv.unit)}</strong> is in the assets review’s corrections, waiting for Review &amp; send.</p><p class="pa-muted">${esc(sv.formula)}</p>${texts.length?`<div class="pa-flags"><h3>The review will flag it</h3><ul>${texts.map(x=>`<li>${esc(x)}</li>`).join('')}</ul></div>`:'<p class="pa-muted">No review flag: the picture is dated before the placed-in-service date and sharp enough for its size.</p>'}<div class="row wrap"><a class="button primary" href="${Live.route('assets',s.id)}">Back to assets</a><button class="button" data-live="pa-trace-again">Trace it again</button></div></section>`;
+  return `<section class="pa-card pa-measure is-saved"><header class="pa-measure-head"><h2>${esc(a.label?name(a.label):a.category)} measured</h2></header><p><strong>${fmt(sv.quantity,2)} ${esc(sv.unit)}</strong> is in the assets review’s corrections, waiting for Review &amp; send.</p><p class="pa-muted">${esc(sv.formula)}</p>${texts.length?`<div class="pa-flags"><h3>The review will flag it</h3><ul>${texts.map(x=>`<li>${esc(x)}</li>`).join('')}</ul></div>`:'<p class="pa-muted">No review flag: the picture is dated no later than a year after the placed-in-service date and is sharp enough for its size.</p>'}<div class="row wrap"><a class="button primary" href="${Live.route('assets',s.id)}">Back to assets</a><button class="button" data-live="pa-trace-again">Trace it again</button></div></section>`;
  }
 
  /* ---------- the page ---------- */

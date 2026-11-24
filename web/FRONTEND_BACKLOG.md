@@ -469,6 +469,22 @@ is `live/property.js` (`web/README.md`, "The Property area"; design in `DESIGN_N
 * Asked of the backend: compare the pin's point, not its version, when marking views stale
   (confirming the pin makes every view stale today); an `image.view_id` on the measurement.
 
+**Found in the live walkthrough (2026-11-24; fixed: the measure list, the stale public-records
+banner, the saved-measurement sentence). Still open:**
+
+* *Reopening at a gate shows 0 assets* until the page is reloaded: the revision's assets are copied
+  after the reopen answers, and the page does not load them again.
+* *"Usually ready within two minutes"* on a queued capture: a capture is paced (8 to 20 s between
+  moves) and took 7 to 8 minutes in every live run. Say "a few minutes" or count the steps.
+* *"No parcel found" does not say why*: no parcel layer covers the county (Sangamon County, IL,
+  in the walkthrough) reads the same as a point between parcels. `gather.sources` has the outcome
+  of each source.
+* *The address search's point is often the street*, not the house (the walkthrough's landed in
+  an intersection, and the heights card then found no building). The confirm card could show
+  the parcel or the building outline under the point, or ask the engineer to click the roof.
+* A traced measurement lives in the unsent corrections, which a reload loses (the gate drafts
+  item above).
+
 ## 17. The traced measurement: what the API offers and the app does not use (EVAL_REPORT 97)
 
 The backend accepts a measurement the engineer **traced** instead of typed
