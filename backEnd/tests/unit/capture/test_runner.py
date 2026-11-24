@@ -426,6 +426,19 @@ async def test_a_search_that_finds_no_place_fails_with_its_code() -> None:
     assert rig.store.incidents[E.CAPTURE_NO_PLACE].last_evidence is not None
 
 
+async def test_a_search_left_at_the_no_place_spot_places_nothing() -> None:
+    # The live run of 2026-11-24: the address matched nothing and the camera sat at 0, -0.2.
+    landing = (
+        "https://earth.google.com/web/search/nowhere/@0.0,-0.2049,0a,165.4d,35y,0h,0t,0r"
+        "/data=CiwiJgokCQ"
+    )
+    rig = Rig(FakeBrowser(landing=landing))
+    assert await rig.run() == Failed(E.CAPTURE_NO_PLACE)
+    assert rig.store.pins[STUDY].lat is None  # nothing placed
+    assert rig.store.views == []
+    assert rig.events("property.pin_placed") == []
+
+
 async def test_a_timeout_fails_the_capture() -> None:
     rig = Rig(FakeBrowser(on_load={0: TimeoutError("load")}))
     assert await rig.run() == Failed(E.CAPTURE_TIMEOUT)

@@ -3901,7 +3901,7 @@ ENTRIES: Final[tuple[Entry, ...]] = (
         "error",
         "the capture worker (`python -m basis.capture`)",
         "basis.capture.runner",
-        "The address search found no place: the page did not move to a place (no `@lat,lon` in its address) within the wait.",
+        "The address search found no place: the page did not move to a place (no `@lat,lon` in its address) within the wait, or it moved to the no-place spot at latitude 0 near longitude 0 (open ocean), where a search that finds nothing leaves the camera.",
         "The capture's status `failed` with this `code`; the `capture.failed` timeline event; the `capture_incidents` row; the worker's log line with `error_code`; the evidence beside the capture's files.",
         "The engineer corrects the address or drops the pin on the house (`PUT .../property/pin` with `lat`/`lon`) and starts the capture again.",
         "after fix",

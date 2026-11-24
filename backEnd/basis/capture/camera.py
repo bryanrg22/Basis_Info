@@ -70,9 +70,22 @@ class Camera:
         )
 
 
+# A search that finds nothing can still leave a camera in the page's address, at latitude 0
+# and a longitude near 0 (the live run of 2026-11-24: 0.0000, -0.2049, altitude 0): the
+# failed-geocode spot mapping tools call Null Island. This box around it is open ocean (the
+# nearest land, Sao Tome, is 6.5 degrees east), so no property is ever in it.
+NO_PLACE_BOX: Final = (0.5, 1.0)  # |lat| and |lon| in degrees
+
+
+def found_nothing(camera: Camera) -> bool:
+    """Whether a searched camera is the no-place spot (:data:`NO_PLACE_BOX`), not a place."""
+    lat_limit, lon_limit = NO_PLACE_BOX
+    return abs(camera.lat) <= lat_limit and abs(camera.lon) <= lon_limit
+
+
 def parse(address: str) -> Camera | None:
     """The camera an address names, None when it names none (a search that found no place
-    leaves the address without ``/@...``)."""
+    leaves the address without ``/@...``, or with the no-place camera: :func:`found_nothing`)."""
     found = _CAMERA.search(address)
     if found is None:
         return None
