@@ -440,8 +440,8 @@ def test_private_term_in_staged_text_is_blocked_by_line_without_naming_it(repo: 
 
 
 def test_private_term_is_checked_in_ci_mode_too(repo: Repo) -> None:
-    terms = write_terms(repo, "43.8509\n")
-    repo.add("tests/test_x.py", b"LAT = 43.850952\n")
+    terms = write_terms(repo, "12.3456\n")
+    repo.add("tests/test_x.py", b"LAT = 12.345678\n")
     repo.commit()
     code, out = repo.guard("--ci", "--private-terms", str(terms))
     assert code == 1 and "tests/test_x.py:1" in out
