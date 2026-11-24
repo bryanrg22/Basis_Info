@@ -22219,7 +22219,8 @@
           },
           "stale": {
             "type": "boolean",
-            "title": "Stale"
+            "title": "Stale",
+            "description": "Gathered at another point than the pin's current one (more than 1 m away)."
           },
           "sources": {
             "items": {
@@ -26061,7 +26062,7 @@
           "stale": {
             "type": "boolean",
             "title": "Stale",
-            "description": "Taken around an earlier pin than the current one."
+            "description": "Taken around another point than the pin's current one (more than 1 m away); confirming the pin or editing its address does not make a view stale."
           }
         },
         "type": "object",

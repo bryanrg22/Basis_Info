@@ -51,20 +51,21 @@ class PublicGeoRepository:
             )
         )
 
-    async def recent_success(
-        self, study_id: uuid.UUID, *, since: datetime, pin: PropertyPin
-    ) -> GeoGather | None:
-        return await self._session.scalar(
+    async def recent_successes(self, study_id: uuid.UUID, *, since: datetime) -> list[GeoGather]:
+        """The newest gathers that succeeded since ``since``, newest first (at most five). The
+        route keeps the first one taken at the pin's current point: confirming the pin or
+        editing its address raises its version without moving the point."""
+        rows = await self._session.scalars(
             select(GeoGather)
             .where(
                 GeoGather.study_id == study_id,
                 GeoGather.status == "succeeded",
-                GeoGather.pin_version == pin.version,
                 GeoGather.finished_at >= since,
             )
             .order_by(GeoGather.finished_at.desc())
-            .limit(1)
+            .limit(5)
         )
+        return list(rows)
 
     async def create_gather(
         self, study_id: uuid.UUID, *, user_id: uuid.UUID | None, pin: PropertyPin

@@ -27,6 +27,7 @@ from fastapi import Depends, Header, Path, Request, Response, status
 from basis.api.errors import Conflict, NotFound, ServiceUnavailable, Unprocessable
 from basis.api.operators import require_operator
 from basis.api.routes.common import get_storage, problems, read_router, write_router
+from basis.api.routes.property_capture import same_point
 from basis.api.schemas.public_geo import (
     GatherIn,
     GatherOut,
@@ -90,9 +91,20 @@ def _gather_out(row: GeoGather, pin: PropertyPin | None) -> GatherOut:
         started_at=row.started_at,
         finished_at=row.finished_at,
         pin_version=row.pin_version,
-        stale=pin is not None and pin.version != row.pin_version,
+        stale=gather_is_stale(row, pin),
         sources=list(row.sources or []),
     )
+
+
+def gather_is_stale(row: GeoGather, pin: PropertyPin | None) -> bool:
+    """Gathered at another point than the pin's current one (more than 1 m away). A
+    confirmation or an address edit raises the pin's version without moving the point and
+    leaves the gather current, as for the capture's views."""
+    if pin is None:
+        return False
+    if pin.lat is None or pin.lon is None:
+        return True
+    return not same_point(row.lat, row.lon, pin.lat, pin.lon)
 
 
 def _view_out(view: GeoView, stale: bool) -> PublicViewOut:
@@ -152,7 +164,7 @@ async def get_public(
             site_check=None,
             lidar=None,
         )
-    stale = pin is not None and pin.version != row.pin_version
+    stale = gather_is_stale(row, pin)
     views = await repo.views(row.id)
     parcels = await repo.parcels(row.id)
     current = next((v for v in views if v.kind == "current"), None)
@@ -223,7 +235,14 @@ async def start_gather(
             )
         if not force and settings.geo_recent_hours > 0:
             since = datetime.now(UTC) - timedelta(hours=settings.geo_recent_hours)
-            recent = await repo.recent_success(access.study.id, since=since, pin=pin)
+            recent = next(
+                (
+                    row
+                    for row in await repo.recent_successes(access.study.id, since=since)
+                    if not gather_is_stale(row, pin)
+                ),
+                None,
+            )
             if recent is not None:
                 response.status_code = status.HTTP_200_OK
                 return _gather_out(recent, pin)

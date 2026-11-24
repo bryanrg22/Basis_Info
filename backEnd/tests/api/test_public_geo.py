@@ -3,13 +3,13 @@ app and database with a fake workflow starter:
 
 * ``POST .../property/public``: 409 geo-off while ``PUBLIC_GEO`` is off; 422 geo-no-point
   without a point (no pin, or an address only); 202 queued and started once; 409
-  geo-in-progress while active; 200 with the recent gather of the same pin, 202 with
-  ``force``; a start that fails is 503 BASIS-GEO-004 and leaves the gather failed; a viewer
-  may not ask;
+  geo-in-progress while active; 200 with the recent gather taken at the pin's point (a
+  confirmation, an address edit or a move under 1 m keeps it), 202 with ``force``; a start
+  that fails is 503 BASIS-GEO-004 and leaves the gather failed; a viewer may not ask;
 * ``GET .../property/public``: empty before any gather; after one, the current view, the
   history newest first, the parcels, the site check computed against the appraisal's
   ``site.area_sqft`` when read (adjacent match, then a flag when the appraisal changes), the
-  lidar summary, ``stale`` after the pin moves; a viewer may read;
+  lidar summary, ``stale`` only after the pin moves more than 1 m; a viewer may read;
 * the image with its sha256 ``ETag`` and 304; another firm's study is 404;
 * ``POST .../property/captures`` also queues a gather when ``PUBLIC_GEO`` is on, and a gather
   that cannot start never fails the capture;
@@ -299,6 +299,12 @@ async def test_a_gather_is_queued_once_and_reused(
         row.status, row.finished_at = "succeeded", datetime.now(UTC)
     recent = await on.post("alice", path, {})
     assert recent.status_code == 200 and recent.json()["id"] == gather["id"]
+    # A confirmation, an address edit or a move under 1 m keeps the gather reusable.
+    await put_pin(on, "alice", sid, {"lat": LAT, "lon": LON, "confirmed": True})
+    await put_pin(on, "alice", sid, {"address": "1 Main St", "lat": LAT + 5e-6, "lon": LON})
+    reused = await on.post("alice", path, {})
+    assert reused.status_code == 200 and reused.json()["id"] == gather["id"]
+    assert not reused.json()["stale"] and len(geo_starter.started) == 1
     forced = await on.post("alice", path, {"force": True})
     assert forced.status_code == 202 and len(geo_starter.started) == 2
     # Viewers read but do not ask.
@@ -376,9 +382,18 @@ async def test_the_records_the_site_check_the_image_and_staleness(
     assert (await on.get("alice", f"{path}/views/{uuid.uuid4()}/image")).status_code == 404
     assert (await on.get("bob", f"{path}/views/{view_id}/image")).status_code == 404
     assert (await on.get("bob", path)).status_code == 404
+    # Confirming the point or editing the address raises the pin's version without moving it:
+    # the records stay current (as the capture's views do).
+    await put_pin(on, "alice", sid, {"lat": LAT, "lon": LON, "confirmed": True})
+    await put_pin(on, "alice", sid, {"address": "1 Main St", "lat": LAT, "lon": LON})
+    kept = (await on.get("alice", path)).json()
+    assert kept["gather"]["pin_version"] == 1
+    assert not kept["gather"]["stale"] and not kept["current"]["stale"]
     await put_pin(on, "alice", sid, {"lat": LAT + 0.001, "lon": LON})
     moved = (await on.get("alice", path)).json()
     assert moved["gather"]["stale"] and moved["current"]["stale"]
+    # The move asks for a new gather; going back to the first point reuses the first one.
+    assert (await on.post("alice", path, {})).status_code == 202
 
 
 async def test_a_capture_also_queues_a_gather_and_never_fails_for_it(

@@ -46,7 +46,10 @@ class PublicViewOut(ResponseModel):
     terms_class: Literal["public-domain", "open-with-credit", "no-terms-stated", "restricted"]
     terms_url: str = Field(description="Where the terms were read.")
     captured_at: datetime
-    stale: bool = Field(description="Taken around an earlier pin than the current one.")
+    stale: bool = Field(
+        description="Taken around another point than the pin's current one (more than 1 m away); "
+        "confirming the pin or editing its address does not make a view stale."
+    )
 
 
 class ParcelOut(ResponseModel):
@@ -121,7 +124,9 @@ class GatherOut(ResponseModel):
     started_at: datetime | None
     finished_at: datetime | None
     pin_version: int
-    stale: bool
+    stale: bool = Field(
+        description="Gathered at another point than the pin's current one (more than 1 m away)."
+    )
     sources: list[dict[str, Any]] = Field(
         description="Each source asked: `source`, `kind`, `status` (`ok`, `blank`: outside its "
         "coverage, `none`: nothing there, `failed`), `code`, `seconds`, `year`."

@@ -13,7 +13,7 @@ says `public_geo`.
 | Answer | When |
 |---|---|
 | 202 with the gather, `status: queued` | Accepted; the workflow `public-geo-{gather id}` was started. |
-| 200 with the recent gather | The same pin version was gathered within `GEO_RECENT_HOURS` (12) and `force` is false. |
+| 200 with the recent gather | A gather at the pin's current point (within 1 m) succeeded within `GEO_RECENT_HOURS` (12) and `force` is false. Confirming the pin or editing its address does not call for a new gather. |
 | 409 `geo-off` (`BASIS-GEO-001`) | `PUBLIC_GEO` is off. |
 | 422 `geo-no-point` (`BASIS-GEO-002`) | No pin, or a pin with only an address (the sources are asked by point). |
 | 409 `geo-in-progress` (`BASIS-GEO-003`) | One is queued or running (one per study, a unique index). |
@@ -30,7 +30,7 @@ logged with `BASIS-GEO-004` and never fails the capture.
 | Member | Meaning |
 |---|---|
 | `enabled` | `PUBLIC_GEO`. |
-| `gather` | The newest gather: `status` (`queued`, `running`, `succeeded`, `failed`), `code`, `message` (what to tell the engineer), times, `pin_version`, `stale` (the pin moved since), and `sources`: every source asked with its `status` (`ok`; `blank`: the point is outside its coverage; `none`: nothing there; `failed` with its `code`), `seconds` and `year`. |
+| `gather` | The newest gather: `status` (`queued`, `running`, `succeeded`, `failed`), `code`, `message` (what to tell the engineer), times, `pin_version`, `stale` (the pin moved more than 1 m since; a confirmation or an address edit does not count), and `sources`: every source asked with its `status` (`ok`; `blank`: the point is outside its coverage; `none`: nothing there; `failed` with its `code`), `seconds` and `year`. |
 | `current` | The best public top-down image at the point (pixel size first, then leaf-off within four years of the newest, then recency: `basis/geo/registry.py`), or null. |
 | `history` | One view per year, newest first; the current view appears in it as its year's view. |
 | `parcels` | The parcel under the pin (`under_pin: true`) and the same owner's adjacent ones: `parcel_id`, `owner`, `address`, `area_sqft` / `area_acres` (the polygon on the WGS84 ellipsoid), `layer_acres` (the layer's own figure), values, `year_built`, `building_area_sqft`, `stories` (null where the state's layer has none), `geometry` (GeoJSON, lon/lat), `credit`, `terms_class`. |
@@ -46,7 +46,7 @@ A public view (`PublicViewOut`):
 | `lat`, `lon`, `pixel_size_m` | The centre (the pin) and ground metres per pixel there. |
 | `crs`, `bbox`, `bbox_lonlat`, `width`, `height` | The exact georeference: north up in EPSG:3857, `bbox` in its metres. |
 | `credit`, `terms_class`, `terms_url` | Show and print the credit with the image. `terms_class`: `public-domain`, `open-with-credit`, `no-terms-stated`, `restricted`. |
-| `content_type`, `sha256`, `captured_at`, `stale` | The image; `stale` when the pin moved since. |
+| `content_type`, `sha256`, `captured_at`, `stale` | The image; `stale` when the pin moved more than 1 m since. |
 
 To measure on a public view: exactly as on a property-capture view (PROPERTY_CAPTURE.md section
 3): east = `(x - width / 2) * pixel_size_m`, north = `(height / 2 - y) * pixel_size_m`, then to
