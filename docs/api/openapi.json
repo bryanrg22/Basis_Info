@@ -12014,7 +12014,7 @@
           "property"
         ],
         "summary": "Set the property's address, point and confirmation",
-        "description": "The whole pin. A point you send that differs from the stored one is yours (`source: engineer`); no point clears it, and the next capture searches the address. `confirmed` needs a point; moving the point withdraws an earlier confirmation unless this request confirms it. Views taken around an earlier pin are marked `stale`. `If-Match` with the `ETag` of the `GET` (412 BASIS-CAPTURE-016 with the current `ETag` otherwise; `*` only over a saved pin).",
+        "description": "The whole pin. A point you send that differs from the stored one is yours (`source: engineer`); no point clears it, and the next capture searches the address. `confirmed` needs a point; moving the point withdraws an earlier confirmation unless this request confirms it. Views taken at another point than the pin's current one are marked `stale`; confirming or editing the address without moving the point keeps them current. `If-Match` with the `ETag` of the `GET` (412 BASIS-CAPTURE-016 with the current `ETag` otherwise; `*` only over a saved pin).",
         "operationId": "put_pin_v1_studies__study_id__property_pin_put",
         "security": [
           {
@@ -31216,7 +31216,7 @@
           "stale": {
             "type": "boolean",
             "title": "Stale",
-            "description": "Taken around an earlier pin than the current one."
+            "description": "Taken at another point than the pin's current one (more than 1 m away); confirming the pin or editing its address does not make a view stale."
           }
         },
         "type": "object",

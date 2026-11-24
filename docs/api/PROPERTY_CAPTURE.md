@@ -38,7 +38,7 @@ The capture's search fills a pin that has only an address: `source: search`,
 | Answer | When |
 |---|---|
 | 202 with the capture, `status: queued` | Accepted; the workflow `property-capture-{capture id}` was started. |
-| 200 with the recent capture | The same pin version was captured within `CAPTURE_RECENT_HOURS` (12) and `force` is false. |
+| 200 with the recent capture | A capture taken at the pin's current point (within 1 m) succeeded within `CAPTURE_RECENT_HOURS` (12) and `force` is false. Confirming the pin or editing its address without moving the point does not call for a new capture. |
 | 409 `capture-off` (`BASIS-CAPTURE-013`) | `PROPERTY_CAPTURE` is off. |
 | 409 `capture-in-progress` (`BASIS-CAPTURE-014`) | One is queued, waiting or running (one per study, a unique index). |
 | 422 `capture-no-address` (`BASIS-CAPTURE-015`) | No pin. |
@@ -84,7 +84,7 @@ again."; blank, timeout, crash, gave up: take them again later).
 | `green_share` | Top-down views: the share of green vegetation pixels (0 to 1), supporting evidence for `leaf`, not the label itself. |
 | `camera_lat`, `camera_lon` | Street-level views: where the camera stood; `lat`, `lon` are the house it looks at and `heading_deg` points from one to the other; `tilt_deg` 90 is the horizon. |
 | `source` | The provenance line (`CAPTURE_SOURCE_TEXT`). |
-| `pin_version`, `stale` | `stale`: taken around an earlier pin than the current one. |
+| `pin_version`, `stale` | `stale`: taken at another point than the pin's current one (more than 1 m away). A confirmation or an address edit raises the pin's version without making views stale. |
 | `width`, `height`, `sha256`, `captured_at` | The image: 1440 x 900, free of the viewer's interface (EVAL_REPORT 99: a taller viewport cropped symmetrically, so the centre and the metres per pixel are unchanged). Views taken before carry the viewer's toolbar and status bar. |
 
 `GET .../property/views/{view_id}/image` (viewer): the PNG, `ETag` its sha256 (304 on

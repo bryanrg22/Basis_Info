@@ -165,20 +165,22 @@ class PropertyRepository:
             )
         )
 
-    async def recent_success(
-        self, study_id: uuid.UUID, *, since: datetime, pin_version: int
-    ) -> PropertyCapture | None:
-        return await self._session.scalar(
+    async def recent_successes(
+        self, study_id: uuid.UUID, *, since: datetime, limit: int = 5
+    ) -> list[PropertyCapture]:
+        """The study's captures that succeeded since ``since``, newest first (the route keeps
+        the first whose views were taken at the pin's current point)."""
+        rows = await self._session.scalars(
             select(PropertyCapture)
             .where(
                 PropertyCapture.study_id == study_id,
                 PropertyCapture.status == "succeeded",
-                PropertyCapture.pin_version == pin_version,
                 PropertyCapture.finished_at >= since,
             )
             .order_by(PropertyCapture.finished_at.desc())
-            .limit(1)
+            .limit(limit)
         )
+        return list(rows)
 
     async def create_capture(
         self, study_id: uuid.UUID, *, user_id: uuid.UUID, pin_version: int

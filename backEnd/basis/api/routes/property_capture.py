@@ -20,6 +20,7 @@
 from __future__ import annotations
 
 import logging
+import math
 import uuid
 from datetime import UTC, datetime, timedelta
 from typing import Annotated, Final
@@ -98,11 +99,32 @@ def message_for(row: PropertyCapture) -> str:
     return row.reason or messages.failed(row.code or "")
 
 
+# A view is of the current pin while the pin's point is where the view was taken: confirming
+# the pin or editing its address does not move the point and so does not call for new views.
+SAME_POINT_M: Final = 1.0
+
+
+def same_point(lat1: float, lon1: float, lat2: float, lon2: float) -> bool:
+    """Within :data:`SAME_POINT_M` on the ground (an equirectangular distance is exact
+    enough at a metre)."""
+    north = math.radians(lat2 - lat1) * 6_371_008.8
+    east = math.radians(lon2 - lon1) * 6_371_008.8 * math.cos(math.radians((lat1 + lat2) / 2))
+    return math.hypot(north, east) <= SAME_POINT_M
+
+
+def view_is_stale(view: CaptureView, pin: PropertyPin | None) -> bool:
+    if pin is None:
+        return False
+    if pin.lat is None or pin.lon is None:
+        return True
+    return not same_point(view.lat, view.lon, pin.lat, pin.lon)
+
+
 def _view_out(view: CaptureView, pin: PropertyPin | None) -> ViewOut:
     return ViewOut.model_validate(
         {
             **{name: getattr(view, name) for name in ViewOut.model_fields if hasattr(view, name)},
-            "stale": pin is not None and view.pin_version != pin.version,
+            "stale": view_is_stale(view, pin),
         }
     )
 
@@ -160,7 +182,9 @@ async def get_property(
     description="The whole pin. A point you send that differs from the stored one is yours "
     "(`source: engineer`); no point clears it, and the next capture searches the address. "
     "`confirmed` needs a point; moving the point withdraws an earlier confirmation unless "
-    "this request confirms it. Views taken around an earlier pin are marked `stale`. "
+    "this request confirms it. Views taken at another point than the pin's current one are "
+    "marked `stale`; confirming or editing the address without moving the point keeps them "
+    "current. "
     f"`If-Match` with the `ETag` of the `GET` (412 {E.CAPTURE_PIN_PRECONDITION_FAILED} with "
     "the current `ETag` otherwise; `*` only over a saved pin).",
     responses=problems(403, 404, 412),
@@ -243,12 +267,14 @@ async def start_capture(
             )
         if not force and settings.capture_recent_hours > 0:
             since = datetime.now(UTC) - timedelta(hours=settings.capture_recent_hours)
-            recent = await repo.recent_success(
-                access.study.id, since=since, pin_version=pin.version
-            )
-            if recent is not None:
-                response.status_code = status.HTTP_200_OK
-                return await _capture_out(repo, recent, pin)
+            # Reused when its views were taken at the pin's current point (a confirmation or
+            # an address edit does not move the point, so it does not spend a new capture).
+            if pin.lat is not None:
+                for recent in await repo.recent_successes(access.study.id, since=since):
+                    views = await repo.views(recent.id)
+                    if views and not view_is_stale(views[0], pin):
+                        response.status_code = status.HTTP_200_OK
+                        return await _capture_out(repo, recent, pin)
         try:
             row = await repo.create_capture(
                 access.study.id, user_id=user.id, pin_version=pin.version
