@@ -451,9 +451,26 @@ Azure DI JSON> [--pdf appraisal.pdf] [--outline outline.json] --cost-table ... -
 would, and replays the takeoff under six setups (today; `TAKEOFF_SKETCH=on`; on with the
 cross-check widened; the GLA corrected to the sketch's, off and on; and, with `--outline`, the
 perimeters measured from the drawing), each priced, carved and scored like
-`takeoff_constants`. `--sample NAME=FILE:GLA` adds a report to the cross-check table. Writes
-`sketch.md` (quantities, private), `sketch_public.md` (changes only) and `sketch.json`. No
-model call; cost $0. Component `sketch_takeoff`, version `v1`.
+`takeoff_constants`. `--read-outline` (EVAL_REPORT 100) takes the perimeters from `--pdf`'s
+line work with `basis.extraction.sketch_outline` instead (with `--outline` too, the two are
+compared as a case), and adds two setups for a floor drawn on separate pages: the upper
+outline withheld, and the blocks taken to adjoin along the ground story's shared wall.
+`--sample NAME=FILE:GLA` adds a report to the cross-check table. Writes `sketch.md`
+(quantities, private), `sketch_public.md` (changes only) and `sketch.json`. No model call;
+cost $0. Component `sketch_takeoff`, version `v2` (`v1` before `--read-outline`).
+
+### `sketch_outline` (the outline reader over stored appraisal PDFs)
+
+`python -m evals.sketch_outline --document "NAME=appraisal.pdf[:azure_di.json]" ...
+[--reference outline.json] --out <run dir>` (EVAL_REPORT 100). For each PDF: the area table
+(from the stored analysis when one is given, else the text layer), each sketch page's line
+work (strokes, loops, images), what `basis.extraction.sketch_outline` made of it and which
+perimeter fields it wrote, with the time. On every page with loops it counts three ways of
+believing a `(row, loop)` pair on the same pairs (area at one scale, walls on the printed
+precision, the row's printed dimensions: the rule that shipped). `--reference` compares the
+first document's result to a hand-checked measurement. Writes `outline.json` and `outline.md`
+(dimensions, private) and `outline_public.md` (statuses and counts only). No model call; cost
+$0. Component `sketch_outline`, version `v1`.
 
 ### `structure_replay` (the structure model over a stored export)
 

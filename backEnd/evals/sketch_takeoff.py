@@ -24,9 +24,15 @@ have, and replays the takeoff under each setup (:func:`setups`):
   by the sketch's living area, as an engineer who agreed with the sketch would correct it at
   the appraisal gate; the first isolates what the corrected GLA moves by itself (room areas,
   the square-foot model), the second adds the sketch.
-* **... and the outline's perimeters** (with ``--outline``): the same, with the ground and
-  upper-floor perimeters measured from the drawing (a private file: the reader does not
-  produce them), to show what recovering the outline would add.
+* **... and the outline's perimeters** (with ``--outline`` or ``--read-outline``): the same,
+  with the ground and upper-floor perimeters of the drawing. ``--outline`` takes them from a
+  private file (section 96, before a reader existed); ``--read-outline`` reads them from the
+  ``--pdf``'s line work with ``basis.extraction.sketch_outline`` as the extraction does with
+  ``TAKEOFF_SKETCH_OUTLINE=on`` (section 100), and with both the two are compared. With the
+  reader, two more setups show the choice it makes for a floor drawn on separate pages:
+  **ground outline only** (the upper floors left a rectangle, as if their outline were
+  withheld) and **upper blocks sharing a wall** (the summed outlines less twice the wall the
+  ground story shares, as if the blocks adjoined there).
 
 Each setup's takeoff is priced, carved and scored as section 87 did
 (``evals.takeoff_constants.retakeoff``, ``evals.reprice_export``, ``evals.structure_replay``
@@ -41,7 +47,7 @@ export stores it as a count with no unit cost. Deterministic; cost $0. Usage (fr
     BASIS_EVAL_DATA_DIR=... python -m evals.sketch_takeoff export_a.json export_b.json \\
         --azure recordings/<sha>/azure_di.json --pdf inputs/appraisal.pdf \\
         --cost-table costs/unit_costs_rsmeans_2020.json --supplement hci.json \\
-        --outline work/sketch_reader/outline.json --out work/e2e_artifacts/sketch_takeoff_<date>
+        --read-outline --out work/e2e_artifacts/sketch_takeoff_<date>
 """
 
 from __future__ import annotations
@@ -77,6 +83,12 @@ from basis.extraction.sketch import (
     read_sketch,
     sketch_fields,
 )
+from basis.extraction.sketch_outline import (
+    GROUND_PERIMETER,
+    UPPER_PERIMETER,
+    page_drawings,
+    read_outline,
+)
 from evals import record
 from evals.e2e_report import (
     E2ERows,
@@ -91,7 +103,7 @@ from evals.structure_sweep import BUCKETS, Cell, baseline_scores, run_cell
 from evals.takeoff_constants import engineer_shares, priced_summary, retakeoff, share_error
 
 COMPONENT: Final = "sketch_takeoff"
-VERSION: Final = "v1"
+VERSION: Final = "v2"  # v2: --read-outline (the outline reader) and its variants
 GLA_KEY: Final = ("improvements", "gla_sqft")
 WIDE: Final = Decimal(1)  # a tolerance that admits any sketch
 PLACES: Final = Decimal("0.01")
@@ -164,6 +176,56 @@ def outline_fields(outline: Mapping[str, Any]) -> list[dict[str, Any]]:
     return out
 
 
+def read_outline_fields(
+    reading: SketchReading, pdf: Path
+) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    """``(the perimeter fields the outline reader writes for this PDF, its trace)``: what
+    the extraction adds with ``TAKEOFF_SKETCH_OUTLINE=on``, as an export stores fields."""
+    table, _ = sketch_fields(reading)
+    read = read_outline(reading, table, page_drawings(pdf.read_bytes(), reading.pages))
+    fields = [
+        {
+            "section": item.section,
+            "field": item.field,
+            "value_num": str(item.value_num),
+            "value_text": item.value_text,
+            "value_date": None,
+            "source": item.source,
+            "page": item.page,
+        }
+        for item in read.fields.values()
+    ]
+    return fields, read.trace
+
+
+GROUND_ONLY: Final = "ground outline only"
+UPPER_SHARED: Final = "upper blocks sharing a wall"
+
+
+def outline_variants(
+    fields: Sequence[Mapping[str, Any]], trace: Mapping[str, Any]
+) -> dict[str, list[dict[str, Any]]]:
+    """The other ways a floor drawn on separate pages could have been combined, for the
+    side-by-side: the upper outline withheld, and the blocks taken to adjoin along the wall
+    the ground story shares. Empty unless the reader summed blocks from separate pages."""
+    upper = trace.get("upper") or {}
+    shared = (trace.get("ground") or {}).get("shared_wall_ft")
+    if not upper.get("separate_pages"):
+        return {}
+    ground_key, upper_key = GROUND_PERIMETER.split(".", 1)[1], UPPER_PERIMETER.split(".", 1)[1]
+    ground = [dict(f) for f in fields if f["field"] == ground_key]
+    out = {GROUND_ONLY: ground}
+    if shared:
+        less = Decimal(str(upper["perimeter_ft"])) - 2 * Decimal(str(shared))
+        adjoined = [
+            {**f, "value_num": str(less), "value_text": str(less)}
+            for f in fields
+            if f["field"] == upper_key
+        ]
+        out[UPPER_SHARED] = [*ground, *adjoined]
+    return out
+
+
 def with_fields(
     document: Mapping[str, Any],
     added: Sequence[Mapping[str, Any]],
@@ -195,9 +257,15 @@ class Setup:
     tolerance: Decimal | None  # None: TAKEOFF_SKETCH=off
     gla_corrected: bool = False
     outline: bool = False
+    variant: str | None = None  # a key of the run's outline variants, in place of the outline
 
 
-def setups(tolerance: Decimal, *, outline: bool) -> list[Setup]:
+OUTLINE_SETUP: Final = "GLA corrected, sketch on, outline perimeters"
+
+
+def setups(
+    tolerance: Decimal, *, outline: bool, read: bool = False, variants: Sequence[str] = ()
+) -> list[Setup]:
     limit = f"{float(tolerance * 100):g} %"
     out = [
         Setup("today", "TAKEOFF_SKETCH=off: GLA / stories, the cost approach's garage", None),
@@ -223,12 +291,26 @@ def setups(tolerance: Decimal, *, outline: bool) -> list[Setup]:
     if outline:
         out.append(
             Setup(
-                "GLA corrected, sketch on, outline perimeters",
-                "the same, with the ground and upper-floor perimeters measured from the "
-                "drawing (not produced by the reader)",
+                OUTLINE_SETUP,
+                "the same, with the ground and upper-floor perimeters "
+                + (
+                    "read from the PDF's line work by the outline reader"
+                    if read
+                    else "measured from the drawing (not produced by the reader)"
+                ),
                 tolerance,
                 gla_corrected=True,
                 outline=True,
+            )
+        )
+    for variant in variants:
+        out.append(
+            Setup(
+                f"GLA corrected, sketch on, {variant}",
+                f"the same as the outline setup, with {variant}",
+                tolerance,
+                gla_corrected=True,
+                variant=variant,
             )
         )
     return out
@@ -312,12 +394,14 @@ def run_setup(
     supplement: Mapping[int, YearIndex] | None,
     engineer: Mapping[str, float],
     today: Scored | None,
+    variants: Mapping[str, Sequence[Mapping[str, Any]]] | None = None,
 ) -> Scored:
     """One setup on one export: the export as the extraction would have written it (the
     sketch fields always present: the setting decides whether they are read), the takeoff,
     the repricing, the structure replay and the scorer."""
     started = time.perf_counter()
-    added = [*sketch, *(outline if setup.outline else [])]
+    drawn = (variants or {})[setup.variant] if setup.variant else outline if setup.outline else []
+    added = [*sketch, *drawn]
     gla = sketch_living if setup.gla_corrected else None
     if setup.gla_corrected and gla is None:
         raise ReplayError("the sketch has no living area to correct the GLA to")
@@ -460,18 +544,19 @@ def render_markdown(
                 else:
                     row.append(f"{value} ({change})" if private else change)
             lines.append(f"| {title} | " + " | ".join(row) + " |")
-        reference = mine[-1]
-        if reference.setup.endswith("outline perimeters"):
+        reference = next((c for c in mine if c.setup == OUTLINE_SETUP), None)
+        if reference is not None:
+            others = [c for c in mine if c is not reference]
             lines += [
                 "",
-                "### Against the drawing (the last setup: the sketch's areas and its outline)",
+                "### Against the drawing (the outline setup: the sketch's areas and its outline)",
                 "",
-                "| quantity | " + " | ".join(c.setup for c in mine[:-1]) + " |",
-                "|---|" + "---|" * (len(mine) - 1),
+                "| quantity | " + " | ".join(c.setup for c in others) + " |",
+                "|---|" + "---|" * len(others),
             ]
             for key, title in GEOMETRY_ROWS:
                 against = reference.geometry.get(key)
-                row = [pct_change(c.geometry.get(key), against) for c in mine[:-1]]
+                row = [pct_change(c.geometry.get(key), against) for c in others]
                 lines.append(f"| {title} | " + " | ".join(row) + " |")
         lines += [
             "",
@@ -529,6 +614,11 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--azure", type=Path, required=True, help="the appraisal's Azure DI JSON")
     parser.add_argument("--pdf", type=Path, default=None, help="the appraisal PDF (text layer)")
     parser.add_argument("--outline", type=Path, default=None, help="measured perimeters (JSON)")
+    parser.add_argument(
+        "--read-outline",
+        action="store_true",
+        help="read the perimeters from --pdf's line work (basis.extraction.sketch_outline)",
+    )
     parser.add_argument("--cost-table", type=Path, required=True)
     parser.add_argument("--supplement", type=Path, default=None, help="stored index values")
     parser.add_argument("--labels-dir", type=Path, default=None)
@@ -621,9 +711,27 @@ def main(argv: Sequence[str] | None = None) -> int:
             "reading": reading.as_json(),
         }
         outline: list[dict[str, Any]] = []
+        variants: dict[str, list[dict[str, Any]]] = {}
+        outline_trace: dict[str, Any] | None = None
         if args.outline is not None:
             run.input("outline", args.outline)
             outline = outline_fields(json.loads(args.outline.read_text(encoding="utf-8")))
+        if args.read_outline:
+            if args.pdf is None:
+                raise ReplayError("--read-outline needs --pdf: the line work is in the PDF")
+            measured = {f["field"]: Decimal(f["value_num"]) for f in outline}
+            outline, outline_trace = read_outline_fields(reading, args.pdf)
+            if not outline:
+                raise ReplayError(
+                    "the outline reader wrote no perimeter: "
+                    + "; ".join(outline_trace.get("notes") or ["no reason recorded"])
+                )
+            variants = outline_variants(outline, outline_trace)
+            if args.outline is not None:
+                same = measured == {f["field"]: Decimal(f["value_num"]) for f in outline}
+                run.case(
+                    "outline:reader_equals_file", "passed" if same else "failed", kind="reading"
+                )
 
         samples: list[dict[str, Any]] = []
         for spec in args.sample:
@@ -646,7 +754,12 @@ def main(argv: Sequence[str] | None = None) -> int:
                     )
                 )
             today: Scored | None = None
-            for setup in setups(args.tolerance, outline=bool(outline)):
+            for setup in setups(
+                args.tolerance,
+                outline=bool(outline),
+                read=args.read_outline,
+                variants=list(variants),
+            ):
                 scored = run_setup(
                     name,
                     document,
@@ -661,6 +774,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                     supplement=supplement,
                     engineer=engineer,
                     today=today,
+                    variants=variants,
                 )
                 if setup.name == "today":
                     today = scored
@@ -689,6 +803,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             "tolerance": str(args.tolerance),
             "sketch": read_summary,
             "outline": outline,
+            "outline_source": "reader" if args.read_outline else "file" if outline else None,
+            "outline_trace": outline_trace,
             "samples": samples,
             "cells": [
                 {
@@ -740,7 +856,9 @@ __all__ = [
     "geometry",
     "needs_measurement",
     "outline_fields",
+    "outline_variants",
     "pct_change",
+    "read_outline_fields",
     "render_markdown",
     "run_setup",
     "sample_row",

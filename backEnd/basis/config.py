@@ -445,6 +445,21 @@ class Settings(BaseSettings):
     # sample reports of section 96 agree to the square foot; the client's differ by 12.5 %).
     takeoff_sketch: Literal["off", "on"] = "off"
     takeoff_sketch_gla_tolerance: float = Field(default=0.01, ge=0, le=1)
+    # Whether the sketch's outline is read from the appraisal PDF's own line work
+    # (basis.extraction.sketch_outline; SKETCH_READER.md section 6; EVAL_REPORT section
+    # 100). on, with TAKEOFF_SKETCH=on: on each sketch page the extraction closes the solid
+    # strokes into loops, believes a loop only when its area and the dimensions of the
+    # table's calculation both reproduce a verified row at one scale per page, and writes
+    # `sketch.ground_perimeter_ft` (first floor and attached garage as one outline) and
+    # `sketch.upper_perimeter_ft`, which the roof and the siding then use in place of the
+    # 1.5:1 rectangle. A scanned or image sketch, a loop that does not match, or an
+    # attachment the drawing does not show writes nothing, and the reason is kept in the
+    # extraction's raw["sketch"]["outline"]. off (the default: section 100 read one client
+    # PDF from one sketching tool; every other stored sketch is an image): the PDF's line
+    # work is not opened. It gates the reader only: a perimeter an earlier extraction wrote
+    # stays in that revision's fields and is used while TAKEOFF_SKETCH is on. Without
+    # TAKEOFF_SKETCH=on it does nothing.
+    takeoff_sketch_outline: Literal["off", "on"] = "off"
     # Where the cost year and location factor come from. study: the year of the intake's
     # placed_in_service_date and the factor (basis.domain.costs.REGIONAL_COST_FACTORS) of
     # the intake's state, else the appraisal's effective-date year and subject.state, each
@@ -636,6 +651,12 @@ class Settings(BaseSettings):
         if self.takeoff_sketch != "on":
             return None
         return Decimal(str(self.takeoff_sketch_gla_tolerance))
+
+    @property
+    def sketch_outline(self) -> bool:
+        """Whether the extraction reads the sketch's outline from the PDF's line work:
+        ``TAKEOFF_SKETCH_OUTLINE=on`` together with ``TAKEOFF_SKETCH=on``."""
+        return self.takeoff_sketch == "on" and self.takeoff_sketch_outline == "on"
 
     @property
     def vision_output_budget(self) -> int:

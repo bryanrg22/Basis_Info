@@ -1,5 +1,86 @@
 # Basis visual design review
 
+## November 2026: Property
+
+The study's dated pictures of its property, its public records and the tracing tool
+(`live/property.js`, `live/property-model.js`, `live/property.css`; `README.md`, "The Property
+area"). The screen design is the maintainer's: everything below is a proposal to redirect.
+
+### Where it sits, and why
+
+* **Not a step.** The step bar is the gates (Upload to Report & sign); a capture is a background
+  record that starts at intake and serves every gate (the appraisal's site check, the components
+  of the outside, the assets' measurements, renovation dates). A step would read as something to
+  approve. It sits with the other study records (History, Study inputs, Results) as a link, and
+  as a card at the top of Study progress's side column, above Study details.
+* **The card asks the first question.** `docs/review_2026-10-15/PROPERTY_CAPTURE.md` section 7.2:
+  the first thing the engineer sees is the point the search found. The card shows the close
+  aerial with the pin and, until it is confirmed, "Is this the right house?" as its action.
+* **Measuring starts from the row.** A row the takeoff could not size gets Measure on the assets
+  review (the row is where the engineer finds the problem); it opens the Property area on the
+  suggested picture with the tool in the side column, and Save puts the measurement with the
+  review's other corrections, so it is sent, reviewed and audited like them.
+
+### Decisions (each the maintainer's to change)
+
+* **Map-free.** The pin is moved by clicking the house on a top-down picture: no map library, no
+  provider tiles; the picture is already of the place. A point can only be dropped on a picture
+  the capture took, so an address that found no place is fixed by editing the address.
+* **Pictures on the photo workspace's forest canvas**, with an opaque caption line under each:
+  date, season, pixel size, then the source or credit (the credit is required by public sources
+  and names no provider in the sample). Overlays use a light halo under a dark line so they read
+  on any picture: the parcel yellow (adjacent parcels dashed), the pin red, the tracing green,
+  cut-outs dashed amber.
+* **Default view:** the wide aerial while the pin is unconfirmed (the house in its setting), the
+  close aerial after; the suggested `measure_on` view when measuring. Phones always open on the
+  close aerial (the wide one shows the house at a few pixels).
+* **"Stale" views.** The API marks a view stale when the pin's version changed, and confirming
+  the pin changes the version without moving it, so every confirmation would ask to take the
+  pictures again (6 page loads an hour per worker). The app treats a stale view whose centre is
+  still the pin as current and asks for a retake only when the point moved. Reported to the
+  backend; the fix belongs there (compare the point, not the version).
+* **Pixels to lon/lat** use the WGS84 radii of curvature at the view's centre, the same ones the
+  server measures with (`basis/domain/traced.py`), not the backlog's rounded 111,320 and 110,540
+  metres a degree: those would bias a traced area by about half a percent at 43 degrees north
+  (`tests/property-model.test.cjs` measures it). A public view converts through its exact Mercator
+  box. A public image has a year, not a date, so a measurement on it leaves `captured_on` out and
+  the review flags it undated; the tool says so before saving. Coarse public years (over 0.5 m a
+  pixel) are for seeing, not measuring.
+* **The tracing interaction** follows the measuring tools engineers know: the area or length
+  updates with every click, as in QGIS's measure tool and Esri's area measurement widget (area and
+  perimeter of the polygon being drawn, with a clear action); an area closes by clicking its first
+  corner (highlighted once there are three), a line finishes by clicking its last point again,
+  Enter or Finish line (QGIS finishes on a right click, which nobody finds); Undo, Clear and Esc;
+  zoom to 400 % with the picture scrolling under a fixed toolbar. Shapes stay with the picture
+  they were drawn on, and carry over only to a picture with the same georeference (every dated
+  view shares the close aerial's camera). References: [ArcGIS AreaMeasurement2D](https://developers.arcgis.com/javascript/latest/references/core/widgets/AreaMeasurement2D/),
+  [QGIS measure tools help](https://svn.osgeo.org/qgis/trunk/qgis/resources/context_help/QgsMeasureDialog-en_US)
+  (an older help text; the right-click finish was not re-checked in a current QGIS).
+* **Compare:** side by side by default on a desktop, a slider on a phone and whenever asked; the
+  slider only when both pictures share a georeference, since a slider over two scales misleads.
+* **Renovation evidence** is recorded from the compare (the two dates it shows), as
+  corroboration only, which the panel says.
+* **Phone (390 px), redesigned not stacked** (the repository's rule: ask whether each element
+  belongs on a phone): the house question first, one picture at a time with the view chips
+  swiping sideways, the dated pictures and the four sides as swipeable rows, the compare as a
+  slider. Cut: zoom buttons, the optional head actions (Take them again when nothing asks for it,
+  the back button the breadcrumb already gives), the list of assets to measure, thumbnail
+  credits. The tracing tool is desktop and tablet only and the phone says so instead.
+
+### Verified
+
+Node: `tests/property-model.test.cjs` (the measurement against the server's documented values,
+the ellipsoid's closed form at every latitude from 25 to 49 N within 0.01 %, and the server
+module's own answers on 24 synthetic shapes to the cent; georeference round trips; status texts;
+the history strip; capabilities), `tests/sample-property.test.cjs` (the routes as the contracts
+say, the drawn site measuring what it is, the measurement pricing the row),
+`tests/property-screen.test.cjs` (the rendered area for each capability set and state, the
+correction it adds, 412 and 429). Browser: Chromium at 1440 x 900 and WebKit at 390 x 844 on the
+sample, every state and the flows above; no console error from these screens (the only errors
+were the sample photos absent from git, as before). Captures are kept outside the repository
+(`~/basis-eval-data/work/property_screen/`). Not verified: a real capture's PNGs (the sample draws
+SVG), the iOS Simulator, a screen reader pass, live mode against the branches' running backend.
+
 ## October 22: shared engineer interface
 
 The photo workspace's contrast and control discipline now extends through the engineer
