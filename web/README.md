@@ -48,6 +48,68 @@ current server.
   every row; Results leads with the reconciliation verdict, the allocation by class and the checks
   to review; Report & sign shows the report PDF inline beside one status and its next step.
 
+## The Property area and the measuring tool (November 2026)
+
+A study's dated pictures of its property, its public records, and a tracing tool for the rows
+the takeoff could not size (`live/property.js`, its rules in `live/property-model.js`, styles in
+`live/property.css`). It reads and writes the API of four open backend branches (contracts:
+`docs/api/PROPERTY_CAPTURE.md`, `PUBLIC_GEO.md`, `RENOVATIONS.md`, `OVERRIDES.md` section 4 in
+PRs #180 and #181, the public geo sources branch (no PR yet), PR #183 and PR #178) and appears only when `GET /v1/capabilities` says
+`property_capture`, `public_geo` or `traced_measurement` (the renovations part only when its
+`GET` answers). Against today's API (no such capabilities) nothing new shows and nothing new is
+requested. Try it on the sample: `index.html?mode=live&api=sample&sample=assets`, then Study
+progress.
+
+* **Where:** a Property card at the top of Study progress's side column (the close aerial with
+  the pin, the capture's status, "Is this the right house?" until the pin is confirmed), a
+  Property link among the study records, and `#property/<study>` (`#property/<study>/<asset>`
+  to measure that asset). Why there and not in the step bar: `DESIGN_NOTES.md`, "Property".
+* **The pin:** confirm it, or click the house on a top-down picture to move it, then save
+  (`PUT .../property/pin` with `If-Match` on its version; a 412 reloads and says so); the
+  address, when there is no point yet. Nothing is measured until the pin is confirmed.
+* **Status:** queued, taking pictures ("usually ready within two minutes"), paused until a time
+  in the engineer's own time zone, waiting its turn, not taken (the message, a code for
+  support, Take them again), ready. While a new capture runs, the last pictures that were taken
+  stay on screen and say so. Take them again / Gather them again handle 409 (already running:
+  follow it) and 429 or 503 (wait the `Retry-After` the API gave; `ApiError.retryAfter`).
+* **Views:** the close and wide aerials, the four sides (never measured on), street level ("not
+  available" with the capture's reason while it is off), the public image with its credit and
+  year; the parcel under the pin (solid) and the owner's adjacent parcels (dashed) drawn on any
+  top-down picture, the pin, zoom to 400 %. Every picture shows its date, its season, its pixel
+  size and its source or credit line.
+* **History:** the dated pictures newest first (trees bare / in leaf / season unknown, year only,
+  undated, "Suggested for measuring" on `measure_on`, "At placed in service" on the one nearest
+  the intake's date) and the public imagery by year (coarse years "for seeing, not measuring").
+  **Before and after:** any two dates side by side, or a slider when both share a georeference.
+* **Renovation evidence:** from the compare, record the two dates as the last picture without
+  a project or exterior component and the first with it (`aerial` or `exterior_brackets` of
+  `PUT .../renovations`, `If-Match`). The projects editor is not built.
+* **Lot and building:** lot area (and the county layer's acres), the parcel number, the same
+  owner's parcels next door, the appraisal check (agree, the site is several parcels, or a
+  flagged disagreement linking to the appraisal), and the lidar roof peak, eaves and outline.
+* **Measuring:** a row on the assets review held for a measured area or length outside the
+  building (`input:exterior_area`, `input:room`, `cross:COST_NEEDS_QUANTITY` or `unpriced`, with
+  an SF, SY or LF cost row) gets **Measure**; the side column lists the other outside rows. The
+  tool opens on the suggested view: Area (click the corners, click the first to close), Cut out,
+  Line (click the last point again, Enter, or Finish line), a wall height for SF/SY lines, Undo
+  (also Cmd/Ctrl+Z), Clear, Esc. The live readout is the server's own computation (tangent plane
+  on WGS84, the expected error, half-up cents). **Save measurement** adds an `asset`
+  correction with `after.measurement` (lon/lat, the image's source, `captured_on` and
+  `pixel_size_m`) to the assets review's corrections, sent with Review & send; the row shows the
+  traced quantity, and the saved panel lists the `measure:` review flags it will raise (their
+  sentences are in `live/review-reasons.js`). Phones are told to measure on a larger screen.
+* **Phones (390 px):** redesigned, not stacked: the house question first, one picture at a time
+  with swipeable view chips, the dated pictures and the four sides as swipeable rows, the compare
+  as a slider, no zoom buttons, the optional actions left to the desktop.
+
+The sample (`live/sample-property.js`, registered from the sample API's PROPOSED section P8, and
+P9 for the measurement) draws its pictures as SVG from a made-up site plan at each view's exact
+scale (the patio is 20 x 40 ft, the back fence 210 ft), at a point in open water (43.5 N, 87.0 W)
+that is no one's property. `&property=` picks the state: `ready` (default: the search's pin, not
+confirmed), `confirmed`, `running`, `paused`, `waiting`, `failed`, `noplace`, `nopin`, `site` (the
+appraisal's site area disagrees with the parcel). Tests: `tests/property-model.test.cjs`,
+`tests/sample-property.test.cjs`, `tests/property-screen.test.cjs`.
+
 ## The firm pages: Home, Library, Activity, Team, Settings, onboarding (November 2026)
 
 Every page that is not a workflow step, for two roles (`live/firm-pages.js`, rules in
@@ -399,6 +461,7 @@ before. `live/gates.js` holds these rules without the DOM (`web/tests/gates.test
 | Photo components | Shared `vision-workbench.js`: `GET …/photos/{doc}/objects`, real RLE masks, type/instance selection, overlap cycling, fit/zoom/pan, filmstrip; box/candidate additions through `POST …/objects`, manual removal through `DELETE`. Edits open at Components review, or Rooms review for a legacy study. Scores, model names and IDs stay out of customer copy. |
 | Assets review | `GET …/assets`, `GET …/evidence?asset_id=` (photos with their instances highlighted, citations with their document, page, section and verification, `live/citations.js`; review reasons as sentences, `live/review-reasons.js`); `asset` corrections (category, class, recovery period, IRS section) |
 | Results | `GET …/result` basis worksheet, reconciliation and allocation; JSON and allocated-row CSV downloads |
+| Property (`#property`, the card on Study progress; only with `GET /v1/capabilities`) | `GET …/property`, `PUT …/property/pin` (If-Match), `POST`/`GET …/property/captures`, `GET …/property/views/{id}/image`; `GET`/`POST …/property/public` and its view images; `GET`/`PUT …/renovations` (the aerial brackets); an `asset` correction's `measurement` at the assets review (open branches; see "The Property area" above) |
 | Files | the study's documents; open and download through the API |
 
 ### Adding what the pipeline missed
@@ -491,7 +554,7 @@ API data the design does not show yet:
 ## Tests
 
 ```sh
-node --test web/tests/*.test.cjs            # unit tests (design models, RLE masks, API client, citations, review reasons, firms, manual add)
+node --test web/tests/*.test.cjs            # unit tests (design models, RLE masks, API client, citations, review reasons, firms, manual add, the Property area)
 node web/tests/live-smoke.mjs --origin http://127.0.0.1:3100 --owner-email you@example.com   # against the local stack
 ```
 

@@ -53,6 +53,8 @@
    let data=null;if(text&&/json/.test(type)){try{data=JSON.parse(text)}catch{data=null}}
    if(!response.ok){
     const error=new ApiError(response.status,data||{},text.slice(0,200));
+    // 429 and 503 may say when to come back (seconds, or an HTTP date).
+    const after=response.headers.get?.('Retry-After');if(after){const n=Number(after),at=Date.parse(after);error.retryAfter=Number.isFinite(n)?n:Number.isFinite(at)?Math.max(0,Math.ceil((at-Date.now())/1000)):null}
     seen(response.status,error);
     if(response.status===401&&onUnauthorized)onUnauthorized(error);
     throw error;

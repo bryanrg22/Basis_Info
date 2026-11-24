@@ -380,6 +380,57 @@ proposed routes from the sample once the backend has them.
   report profile (`PUT .../profile`), whose `name` is printed on reports. Renaming the firm itself
   is not on the page yet.
 
+## 21. Built from sections 17 to 20 (the Property area, November 2026)
+
+Sections 17 (the traced measurement, PR #178), 18 (property pictures, PRs #180 and #181), 19
+(public records, the public geo sources branch, no PR yet) and 20 (renovations, PR #183) are on
+their branches,
+not on main yet; when they merge, delete from them what is listed here as built. The app's side
+is `live/property.js` (`web/README.md`, "The Property area"; design in `DESIGN_NOTES.md`,
+"Property"), built against the sample API's PROPOSED P8 and P9, and shown only when
+`GET /v1/capabilities` says `property_capture`, `public_geo` or `traced_measurement`.
+
+**Built:**
+
+* 17: offering the tracing only with `traced_measurement`; the `measurement` on an `asset`
+  correction in lon/lat with the image's source, `captured_on` and `pixel_size_m`, never with the
+  typed quantity; the server's computation in the browser for the live readout; the shape's
+  problems in the server's words before sending; the traced quantity on the row; the four
+  `measure:` flags' sentences (`live/review-reasons.js`) and, after saving, the flags it will raise.
+* 18: the capability; the pin card (confirm, move by clicking the house, the address) with
+  `If-Match` and the 412 reload; the status in plain words with `resume_at` in local time,
+  polling every 10 s while it runs; Take them again (`force` when the pin moved or the capture failed) with 409 and
+  429/503 `Retry-After`; the views with date, season, pixel size and source; the four sides; street
+  level as "not available" with the note; the history strip (leaf, year only, undated, at placed in
+  service, the suggested view); the compare; measuring opened on `measure_on`; the notes; no
+  measuring on an unconfirmed pin.
+* 19: the public image with credit and year, the series by year with the coarse years marked,
+  the parcel outlines (under the pin and adjacent) with the lot area and the layer's acres, the
+  site check (agree, adjacent, the flagged disagreement linking to the appraisal), the lidar peak,
+  eaves and outline, the gather status and Gather them again when stale.
+* 20: the aerial bracket input: from the compare, a project's `aerial` or a component label's
+  `exterior_brackets` entry, with `If-Match` and the 412 reload.
+
+**Not built:**
+
+* 17: a later assets rejection does not send the measurement again (the backend's "Not done";
+  the maintainer decides whether the app repeats it or the backend keeps it); measuring on an
+  uploaded plan (`space: image` with a scale) and `document_id`; showing a sent row's
+  `takeoff_inputs.measurement` (the shape over the picture) on the asset page; the 422's per-shape
+  `detail` placed next to the shape (it shows as the send's error message).
+* 18: prefilling the pin from the appraisal's subject address (the form prefills from the study's
+  summary when the API has one); choosing history dates (the API does not offer it);
+  `green_share`; the capture list beyond the last successful one; the operator incidents page.
+* 19: the site check as a review flag at the appraisal gate beside `site.area_sqft` (the
+  Property area shows it and links to the appraisal); `gather.sources` per source; a public view's
+  `terms_url`.
+* 20: the projects editor (key, kind, scope, dates, invoices, capitalized amount, QIP), tagging
+  photographs, component ages and removals at the assets review, the renovation schedule, the
+  reprice after a change. The bracket form lists the projects the document already has and the
+  outside components of the assets.
+* Asked of the backend: compare the pin's point, not its version, when marking views stale
+  (confirming the pin makes every view stale today); an `image.view_id` on the measurement.
+
 ## Testing
 
 `web/tests/firm-pages.test.cjs` renders the firm pages (Home, Library, Activity, Team,
