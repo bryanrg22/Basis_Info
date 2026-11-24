@@ -380,6 +380,33 @@ proposed routes from the sample once the backend has them.
   report profile (`PUT .../profile`), whose `name` is printed on reports. Renaming the firm itself
   is not on the page yet.
 
+## 16. The appraisal's sketch (EVAL_REPORT 96; `TAKEOFF_SKETCH`, default off)
+
+Nothing here is visible until the setting is on. With it on:
+
+* **Sketch fields at the appraisal review.** The extraction's fields gain a `sketch` section:
+  `living_area_sqft`, `ground_floor_area_sqft`, `garage_area_sqft`, `patio_area_sqft`, each with
+  `page`, `source` (`azure` or `regex`) and confidence 0.80, and no `regions` (nothing to
+  highlight yet). They are not in the field catalogue, so the app has no label for them and the
+  "add a missing field" correction refuses their keys. The app does not show or group them.
+* **The sketch against the GLA** (`gla_vs_sketch`, BASIS-CHECK-031; decided 2026-11-23). When
+  the sketch's living area and the GLA box differ by more than the tolerance, the extraction is
+  flagged: `review_reasons` gains `gla_vs_sketch:improvements.gla_sqft,sketch.living_area_sqft`,
+  `review_codes` gains BASIS-CHECK-031, and the issue's message gives both figures, the page of
+  the sketch and what to do. The app has no wording for this reason and does not show the
+  sketch fields beside the GLA, which is where the engineer would correct one of them (either is
+  an ordinary `extraction_field` correction by field id). The takeoff repeats the outcome on
+  `takeoff_inputs.sketch_check` of the roof, siding, gutter and landscaping assets.
+* **The browser's error catalogue is behind.** `web/live/error-catalogue.js` has 304 of the
+  backend's 311 codes: BASIS-DEMO-001 to 006 (section 95) and BASIS-CHECK-031 are missing.
+  `python3 web/scripts/sync-error-catalogue.py backEnd` adds exactly those seven and changes no
+  existing entry (checked 2026-11-23, not committed: the file is the app's).
+* **Where a quantity came from.** `takeoff_inputs.footprint_source: "sketch"` and formulas that
+  read "1200 SF ground floor on the appraisal sketch" on the roof, siding and gutter rows; a
+  patio the sketch dimensions arrives as a measured SF quantity instead of `needs_measurement`.
+* **The whole reading** (every row, its rectangles, why a field was withheld) is in the
+  extraction's `raw.sketch`, which no route returns.
+
 ## 17. The traced measurement: what the API offers and the app does not use (EVAL_REPORT 97)
 
 The backend accepts a measurement the engineer **traced** instead of typed

@@ -473,7 +473,7 @@ async def _prepare(
     cost_approach = None
     fields = await study_fields(session, study_id, input.revision)
     if fields and (settings.takeoff_areas == "appraisal" or settings.cost_index == "study"):
-        read = measurements_from_fields(fields)
+        read = measurements_from_fields(fields, sketch_tolerance=settings.sketch_tolerance)
         measurements = None if read.is_empty else read
     if fields and settings.structure_step == "on":
         cost_approach = cost_approach_from_fields(fields)
@@ -606,7 +606,11 @@ async def study_fields(
 
 
 async def study_measurements(
-    session: AsyncSession, study_id: uuid.UUID, revision: int
+    session: AsyncSession,
+    study_id: uuid.UUID,
+    revision: int,
+    *,
+    sketch_tolerance: Decimal | None = None,
 ) -> BuildingMeasurements | None:
     """The appraisal measurements of the revision's extraction fields; None when no
     extraction of the revision has a usable field. Several extractions (a UAD 3.6 XML
@@ -620,7 +624,7 @@ async def study_measurements(
         rows.extend(await repo.fields(extraction.id))
     if not rows:
         return None
-    measurements = measurements_from_fields(rows)
+    measurements = measurements_from_fields(rows, sketch_tolerance=sketch_tolerance)
     return None if measurements.is_empty else measurements
 
 

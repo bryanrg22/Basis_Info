@@ -342,10 +342,14 @@ row already carries its own `takeoff_inputs` (`room_area_source`: `gla_share`,
 `basement_share`, `garage_area`, `typical_for_room_type`, `default_150_sf`; `quantity_source:
 appraisal_derived` for the roof, siding, gutters and landscaping; `needs_measurement` for a site
 item the appraisal cannot size; `quantity_source: engineer` with `measured_by_engineer` and
-`computed_quantity` for a quantity the engineer measured, and `measurement`, an object, when
-it was traced: the shape, the image's source, date and pixel size, the scale, the method and
-the expected error, docs/api/OVERRIDES.md section 4), its `cost_source` text and its `cost_trail` (how its cost was
-reached, as data, recorded when it was priced: docs/api/COST_INDICES.md, "Per-asset cost
+`computed_quantity` for a quantity the engineer measured, and `measurement`, an object, when it was
+traced: the shape, the image's source, date and pixel size, the scale, the method and the expected
+error, docs/api/OVERRIDES.md section 4); with `TAKEOFF_SKETCH=on` and a sketch table in the
+appraisal, `sketch_check` on the roof, siding, gutter, landscaping, garage and patio rows: one
+sentence saying whether the appraisal's sketch was used, with its living area, the printed GLA, how
+far apart they are and the tolerance, and `footprint_source: sketch` when the footprint is the
+sketch's ground floor, EVAL_REPORT 96), its `cost_source` text and its `cost_trail` (how its cost
+was reached, as data, recorded when it was priced: docs/api/COST_INDICES.md, "Per-asset cost
 trail"); `summary.takeoff` is the study-level view the end-to-end scorer prints.
 
 ```json

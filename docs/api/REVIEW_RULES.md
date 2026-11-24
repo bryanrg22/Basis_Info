@@ -82,6 +82,7 @@ marked `critical=True`, `CRITICAL_FIELDS`; `extraction/uad36_pdf.py` `NOT_CARRIE
 | `value_vs_cost:...` | The final market value differs from the cost approach's value by more than **50 %** | code constant | none (no catalogue code) | `validate_fields` |
 | `value_vs_contract:...` | The final market value differs from the contract price by more than **20 %** | code constant | BASIS-CHECK-026 | `validate_fields` |
 | `basement_vs_gla:...` | The basement area is more than **1.5 times** the GLA | code constant | BASIS-CHECK-025 | `validate_fields` |
+| `gla_vs_sketch:improvements.gla_sqft,sketch.living_area_sqft` | The living area on the appraisal's sketch differs from the GLA box by more than the tolerance. Only with `TAKEOFF_SKETCH=on` (default off) and a sketch whose area table was read | **1 %** of the GLA, setting `takeoff_sketch_gla_tolerance` (`TAKEOFF_SKETCH_GLA_TOLERANCE`); EVAL_REPORT 96.2. The tolerance is stored on the extraction (`raw.sketch.gla_tolerance`), so a later correction is judged by the same number | BASIS-CHECK-031 | `extraction/validation.py` `gla_vs_sketch`; `extraction/pipeline.py` `with_sketch`; `activities/extract_fields.py` `_with_corrections` |
 | `sources_disagree:<field>` | Two readers of the PDF give different values for a critical field (older `pipeline` reading only) | none | BASIS-CHECK-027 | `extraction/sections.py` |
 | `azure_di_rejected` | The document reader refused the PDF; only its text layer was read | none | BASIS-CHECK-028 | `extraction/pipeline.py` |
 | `xml_pdf_mismatch:<field>` | A UAD 3.6 XML value is not printed next to its caption on the report PDF | none | BASIS-CHECK-029 | `extraction/mismo36.py` `locate_fields` |
@@ -129,6 +130,13 @@ threshold comes from the legacy code; no evaluation has tuned it (section 10).
 
 * **Correct a field** (`extraction_field`): a new text, number or date value. It is written
   as the engineer's value with confidence 1.
+* **Settle a sketch that disagrees with the GLA** (`gla_vs_sketch`): the appraiser computes
+  the GLA on the sketch, so one of the two figures is wrong. Correct the GLA field if the
+  sketch is right, or the `sketch.living_area_sqft` field if the box is (both are ordinary
+  `extraction_field` corrections). On the next revision the flag is judged again on the
+  corrected fields and, once they agree, the takeoff uses the sketch's footprint and garage.
+  Approving without correcting is allowed: the takeoff then ignores the sketch and says so
+  on the roof, siding, gutter and landscaping rows (`takeoff_inputs.sketch_check`).
 * **Add a field the reading missed** (`extraction_field_add`): the field, one value, the
   page it is printed on, the printed words as evidence, and a reason (required). A field the
   extraction already has is corrected instead (422 `correction_field_exists`).
