@@ -19,9 +19,8 @@
 
 from __future__ import annotations
 
-import math
-
 import logging
+import math
 import uuid
 from datetime import UTC, datetime, timedelta
 from typing import Annotated, Final
@@ -174,7 +173,9 @@ async def get_property(
     description="The whole pin. A point you send that differs from the stored one is yours "
     "(`source: engineer`); no point clears it, and the next capture searches the address. "
     "`confirmed` needs a point; moving the point withdraws an earlier confirmation unless "
-    "this request confirms it. Views taken at another point than the pin's current one are marked `stale`; confirming or editing the address without moving the point keeps them current. "
+    "this request confirms it. Views taken at another point than the pin's current one are "
+    "marked `stale`; confirming or editing the address without moving the point keeps them "
+    "current. "
     f"`If-Match` with the `ETag` of the `GET` (412 {E.CAPTURE_PIN_PRECONDITION_FAILED} with "
     "the current `ETag` otherwise; `*` only over a saved pin).",
     responses=problems(403, 404, 412),
