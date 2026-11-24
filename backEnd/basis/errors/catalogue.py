@@ -2254,6 +2254,23 @@ ENTRIES: Final[tuple[Entry, ...]] = (
         temporal_type="ValidationError",
     ),
     _e(
+        E.CORRECT_MEASUREMENT,
+        "error",
+        "corrections",
+        "basis.domain.traced",
+        "An asset correction's traced `measurement` is invalid (an unknown key, a unit other "
+        "than SF, SY or LF, a shape that crosses itself, a cutout outside its ring, a scale "
+        "missing on an image, a quantity out of range, ...), or comes with `quantity`, "
+        "`quantity_unit` or `quantity_source` (one way to state a quantity). The message names "
+        "what is wrong and where; the decision route refuses the same with a 422 (EVAL_REPORT "
+        "97, docs/api/OVERRIDES.md section 4).",
+        "`ValidationError: measurement... [BASIS-CORRECT-046]`; the rejection's corrections are "
+        "refused.",
+        "Fix what the message names, or send a typed quantity instead.",
+        "no",
+        temporal_type="ValidationError",
+    ),
+    _e(
         E.CORRECT_IRS_SECTION,
         "error",
         "corrections",
@@ -2749,6 +2766,55 @@ ENTRIES: Final[tuple[Entry, ...]] = (
         "Measure or confirm the quantity.",
         "no",
         signal="takeoff:upper_bound",
+    ),
+    _e(
+        E.ASSETS_MEASURE_IMAGE_UNDATED,
+        "flag",
+        "process_assets",
+        "basis.domain.traced",
+        "The engineer's traced measurement names no capture date for its image: undated "
+        "imagery cannot show the property as it was placed in service (EVAL_REPORT 97).",
+        "`review_reasons` `measure:IMAGE_UNDATED`.",
+        "Confirm the image shows the property as placed in service, or trace on a dated one.",
+        "no",
+        signal="measure:IMAGE_UNDATED",
+    ),
+    _e(
+        E.ASSETS_MEASURE_IMAGE_AFTER_SERVICE,
+        "flag",
+        "process_assets",
+        "basis.domain.traced",
+        "The traced measurement's image was captured more than "
+        "`MEASURE_IMAGE_AFTER_SERVICE_DAYS` after the placed-in-service date: it may show "
+        "improvements made after the purchase (EVAL_REPORT 97).",
+        "`review_reasons` `measure:IMAGE_AFTER_SERVICE`.",
+        "Check that the traced item existed at the placed-in-service date.",
+        "no",
+        signal="measure:IMAGE_AFTER_SERVICE",
+    ),
+    _e(
+        E.ASSETS_MEASURE_ERROR_UNKNOWN,
+        "flag",
+        "process_assets",
+        "basis.domain.traced",
+        "A measurement traced on lon/lat imagery names no pixel size, so its expected error "
+        "is unknown (EVAL_REPORT 97).",
+        "`review_reasons` `measure:ERROR_UNKNOWN`.",
+        "Give the imagery's pixel size, or confirm the quantity another way.",
+        "no",
+        signal="measure:ERROR_UNKNOWN",
+    ),
+    _e(
+        E.ASSETS_MEASURE_COARSE,
+        "flag",
+        "process_assets",
+        "basis.domain.traced",
+        "A traced measurement's expected error (one pixel on every edge, plus the scale's) is "
+        "above `MEASURE_ERROR_FLAG_PCT` (EVAL_REPORT 97).",
+        "`review_reasons` `measure:COARSE`.",
+        "Trace on sharper imagery or a plan, or confirm the quantity another way.",
+        "no",
+        signal="measure:COARSE",
     ),
     _e(
         E.ASSETS_BUDGET_FLAGGED,

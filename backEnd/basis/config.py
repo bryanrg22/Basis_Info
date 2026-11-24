@@ -445,6 +445,21 @@ class Settings(BaseSettings):
     # sample reports of section 96 agree to the square foot; the client's differ by 12.5 %).
     takeoff_sketch: Literal["off", "on"] = "off"
     takeoff_sketch_gla_tolerance: float = Field(default=0.01, ge=0, le=1)
+    # Whether the sketch's outline is read from the appraisal PDF's own line work
+    # (basis.extraction.sketch_outline; SKETCH_READER.md section 6; EVAL_REPORT section
+    # 100). on, with TAKEOFF_SKETCH=on: on each sketch page the extraction closes the solid
+    # strokes into loops, believes a loop only when its area and the dimensions of the
+    # table's calculation both reproduce a verified row at one scale per page, and writes
+    # `sketch.ground_perimeter_ft` (first floor and attached garage as one outline) and
+    # `sketch.upper_perimeter_ft`, which the roof and the siding then use in place of the
+    # 1.5:1 rectangle. A scanned or image sketch, a loop that does not match, or an
+    # attachment the drawing does not show writes nothing, and the reason is kept in the
+    # extraction's raw["sketch"]["outline"]. off (the default: section 100 read one client
+    # PDF from one sketching tool; every other stored sketch is an image): the PDF's line
+    # work is not opened. It gates the reader only: a perimeter an earlier extraction wrote
+    # stays in that revision's fields and is used while TAKEOFF_SKETCH is on. Without
+    # TAKEOFF_SKETCH=on it does nothing.
+    takeoff_sketch_outline: Literal["off", "on"] = "off"
     # Where the cost year and location factor come from. study: the year of the intake's
     # placed_in_service_date and the factor (basis.domain.costs.REGIONAL_COST_FACTORS) of
     # the intake's state, else the appraisal's effective-date year and subject.state, each
@@ -605,11 +620,29 @@ class Settings(BaseSettings):
     # the decision route (422), the behaviour before section 90. Section 90 turned both on:
     # each keeps the model's or the table's value beside the engineer's, with who, when and
     # why. Turn UNIT_COST_OVERRIDE on only once every worker runs section 90's release (an
-    # older worker refuses the rejection's corrections; docs/api/OVERRIDES.md section 6).
+    # older worker refuses the rejection's corrections; docs/api/OVERRIDES.md section 7).
     # Overrides already recorded keep pricing when it is turned off: they are the
     # engineer's decisions, not this setting's.
     object_exclusion: bool = True
     unit_cost_override: bool = True
+    # The engineer's traced measurement (docs/api/OVERRIDES.md section 4, EVAL_REPORT 97;
+    # basis.domain.traced). TRACED_MEASUREMENT: an `asset` correction may carry
+    # `measurement`, a shape traced on an image whose quantity the server computes and keeps
+    # with the shape, the image, its date and pixel size, the scale and an expected error
+    # (reported by GET /v1/capabilities as `traced_measurement`); false refuses it at the
+    # decision and draft routes (422), the behaviour before section 97. Deploy the worker
+    # first, as for UNIT_COST_OVERRIDE: an older worker refuses `measurement` as an unknown
+    # field. MEASURE_IMAGE_AFTER_SERVICE_DAYS: a traced image captured more than this many
+    # days after the intake's placed-in-service date is flagged `measure:IMAGE_AFTER_SERVICE`
+    # (365: a year of grace for a purchase closed before the image's flight; not measured,
+    # the maintainer's call). MEASURE_ERROR_FLAG_PCT: a traced quantity whose expected error
+    # is above this percentage is flagged `measure:COARSE` (10: the worst case the
+    # independent studies of REMOTE_INSPECTION_AND_MEASUREMENT.md section 5 report for
+    # today's hand method, Google Earth, on a driveway-sized area). Both are review flags,
+    # never refusals, and neither changes a quantity.
+    traced_measurement: bool = True
+    measure_image_after_service_days: int = Field(default=365, ge=0, le=36_500)
+    measure_error_flag_pct: float = Field(default=10.0, gt=0, le=1000)
 
     # Property pictures (docs/review_2026-10-15/PROPERTY_CAPTURE.md, docs/api/PROPERTY_CAPTURE.md,
     # EVAL_REPORT section 98): a separate worker (`python -m basis.capture`) opens the property in
@@ -721,6 +754,12 @@ class Settings(BaseSettings):
         if self.takeoff_sketch != "on":
             return None
         return Decimal(str(self.takeoff_sketch_gla_tolerance))
+
+    @property
+    def sketch_outline(self) -> bool:
+        """Whether the extraction reads the sketch's outline from the PDF's line work:
+        ``TAKEOFF_SKETCH_OUTLINE=on`` together with ``TAKEOFF_SKETCH=on``."""
+        return self.takeoff_sketch == "on" and self.takeoff_sketch_outline == "on"
 
     @property
     def vision_output_budget(self) -> int:

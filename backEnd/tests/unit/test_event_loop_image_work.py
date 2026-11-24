@@ -36,6 +36,8 @@ HEAVY = frozenset(
         "render_pdf",
         "render_marks",
         "read_pdf",
+        "page_drawings",
+        "read_outline",
         "read_appraisal_upload",
         "_open_rgb",
         "_crop_jpeg",

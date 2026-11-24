@@ -102,6 +102,7 @@ async def test_capabilities_follow_the_settings(api: Api, off_api: Api) -> None:
     assert on.json() == {
         "object_exclusion": True,
         "unit_cost_override": True,
+        "traced_measurement": True,
         "room_create": False,
         "property_capture": False,
         "public_geo": False,
@@ -110,6 +111,7 @@ async def test_capabilities_follow_the_settings(api: Api, off_api: Api) -> None:
     assert off.json() == {
         "object_exclusion": False,
         "unit_cost_override": False,
+        "traced_measurement": True,  # its own setting (tests/api/test_traced_measurement_api.py)
         "room_create": False,
         "property_capture": False,
         "public_geo": False,

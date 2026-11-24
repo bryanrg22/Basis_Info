@@ -16,7 +16,10 @@ import pytest
 from fixtures import sketch_fixture
 
 from basis.domain.measurements import (
+    GARAGE_NOT_DRAWN,
+    OUTLINE_SOURCE,
     SKETCH_KEYS,
+    UPPER_OUTLINES,
     BuildingMeasurements,
     SketchAreas,
     check_sketch,
@@ -34,6 +37,7 @@ from basis.domain.measurements import (
     room_areas,
     siding_area,
 )
+from basis.extraction import sketch_outline
 from basis.extraction.sketch import FIELD_KEYS, read_sketch, sketch_fields
 
 from .measurement_snapshot import CASES, GOLDEN, TWO_STORY, RoomStub, Row, num, render, snapshot_of
@@ -368,10 +372,10 @@ def test_without_stories_the_sketch_does_not_size_what_today_cannot() -> None:
 # ------------------------------------------------------------------ a perimeter, when one is read
 
 
-def outline_rows(ground: str, upper: str | None = None) -> list[Row]:
-    rows = [Row("sketch", "ground_perimeter_ft", Decimal(ground), source="manual", page=9)]
+def outline_rows(ground: str, upper: str | None = None, source: str = "manual") -> list[Row]:
+    rows = [Row("sketch", "ground_perimeter_ft", Decimal(ground), source=source, page=9)]
     if upper is not None:
-        rows.append(Row("sketch", "upper_perimeter_ft", Decimal(upper), source="manual", page=10))
+        rows.append(Row("sketch", "upper_perimeter_ft", Decimal(upper), source=source, page=10))
     return rows
 
 
@@ -417,6 +421,57 @@ def test_a_perimeter_is_not_used_without_the_sketch_footprint_or_when_refused() 
     plain = measurements_from_fields(house("2400"))
     assert roof_area(refused).quantity == roof_area(plain).quantity  # type: ignore[union-attr]
     assert siding_area(refused).quantity == siding_area(plain).quantity  # type: ignore[union-attr]
+
+
+# ------------------------------------------------------------------ a perimeter from the drawing
+
+
+def test_a_perimeter_from_the_drawing_is_used_and_says_how_upper_floors_were_summed() -> None:
+    m = read([*house(), *sketch_rows(), *outline_rows("220", "140", source=OUTLINE_SOURCE)])
+    manual = read([*house(), *sketch_rows(), *outline_rows("220", "140")])
+    roof, siding = roof_area(m), siding_area(m)
+    assert roof is not None and siding is not None
+    assert roof.quantity == roof_area(manual).quantity  # type: ignore[union-attr]
+    assert siding.quantity == q(Decimal(220 + 140) * 9 * Decimal("0.85"))
+    assert roof.inputs["perimeter_field"] == "sketch.ground_perimeter_ft (drawing, page 9)"
+    assert UPPER_OUTLINES in siding.assumptions
+    assert "sketch_outline" not in roof.inputs and "sketch_outline" not in siding.inputs
+    # A perimeter someone else wrote carries no such statement.
+    assert UPPER_OUTLINES not in siding_area(manual).assumptions  # type: ignore[union-attr]
+    assert OUTLINE_SOURCE == sketch_outline.SOURCE
+    assert {sketch_outline.GROUND_PERIMETER, sketch_outline.UPPER_PERIMETER} == {
+        SKETCH_KEYS["ground_perimeter_ft"],
+        SKETCH_KEYS["upper_perimeter_ft"],
+    }
+
+
+def test_a_drawn_outline_is_not_used_when_the_takeoffs_garage_is_not_the_sketchs() -> None:
+    # The sketch draws no garage; the cost approach prices one. The outline read from the
+    # drawing is the dwelling's alone, so the rectangle stays and both rows say why.
+    no_garage = [r for r in sketch_rows() if r.field != "garage_area_sqft"]
+    drawn = outline_rows("220", "140", source=OUTLINE_SOURCE)
+    m = read([*house(), *no_garage, *drawn])
+    without = read([*house(), *no_garage])
+    roof, siding = roof_area(m), siding_area(m)
+    assert roof is not None and siding is not None
+    assert roof.quantity == roof_area(without).quantity  # type: ignore[union-attr]
+    assert siding.quantity == siding_area(without).quantity  # type: ignore[union-attr]
+    assert roof.inputs["sketch_outline"] == siding.inputs["sketch_outline"] == GARAGE_NOT_DRAWN
+    assert roof.inputs["aspect_ratio"] == "1.50" and "perimeter_field" not in roof.inputs
+    assert "upper_perimeter_ft" not in siding.inputs and UPPER_OUTLINES not in siding.assumptions
+    # The same perimeter from a person is their statement of the whole ground story.
+    stated = read([*house(), *no_garage, *outline_rows("220", "140")])
+    assert roof_area(stated).inputs["perimeter_ft"] == "220"  # type: ignore[union-attr]
+
+
+def test_a_drawn_outline_of_a_house_with_no_garage_at_all_is_used() -> None:
+    no_garage = [r for r in sketch_rows() if r.field != "garage_area_sqft"]
+    rows = [r for r in house() if r.field != "garage_sqft"]
+    m = read([*rows, *no_garage, *outline_rows("180", source=OUTLINE_SOURCE)])
+    assert garage_area(m) is None
+    roof = roof_area(m)
+    assert roof is not None and roof.inputs["perimeter_ft"] == "180"
+    assert "sketch_outline" not in roof.inputs
 
 
 def test_the_extraction_writes_exactly_the_area_keys_the_takeoff_reads() -> None:

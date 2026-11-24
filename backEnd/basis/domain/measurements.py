@@ -96,9 +96,10 @@ TEXT_KEYS: Final[dict[str, tuple[str, ...]]] = {
 DATE_KEYS: Final[dict[str, tuple[str, ...]]] = {
     "effective_date": ("reconciliation.effective_date_of_appraisal", "appraiser.effective_date"),
 }
-# The appraisal sketch's fields (``basis.extraction.sketch`` writes the four areas from the
-# area calculation table; nothing writes the two perimeters yet: the table's text does not
-# carry the outline, SKETCH_READER.md section 2). Read only with a tolerance (TAKEOFF_SKETCH).
+# The appraisal sketch's fields: ``basis.extraction.sketch`` writes the four areas from the
+# area calculation table, and ``basis.extraction.sketch_outline`` the two perimeters from the
+# PDF's line work when TAKEOFF_SKETCH_OUTLINE is on and the drawing can be read
+# (SKETCH_READER.md section 6). Read only with a tolerance (TAKEOFF_SKETCH).
 SKETCH_KEYS: Final[dict[str, str]] = {
     "living_sf": "sketch.living_area_sqft",
     "ground_floor_sf": "sketch.ground_floor_area_sqft",
@@ -555,6 +556,33 @@ def _from_sketch(m: BuildingMeasurements) -> SketchAreas | None:
 
 
 OUTLINE: Final = "perimeter read from the appraisal sketch's outline"
+# The source of a perimeter read from the sketch's line work
+# (``basis.extraction.sketch_outline.SOURCE``; a test holds the two equal).
+OUTLINE_SOURCE: Final = "drawing"
+UPPER_OUTLINES: Final = (
+    "upper-floor outlines summed as drawn: parts of a floor drawn on separate pages are "
+    "counted as separate masses (a wall they share would be counted twice)"
+)
+GARAGE_NOT_DRAWN: Final = (
+    "sketch outline not used: the takeoff's garage is not the sketch's, so the outline "
+    "read from the drawing does not include its walls"
+)
+
+
+def _ground_outline(m: BuildingMeasurements) -> tuple[Reading | None, str | None]:
+    """``(the ground story's perimeter read from the sketch, why one that was read is not
+    used)``. A perimeter the outline reader wrote covers the dwelling and the garage the
+    sketch draws. When the takeoff's garage comes from somewhere else (the cost approach's
+    line, the car count), its walls are not in that outline, so the rectangle stays and the
+    row says why. A perimeter from any other source is the writer's statement of the whole
+    ground story and is used as it is."""
+    sketch = _from_sketch(m)
+    if sketch is None or sketch.ground_perimeter_ft is None:
+        return None, None
+    read = sketch.ground_perimeter_ft
+    if read.source == OUTLINE_SOURCE and sketch.garage_sf is None and garage_area(m) is not None:
+        return None, GARAGE_NOT_DRAWN
+    return read, None
 
 
 def _rectangle() -> str:
@@ -590,8 +618,7 @@ def roof_area(m: BuildingMeasurements) -> Derived | None:
     ground = ground_footprint(m)
     if ground is None:
         return None
-    sketch = _from_sketch(m)
-    outline = None if sketch is None else sketch.ground_perimeter_ft
+    outline, unused = _ground_outline(m)
     perimeter = perimeter_ft(ground.quantity) if outline is None else outline.value
     plan = ground.quantity + perimeter * EAVE_OVERHANG_FT
     area = plan * ROOF_PITCH_FACTOR
@@ -600,6 +627,8 @@ def roof_area(m: BuildingMeasurements) -> Derived | None:
         if outline is None
         else {"perimeter_field": outline.describe()}
     )
+    if unused is not None:
+        shape["sketch_outline"] = unused
     return Derived(
         _q(area),
         "SF",
@@ -635,7 +664,7 @@ def siding_area(m: BuildingMeasurements) -> Derived | None:
     if sketch is None:
         return _siding_from_rectangles(ground, dwelling, stories)
     assert sketch.ground_floor_sf is not None and sketch.living_sf is not None
-    outline = sketch.ground_perimeter_ft
+    outline, unused = _ground_outline(m)
     ground_perimeter = perimeter_ft(ground.quantity) if outline is None else outline.value
     upper_stories = stories - 1
     upper_area = max(sketch.living_sf.value - sketch.ground_floor_sf.value, Decimal(0))
@@ -658,6 +687,8 @@ def siding_area(m: BuildingMeasurements) -> Derived | None:
         )
         inputs["upper_perimeter_ft"] = _fmt(_q(upper_run))
         inputs["upper_perimeter_field"] = read_upper.describe()
+        if read_upper.source == OUTLINE_SOURCE:
+            assumptions.append(UPPER_OUTLINES)
     elif upper_stories > 0 and upper_area > 0:
         per_story = perimeter_ft(upper_area / upper_stories)
         upper_run = per_story * upper_stories
@@ -675,6 +706,8 @@ def siding_area(m: BuildingMeasurements) -> Derived | None:
     if outline is None:
         inputs["aspect_ratio"] = _fmt(FOOTPRINT_ASPECT_RATIO)
         assumptions.append(_rectangle())
+        if unused is not None:
+            inputs["sketch_outline"] = unused
     else:
         inputs["ground_perimeter_field"] = outline.describe()
         assumptions.append(OUTLINE)
@@ -1170,6 +1203,9 @@ __all__ = [
     "BuildingMeasurements",
     "CostIndex",
     "DateReading",
+    "GARAGE_NOT_DRAWN",
+    "OUTLINE_SOURCE",
+    "UPPER_OUTLINES",
     "Derived",
     "Reading",
     "RoomArea",

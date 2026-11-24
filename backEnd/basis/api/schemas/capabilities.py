@@ -22,6 +22,11 @@ class CapabilitiesOut(ResponseModel):
         description="`asset` and `component` corrections accept `unit_cost` and "
         "`unit_cost_source`, the engineer's unit price (setting `UNIT_COST_OVERRIDE`)."
     )
+    traced_measurement: bool = Field(
+        description="`asset` corrections accept `measurement`, a shape the engineer traced on "
+        "an image whose quantity the server computes (docs/api/OVERRIDES.md section 4; "
+        "setting `TRACED_MEASUREMENT`)."
+    )
     property_capture: bool = Field(
         default=False,
         description="`POST .../property/captures` takes pictures of the property in the "

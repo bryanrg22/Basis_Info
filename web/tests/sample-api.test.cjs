@@ -390,7 +390,7 @@ test('the Response surface: JSON, problem+json, bytes, and the bearer token',asy
 /* ---------- PROPOSED (the sample API's own section) ---------- */
 test('P0: capabilities say what the proposed section offers',async()=>{
  const {a}=instance('components');
- assert.deepEqual((await a.call('GET','/v1/capabilities')).body,{object_exclusion:true,unit_cost_override:true,room_create:true});
+ assert.deepEqual((await a.call('GET','/v1/capabilities')).body,{object_exclusion:true,unit_cost_override:true,room_create:true,property_capture:true,public_geo:true,traced_measurement:true});
 });
 
 test('P1: exclude an instance with a reason, then restore it; the counts follow',async()=>{
@@ -477,7 +477,7 @@ test('in a page: inactive without ?api=sample; with it, active with a signed-in 
 const FORBIDDEN=[["1aedd99571fca4a1599d05e945cef988a93d17477f56572a04be19996a894467", 73], ["4424e2e8ffe2469c219cbd21aaea211cb2b87ff03ea87f14d2fff92618c8a083", 22], ["4a5e8a51c818745a4fd074570af7ddcabc4402d74599f12dfc006b32458c69f7", 53], ["5d5b3e3019447dad9f128c511bd981b0c77d1480b8e6a7e0bc2aeb522c587fae", 25], ["8f1cefdd9863d1760b4c87ac53ed87ed589f811ffa488aa7451685fc7bef4e91", 18], ["a4403c6b9ec6e54edf9fe7d29c286d5150d046f93e33ff15e1aaf90b3e1d3a2a", 18], ["a9ded9a10b6f5f59d4a01c58463986e7ad536970e1f11807602e1c9cb66cf5c1", 69], ["afe8000c82cd4bf853af04f697ff1518a7631f6498e4be3108099da4bebde799", 27], ["bca85de6eaf29da11f7c4db936f1abea41849e55133232bcd939de86cdde612e", 63], ["dacb7afc956e06893f9956525add375ea96e73a5b579de0c233bc7578a3fe1b1", 65], ["e9c60f772e432d62aa4abbefe7189691bf3d04494c4a9dcbede6fce8d28a924e", 64], ["fe5d48d560dc5650d0683c14ad3b9427313833e8075ef1d3463b6eef21715f17", 57]];
 test('the fixture contains none of the distinctive strings of the recorded real study',()=>{
  const targets=FORBIDDEN;assert.ok(targets.length>=10);
- for(const file of ['live/sample-api.js','tests/sample-api.test.cjs']){
+ for(const file of ['live/sample-api.js','live/sample-property.js','live/property-model.js','tests/sample-api.test.cjs','tests/sample-property.test.cjs']){
   const text=fs.readFileSync(path.join(WEB,file),'utf8').toLowerCase(),byLength=new Map();
   for(const [hash,len] of targets){if(!byLength.has(len))byLength.set(len,new Set());byLength.get(len).add(hash)}
   for(const [len,hashes] of byLength)for(let i=0;i+len<=text.length;i++){const h=crypto.createHash('sha256').update(text.slice(i,i+len)).digest('hex');assert.ok(!hashes.has(h),`${file} holds a recorded client string at offset ${i}`)}

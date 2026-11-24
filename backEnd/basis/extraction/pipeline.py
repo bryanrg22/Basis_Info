@@ -98,6 +98,7 @@ from basis.extraction.regions import field_regions, with_regions
 from basis.extraction.results import ExtractedField, ExtractionResult, Region, ValidationIssue
 from basis.extraction.sections import azure_candidates, merge
 from basis.extraction.sketch import read_document_sketch, sketch_fields
+from basis.extraction.sketch_outline import page_drawings, read_outline
 from basis.extraction.validation import gla_vs_sketch, validate_fields
 from basis.llm import prompts
 from basis.llm.call import CallContext, step_entry
@@ -167,6 +168,10 @@ class ExtractionContext:
     # (``TAKEOFF_SKETCH_GLA_TOLERANCE``: the fraction the takeoff refuses the sketch at).
     sketch: bool = False
     sketch_gla_tolerance: Decimal = Decimal("0.01")
+    # Whether the sketch's outline is read from the PDF's line work into the two perimeter
+    # fields (``TAKEOFF_SKETCH_OUTLINE=on``, with ``sketch``;
+    # :mod:`basis.extraction.sketch_outline`, EVAL_REPORT 100).
+    sketch_outline: bool = False
 
 
 @dataclass
@@ -237,9 +242,14 @@ def _ms(started: float) -> int:
 
 
 def _sketch(
-    azure: AzureDiResult | None, pdf_pages: Sequence[str]
+    azure: AzureDiResult | None,
+    pdf_pages: Sequence[str],
+    pdf_bytes: bytes | None = None,
+    outline: bool = False,
 ) -> tuple[dict[str, ExtractedField], dict[str, Any]]:
-    """``(the sketch fields, what goes in raw["sketch"])`` (synchronous: run on a thread)."""
+    """``(the sketch fields, what goes in raw["sketch"])`` (synchronous: run on a thread).
+    With ``outline`` the PDF's line work on the sketch pages is read too, and the trace
+    carries ``outline``: what was found on each page and why a perimeter was withheld."""
     azure_pages = (
         None
         if azure is None
@@ -249,7 +259,28 @@ def _sketch(
     if reading is None:
         return {}, {"status": "no_table"}
     fields, notes = sketch_fields(reading)
-    return fields, {"status": "read", **reading.as_json(), "fields": sorted(fields), "notes": notes}
+    drawn: dict[str, Any] | None = None
+    if outline and pdf_bytes is None:
+        drawn = {"status": "not_read", "notes": ["no PDF to read line work from"]}
+    elif outline and pdf_bytes is not None:
+        try:
+            read = read_outline(reading, fields, page_drawings(pdf_bytes, reading.pages))
+        except Exception as exc:
+            # The outline is an addition to an extraction that has already read this PDF:
+            # line work the reader cannot handle writes nothing, like any other it cannot
+            # believe, and never fails the extraction.
+            logger.warning("the sketch's line work could not be read", exc_info=True)
+            drawn = {
+                "status": "not_read",
+                "notes": [f"the line work could not be read ({type(exc).__name__})"],
+            }
+        else:
+            fields = {**fields, **read.fields}
+            drawn = read.trace
+    trace = {"status": "read", **reading.as_json(), "fields": sorted(fields), "notes": notes}
+    if drawn is not None:
+        trace["outline"] = drawn
+    return fields, trace
 
 
 async def with_sketch(
@@ -257,6 +288,7 @@ async def with_sketch(
     ctx: ExtractionContext,
     azure: AzureDiResult | None,
     pdf_pages: Sequence[str],
+    pdf_bytes: bytes | None = None,
 ) -> ExtractionResult:
     """``result`` with the building sketch's fields when ``ctx.sketch`` (module doc of
     :mod:`basis.extraction.sketch`): added after the review gate, never over a field the
@@ -266,11 +298,17 @@ async def with_sketch(
 
     One thing reaches the gate: a sketch whose living area is further from the GLA box than
     ``ctx.sketch_gla_tolerance`` flags the appraisal (``gla_vs_sketch``), because the takeoff
-    will refuse that sketch and only the engineer can say which figure is wrong."""
+    will refuse that sketch and only the engineer can say which figure is wrong.
+
+    With ``ctx.sketch_outline`` the outline is read from ``pdf_bytes`` on the same thread
+    (:mod:`basis.extraction.sketch_outline`); its two perimeter fields are added the same
+    way and take no part in the flag."""
     if not ctx.sketch:
         return result
     ctx.heartbeat("sketch")
-    fields, trace = await asyncio.to_thread(_sketch, azure, pdf_pages)
+    fields, trace = await asyncio.to_thread(
+        _sketch, azure, pdf_pages, pdf_bytes, ctx.sketch_outline
+    )
     for key, item in fields.items():
         result.fields.setdefault(key, item)
     result.raw["sketch"] = {**trace, "gla_tolerance": str(ctx.sketch_gla_tolerance)}
@@ -326,7 +364,7 @@ async def extract_appraisal(
     if ctx.method == "grounded":
         result, attempt = await _read_grounded(pdf_bytes, doc_id, ctx, analysis)
         if result is not None:
-            return await with_sketch(result, ctx, analysis.azure, pages)
+            return await with_sketch(result, ctx, analysis.azure, pages, pdf_bytes)
         # Module doc, "Errors": the pipeline reads the document on the same analysis.
         logger.warning(
             "grounded extraction of %s did not run (%s): read by the pipeline",
@@ -337,9 +375,9 @@ async def extract_appraisal(
             f"grounded reading unavailable ({attempt.get('status')}): read by the pipeline"
         )
         result = await _read_pipeline(doc_id, ctx, analysis, grounded=attempt)
-        return await with_sketch(result, ctx, analysis.azure, pages)
+        return await with_sketch(result, ctx, analysis.azure, pages, pdf_bytes)
     return await with_sketch(
-        await _read_pipeline(doc_id, ctx, analysis), ctx, analysis.azure, pages
+        await _read_pipeline(doc_id, ctx, analysis), ctx, analysis.azure, pages, pdf_bytes
     )
 
 
@@ -639,4 +677,4 @@ async def extract_appraisal_upload(
     result.raw["upload_kind"] = upload.kind
     if azure is not None:
         result.raw["azure_di"] = azure.model_dump(mode="json")
-    return await with_sketch(result, ctx, azure, pdf_pages)
+    return await with_sketch(result, ctx, azure, pdf_pages, pdf)

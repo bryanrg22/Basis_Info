@@ -21,6 +21,9 @@
  * pending, accepted, expired and revoked invitations. Dates are relative to now (a capture pins
  * the browser clock, so they repeat).
  *
+ * The Property area (&property=, PROPOSED P8): ready | confirmed | running | paused | waiting |
+ * failed | noplace | nopin | site, the main study's property pictures (live/sample-property.js).
+ *
  * Who is signed in (&role=): admin (Alex Morgan, the owner; the default) | engineer (Jordan Lee)
  * | viewer (Sam Rivera). The real API's rules apply: team, invitations and the firm profile are
  * owner-only, a viewer cannot decide or sign. Onboarding (&onboarding=): invited (Casey Nguyen,
@@ -1106,10 +1109,19 @@
   *      the name, credentials, license number and state an engineer signs with.
   *  P7  GET /v1/orgs/{org_id}/feed: the firm's study activity for every member, newest first,
   *      each event with the actor's name and the study's name and address.
+  *
+  * The Property area (web/FRONTEND_BACKLOG.md section 21, "Built from sections 17 to 20"; the
+  * contracts are on open backend branches):
+  *  P8  property_capture, public_geo and traced_measurement in GET /v1/capabilities; the property
+  *      pin, captures and views, the public records and the renovations document
+  *      (live/sample-property.js, docs/api/PROPERTY_CAPTURE.md, PUBLIC_GEO.md, RENOVATIONS.md).
+  *  P9  `measurement` on asset corrections (docs/api/OVERRIDES.md section 4): the shape the
+  *      engineer traced; the asset's takeoff becomes its computed quantity, with the formula,
+  *      the stored record and the four measure: review flags.
   * ===================================================================================== */
  (function proposed(){
   // P0
-  PROPOSED_ROUTES.push(({route,json})=>route('GET','/v1/capabilities',()=>json(200,{object_exclusion:true,unit_cost_override:true,room_create:true})));
+  PROPOSED_ROUTES.push(({route,json})=>route('GET','/v1/capabilities',()=>json(200,{object_exclusion:true,unit_cost_override:true,room_create:true,property_capture:true,public_geo:true,traced_measurement:true})));
   // P4: what identifies each study, and a search that reaches it.
   STUDY_OUT.push((out,S)=>{const m=S.meta;out.summary=m?{address:m.address,city:m.city,state:m.state,zip:m.zip,county:m.county,parcel_number:m.apn,client:m.client,borrower:m.borrower,taxpayer:S.answers?.taxpayer_name||m.taxpayer,file_number:m.file}:null});
   STUDY_MATCH.push((S,q)=>{const m=S.meta;if(!m)return false;
@@ -1217,6 +1229,41 @@
    },
    apply(c,S,ctx){S.rooms.push({id:c.entity_id,key:'new-'+c.entity_id.slice(0,8),name:c.after.name.trim(),room_type:c.after.room_type,floor:c.after.floor==null?null:String(c.after.floor),area:null,source:'engineer',group_key:null,photos:[],inventory:[],provenance:{...ctx.prov(null,clone(c.after),Object.keys(c.after)),origin:'engineer_added'}})},
   };
+  // P8: the property routes (live/sample-property.js).
+  // In the browser the two files are loaded before this one; in Node they are required beside it
+  // (a test that evaluates this source from web/tests reaches them as ../live/).
+  const near=(file,global)=>{if(scope[global])return scope[global];if(typeof require!=='function')return null;for(const p of ['./'+file,'../live/'+file]){try{return require(p)}catch{}}return null};
+  const PS=near('sample-property.js','BasisPropertySample'),PM=near('property-model.js','BasisPropertyModel');
+  if(PS)PROPOSED_ROUTES.push(h=>PS.register(h));
+  // P9: a traced measurement on an asset correction, computed as basis/domain/traced.py does
+  // (live/property-model.js is its port, tested against the server's values).
+  if(PM){
+   AFTER_KEYS.asset.push('measurement');
+   const TYPED=['quantity','quantity_unit','quantity_source'];
+   ASSET_CHECKS.push(c=>{
+    if(!('measurement' in c.after))return null;
+    if(TYPED.some(k=>k in c.after))return {where:'after',detail:'measurement goes alone or with a classification or a unit price, never with quantity, quantity_unit or quantity_source (one way to state a quantity).',type:'correction_value'};
+    const problems=PM.problems(c.after.measurement);
+    return problems.length?{where:'after',detail:problems.join('; '),type:'correction_value'}:null;
+   });
+   const MEASURE_CODES={'measure:IMAGE_UNDATED':'BASIS-ASSETS-021','measure:IMAGE_AFTER_SERVICE':'BASIS-ASSETS-022','measure:ERROR_UNKNOWN':'BASIS-ASSETS-023','measure:COARSE':'BASIS-ASSETS-024'};
+   REASON_CODES.push(...Object.entries(MEASURE_CODES));
+   const baseApply=CORRECTORS.asset.apply;
+   CORRECTORS.asset.apply=(c,S,ctx)=>{
+    baseApply(c,S,ctx);if(!c.after.measurement)return;
+    const m=c.after.measurement,r=PM.measure(m),e=S.assetEdits[c.entity_id];
+    Object.assign(e,{quantity:r.quantity,quantity_unit:r.unit,quantity_source:m.image.source.trim(),traced:{...JSON.parse(JSON.stringify(m)),...r}});
+   };
+   COST_HOOKS.push((asset,{S,id})=>{
+    const t=S.assetEdits[id]?.traced;if(!t)return;
+    asset.takeoff.formula=PM.formula(t,{source:t.image.source,captured_on:t.image.captured_on,height_ft:t.height_ft});
+    asset.takeoff.inputs={quantity_source:'engineer',measured_by_engineer:t.image.source,computed_quantity:null,measurement:JSON.parse(JSON.stringify(t))};
+    if(asset.cost?.trail?.quantity){asset.cost.trail.quantity.formula=asset.takeoff.formula;asset.cost.trail.quantity.inputs=asset.takeoff.inputs}
+    const flags=PM.reviewFlags(t,{captured_on:t.image.captured_on,placedInService:INTAKE.placed_in_service_date});
+    asset.review_reasons=[...asset.review_reasons.filter(x=>!x.startsWith('measure:')),...flags];
+    asset.review_codes=codesFor(asset.review_reasons);asset.needs_review=asset.review_reasons.length>0;
+   });
+  }
  })();
  /* END PROPOSED ====================================================================== */
 
