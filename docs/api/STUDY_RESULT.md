@@ -345,7 +345,12 @@ item the appraisal cannot size; with `TAKEOFF_SKETCH=on` and a sketch table in t
 `sketch_check` on the roof, siding, gutter, landscaping, garage and patio rows: one sentence saying
 whether the appraisal's sketch was used, with its living area, the printed GLA, how far apart they
 are and the tolerance, and `footprint_source: sketch` when the footprint is the sketch's ground
-floor, EVAL_REPORT 96), its `cost_source` text and its `cost_trail` (how its cost was
+floor, EVAL_REPORT 96; with `TAKEOFF_SKETCH_OUTLINE=on` as well and an outline read from the
+PDF's line work, `perimeter_field` on the roof and `ground_perimeter_field` and
+`upper_perimeter_field` on the siding read `sketch.ground_perimeter_ft (drawing, page N)`, the
+assumptions say "perimeter read from the appraisal sketch's outline" in place of the 1.5:1
+rectangle, and `sketch_outline` gives the reason when an outline that was read is not used,
+EVAL_REPORT 100), its `cost_source` text and its `cost_trail` (how its cost was
 reached, as data, recorded when it was priced: docs/api/COST_INDICES.md, "Per-asset cost
 trail"); `summary.takeoff` is the study-level view the end-to-end scorer prints.
 

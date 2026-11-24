@@ -406,6 +406,68 @@ Nothing here is visible until the setting is on. With it on:
   patio the sketch dimensions arrives as a measured SF quantity instead of `needs_measurement`.
 * **The whole reading** (every row, its rectangles, why a field was withheld) is in the
   extraction's `raw.sketch`, which no route returns.
+* **The outline** (EVAL_REPORT 100; `TAKEOFF_SKETCH_OUTLINE`, default off, with
+  `TAKEOFF_SKETCH`). When the appraisal PDF's sketch is line work, the `sketch` section gains
+  `ground_perimeter_ft` and `upper_perimeter_ft` with `source: "drawing"` (a new value of a
+  field's `source`), the page, confidence 0.80 and no `regions`; `raw_text` says which rows'
+  outlines were joined and whether parts of a floor on separate pages were summed. The roof
+  and siding rows then cite them (`takeoff_inputs.perimeter_field`, `ground_perimeter_field`,
+  `upper_perimeter_field`) and their assumptions say the perimeter was read from the sketch's
+  outline. The app shows none of it. `raw.sketch.outline` (no route returns it) also keeps each
+  believed outline as corner points in feet (`matched[].outline_ft`), enough to draw the
+  footprint beside the page, and the reason when nothing could be read (`raster` for a sketch
+  that is a picture).
+
+## 21. Built from sections 17 to 20 (the Property area, November 2026)
+
+Sections 17 (the traced measurement, PR #178), 18 (property pictures, PRs #180 and #181), 19
+(public records, the public geo sources branch, no PR yet) and 20 (renovations, PR #183) are on
+their branches,
+not on main yet; when they merge, delete from them what is listed here as built. The app's side
+is `live/property.js` (`web/README.md`, "The Property area"; design in `DESIGN_NOTES.md`,
+"Property"), built against the sample API's PROPOSED P8 and P9, and shown only when
+`GET /v1/capabilities` says `property_capture`, `public_geo` or `traced_measurement`.
+
+**Built:**
+
+* 17: offering the tracing only with `traced_measurement`; the `measurement` on an `asset`
+  correction in lon/lat with the image's source, `captured_on` and `pixel_size_m`, never with the
+  typed quantity; the server's computation in the browser for the live readout; the shape's
+  problems in the server's words before sending; the traced quantity on the row; the four
+  `measure:` flags' sentences (`live/review-reasons.js`) and, after saving, the flags it will raise.
+* 18: the capability; the pin card (confirm, move by clicking the house, the address) with
+  `If-Match` and the 412 reload; the status in plain words with `resume_at` in local time,
+  polling every 10 s while it runs; Take them again (`force` when the pin moved or the capture failed) with 409 and
+  429/503 `Retry-After`; the views with date, season, pixel size and source; the four sides; street
+  level as "not available" with the note; the history strip (leaf, year only, undated, at placed in
+  service, the suggested view); the compare; measuring opened on `measure_on`; the notes; no
+  measuring on an unconfirmed pin.
+* 19: the public image with credit and year, the series by year with the coarse years marked,
+  the parcel outlines (under the pin and adjacent) with the lot area and the layer's acres, the
+  site check (agree, adjacent, the flagged disagreement linking to the appraisal), the lidar peak,
+  eaves and outline, the gather status and Gather them again when stale.
+* 20: the aerial bracket input: from the compare, a project's `aerial` or a component label's
+  `exterior_brackets` entry, with `If-Match` and the 412 reload.
+
+**Not built:**
+
+* 17: a later assets rejection does not send the measurement again (the backend's "Not done";
+  the maintainer decides whether the app repeats it or the backend keeps it); measuring on an
+  uploaded plan (`space: image` with a scale) and `document_id`; showing a sent row's
+  `takeoff_inputs.measurement` (the shape over the picture) on the asset page; the 422's per-shape
+  `detail` placed next to the shape (it shows as the send's error message).
+* 18: prefilling the pin from the appraisal's subject address (the form prefills from the study's
+  summary when the API has one); choosing history dates (the API does not offer it);
+  `green_share`; the capture list beyond the last successful one; the operator incidents page.
+* 19: the site check as a review flag at the appraisal gate beside `site.area_sqft` (the
+  Property area shows it and links to the appraisal); `gather.sources` per source; a public view's
+  `terms_url`.
+* 20: the projects editor (key, kind, scope, dates, invoices, capitalized amount, QIP), tagging
+  photographs, component ages and removals at the assets review, the renovation schedule, the
+  reprice after a change. The bracket form lists the projects the document already has and the
+  outside components of the assets.
+* Asked of the backend: compare the pin's point, not its version, when marking views stale
+  (confirming the pin makes every view stale today); an `image.view_id` on the measurement.
 
 ## 18. Property pictures: what the API offers and the app does not use (EVAL_REPORT 98)
 

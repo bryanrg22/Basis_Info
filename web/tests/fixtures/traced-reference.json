@@ -1,0 +1,1245 @@
+{
+ "about": "Reference values for web/tests/property-model.test.cjs from the server's own module\n(basis/domain/traced.py on the measurement branch), on synthetic shapes (random points around\nmade-up centres; no property's coordinates).",
+ "cases": [
+  {
+   "body": {
+    "unit": "SF",
+    "space": "lonlat",
+    "shapes": [
+     {
+      "kind": "area",
+      "ring": [
+       [
+        -75.12567612212985,
+        43.11632999847366
+       ],
+       [
+        -75.12582585613748,
+        43.116502386566815
+       ],
+       [
+        -75.12610816350104,
+        43.116474377975656
+       ],
+       [
+        -75.1261414216485,
+        43.11624266633974
+       ],
+       [
+        -75.12581789242465,
+        43.116155521532875
+       ]
+      ]
+     }
+    ],
+    "image": {
+     "source": "Synthetic test imagery",
+     "captured_on": "2024-05-01",
+     "pixel_size_m": 0.6
+    }
+   },
+   "quantity": "11025.53",
+   "expected_error_pct": "7.17",
+   "formula": "11,025.53 SF traced by the engineer on Synthetic test imagery (captured 2024-05-01), 1 area of 5 corners; expected error up to 7.17 %"
+  },
+  {
+   "body": {
+    "unit": "LF",
+    "space": "lonlat",
+    "shapes": [
+     {
+      "kind": "line",
+      "path": [
+       [
+        -102.89260625041035,
+        26.27438957578394
+       ],
+       [
+        -102.8931453139814,
+        26.274428158621184
+       ]
+      ]
+     }
+    ],
+    "image": {
+     "source": "Synthetic test imagery",
+     "captured_on": "2024-05-01",
+     "pixel_size_m": 0.3
+    }
+   },
+   "quantity": "177.21",
+   "expected_error_pct": "1.11",
+   "formula": "177.21 LF traced by the engineer on Synthetic test imagery (captured 2024-05-01), 1 line of 2 points; expected error up to 1.11 %"
+  },
+  {
+   "body": {
+    "unit": "SF",
+    "space": "lonlat",
+    "shapes": [
+     {
+      "kind": "area",
+      "ring": [
+       [
+        -70.9606151357719,
+        43.168427706029426
+       ],
+       [
+        -70.96075820010044,
+        43.16866946778027
+       ],
+       [
+        -70.96091276203117,
+        43.16878161571969
+       ],
+       [
+        -70.96121438993204,
+        43.16869880640079
+       ],
+       [
+        -70.9613834219631,
+        43.16854526101701
+       ],
+       [
+        -70.96135029990184,
+        43.16834283649009
+       ],
+       [
+        -70.96119697956692,
+        43.16827270336664
+       ],
+       [
+        -70.96097103131322,
+        43.168205495860754
+       ],
+       [
+        -70.96067948971414,
+        43.16829660871371
+       ]
+      ],
+      "cutouts": [
+       [
+        [
+         -70.96093108348698,
+         43.1684636925149
+        ],
+        [
+         -70.96095969635269,
+         43.16851204486507
+        ],
+        [
+         -70.96099060873884,
+         43.16853447445295
+        ],
+        [
+         -70.961050934319,
+         43.168517912589174
+        ],
+        [
+         -70.96108474072523,
+         43.16848720351241
+        ],
+        [
+         -70.96107811631298,
+         43.16844671860703
+        ],
+        [
+         -70.96104745224599,
+         43.16843269198234
+        ],
+        [
+         -70.96100226259524,
+         43.168419250481165
+        ],
+        [
+         -70.96094395427544,
+         43.16843747305175
+        ]
+       ]
+      ]
+     }
+    ],
+    "image": {
+     "source": "Synthetic test imagery",
+     "captured_on": "2024-05-01",
+     "pixel_size_m": 0.15
+    }
+   },
+   "quantity": "28623.57",
+   "expected_error_pct": "1.31",
+   "formula": "28,623.57 SF traced by the engineer on Synthetic test imagery (captured 2024-05-01), 1 area of 18 corners (1 cut out); expected error up to 1.31 %"
+  },
+  {
+   "body": {
+    "unit": "SF",
+    "space": "lonlat",
+    "shapes": [
+     {
+      "kind": "line",
+      "path": [
+       [
+        -80.05330145635172,
+        31.430019560159533
+       ],
+       [
+        -80.05332188446398,
+        31.429734714177027
+       ],
+       [
+        -80.05334447070362,
+        31.429903678551764
+       ],
+       [
+        -80.0534248309294,
+        31.430028797907923
+       ],
+       [
+        -80.05322224032315,
+        31.43011442236033
+       ],
+       [
+        -80.0531941740253,
+        31.429641617909574
+       ]
+      ]
+     }
+    ],
+    "image": {
+     "source": "Synthetic test imagery",
+     "captured_on": "2024-05-01",
+     "pixel_size_m": 0.6
+    },
+    "height_ft": 6.5
+   },
+   "quantity": "2991.99",
+   "expected_error_pct": "0.86",
+   "formula": "2,991.99 SF traced by the engineer on Synthetic test imagery (captured 2024-05-01), 1 line of 6 points x 6.5 ft high; expected error up to 0.86 %"
+  },
+  {
+   "body": {
+    "unit": "SY",
+    "space": "lonlat",
+    "shapes": [
+     {
+      "kind": "area",
+      "ring": [
+       [
+        -86.26629952339363,
+        44.50564088935209
+       ],
+       [
+        -86.26635074673885,
+        44.50581496398934
+       ],
+       [
+        -86.26659302263003,
+        44.505859041833844
+       ],
+       [
+        -86.2668113121262,
+        44.505779118269736
+       ],
+       [
+        -86.26688270510799,
+        44.50565611213836
+       ],
+       [
+        -86.26679683679602,
+        44.505570037877256
+       ],
+       [
+        -86.26654746607112,
+        44.505475259985786
+       ],
+       [
+        -86.26644607201558,
+        44.50553942728391
+       ]
+      ]
+     }
+    ],
+    "image": {
+     "source": "Synthetic test imagery",
+     "captured_on": "2024-05-01",
+     "pixel_size_m": 0.6
+    }
+   },
+   "quantity": "1576.78",
+   "expected_error_pct": "6.15",
+   "formula": "1,576.78 SY traced by the engineer on Synthetic test imagery (captured 2024-05-01), 1 area of 8 corners; expected error up to 6.15 %"
+  },
+  {
+   "body": {
+    "unit": "SF",
+    "space": "lonlat",
+    "shapes": [
+     {
+      "kind": "area",
+      "ring": [
+       [
+        -96.78458166533439,
+        25.703371615402997
+       ],
+       [
+        -96.78463014277469,
+        25.70352628151509
+       ],
+       [
+        -96.78480656126766,
+        25.703593277335326
+       ],
+       [
+        -96.78494366147414,
+        25.703475425034252
+       ],
+       [
+        -96.78494470330492,
+        25.70329203745425
+       ],
+       [
+        -96.78481463187711,
+        25.70320546954202
+       ],
+       [
+        -96.78465412717615,
+        25.70323615764864
+       ]
+      ]
+     }
+    ],
+    "image": {
+     "source": "Synthetic test imagery",
+     "captured_on": "2024-05-01"
+    }
+   },
+   "quantity": "12490.46",
+   "expected_error_pct": null,
+   "formula": "12,490.46 SF traced by the engineer on Synthetic test imagery (captured 2024-05-01), 1 area of 7 corners; expected error unknown (no pixel size)"
+  },
+  {
+   "body": {
+    "unit": "SF",
+    "space": "lonlat",
+    "shapes": [
+     {
+      "kind": "area",
+      "ring": [
+       [
+        -115.21983171250587,
+        38.556705931924384
+       ],
+       [
+        -115.2198745530794,
+        38.55689139410225
+       ],
+       [
+        -115.22007793161303,
+        38.557039949862244
+       ],
+       [
+        -115.22034942651848,
+        38.55698040746475
+       ],
+       [
+        -115.22054483592399,
+        38.556915940767354
+       ],
+       [
+        -115.22055457940841,
+        38.55670206493233
+       ],
+       [
+        -115.2203609582267,
+        38.5564837233791
+       ],
+       [
+        -115.22016521163255,
+        38.5564169802208
+       ],
+       [
+        -115.21986944901104,
+        38.55654149000029
+       ]
+      ]
+     }
+    ],
+    "image": {
+     "source": "Synthetic test imagery",
+     "captured_on": "2024-05-01",
+     "pixel_size_m": 0.6
+    }
+   },
+   "quantity": "34349.39",
+   "expected_error_pct": "3.91",
+   "formula": "34,349.39 SF traced by the engineer on Synthetic test imagery (captured 2024-05-01), 1 area of 9 corners; expected error up to 3.91 %"
+  },
+  {
+   "body": {
+    "unit": "LF",
+    "space": "lonlat",
+    "shapes": [
+     {
+      "kind": "line",
+      "path": [
+       [
+        -73.4993656915099,
+        43.84737302818558
+       ],
+       [
+        -73.49903986280823,
+        43.84743005054902
+       ]
+      ]
+     }
+    ],
+    "image": {
+     "source": "Synthetic test imagery",
+     "captured_on": "2024-05-01",
+     "pixel_size_m": 0.0841
+    }
+   },
+   "quantity": "88.44",
+   "expected_error_pct": "0.62",
+   "formula": "88.44 LF traced by the engineer on Synthetic test imagery (captured 2024-05-01), 1 line of 2 points; expected error up to 0.62 %"
+  },
+  {
+   "body": {
+    "unit": "SF",
+    "space": "lonlat",
+    "shapes": [
+     {
+      "kind": "area",
+      "ring": [
+       [
+        -105.92021486913868,
+        48.559892239687414
+       ],
+       [
+        -105.92038107735077,
+        48.56019083577667
+       ],
+       [
+        -105.920842357225,
+        48.56028021590301
+       ],
+       [
+        -105.92120295923486,
+        48.56002331921587
+       ],
+       [
+        -105.92117572032389,
+        48.55982439415391
+       ],
+       [
+        -105.92079147745451,
+        48.55966798774179
+       ],
+       [
+        -105.92049861925962,
+        48.55970709639199
+       ]
+      ],
+      "cutouts": [
+       [
+        [
+         -105.92063430642146,
+         48.55993309175358
+        ],
+        [
+         -105.92066754806389,
+         48.55999281097143
+        ],
+        [
+         -105.92075980403872,
+         48.5600106869967
+        ],
+        [
+         -105.9208319244407,
+         48.55995930765927
+        ],
+        [
+         -105.9208264766585,
+         48.55991952264687
+        ],
+        [
+         -105.92074962808464,
+         48.55988824136445
+        ],
+        [
+         -105.92069105644565,
+         48.55989606309449
+        ]
+       ]
+      ]
+     }
+    ],
+    "image": {
+     "source": "Synthetic test imagery",
+     "captured_on": "2024-05-01",
+     "pixel_size_m": 0.3
+    }
+   },
+   "quantity": "35473.09",
+   "expected_error_pct": "2.37",
+   "formula": "35,473.09 SF traced by the engineer on Synthetic test imagery (captured 2024-05-01), 1 area of 14 corners (1 cut out); expected error up to 2.37 %"
+  },
+  {
+   "body": {
+    "unit": "SF",
+    "space": "lonlat",
+    "shapes": [
+     {
+      "kind": "line",
+      "path": [
+       [
+        -87.79809368798217,
+        34.50418877726587
+       ],
+       [
+        -87.79800924578936,
+        34.504604041239226
+       ],
+       [
+        -87.79818935649612,
+        34.5041373328171
+       ],
+       [
+        -87.79769596596951,
+        34.50410089561249
+       ]
+      ]
+     }
+    ],
+    "image": {
+     "source": "Synthetic test imagery",
+     "captured_on": "2024-05-01",
+     "pixel_size_m": 0.6
+    },
+    "height_ft": 6.5
+   },
+   "quantity": "3125.36",
+   "expected_error_pct": "0.82",
+   "formula": "3,125.36 SF traced by the engineer on Synthetic test imagery (captured 2024-05-01), 1 line of 4 points x 6.5 ft high; expected error up to 0.82 %"
+  },
+  {
+   "body": {
+    "unit": "SY",
+    "space": "lonlat",
+    "shapes": [
+     {
+      "kind": "area",
+      "ring": [
+       [
+        -86.28509935416002,
+        28.720673085045167
+       ],
+       [
+        -86.28511573933118,
+        28.72078710827278
+       ],
+       [
+        -86.285222056906,
+        28.720845041969667
+       ],
+       [
+        -86.28536393168295,
+        28.72081151619275
+       ],
+       [
+        -86.28542471188015,
+        28.720772077718657
+       ],
+       [
+        -86.28541935387192,
+        28.720629311846537
+       ],
+       [
+        -86.28535268631275,
+        28.72057196119056
+       ],
+       [
+        -86.28522401216067,
+        28.72056725831071
+       ],
+       [
+        -86.28512024739479,
+        28.720624105118915
+       ]
+      ]
+     }
+    ],
+    "image": {
+     "source": "Synthetic test imagery",
+     "captured_on": "2024-05-01",
+     "pixel_size_m": 0.6
+    }
+   },
+   "quantity": "931.26",
+   "expected_error_pct": "7.85",
+   "formula": "931.26 SY traced by the engineer on Synthetic test imagery (captured 2024-05-01), 1 area of 9 corners; expected error up to 7.85 %"
+  },
+  {
+   "body": {
+    "unit": "SF",
+    "space": "lonlat",
+    "shapes": [
+     {
+      "kind": "area",
+      "ring": [
+       [
+        -117.80110083226593,
+        35.77199078251804
+       ],
+       [
+        -117.80119231532402,
+        35.7721756678656
+       ],
+       [
+        -117.80135743960976,
+        35.77224761540195
+       ],
+       [
+        -117.80161947066556,
+        35.77221427603165
+       ],
+       [
+        -117.80175900608064,
+        35.7721398395865
+       ],
+       [
+        -117.80180876658424,
+        35.77194178508972
+       ],
+       [
+        -117.80163119538399,
+        35.771804201843516
+       ],
+       [
+        -117.80144194522511,
+        35.77176351790471
+       ],
+       [
+        -117.80116732098185,
+        35.77189450700014
+       ]
+      ]
+     }
+    ],
+    "image": {
+     "source": "Synthetic test imagery",
+     "captured_on": "2024-05-01"
+    }
+   },
+   "quantity": "26354.49",
+   "expected_error_pct": null,
+   "formula": "26,354.49 SF traced by the engineer on Synthetic test imagery (captured 2024-05-01), 1 area of 9 corners; expected error unknown (no pixel size)"
+  },
+  {
+   "body": {
+    "unit": "SF",
+    "space": "lonlat",
+    "shapes": [
+     {
+      "kind": "area",
+      "ring": [
+       [
+        -102.37845420151326,
+        46.601764332077934
+       ],
+       [
+        -102.3786201428598,
+        46.601961060954075
+       ],
+       [
+        -102.37873100683663,
+        46.60203731524414
+       ],
+       [
+        -102.37913186848705,
+        46.60202030372125
+       ],
+       [
+        -102.37915797345532,
+        46.601910203932974
+       ],
+       [
+        -102.37918594820178,
+        46.60169652687124
+       ],
+       [
+        -102.37907795723683,
+        46.60160665247289
+       ],
+       [
+        -102.37872494298114,
+        46.60149203063772
+       ],
+       [
+        -102.37859532212039,
+        46.60159808201896
+       ]
+      ]
+     }
+    ],
+    "image": {
+     "source": "Synthetic test imagery",
+     "captured_on": "2024-05-01",
+     "pixel_size_m": 0.3
+    }
+   },
+   "quantity": "25939.48",
+   "expected_error_pct": "2.29",
+   "formula": "25,939.48 SF traced by the engineer on Synthetic test imagery (captured 2024-05-01), 1 area of 9 corners; expected error up to 2.29 %"
+  },
+  {
+   "body": {
+    "unit": "LF",
+    "space": "lonlat",
+    "shapes": [
+     {
+      "kind": "line",
+      "path": [
+       [
+        -80.16062973074995,
+        46.93840041440113
+       ],
+       [
+        -80.16092080762479,
+        46.93862739181497
+       ],
+       [
+        -80.16080908040423,
+        46.9382752687199
+       ],
+       [
+        -80.16076937361544,
+        46.93855973518815
+       ]
+      ]
+     }
+    ],
+    "image": {
+     "source": "Synthetic test imagery",
+     "captured_on": "2024-05-01",
+     "pixel_size_m": 0.3
+    }
+   },
+   "quantity": "345.84",
+   "expected_error_pct": "0.57",
+   "formula": "345.84 LF traced by the engineer on Synthetic test imagery (captured 2024-05-01), 1 line of 4 points; expected error up to 0.57 %"
+  },
+  {
+   "body": {
+    "unit": "SF",
+    "space": "lonlat",
+    "shapes": [
+     {
+      "kind": "area",
+      "ring": [
+       [
+        -116.30236617080938,
+        48.00316013420016
+       ],
+       [
+        -116.30250627280961,
+        48.003276457277245
+       ],
+       [
+        -116.30261803437088,
+        48.00335972217507
+       ],
+       [
+        -116.3028929368092,
+        48.003263996882296
+       ],
+       [
+        -116.30292849002532,
+        48.003170709388726
+       ],
+       [
+        -116.30284979144808,
+        48.003063672817795
+       ],
+       [
+        -116.30272163850945,
+        48.00296872572725
+       ],
+       [
+        -116.30245540660272,
+        48.00299829881984
+       ]
+      ],
+      "cutouts": [
+       [
+        [
+         -116.30260828397415,
+         48.003157304197096
+        ],
+        [
+         -116.3026363043742,
+         48.00318056881251
+        ],
+        [
+         -116.30265865668646,
+         48.00319722179208
+        ],
+        [
+         -116.30271363717412,
+         48.00317807673352
+        ],
+        [
+         -116.30272074781735,
+         48.003159419234805
+        ],
+        [
+         -116.3027050081019,
+         48.00313801192062
+        ],
+        [
+         -116.30267937751417,
+         48.00311902250251
+        ],
+        [
+         -116.30262613113283,
+         48.00312493712103
+        ]
+       ]
+      ]
+     }
+    ],
+    "image": {
+     "source": "Synthetic test imagery",
+     "captured_on": "2024-05-01",
+     "pixel_size_m": 0.0841
+    }
+   },
+   "quantity": "12484.53",
+   "expected_error_pct": "1.13",
+   "formula": "12,484.53 SF traced by the engineer on Synthetic test imagery (captured 2024-05-01), 1 area of 16 corners (1 cut out); expected error up to 1.13 %"
+  },
+  {
+   "body": {
+    "unit": "SF",
+    "space": "lonlat",
+    "shapes": [
+     {
+      "kind": "line",
+      "path": [
+       [
+        -119.90806969829475,
+        27.46092562370709
+       ],
+       [
+        -119.9078697801029,
+        27.461056152263236
+       ]
+      ]
+     }
+    ],
+    "image": {
+     "source": "Synthetic test imagery",
+     "captured_on": "2024-05-01",
+     "pixel_size_m": 0.15
+    },
+    "height_ft": 6.5
+   },
+   "quantity": "522.24",
+   "expected_error_pct": "1.23",
+   "formula": "522.24 SF traced by the engineer on Synthetic test imagery (captured 2024-05-01), 1 line of 2 points x 6.5 ft high; expected error up to 1.23 %"
+  },
+  {
+   "body": {
+    "unit": "SY",
+    "space": "lonlat",
+    "shapes": [
+     {
+      "kind": "area",
+      "ring": [
+       [
+        -100.18418585492495,
+        36.55317871573396
+       ],
+       [
+        -100.18443667065908,
+        36.553604122625806
+       ],
+       [
+        -100.18485840424185,
+        36.553518563202964
+       ],
+       [
+        -100.18509359501435,
+        36.553235679890854
+       ],
+       [
+        -100.18496526132941,
+        36.55294745602691
+       ],
+       [
+        -100.18447709312225,
+        36.55292353700217
+       ]
+      ]
+     }
+    ],
+    "image": {
+     "source": "Synthetic test imagery",
+     "captured_on": "2024-05-01",
+     "pixel_size_m": 0.3
+    }
+   },
+   "quantity": "5090.98",
+   "expected_error_pct": "1.73",
+   "formula": "5,090.98 SY traced by the engineer on Synthetic test imagery (captured 2024-05-01), 1 area of 6 corners; expected error up to 1.73 %"
+  },
+  {
+   "body": {
+    "unit": "SF",
+    "space": "lonlat",
+    "shapes": [
+     {
+      "kind": "area",
+      "ring": [
+       [
+        -73.6426317071642,
+        34.29572529106094
+       ],
+       [
+        -73.64262369420383,
+        34.29577823236022
+       ],
+       [
+        -73.64271820807166,
+        34.295828147616206
+       ],
+       [
+        -73.64287581162944,
+        34.295839364733794
+       ],
+       [
+        -73.64294376689182,
+        34.295729613409044
+       ],
+       [
+        -73.64293399710478,
+        34.29566691454692
+       ],
+       [
+        -73.6428261468294,
+        34.29558123018193
+       ],
+       [
+        -73.64276487423437,
+        34.295588752040906
+       ],
+       [
+        -73.64266076230291,
+        34.29564009713204
+       ]
+      ]
+     }
+    ],
+    "image": {
+     "source": "Synthetic test imagery",
+     "captured_on": "2024-05-01"
+    }
+   },
+   "quantity": "6686.20",
+   "expected_error_pct": null,
+   "formula": "6,686.20 SF traced by the engineer on Synthetic test imagery (captured 2024-05-01), 1 area of 9 corners; expected error unknown (no pixel size)"
+  },
+  {
+   "body": {
+    "unit": "SF",
+    "space": "lonlat",
+    "shapes": [
+     {
+      "kind": "area",
+      "ring": [
+       [
+        -110.49294784551034,
+        31.89558305004323
+       ],
+       [
+        -110.49304136799432,
+        31.89579621890603
+       ],
+       [
+        -110.49345011509521,
+        31.895735807072754
+       ],
+       [
+        -110.49357387910902,
+        31.895505725471548
+       ],
+       [
+        -110.49346348774387,
+        31.89524864785078
+       ],
+       [
+        -110.49301155508311,
+        31.89529723580626
+       ]
+      ]
+     }
+    ],
+    "image": {
+     "source": "Synthetic test imagery",
+     "captured_on": "2024-05-01",
+     "pixel_size_m": 0.6
+    }
+   },
+   "quantity": "29514.78",
+   "expected_error_pct": "4.34",
+   "formula": "29,514.78 SF traced by the engineer on Synthetic test imagery (captured 2024-05-01), 1 area of 6 corners; expected error up to 4.34 %"
+  },
+  {
+   "body": {
+    "unit": "LF",
+    "space": "lonlat",
+    "shapes": [
+     {
+      "kind": "line",
+      "path": [
+       [
+        -113.01980094529769,
+        26.28821474916236
+       ],
+       [
+        -113.02007325122868,
+        26.28807499318441
+       ],
+       [
+        -113.02012622112981,
+        26.288550106951018
+       ],
+       [
+        -113.01992097110895,
+        26.288638694303184
+       ]
+      ]
+     }
+    ],
+    "image": {
+     "source": "Synthetic test imagery",
+     "captured_on": "2024-05-01",
+     "pixel_size_m": 0.0841
+    }
+   },
+   "quantity": "350.81",
+   "expected_error_pct": "0.16",
+   "formula": "350.81 LF traced by the engineer on Synthetic test imagery (captured 2024-05-01), 1 line of 4 points; expected error up to 0.16 %"
+  },
+  {
+   "body": {
+    "unit": "SF",
+    "space": "lonlat",
+    "shapes": [
+     {
+      "kind": "area",
+      "ring": [
+       [
+        -87.19593588069277,
+        46.61456548164304
+       ],
+       [
+        -87.19609634164486,
+        46.614740567343325
+       ],
+       [
+        -87.19637917541448,
+        46.61469786629042
+       ],
+       [
+        -87.19636540501384,
+        46.61447408134094
+       ],
+       [
+        -87.19608106160027,
+        46.61438617788374
+       ]
+      ],
+      "cutouts": [
+       [
+        [
+         -87.19614584627512,
+         46.61457090756962
+        ],
+        [
+         -87.19617793846552,
+         46.61460592470968
+        ],
+        [
+         -87.19623450521945,
+         46.6145973844991
+        ],
+        [
+         -87.19623175113932,
+         46.614552627509205
+        ],
+        [
+         -87.1961748824566,
+         46.614535046817764
+        ]
+       ]
+      ]
+     }
+    ],
+    "image": {
+     "source": "Synthetic test imagery",
+     "captured_on": "2024-05-01",
+     "pixel_size_m": 0.15
+    }
+   },
+   "quantity": "9568.91",
+   "expected_error_pct": "2.36",
+   "formula": "9,568.91 SF traced by the engineer on Synthetic test imagery (captured 2024-05-01), 1 area of 10 corners (1 cut out); expected error up to 2.36 %"
+  },
+  {
+   "body": {
+    "unit": "SF",
+    "space": "lonlat",
+    "shapes": [
+     {
+      "kind": "line",
+      "path": [
+       [
+        -96.88717310920875,
+        46.01224719865719
+       ],
+       [
+        -96.88699333101007,
+        46.012165864113655
+       ],
+       [
+        -96.88714578572566,
+        46.01260315491285
+       ],
+       [
+        -96.8873662965496,
+        46.01255029312563
+       ],
+       [
+        -96.88701306513491,
+        46.01239541046518
+       ]
+      ]
+     }
+    ],
+    "image": {
+     "source": "Synthetic test imagery",
+     "captured_on": "2024-05-01",
+     "pixel_size_m": 0.0841
+    },
+    "height_ft": 6.5
+   },
+   "quantity": "2495.13",
+   "expected_error_pct": "0.14",
+   "formula": "2,495.13 SF traced by the engineer on Synthetic test imagery (captured 2024-05-01), 1 line of 5 points x 6.5 ft high; expected error up to 0.14 %"
+  },
+  {
+   "body": {
+    "unit": "SY",
+    "space": "lonlat",
+    "shapes": [
+     {
+      "kind": "area",
+      "ring": [
+       [
+        -72.28267008822225,
+        25.581457741537548
+       ],
+       [
+        -72.28278388609637,
+        25.58167822135103
+       ],
+       [
+        -72.28320020543521,
+        25.581818879894044
+       ],
+       [
+        -72.2834037828836,
+        25.581589671632756
+       ],
+       [
+        -72.28341253886074,
+        25.581298694681458
+       ],
+       [
+        -72.2832317314721,
+        25.581103326139914
+       ],
+       [
+        -72.28286899639409,
+        25.581201384298275
+       ]
+      ]
+     }
+    ],
+    "image": {
+     "source": "Synthetic test imagery",
+     "captured_on": "2024-05-01",
+     "pixel_size_m": 0.6
+    }
+   },
+   "quantity": "4877.03",
+   "expected_error_pct": "3.49",
+   "formula": "4,877.03 SY traced by the engineer on Synthetic test imagery (captured 2024-05-01), 1 area of 7 corners; expected error up to 3.49 %"
+  },
+  {
+   "body": {
+    "unit": "SF",
+    "space": "lonlat",
+    "shapes": [
+     {
+      "kind": "area",
+      "ring": [
+       [
+        -90.35515618268393,
+        27.753969074449696
+       ],
+       [
+        -90.35518507924165,
+        27.7543280733394
+       ],
+       [
+        -90.3555684222726,
+        27.75450129744869
+       ],
+       [
+        -90.35579973307433,
+        27.754358958786955
+       ],
+       [
+        -90.35596374520378,
+        27.754160434345277
+       ],
+       [
+        -90.35610055120223,
+        27.753913660923647
+       ],
+       [
+        -90.35576426435861,
+        27.753709963028232
+       ],
+       [
+        -90.35555512190098,
+        27.75352358973933
+       ],
+       [
+        -90.35527507181784,
+        27.75376532861721
+       ]
+      ]
+     }
+    ],
+    "image": {
+     "source": "Synthetic test imagery",
+     "captured_on": "2024-05-01"
+    }
+   },
+   "quantity": "66934.18",
+   "expected_error_pct": null,
+   "formula": "66,934.18 SF traced by the engineer on Synthetic test imagery (captured 2024-05-01), 1 area of 9 corners; expected error unknown (no pixel size)"
+  }
+ ]
+}

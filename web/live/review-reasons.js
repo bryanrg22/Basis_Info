@@ -37,6 +37,11 @@
   timeout:fallback('timed out'),
   budget_exceeded:fallback('stopped at the study’s model budget'),
   'takeoff:upper_bound':'Its quantity is an upper bound (the whole unbuilt lot), not a measurement. Measure or confirm it.',
+  // measure: (basis.domain.traced on the measurement branch: an engineer's traced measurement, docs/api/OVERRIDES.md section 4)
+  'measure:IMAGE_UNDATED':'Its quantity was traced on an image with no capture date. Confirm the image shows the property as placed in service.',
+  'measure:IMAGE_AFTER_SERVICE':'Its quantity was traced on an image captured well after the placed-in-service date, which may show work done after the purchase. Check that the item existed then.',
+  'measure:ERROR_UNKNOWN':'Its quantity was traced on imagery with no stated pixel size, so how far off it may be is unknown. Confirm it another way or give the pixel size.',
+  'measure:COARSE':'Its quantity was traced on an image too coarse for its size: the expected error is above the review threshold. Trace it on sharper imagery or a plan, or confirm it.',
   'structure:building_rcn_review':'It comes from the building cost model, which needs your confirmation: check the quality class, building type and exterior wall under Concealed systems.',
  };
  const CHECKS={

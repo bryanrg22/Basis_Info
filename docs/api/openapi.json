@@ -21046,7 +21046,7 @@
           "source": {
             "type": "string",
             "title": "Source",
-            "description": "`azure`, `regex`, `table`, `llm`, `mismo_xml` (a UAD 3.6 XML) or `manual`."
+            "description": "`azure`, `regex`, `table`, `llm`, `mismo_xml` (a UAD 3.6 XML), `drawing` (read from the PDF's own line work: the sketch outline) or `manual`."
           },
           "page": {
             "anyOf": [
