@@ -2079,7 +2079,7 @@ async def test_0037_capture_history_columns_and_an_exact_downgrade(
             "INSERT INTO capture_views (study_id, capture_id, pin_version, kind, label, lat, lon, "
             "ground_alt_m, range_m, fov_deg, heading_deg, tilt_deg, width, height, uri, sha256, "
             "bytes, source, captured_at, imagery_on, leaf, green_share, camera_lat, camera_lon) "
-            "VALUES ($1, $2, 1, 'history', $3, 43.8, -88.9, 250, 165, 35, 0, 0, 1440, 900, "
+            "VALUES ($1, $2, 1, 'history', $3, 41.6, -93.6, 250, 165, 35, 0, 0, 1440, 900, "
             "'gs://b/x.png', $4, 10, 's', now(), '2021-03-12', $5, $6, $7, $8)"
         )
         await connection.execute(
