@@ -3065,6 +3065,21 @@ ENTRIES: Final[tuple[Entry, ...]] = (
         signal="value_vs_contract",
     ),
     _e(
+        E.CHECK_EXTRACTION_GLA_VS_SKETCH,
+        "flag",
+        "extract_fields",
+        "basis.extraction.validation",
+        "The living area on the appraisal's sketch and the gross living area box differ by "
+        "more than the tolerance (`TAKEOFF_SKETCH_GLA_TOLERANCE`, read only with "
+        "`TAKEOFF_SKETCH=on`). One of them is wrong, and the takeoff does not use the sketch "
+        "until they agree.",
+        "issue `gla_vs_sketch`.",
+        "Correct the gross living area if the sketch is right, or the sketch's living area "
+        "if the box is.",
+        "no",
+        signal="gla_vs_sketch",
+    ),
+    _e(
         E.CHECK_EXTRACTION_SOURCES_DISAGREE,
         "flag",
         "extract_fields",

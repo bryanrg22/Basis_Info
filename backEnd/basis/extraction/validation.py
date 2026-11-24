@@ -21,6 +21,11 @@ Rules (``rule`` names are stable; they appear in ``extractions.raw`` and the rev
   when both are present (S3_SPEC).
 * ``value_vs_contract`` (warning, legacy): final value within 20% of the contract price.
 * ``basement_vs_gla`` (warning, legacy): basement area at most 1.5 x GLA.
+* ``gla_vs_sketch`` (warning; :func:`gla_vs_sketch`, not part of :func:`validate_fields`: it
+  needs the tolerance of ``TAKEOFF_SKETCH_GLA_TOLERANCE`` and runs only when the building
+  sketch was read): the sketch's living area is further from the GLA box than the tolerance.
+  The appraiser computes the GLA on the sketch, so one of the two is wrong, and until they
+  agree the takeoff does not use the sketch (EVAL_REPORT 96).
 
 Any issue sends the extraction to review (``basis.extraction.confidence``); severity only
 tells the reviewer whether a value is unusable (error) or suspicious (warning).
@@ -206,6 +211,52 @@ def validate_fields(
             )
         )
     return issues
+
+
+GLA: Final = "improvements.gla_sqft"
+SKETCH_LIVING_AREA: Final = "sketch.living_area_sqft"
+GLA_VS_SKETCH: Final = "gla_vs_sketch"
+
+
+def gla_vs_sketch(
+    fields: Mapping[str, ExtractedField], tolerance: Decimal | None
+) -> list[ValidationIssue]:
+    """The ``gla_vs_sketch`` issue, or nothing: raised when both figures were read and the
+    sketch's living area is more than ``tolerance`` (a fraction of the GLA) from the GLA
+    box, which is exactly when :func:`basis.domain.measurements.check_sketch` refuses the
+    sketch. ``tolerance`` None (the sketch is not read) raises nothing."""
+    if tolerance is None:
+        return []
+    gla, living = _num(fields, GLA), _num(fields, SKETCH_LIVING_AREA)
+    if gla is None or living is None or gla <= 0 or living <= 0:
+        return []
+    apart = abs(living - gla) / gla
+    if apart <= tolerance:
+        return []
+    page = fields[SKETCH_LIVING_AREA].page
+    where = "" if page is None else f" (page {page})"
+    return [
+        ValidationIssue(
+            rule=GLA_VS_SKETCH,
+            message=(
+                f"the sketch's living area is {_plain(living)} sq ft{where} and the gross "
+                f"living area box is {_plain(gla)} sq ft, {_plain(apart * 100, 2)} % apart "
+                f"(more than {_plain(tolerance * 100, 2)} %). One of them is wrong: correct "
+                "the gross living area if the sketch is right, or the sketch's living area "
+                "if the box is. Until they agree the takeoff does not use the sketch."
+            ),
+            keys=(GLA, SKETCH_LIVING_AREA),
+            severity="warning",
+        )
+    ]
+
+
+def _plain(value: Decimal, places: int | None = None) -> str:
+    """A figure as a person writes it: no exponent, no trailing zeros."""
+    if places is not None:
+        value = value.quantize(Decimal(1).scaleb(-places))
+    text = format(value, "f")
+    return text.rstrip("0").rstrip(".") if "." in text else text
 
 
 def failed_critical_keys(

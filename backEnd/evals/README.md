@@ -442,6 +442,19 @@ and writes that table's resolution data (row digests by the running `rule_digest
 material map, generic floors) into the `FROZEN` literal of migration 0019; `--check` exits 1
 when the literal differs. It needs the git history (the unit test skips in a shallow clone).
 
+### `sketch_takeoff` (the takeoff with the appraisal's sketch, over stored exports)
+
+`python -m evals.sketch_takeoff export_a.json export_b.json --azure <the appraisal's stored
+Azure DI JSON> [--pdf appraisal.pdf] [--outline outline.json] --cost-table ... --out <run dir>`
+(EVAL_REPORT 96). Reads the sketch's area table from the stored analysis
+(`basis.extraction.sketch`), writes the `sketch` fields into each export as the extraction
+would, and replays the takeoff under six setups (today; `TAKEOFF_SKETCH=on`; on with the
+cross-check widened; the GLA corrected to the sketch's, off and on; and, with `--outline`, the
+perimeters measured from the drawing), each priced, carved and scored like
+`takeoff_constants`. `--sample NAME=FILE:GLA` adds a report to the cross-check table. Writes
+`sketch.md` (quantities, private), `sketch_public.md` (changes only) and `sketch.json`. No
+model call; cost $0. Component `sketch_takeoff`, version `v1`.
+
 ### `structure_replay` (the structure model over a stored export)
 
 `python -m evals.structure_replay export/rev-5.json --out export/rev-5.structure.json
