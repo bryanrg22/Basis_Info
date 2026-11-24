@@ -24,8 +24,8 @@ from typing import Any, Final
 
 from basis.errors.codes import E
 from basis.report.inputs import ReportInputs
-from basis.report.model import ReportError, StudyReport
-from basis.report.tax import PUB_946, PUB_946_ADS, mid_quarter_note
+from basis.report.model import ItemLine, ReportError, StudyReport
+from basis.report.tax import PUB_946, PUB_946_ADS, BonusDefault, mid_quarter_note
 
 PACKAGE: Final = "basis.report"
 
@@ -244,6 +244,118 @@ def view(report: StudyReport, photos: tuple[ExhibitPhoto, ...] = ()) -> dict[str
         "limiting": list(firm.limiting_conditions) if firm and firm.limiting_conditions else None,
         "checklist": [{"element": c, "title": t, "where": w} for c, t, w in report.checklist],
         "photos": [{"file": p.name, "caption": p.caption} for p in photos],
+        **_renovations_view(report),
+    }
+
+
+def _class_word(item: ItemLine) -> str:
+    return "QIP 15" if item.qip else item.bucket.value.replace("y", "").replace("_", ".")
+
+
+def _bonus_word(bonus: BonusDefault | None) -> str:
+    if bonus is None:
+        return "not eligible"
+    return f"{bonus.rate * 100:.0f} %" if bonus.rate is not None else "see note"
+
+
+def _renovations_view(report: StudyReport) -> dict[str, Any]:
+    """The renovations' part of the template data (EVAL_REPORT 102): ``none`` and empty lists
+    for a study without them, so the template prints nothing new."""
+    years: dict[int, list[Any]] = {}
+    for d in report.dispositions:
+        years.setdefault(d.tax_year, []).append(d)
+    return {
+        "renovations": [
+            {
+                "key": r.key,
+                "scope": r.scope,
+                "addition": r.addition,
+                "acquired": r.acquired.isoformat(),
+                "acquired_source": r.acquired_source,
+                "placed": r.placed_in_service.isoformat(),
+                "capitalized": usd(r.capitalized),
+                "confirmed_by": r.confirmed_by,
+                "invoice_total": usd(r.invoice_total),
+                "estimate_total": usd(r.estimate_total),
+                "bonus": _bonus_word(r.bonus),
+                "bonus_note": "" if r.bonus is None else f"{r.bonus.reason}. {r.bonus.source}.",
+                "classes": [
+                    {"name": name, "amount": usd(amount), "items": str(n)}
+                    for name, amount, n in r.classes
+                ],
+                "items": [
+                    {
+                        "line": str(i.line),
+                        "description": i.description,
+                        "location": i.location,
+                        "quantity": i.quantity,
+                        "estimate": usd(i.rcn),
+                        "allocated": usd(i.allocated),
+                        "class": _class_word(i),
+                    }
+                    for i in r.items
+                ],
+                "invoices": [
+                    {
+                        "document": doc[:8],
+                        "amount": usd(amount),
+                        "on": when,
+                        "description": words,
+                    }
+                    for doc, amount, when, words in r.invoices
+                ],
+                "after_photos": str(r.after_photos),
+                "aerial": r.aerial,
+            }
+            for r in report.renovations
+        ],
+        "renovations_total": usd(report.renovations_basis),
+        "grand_total": usd(report.depreciable_basis + report.renovations_basis),
+        "dispositions": [
+            {
+                "line": str(d.line),
+                "description": d.description,
+                "project": d.project,
+                "class": d.bucket.value.replace("y", "").replace("_", "."),
+                "placed": d.placed_in_service.isoformat(),
+                "disposed": d.disposed.isoformat(),
+                "year": str(d.tax_year),
+                "unadjusted": usd(d.unadjusted),
+                "allowed": usd(d.allowed),
+                "adjusted": usd(d.adjusted),
+                "treatment": "partial disposition election"
+                if d.treatment == "election_required"
+                else "disposition of a whole asset",
+                "method": d.method,
+            }
+            for d in report.dispositions
+        ],
+        "disposition_years": [
+            {
+                "year": str(year),
+                "lines": str(len(items)),
+                "unadjusted": usd(sum((d.unadjusted for d in items), Decimal(0))),
+                "allowed": usd(sum((d.allowed for d in items), Decimal(0))),
+                "adjusted": usd(sum((d.adjusted for d in items), Decimal(0))),
+                "elections": str(sum(d.treatment == "election_required" for d in items)),
+            }
+            for year, items in sorted(years.items())
+        ],
+        "ages": [
+            {
+                "line": str(a.line),
+                "description": a.description,
+                "age": "" if a.effective_age is None else f"{a.effective_age.normalize():f}",
+                "installed": "" if a.year_installed is None else str(a.year_installed),
+                "life": f"{a.economic_life.normalize():f}",
+                "rate": "" if a.rate is None else pct(a.rate),
+                "replaced": pct(a.replaced_rate),
+                "source": a.source,
+                "detail": a.detail,
+            }
+            for a in report.ages
+        ],
+        "exterior_views": list(report.exterior_views),
     }
 
 

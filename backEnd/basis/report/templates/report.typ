@@ -194,6 +194,66 @@ Every item is listed in Appendix 1 with its location, quantity, CSI MasterFormat
   The property was placed in service before this study, and #d.look_back.claimed of depreciation was claimed for #d.look_back.years using #d.look_back.method. Reclassifying it is a change in accounting method: Form 3115 under Rev. Proc. 2025-23, section 6.01 (DCN 7), with a section 481(a) adjustment (ATG chapter 4 C.13).
 ]
 Related issues (ATG chapter 4 C.13): section 263A reaches property the taxpayer produces; an existing building acquired by purchase has no self-constructed costs to capitalize under it. No sampling was used.
+#if d.ages.len() > 0 [
+  == Components depreciated on their own age
+  These items were renovated or replaced before the purchase, so they are less worn than the building as a whole. Each is depreciated by its own age over its economic life (the age-life method) instead of the appraiser's rate for the improvements; the reconciliation (section 4) includes them. Ages are as of the year the property was placed in service.
+  #table(
+    columns: (auto, 1fr, auto, auto, auto, auto, auto, 1.2fr),
+    align: (right, left, right, right, right, right, right, left),
+    th([Line], [Item], [Age], [Installed], [Life], [Rate], [Instead of], [Source]),
+    ..d.ages.map(a => ([#a.line], [#a.description], [#a.age], [#a.installed], [#a.life], [#a.rate], [#a.replaced], text(7.5pt)[#a.source: #a.detail])).flatten(),
+  )
+]
+#if d.renovations.len() > 0 [
+  == Renovations placed in service after the building
+  Each renovation the taxpayer made after placing the building in service is a separate asset with its own placed-in-service date (Treas. Reg. § 1.168(i)-8(c)(4)(ii)(D)). Its schedule is priced from the actual cost: the amount capitalized, as confirmed by the taxpayer's preparer, is apportioned among the renovated components in proportion to their estimated costs, which serve only to split it (ATG chapter 3 C.2, p.30). The bonus depreciation default follows the renovation's own contract or work-start date (Notice 2026-11, section 3.03).
+  #for r in d.renovations [
+    === #r.scope
+    #kv((
+      ("Acquired (" + r.acquired_source + ")", r.acquired),
+      ("Placed in service", r.placed),
+      ("Invoices", r.invoice_total + " (" + str(r.invoices.len()) + " documents)"),
+      ("Capitalized", r.capitalized + (if r.confirmed_by != "" { " (confirmed by " + r.confirmed_by + ")" } else { "" })),
+      ("Estimates apportioning it", r.estimate_total),
+      ("Bonus default", r.bonus),
+    ))
+    #table(
+      columns: (auto, 1fr, auto, auto, auto, auto),
+      align: (right, left, left, right, right, center),
+      th([Line], [Item], [Location], [Estimate], [Allocated], [Class]),
+      ..r.items.map(i => ([#i.line], [#i.description], [#i.location], [#i.estimate], [#i.allocated], [#i.class])).flatten(),
+      table.cell(colspan: 4, stroke: none)[*Total*], [*#r.capitalized*], [],
+    )
+    #if r.bonus_note != "" [#text(8pt, fill: muted)[#r.bonus_note]]
+  ]
+  #text(fill: muted)[The acquisition (#d.depreciable) and the renovations (#d.renovations_total) together: #d.grand_total. The preparer's schedule lists every line with its own dates.]
+]
+#if d.dispositions.len() > 0 [
+  == Dispositions of replaced components
+  Each component the renovations removed is taken out of the acquisition's schedule at the date it was removed. Its unadjusted basis is its allocated cost in this study (a study allocating the cost of the asset to its individual components, Treas. Reg. § 1.168(i)-8(f)(3)); the depreciation allowed or allowable to the disposition uses that line's own method, recovery period and convention, including its share of any bonus depreciation; the adjusted basis left is the loss on its abandonment.
+  #table(
+    columns: (auto, 1fr, auto, auto, auto, auto, auto, auto, 1fr),
+    align: (right, left, center, center, center, right, right, right, left),
+    th([Line], [Item], [Class], [In service], [Removed], [Basis], [Allowed or allowable], [Adjusted basis], [Treatment]),
+    ..d.dispositions.map(x => ([#x.line], [#x.description], [#x.class], [#x.placed], [#x.disposed], [#x.unadjusted], [#x.allowed], [#x.adjusted], [#x.treatment])).flatten(),
+  )
+  #table(
+    columns: (auto, auto, auto, auto, auto, auto),
+    align: (center, right, right, right, right, right),
+    th([Tax year], [Lines], [Basis], [Allowed or allowable], [Adjusted basis], [Elections]),
+    ..d.disposition_years.map(y => ([#y.year], [#y.lines], [#y.unadjusted], [#y.allowed], [#y.adjusted], [#y.elections])).flatten(),
+  )
+  #note[
+    A component that is part of the building (a 27.5 or 39-year line) is disposed of only if the taxpayer makes the partial disposition election (Treas. Reg. § 1.168(i)-8(d)), on the timely filed original return, including extensions, for the year of the disposition; it cannot be made later by filing Form 3115, except as the regulation provides. A line that is an asset of its own (5, 7 or 15-year) is a disposition of that asset. Which treatment applies, and the character of the loss, are the preparer's to confirm. Methods: #d.dispositions.map(x => "line " + x.line + ": " + x.method).join("; ").
+  ]
+]
+#if d.renovations.len() > 0 or d.dispositions.len() > 0 or d.exterior_views.len() > 0 [
+  == Renovation evidence
+  #for r in d.renovations [
+    - #r.scope: #r.invoices.len() invoices (#r.invoices.map(i => i.document + " " + i.amount + (if i.on != "" { " of " + i.on } else { "" })).join(", ")); #r.after_photos photographs taken after the work#if r.aerial != "" [; dated aerial views, corroboration only: #r.aerial].
+  ]
+  #for v in d.exterior_views [- Dated aerial views, corroboration only: #v.]
+]
 
 // ---------------------------------------------------------------- 9
 = Assumptions and limiting conditions

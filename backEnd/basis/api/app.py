@@ -74,6 +74,7 @@ from basis.capture.starter import CaptureStarter, TemporalCaptureStarter
 from basis.config import ConfigError, Settings
 from basis.db.engine import create_engine
 from basis.db.session import SESSIONMAKER_STATE_ATTR, create_sessionmaker
+from basis.geo.starter import GeoStarter, TemporalGeoStarter, with_geo
 from basis.storage import GcsStorage, LocalStorage, Storage
 from basis.storage.base import CONTENT_LENGTH_RANGE_HEADER
 from basis.temporal.client import connect, temporal_configured
@@ -209,6 +210,7 @@ def create_app(
     workflows: WorkflowService | None = None,
     localizer: Localizer | None = None,
     capture_starter: CaptureStarter | None = None,
+    geo_starter: GeoStarter | None = None,
 ) -> FastAPI:
     """Build the API. ``settings`` is passed in so tests control every value.
 
@@ -230,10 +232,17 @@ def create_app(
                 client, task_queue=settings.temporal_task_queue
             )
             if app.state.capture_starter is None:
-                app.state.capture_starter = TemporalCaptureStarter(
-                    client,
-                    task_queue=settings.capture_task_queue,
-                    max_wait_hours=settings.capture_max_wait_hours,
+                app.state.capture_starter = with_geo(
+                    TemporalCaptureStarter(
+                        client,
+                        task_queue=settings.capture_task_queue,
+                        max_wait_hours=settings.capture_max_wait_hours,
+                    ),
+                    app.state,
+                )
+            if app.state.geo_starter is None:
+                app.state.geo_starter = TemporalGeoStarter(
+                    client, task_queue=settings.geo_task_queue
                 )
         try:
             yield
@@ -242,7 +251,8 @@ def create_app(
                 # A temporalio client holds no resources that need closing.
                 app.state.temporal = None
                 app.state.workflows = None
-                app.state.capture_starter = capture_starter
+                app.state.capture_starter = with_geo(capture_starter, app.state)
+                app.state.geo_starter = geo_starter
             if owned is not None:
                 await owned.dispose()
                 setattr(app.state, SESSIONMAKER_STATE_ATTR, None)
@@ -271,7 +281,10 @@ def create_app(
     app.state.workflows = workflows
     # Property pictures' workflow starter (basis.capture.starter): the test's, else built
     # with the Temporal client in the lifespan.
-    app.state.capture_starter = capture_starter
+    app.state.capture_starter = with_geo(capture_starter, app.state)
+    # Public geographic sources' starter (basis.geo.starter), the same way; the capture's
+    # starter is wrapped so a capture also queues a gather when PUBLIC_GEO is on.
+    app.state.geo_starter = geo_starter
     app.state.localizer = (
         localizer
         if localizer is not None

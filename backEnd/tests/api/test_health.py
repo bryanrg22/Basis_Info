@@ -136,6 +136,11 @@ def test_only_known_routes_exist(app: FastAPI) -> None:
         "GET /v1/studies/{study_id}/property/captures/{capture_id}",
         "GET /v1/studies/{study_id}/property/views/{view_id}/image",
         "GET /v1/ops/capture-incidents",
+        # public geographic sources (tests/api/test_public_geo.py, docs/api/PUBLIC_GEO.md)
+        "GET /v1/studies/{study_id}/property/public",
+        "POST /v1/studies/{study_id}/property/public",
+        "GET /v1/studies/{study_id}/property/public/views/{view_id}/image",
+        "GET /v1/ops/geo-incidents",
         "GET /v1/ops/studies/{study_id}/documents",
         "GET /v1/ops/studies/{study_id}/documents/{document_id}/content",
         "GET /v1/studies",
@@ -189,6 +194,9 @@ def test_only_known_routes_exist(app: FastAPI) -> None:
         "PUT /v1/studies/{study_id}/report-answers",
         "GET /v1/orgs/{org_id}/profile",
         "PUT /v1/orgs/{org_id}/profile",
+        # renovation projects (tests/api/test_renovations.py)
+        "GET /v1/studies/{study_id}/renovations",
+        "PUT /v1/studies/{study_id}/renovations",
         # the paid-call ledger (tests/api/test_spend.py)
         "GET /v1/studies/{study_id}/spend",
         "GET /v1/studies/{study_id}/calls",

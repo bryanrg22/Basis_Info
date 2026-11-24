@@ -86,6 +86,7 @@ from basis.db.enums import (
     StudyStatus,
 )
 from basis.domain.intake import StudyIntake
+from basis.domain.renovations import StudyRenovations
 from basis.report.inputs import FirmProfile, SignerDetails, StudyAnswers
 
 EMBEDDING_DIM: Final = 384
@@ -111,6 +112,8 @@ UPDATED_AT_TABLES: Final = (
     "property_captures",
     "capture_state",
     "capture_incidents",
+    "geo_gathers",
+    "geo_incidents",
 )
 # Tables whose rows can never be updated or deleted (forbid_mutation() trigger).
 APPEND_ONLY_TABLES: Final = (
@@ -131,6 +134,8 @@ NO_UPDATE_TABLES: Final = (
     "report_signatures",
     "client_errors",
     "capture_views",
+    "geo_views",
+    "geo_parcels",
 )
 # Tables whose rows cannot be inserted or updated once their corpus version is published.
 PUBLISHED_IMMUTABLE_TABLES: Final = ("chunks", "evidence_tables")
@@ -210,6 +215,21 @@ class ReportAnswersDocument(TypeDecorator[StudyAnswers]):
 
     def process_result_value(self, value: Any, dialect: Dialect) -> StudyAnswers | None:
         return None if value is None else StudyAnswers.model_validate(value)
+
+
+class RenovationsDocument(TypeDecorator[StudyRenovations]):
+    """``studies.renovations`` (migration ``0039_study_renovations``): the study's renovation
+    projects as one JSONB document, read back as
+    :class:`basis.domain.renovations.StudyRenovations`. NULL is "none"."""
+
+    impl = JSON_DOC
+    cache_ok = True
+
+    def process_bind_param(self, value: StudyRenovations | None, dialect: Dialect) -> Any:
+        return None if value is None else value.model_dump(mode="json")
+
+    def process_result_value(self, value: Any, dialect: Dialect) -> StudyRenovations | None:
+        return None if value is None else StudyRenovations.model_validate(value)
 
 
 class FirmProfileDocument(TypeDecorator[FirmProfile]):
@@ -400,6 +420,11 @@ class Study(Base):
             name="report_answers_is_object",
         ),
         CheckConstraint("report_answers_version >= 0", name="report_answers_version_not_negative"),
+        CheckConstraint(
+            "renovations IS NULL OR jsonb_typeof(renovations) = 'object'",
+            name="renovations_is_object",
+        ),
+        CheckConstraint("renovations_version >= 0", name="renovations_version_not_negative"),
         Index("ix_studies_org_id_created_at", "org_id", text("created_at DESC")),
     )
 
@@ -439,6 +464,10 @@ class Study(Base):
         ReportAnswersDocument, nullable=True
     )
     report_answers_version: Mapped[int] = mapped_column(server_default=text("0"), default=0)
+    # The study's renovation projects (docs/api/RENOVATIONS.md; migration ``0039``) and their
+    # version, the entity tag of ``PUT /v1/studies/{id}/renovations``.
+    renovations: Mapped[StudyRenovations | None] = mapped_column(RenovationsDocument, nullable=True)
+    renovations_version: Mapped[int] = mapped_column(server_default=text("0"), default=0)
     # When the retention purge deleted the study's uploaded files from storage (migration
     # ``0026_retention_alerts``); NULL: never. The export, the signed report and every row
     # survive; ``study.purged`` on the timeline records what went.
@@ -2075,5 +2104,183 @@ class CaptureIncident(Base):
     last_http_status: Mapped[int | None]
     last_detail: Mapped[str | None]
     last_evidence: Mapped[str | None]
+    created_at: Mapped[datetime] = _created_at()
+    updated_at: Mapped[datetime] = _updated_at()
+
+
+# ------------------------------------------------------------ public geographic sources (0038)
+
+GEO_GATHER_STATUSES: Final = ("queued", "running", "succeeded", "failed")
+GEO_ACTIVE_STATUSES: Final = ("queued", "running")
+GEO_VIEW_KINDS: Final = ("current", "history")
+
+
+class GeoGather(Base):
+    """One gather of the public geographic sources for a study's pin (migration ``0038``,
+    docs/api/PUBLIC_GEO.md, EVAL_REPORT 101): ``queued`` (the workflow was asked to start),
+    ``running``, ``succeeded`` (every source was asked; each one's outcome is in ``sources``) or
+    ``failed`` (the step itself failed: ``code``, ``reason``). ``lat``/``lon`` and
+    ``pin_version`` are the pin it was taken around. ``sources`` is ``[{"source", "kind",
+    "status" (ok, blank, failed, none), "code", "detail", "seconds", "year"}]``; ``lidar`` the
+    lidar summary (project, year, density, the building's heights and footprint) or null. One
+    active gather per study (a partial unique index while queued or running). Mutable.
+    """
+
+    __tablename__ = "geo_gathers"
+    __table_args__ = (
+        CheckConstraint(
+            "status IN ('queued', 'running', 'succeeded', 'failed')", name="status_valid"
+        ),
+        CheckConstraint("lat >= -90 AND lat <= 90 AND lon >= -180 AND lon <= 180", name="point"),
+        UniqueConstraint("study_id", "id"),
+        Index("ix_geo_gathers_study_id_created_at", "study_id", text("created_at DESC")),
+        Index(
+            "uq_geo_gathers_one_active",
+            "study_id",
+            unique=True,
+            postgresql_where=text("status IN ('queued', 'running')"),
+        ),
+    )
+
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    study_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("studies.id"))
+    requested_by: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id"))
+    status: Mapped[str] = mapped_column(server_default=text("'queued'"), default="queued")
+    pin_version: Mapped[int]
+    lat: Mapped[float] = mapped_column(Double)
+    lon: Mapped[float] = mapped_column(Double)
+    workflow_id: Mapped[str | None]
+    code: Mapped[str | None]
+    reason: Mapped[str | None]
+    sources: Mapped[list[dict[str, Any]]] = mapped_column(
+        JSON_DOC, server_default=text("'[]'::jsonb"), default=list
+    )
+    lidar: Mapped[dict[str, Any] | None] = mapped_column(JSON_DOC)
+    started_at: Mapped[datetime | None]
+    finished_at: Mapped[datetime | None]
+    created_at: Mapped[datetime] = _created_at()
+    updated_at: Mapped[datetime] = _updated_at()
+
+
+class GeoView(Base):
+    """One public top-down image of the property (migration ``0038``): ``current`` (the best
+    source at the point: basis.geo.registry) or ``history`` (one per year). The image is under
+    the study's prefix (``studies/<id>/public/<gather id>/<label>.<ext>``) so the retention purge
+    takes it with the study's files. The georeference: north up in Web Mercator (``crs``
+    ``EPSG:3857``), ``bbox`` ``[xmin, ymin, xmax, ymax]`` in its metres, ``width`` x
+    ``height`` pixels, ``lat``/``lon`` the centre and ``pixel_size_m`` the ground metres per
+    pixel there (Mercator is conformal: square on the ground). ``source_id`` names the registry
+    entry; ``credit``, ``terms_class`` and ``terms_url`` travel with the image. ``year`` the
+    imagery's year (``year_label`` when the source mixes years), ``leaf_off`` as the source
+    states it. Never updated.
+    """
+
+    __tablename__ = "geo_views"
+    __table_args__ = (
+        CheckConstraint("kind IN ('current', 'history')", name="kind_valid"),
+        CheckConstraint("width > 0 AND height > 0", name="size_positive"),
+        CheckConstraint("pixel_size_m > 0", name="pixel_size_positive"),
+        ForeignKeyConstraint(["study_id", "gather_id"], ["geo_gathers.study_id", "geo_gathers.id"]),
+        UniqueConstraint("gather_id", "label"),
+        Index(None, "study_id", "created_at"),
+    )
+
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    study_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("studies.id"))
+    gather_id: Mapped[uuid.UUID]
+    source_id: Mapped[str]
+    kind: Mapped[str]
+    label: Mapped[str]
+    year: Mapped[int | None]
+    year_label: Mapped[str | None]
+    leaf_off: Mapped[bool | None]
+    lat: Mapped[float] = mapped_column(Double)
+    lon: Mapped[float] = mapped_column(Double)
+    pixel_size_m: Mapped[float] = mapped_column(Double)
+    native_pixel_m: Mapped[float | None] = mapped_column(Double)
+    crs: Mapped[str] = mapped_column(server_default=text("'EPSG:3857'"), default="EPSG:3857")
+    bbox: Mapped[list[float]] = mapped_column(JSON_DOC)
+    width: Mapped[int]
+    height: Mapped[int]
+    uri: Mapped[str]
+    content_type: Mapped[str]
+    sha256: Mapped[str] = mapped_column(CHAR(64))
+    bytes: Mapped[int] = mapped_column(BigInteger)
+    credit: Mapped[str]
+    terms_class: Mapped[str]
+    terms_url: Mapped[str]
+    captured_at: Mapped[datetime]
+    created_at: Mapped[datetime] = _created_at()
+
+
+class GeoParcel(Base):
+    """One parcel from the state's open parcel layer (migration ``0038``): the one under the pin
+    (``under_pin``) or one of the same owner's adjacent parcels. ``area_m2`` is its polygon
+    measured on the WGS84 ellipsoid; ``layer_acres`` the layer's own acres (null when it has
+    none); the values and building fields as the layer has them (null when it has none);
+    ``geometry`` the GeoJSON polygon in lon/lat; ``attributes`` the raw fields read. Never
+    updated.
+    """
+
+    __tablename__ = "geo_parcels"
+    __table_args__ = (
+        CheckConstraint("area_m2 >= 0", name="area_not_negative"),
+        ForeignKeyConstraint(["study_id", "gather_id"], ["geo_gathers.study_id", "geo_gathers.id"]),
+        Index(None, "gather_id"),
+    )
+
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    study_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("studies.id"))
+    gather_id: Mapped[uuid.UUID]
+    source_id: Mapped[str]
+    parcel_id: Mapped[str | None]
+    under_pin: Mapped[bool]
+    owner: Mapped[str | None]
+    address: Mapped[str | None]
+    area_m2: Mapped[float] = mapped_column(Double)
+    layer_acres: Mapped[float | None] = mapped_column(Double)
+    land_value: Mapped[float | None] = mapped_column(Double)
+    improvement_value: Mapped[float | None] = mapped_column(Double)
+    total_value: Mapped[float | None] = mapped_column(Double)
+    year_built: Mapped[int | None]
+    building_area_sqft: Mapped[float | None] = mapped_column(Double)
+    stories: Mapped[float | None] = mapped_column(Double)
+    geometry: Mapped[dict[str, Any]] = mapped_column(JSON_DOC)
+    attributes: Mapped[dict[str, Any]] = mapped_column(
+        JSON_DOC, server_default=text("'{}'::jsonb"), default=dict
+    )
+    credit: Mapped[str]
+    terms_class: Mapped[str]
+    created_at: Mapped[datetime] = _created_at()
+
+
+class GeoIncident(Base):
+    """One kind of public-source failure as operators track it (migration ``0038``): every
+    occurrence of one ``code`` at one ``source_id`` (``"gather"`` for the step itself), the
+    grouping of ``capture_incidents`` keyed also by source, since a public server fails on its
+    own. The ``last_*`` columns describe the newest occurrence. Each occurrence is also a
+    ``geo.source_failed`` or ``geo.failed`` row on the study's timeline. Mutable.
+    """
+
+    __tablename__ = "geo_incidents"
+    __table_args__ = (
+        CheckConstraint("occurrences >= 1", name="occurrences_positive"),
+        Index(None, "last_seen_at"),
+    )
+
+    code: Mapped[str] = mapped_column(primary_key=True)
+    source_id: Mapped[str] = mapped_column(primary_key=True)
+    occurrences: Mapped[int] = mapped_column(server_default=text("1"), default=1)
+    first_seen_at: Mapped[datetime]
+    last_seen_at: Mapped[datetime]
+    last_study_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("studies.id", ondelete="SET NULL")
+    )
+    last_gather_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("geo_gathers.id", ondelete="SET NULL")
+    )
+    last_url: Mapped[str | None]
+    last_http_status: Mapped[int | None]
+    last_detail: Mapped[str | None]
     created_at: Mapped[datetime] = _created_at()
     updated_at: Mapped[datetime] = _updated_at()

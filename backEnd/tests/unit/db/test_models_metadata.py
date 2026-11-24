@@ -56,9 +56,10 @@ SPEC_TABLES = {
     # v0.12: components_gate (migration 0009_components_gate).
     # Basis and land allocation: intake (migration 0011_study_intake).
     # Error codes: failure_code (migration 0013_study_events).
+    # Renovations: renovations, renovations_version (migration 0039_study_renovations).
     "studies": "id org_id created_by property_name status current_stage workflow_id "
     "room_aliases failure_reason failure_code components_gate intake intake_version created_at "
-    "updated_at report_answers report_answers_version purged_at",
+    "updated_at report_answers report_answers_version purged_at renovations renovations_version",
     "documents": "id study_id kind filename content_type bytes sha256 gcs_uri uploaded_by "
     "uploaded_at",
     "document_pages": "document_id page_no gcs_uri",
@@ -176,6 +177,17 @@ SPEC_TABLES = {
     "capture_navigations": "id kind capture_id",
     "capture_incidents": "code occurrences first_seen_at last_seen_at last_study_id "
     "last_capture_id last_url last_http_status last_detail last_evidence updated_at",
+    # Public geographic sources (migration 0038_public_geo, docs/api/PUBLIC_GEO.md).
+    "geo_gathers": "id study_id requested_by status pin_version lat lon workflow_id code reason "
+    "sources lidar started_at finished_at updated_at",
+    "geo_views": "id study_id gather_id source_id kind label year year_label leaf_off lat lon "
+    "pixel_size_m native_pixel_m crs bbox width height uri content_type sha256 bytes credit "
+    "terms_class terms_url captured_at",
+    "geo_parcels": "id study_id gather_id source_id parcel_id under_pin owner address area_m2 "
+    "layer_acres land_value improvement_value total_value year_built building_area_sqft stories "
+    "geometry attributes credit terms_class",
+    "geo_incidents": "code source_id occurrences first_seen_at last_seen_at last_study_id "
+    "last_gather_id last_url last_http_status last_detail updated_at",
 }
 
 # Beyond the per-table lists: S1_SPEC §1 says every table has created_at; studies.revision
@@ -305,6 +317,12 @@ SPEC_SIMPLE_FKS = {
     ("capture_navigations", "capture_id", "property_captures"),
     ("capture_incidents", "last_study_id", "studies"),
     ("capture_incidents", "last_capture_id", "property_captures"),
+    ("geo_gathers", "study_id", "studies"),
+    ("geo_gathers", "requested_by", "users"),
+    ("geo_views", "study_id", "studies"),
+    ("geo_parcels", "study_id", "studies"),
+    ("geo_incidents", "last_study_id", "studies"),
+    ("geo_incidents", "last_gather_id", "geo_gathers"),
 }
 
 SPEC_UNIQUES = {
@@ -333,6 +351,8 @@ SPEC_UNIQUES = {
     ("demo_requests", ("seq",)),
     ("property_captures", ("study_id", "id")),
     ("capture_views", ("capture_id", "label")),
+    ("geo_gathers", ("study_id", "id")),
+    ("geo_views", ("gather_id", "label")),
 }
 
 SPEC_PRIMARY_KEYS = {
@@ -356,6 +376,8 @@ SPEC_PRIMARY_KEYS = {
     "capture_state": ("id",),
     "capture_navigations": ("id",),
     "capture_incidents": ("code",),
+    # Public geographic sources (0038): one incident per code and source.
+    "geo_incidents": ("code", "source_id"),
 }
 
 SPEC_CHECKS = {
@@ -367,6 +389,12 @@ SPEC_CHECKS = {
     "ck_capture_state_single_row",
     "ck_capture_navigations_kind_valid",
     "ck_capture_incidents_occurrences_positive",
+    # Public geographic sources (0038).
+    "ck_geo_gathers_status_valid",
+    "ck_geo_views_kind_valid",
+    "ck_geo_views_pixel_size_positive",
+    "ck_geo_parcels_area_not_negative",
+    "ck_geo_incidents_occurrences_positive",
     "ck_org_members_role_valid",
     "ck_documents_bytes_positive",
     "ck_corpus_versions_corpus_valid",
@@ -587,6 +615,7 @@ def test_migration_trigger_tables_match_models() -> None:
     issues = load_migration(VERSIONS / "0028_client_errors.py")
     signers = load_migration(VERSIONS / "0032_signer_details.py")
     capture = load_migration(VERSIONS / "0036_property_capture.py")
+    geo = load_migration(VERSIONS / "0038_public_geo.py")
     assert (
         *migration.UPDATED_AT_TABLES,
         *report.UPDATED_AT_TABLES,
@@ -594,6 +623,7 @@ def test_migration_trigger_tables_match_models() -> None:
         *issues.UPDATED_AT_TABLES,
         *signers.UPDATED_AT_TABLES,
         *capture.UPDATED_AT_TABLES,
+        *geo.UPDATED_AT_TABLES,
     ) == UPDATED_AT_TABLES
     # 0013 adds study_events to the append-only tables (the same forbid_mutation() trigger).
     events = load_migration(VERSIONS / "0013_study_events.py")
@@ -735,8 +765,9 @@ def test_jsonb_columns_store_none_as_sql_null() -> None:
     # org_events.before/after/detail; gate drafts (0024): review_drafts.document;
     # alerts (0026): alerts.payload; browser error capture (0028): client_errors.event;
     # signer details (0032): report_signatures.letterhead; capture notes (0037):
-    # property_captures.notes
-    assert len(jsonb) == 40
+    # property_captures.notes; public geographic sources (0038): geo_gathers.sources / lidar,
+    # geo_views.bbox, geo_parcels.geometry / attributes
+    assert len(jsonb) == 45
     for name, column in jsonb:
         assert table(name).c[column].type.none_as_null, f"{name}.{column}"
 
@@ -751,6 +782,10 @@ def test_indexes() -> None:
     # 0036: one active capture per study (a partial unique index).
     (active,) = [i for i in table("property_captures").indexes if i.unique]
     assert active.name == "uq_property_captures_one_active"
+    # 0038: one active gather of the public sources per study.
+    (gather,) = [i for i in table("geo_gathers").indexes if i.unique]
+    assert gather.name == "uq_geo_gathers_one_active"
+    assert str(gather.dialect_options["postgresql"]["where"]) == "status IN ('queued', 'running')"
     assert str(active.dialect_options["postgresql"]["where"]) == (
         "status IN ('queued', 'waiting', 'running')"
     )

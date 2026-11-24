@@ -36,7 +36,7 @@ from typing import Any, Final
 
 from basis.activities._support import validation_error
 from basis.db.enums import Bucket
-from basis.domain import price_overrides, traced
+from basis.domain import component_age, price_overrides, renovations, traced
 from basis.domain.counts import count_problem, room_component_problems
 from basis.domain.validators import (
     VALID_SECTION_BUCKETS,
@@ -69,6 +69,9 @@ ASSET_FIELDS: Final = frozenset(
         *price_overrides.FIELDS,
         # EVAL_REPORT 97: the shape the engineer traced, instead of the three above.
         traced.MEASUREMENT,
+        # EVAL_REPORT 102 (RENOVATIONS.md): the row's own age, and its removal by a renovation.
+        *component_age.FIELDS,
+        *renovations.REMOVAL_FIELDS,
     }
 )
 QUANTITY_FIELDS: Final = frozenset({"quantity", "quantity_unit", "quantity_source"})
@@ -150,6 +153,22 @@ def check_unit_cost(after: dict[str, Any], reason: str | None) -> None:
     problems = price_overrides.problems(after, reason)
     if problems:
         raise validation_error("; ".join(problems), E.CORRECT_UNIT_COST)
+
+
+def check_component_age(after: dict[str, Any], reason: str | None) -> None:
+    """A row's age on an ``asset`` correction (:func:`basis.domain.component_age.problems`),
+    or nothing when it carries none."""
+    problems = component_age.problems(after, reason)
+    if problems:
+        raise validation_error("; ".join(problems), E.CORRECT_COMPONENT_AGE)
+
+
+def check_removal(after: dict[str, Any], reason: str | None) -> None:
+    """A removal by a renovation project on an ``asset`` correction
+    (:func:`basis.domain.renovations.removal_problems`), or nothing when it carries none."""
+    problems = renovations.removal_problems(after, reason)
+    if problems:
+        raise validation_error("; ".join(problems), E.CORRECT_REMOVAL)
 
 
 def check_photo_room(after: dict[str, Any]) -> None:

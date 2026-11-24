@@ -6,7 +6,8 @@ Format ``BASIS-<AREA>-<nnn>``: the area names the step or component the failure 
 ``CORRECT``, ``ASSETS``, ``EXPORT``, ``CHECK`` for the validators' flags, ``COST`` for
 the cost index store, ``REPORT`` for the study report, ``RETENTION`` for the client-data
 purge, ``ALERT`` for the operator alerts, ``CLIENT`` for the browser error capture, ``DEMO``
-for the public site's demo requests, ``CAPTURE`` for the property pictures) and the
+for the public site's demo requests, ``CAPTURE`` for the property pictures, ``GEO`` for the
+public geographic sources) and the
 number is stable once published: a code is never renumbered or reused, a retired one is
 marked retired in the catalogue.
 
@@ -143,6 +144,9 @@ class E:
     STUDY_ARCHIVE_WHILE_RUNNING = "BASIS-STUDY-035"
     STUDY_INTAKE_LOCKED = "BASIS-STUDY-036"
     STUDY_INPUT_MISSING = "BASIS-STUDY-037"
+    STUDY_RENOVATIONS_LOCKED = "BASIS-STUDY-038"
+    STUDY_RENOVATIONS_PRECONDITION_FAILED = "BASIS-STUDY-039"
+    STUDY_RENOVATIONS_DOCUMENT = "BASIS-STUDY-040"
 
     # ---------------------------------------------------------------- photo objects (API)
     OBJECT_LOCALIZATION_PENDING = "BASIS-OBJECT-001"
@@ -275,6 +279,8 @@ class E:
     CORRECT_UNIT_COST = "BASIS-CORRECT-044"
     CORRECT_UNIT_COST_CONCEALED = "BASIS-CORRECT-045"
     CORRECT_MEASUREMENT = "BASIS-CORRECT-046"
+    CORRECT_COMPONENT_AGE = "BASIS-CORRECT-047"
+    CORRECT_REMOVAL = "BASIS-CORRECT-048"
 
     # ---------------------------------------------------------------- process_assets
     ASSETS_CORRECTION_TYPE = "BASIS-ASSETS-001"
@@ -343,6 +349,7 @@ class E:
     CHECK_CLASSIFY_BUDGET = "BASIS-CHECK-064"
     CHECK_CLASSIFY_PROVIDER_ERROR = "BASIS-CHECK-065"
     CHECK_CLASSIFY_NO_ANSWER = "BASIS-CHECK-066"
+    CHECK_RENOVATION_ROOM_MIXED = "BASIS-CHECK-067"
 
     # ---------------------------------------------------------------- cost indices
     COST_YEAR_INDEX_MISSING = "BASIS-COST-001"
@@ -423,6 +430,25 @@ class E:
     CAPTURE_STREET_NO_COVERAGE = "BASIS-CAPTURE-019"
     CAPTURE_STREET_REFUSED = "BASIS-CAPTURE-020"
     CAPTURE_DATE_UNREAD = "BASIS-CAPTURE-021"
+
+    # ---------------------------------------------------------------- public geographic sources
+    GEO_OFF = "BASIS-GEO-001"
+    GEO_NO_POINT = "BASIS-GEO-002"
+    GEO_IN_PROGRESS = "BASIS-GEO-003"
+    GEO_UNAVAILABLE = "BASIS-GEO-004"
+    GEO_SOURCE_HTTP = "BASIS-GEO-005"
+    GEO_SOURCE_TIMEOUT = "BASIS-GEO-006"
+    GEO_SOURCE_BAD_RESPONSE = "BASIS-GEO-007"
+    GEO_NO_IMAGERY = "BASIS-GEO-008"
+    GEO_NO_PARCEL = "BASIS-GEO-009"
+    GEO_NO_LIDAR = "BASIS-GEO-010"
+    GEO_LIDAR_UNREADABLE = "BASIS-GEO-011"
+    GEO_SITE_AREA_MISMATCH = "BASIS-GEO-012"
+    GEO_SITE_AREA_ADJACENT = "BASIS-GEO-013"
+    GEO_COMPLETED = "BASIS-GEO-014"
+    GEO_GATHER_FAILED = "BASIS-GEO-015"
+    GEO_NO_BUILDING = "BASIS-GEO-016"
+    GEO_LIDAR_FOOTPRINT_UNCERTAIN = "BASIS-GEO-017"
 
 
 def tag(code: str, message: str) -> str:

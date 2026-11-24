@@ -71,6 +71,7 @@ GET /v1/studies/{id}/timeline?limit=200&cursor=<next_cursor>&event_type=activity
 | `event_type` | Actor | When | Carries |
 |---|---|---|---|
 | `study.created`, `study.intake_set`, `study.archived`, `study.unarchived` | engineer | the study routes | `intake_set`: `before`/`after` the intake documents, `detail` `{version_before, version_after, if_match}` (the intake's version, docs/api/STUDY_RESULT.md); `archived` and `unarchived` once per change, decided under the row lock (a repeat or a concurrent request records nothing); `unarchived`: `after.status` the status it came back to (docs/api/STUDY_LIBRARY.md) |
+| `study.renovations_set` | engineer | `PUT .../renovations` (docs/api/RENOVATIONS.md) | `before`/`after` the renovations documents, `detail` `{version_before, version_after, if_match}`. Not in the audit listing yet (no `renovations` kind) |
 | `document.uploaded` | engineer | an upload confirmed | `entity_id` the document; `detail` kind, filename, bytes, sha256. Once per document: of two confirmations at once only the one that set `uploaded_at` records it (EVAL_REPORT 62) |
 | `study.started` | engineer | `POST .../start` moved the study to `extracting` | `detail.workflow_id` |
 | `run.started`, `run.ended` | system | the Temporal execution | `detail.outcome` on the end |
@@ -106,6 +107,11 @@ GET /v1/studies/{id}/timeline?limit=200&cursor=<next_cursor>&event_type=activity
 | `capture.paused` | system | A block signal, an open breaker or a spent cap paused the capture; it resumes on its own | `code` the `BASIS-CAPTURE-<nnn>`; `detail`: `reason` (the engineer's sentence), `resume_at`, `signal`, `http_status`, `evidence` (the prefix of the screenshot, HTML and page record) |
 | `capture.failed` | system | The capture failed (blank view, no place, timeout, crash, gave up, could not start) | `code`; `detail` as for `capture.paused`, without `resume_at` |
 | `capture.part_failed` | system | A part did not work while the capture went on: history, street level, an unread date (EVAL_REPORT 99) | `code` 018 to 021; `detail`: `reason` (the engineer's sentence), `part`, `signal`, `evidence` where a page was involved |
+| `geo.requested` | engineer, or system | A gather of the public records was queued (`POST .../property/public`, or beside a capture) | `entity_id` the gather; `detail.pin_version` (docs/api/PUBLIC_GEO.md) |
+| `geo.started`, `geo.completed` | system | The geo worker began or finished the gather | `entity_id` the gather; `code` `BASIS-GEO-014` on completion, `detail.views`, `detail.failed` |
+| `geo.source_failed` | system | One public source failed; the others went on | `code` the `BASIS-GEO-<nnn>`; `detail`: `source`, `kind`, `detail`, `seconds` |
+| `geo.site_area_checked` | system | The parcel was checked against the appraisal's site area | `code` `BASIS-GEO-012` (flag) or `-013` (adjacent parcels match), none when they agree; `detail` the check |
+| `geo.failed` | system | The gather failed (the step after its retries, or the workflow did not start) | `code`; `detail.reason` |
 
 Not recorded per row, on purpose: the model's `photo_objects` (SAM 3 candidates, tens per
 photo) and the rows a model call wrote (components, fields): the activity event carries the

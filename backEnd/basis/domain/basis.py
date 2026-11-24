@@ -91,6 +91,9 @@ class CostCategory(StrEnum):
     UTILITY_CONNECTION = "utility_connection"
     SELLER_OBLIGATIONS_PAID = "seller_obligations_paid"
     OTHER_FACILITATIVE = "other_facilitative"
+    # RENOVATIONS.md section 4.5: the capitalized cost of a renovation made after the purchase
+    # and before the property was placed in service (a ``before_service`` project).
+    IMPROVEMENTS_BEFORE_SERVICE = "improvements_before_service"
     # Not capitalized.
     POINTS = "points"
     LOAN_ORIGINATION = "loan_origination"
@@ -126,6 +129,10 @@ CAPITALIZED: Final[dict[CostCategory, str]] = {
     "(back taxes, interest, commissions)",
     CostCategory.OTHER_FACILITATIVE: "Reg. 1.263(a)-2(f)(1): an amount paid to facilitate the "
     "acquisition (describe it)",
+    CostCategory.IMPROVEMENTS_BEFORE_SERVICE: "Reg. 1.263(a)-3: improvements made after the "
+    "purchase and before the property was placed in service, capitalized (the CPA's amount); "
+    "Pub. 551, Increases to Basis. The study's before-service renovation project carries the "
+    "invoices",
 }
 
 NOT_CAPITALIZED: Final[dict[CostCategory, str]] = {

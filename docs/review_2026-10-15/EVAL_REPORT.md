@@ -15313,3 +15313,539 @@ has been run on fabricated PDFs and on a replay, not live.
 * **Gutters** still run on the rectangle's long side: an outline does not say which edges
   are eaves. **Gable ends** are still not added to the siding.
 * Nothing was run live: no extraction with the setting on has run against the stack.
+
+## 101. Public geographic sources: government imagery, history, parcels and lidar per property (2026-11-23)
+
+**Question.** Can Basis gather, for a study's pin, the public records an engineer uses beside
+the property pictures (EVAL_REPORT 98): the sharpest free top-down image to measure on, a dated
+series for history, the parcel and its area against the appraisal, and the building's heights
+and footprint from lidar; each stored with its source, credit, terms and georeference, gently,
+with every failure tracked? Design: `PROPERTY_CAPTURE.md` section 10. API:
+`docs/api/PUBLIC_GEO.md`. Code: `basis/geo/`. Research: the 32-state survey in
+`REMOTE_INSPECTION_AND_MEASUREMENT.md` section 12 (branch `claude/remote-inspection-measurement`)
+and the hands-on Wisconsin check in its section 11.
+
+**The standard, and what was taken from it.**
+
+* *Asking the servers.* Every public imagery service found speaks one of four protocols: an
+  ArcGIS ImageServer (`exportImage`), an ArcGIS MapServer (`export`), OGC WMS `GetMap`, or a
+  cached XYZ tile set. All accept a Web Mercator box (`bboxSR/imageSR=3857`, `CRS=EPSG:3857`),
+  including services stored in state plane or UTM, so every view is requested in EPSG:3857,
+  north up. Mercator is conformal: a pixel is square on the ground and `pixel_size_m` at the
+  centre converts a traced shape exactly as a property-capture view does (heading 0). The box
+  is stored too, for the exact inverse.
+* *Areas.* Parcel polygons are measured on the WGS84 ellipsoid with Karney's algorithm
+  (`geographiclib`, the method behind PROJ's `geod`), never in Mercator, which inflates area by
+  `1 / cos^2(lat)` (1.93 times at the test latitude). The Wisconsin layer's own `Shape__Area` is
+  such a Mercator area and is not used.
+* *Lidar.* The federal 3DEP point clouds as Entwine Point Tiles on AWS, located through the
+  maintainers' project index; only the octree nodes over the lot are read; LAZ is decoded with
+  `laspy` and the `lazrs` backend (no pure-Python LAZ decoder exists; the `geo` dependency group,
+  which only the geo worker needs). Building and ground are the ASPRS classes 6 and 2.
+* *Politeness.* One request at a time per host and 1 s between two; timeouts; retries with
+  exponential backoff and jitter that honour `Retry-After`; no retry of other 4xx (the standard
+  pattern of the AWS and Google client libraries).
+* *Tracking.* The capture's pattern reused: catalogue area `GEO` (001 to 016), `error_code` on
+  the log lines, `study_events` (`geo.*`), and a grouped incident table keyed by code and
+  source (a public server fails on its own, so the source is part of the key).
+
+**Setup.** One gather on the client property (in Wisconsin) (the pin of EVAL_REPORT 98, the only
+client property asked); one small request per registry source at its state's capitol (a public
+point; the Wisconsin capitol for the federal sources), with the centre of the service's extent
+tried once when the capitol is outside a partial service; laptop on home broadband,
+2026-11-23. The private record is `$BASIS_EVAL_DATA_DIR/work/public_geo_2026-11-23/`
+(`retest_2026-11-23.json`, `client_run/result.json`, the images and the overlays).
+
+### 101.1 The registry, re-tested live
+
+128 entries in `basis/geo/sources.json`: federal NAIP Plus and the USGS NAIP service (fallbacks
+everywhere), NAIP by year 2004 to 2023, and 15 states. Each was asked without a key; 126 were
+asked (the two marked `unsupported` were not: New Jersey's 2025 imagery is only 210 MB
+state-plane files, and the Texas parcel layer refuses `query`).
+
+| State | Imagery entries | Real image at a test point | Finest native pixel | Years | Leaf-off stated | Terms as stated | Parcel layer (polygon vs the layer's acres at the capitol) |
+|---|---|---|---|---|---|---|---|
+| Federal | 22 | 15 | 60 cm | 2005-2023 | no | public domain | none |
+| CT | 6 | 6 | 7.6 cm | 1990-2023 | yes | open, credit | yes (-18.6 %) |
+| FL | 15 | 5 | 15 cm | 2007-2021 | not stated | none stated | yes (+8.0 %) |
+| IL | 11 | 10 | 15 cm | 2011-2025 | not stated | public domain / none | none |
+| IN | 9 | 8 | 7.6 cm | 2005-2025 | some years | public domain (CC0) | outlines only |
+| KY | 3 | 3 | 7.6 cm | 2013-2023 | yes | public domain | none |
+| MA | 4 (tiles) | 4 | 15 cm | 2019-2025 | some years | open, credit | yes (+7.2 %) |
+| MD | 5 | 5 | 15 cm | 2012-2024 | not stated | open, credit | yes (-2.0 %) |
+| MN | 11 (WMS) | 11 | 30 cm | 2008-2025 | metro 2025 | public domain | 60 counties (-1.9 %) |
+| MO | 4 | 4 | 15 cm | 2008-2024 | 2023-2024 | open (CC BY) | none |
+| NC | 5 | 5 | 15 cm | 2010-2024 | not stated | open, credit | yes (0.0 %) |
+| NJ | 4 (WMS) + 1 files | 4 | 30 cm live | 2007-2020 | yes | open, credit | yes (+3.0 %) |
+| OH | 3 | 3 | 15 cm | 2006-2025 | OSIP III | open / none | yes (0.0 %) |
+| PA | 2 | 2 | 15 cm | 2019-2022 | not stated | open, credit | geometry only, not seeded |
+| TX | 3 | 3 | 15 cm | 2019-2021 | yes | none stated | refuses query (unavailable) |
+| WI | 9 | 9 | 15 cm here (7.6 cm finest) | 2005-2024 | latest and 2010 | none stated / NAIP | yes (+23.6 %) |
+
+Columns: "Real image" counts the entries that answered with real imagery at the capitol or at the
+extent's centre; the rest answered blank there (a partial service: NAIP years that did not fly
+those states, Florida's county rotation, one Illinois block, Indiana 2024), so their coverage was
+not proven at a point. No entry failed: 0 HTTP errors, 0 timeouts. "Finest native pixel" is the
+registry's value, which is the service's finest; a county inside a mosaic may be coarser.
+Per-request time: median 10 s and at most 113 s, but these include waiting behind the same
+host's other entries at one request a second (Illinois' 11 entries share one host); a single
+request, measured in the gather below, took at most 9.8 s.
+
+**The parcel areas** at the capitols, the layer's acres against the polygon on the ellipsoid:
+-18.6 to +23.6 %, median +2.0 %. Capitol parcels are odd (squares, streets, campuses), but it
+shows the two figures are not interchangeable. The site check therefore accepts either figure
+of the parcel under the pin, and states which.
+
+### 101.2 One gather on the client property
+
+| Part | Outcome |
+|---|---|
+| Parcels | 2 parcels of one owner: the one under the pin and its neighbour, found as adjacent (gap under 3 m), 1.2 s |
+| Current view | The state's leaf-off mosaic, the county's 2020 flight (year read at the point from the index layer), 15.2 cm pixels, 1,050 x 1,050 over 160 m, 156 KB, 6.3 s |
+| History | 9 years: 2024 (state NAIP), 2022, 2018, 2017, 2015, 2013 (NAIP), 2010 (state leaf-off, 46 cm), 2008, 2005 (NAIP); 10 years blank (NAIP not flown here those years) |
+| Lidar | 2018 project, 14 nodes, 4.1 MB read and not stored, 18.2 s |
+| Whole gather | 43 requests, 67 s, 10 views, 290 KB stored |
+
+### 101.3 Is the public image better to measure on than the Google view?
+
+Sharpness proxy: the edge width of Marziliano et al. (2002), a standard no-reference blur
+measure: the ground distance between the intensity extremes on either side of the strongest 1 %
+of edges (Sobel), along the row or column the edge crosses, median over the edges. Same ground
+window on every image (the house and drive, 40 x 40 m; and 60 x 60 m).
+
+| Image | Nominal pixel | Edge width, house window (median; IQR) | Edge width, 60 m window | Edges |
+|---|---|---|---|---|
+| State leaf-off 2020 (public) | 15.2 cm | 0.30 m (0.30 to 0.46) | 0.46 m | 644 / 1,322 |
+| Google Earth top-down view (EVAL_REPORT 98) | 8.4 cm | 0.76 m (0.67 to 0.93) | 0.76 m | 1,295 / 3,133 |
+| State leaf-off 2010 | 46 cm | 1.37 m | 1.37 m | 56 / 125 |
+| NAIP 2024 (state service) | 60 cm | 3.0 m | 3.0 m | 44 / 95 |
+| NAIP 2022 | 60 cm | 4.8 m | 5.4 m | 27 / 69 |
+
+The public image's edges are 2.5 times narrower than the Google view's although its pixels are
+1.8 times larger: the Google view is a screen capture of imagery shown above its resolution (its
+edges spread over 9 of its pixels; the state image's over 2 to 3).
+
+**Measuring on each** (traced in ground metres on metre grids over the stored views; the
+client's figures are in the private record; percentages here):
+
+| Feature | Reference | Public 2020 leaf-off | Google view |
+|---|---|---|---|
+| Fence (one straight run) | earlier hand trace, rough | -1.0 % | not readable: under leaf-on canopy, no contrast |
+| Garage roof, two sides | the sketch's wall lines | +7 % and +9 % (consistent with a 0.35 m eave overhang each side) | edges blur over about 0.8 m; not read to better than +-1 m |
+| Driveway | earlier hand trace, rough | not re-traced: the earlier trace's corners were not saved, and its northern half lies under evergreens in this image | open part only, under leaf-on canopy south of the house |
+
+**Lot area against the appraisal's site area.** The parcel under the pin alone is 60 % short of
+the appraisal; with the owner's adjacent parcel the layer's acres sum to the appraisal's figure
+exactly (0.0 %) and the two polygons on the ellipsoid to +0.14 %. The check answers
+`adjacent_match` (`BASIS-GEO-013`), not a flag. `GEO_SITE_TOLERANCE_PCT` = 5 is a judgment
+between this case (0.0 to 0.14 %) and the capitols' spread between two figures of one parcel
+(median 2 %, beyond 5 % at five of nine); one property cannot measure it.
+
+### 101.4 Lidar: heights and footprint
+
+The footprint method was chosen on synthetic buildings of known area (10 x 20 m and 16 x 30 m,
+rotated 0 to 45 degrees, offset within a cell, 20 draws each), the area read against the truth:
+
+| Points per m^2 | 0.5 m grid, closed once (chosen) | 0.5 m grid, not closed | 1 m grid | 1 m grid, closed once |
+|---|---|---|---|---|
+| 2.0 | -9 % / -6 % | fails (the pin's cell empty) | -0 % / +0 % | +4 % / +3 % |
+| 3.4 (the test project) | -3 % / -2 % | -18 % / -13 % | +7 % / +4 % | +8 % / +5 % |
+| 8.0 | +2 % / +1 % | +0 % / +0 % | +12 % / +7 % | +12 % / +8 % |
+
+On the client building (2018 project, 3.4 points per m^2 over the parcel box): roof peak about 9.0 m
+above the ground around it (99th percentile; the highest point 10.1 m, a chimney or ridge
+cap), eaves about 3.2 m (5th percentile), and a roof outline 29 % larger than the sketch's first
+floor and garage together. The overhang measured on the image accounts for about 11 %; the
+rest is not explained from these records (porches, a deck roof, or a part of the building the
+sketch leaves out are candidates). What lidar does not give: the garage apart from the house
+(one connected roof), floors or stories, wall lines.
+
+**Verdict.**
+- Where a state serves 15 cm or finer imagery, it is the better image to measure on: sharper
+  than the Google view on this property and free to store, trace and print where its terms
+  allow. Ranked default: pixel class, then leaf-off within four years, then recency.
+- The dated series is real (9 years back to 2005 here), but mostly federal 60 cm to 1 m NAIP:
+  enough to see what existed, not to measure.
+- The parcel check found the two-parcel site automatically and matched the appraisal exactly.
+- Lidar gives heights and a roof outline; the outline is the roof, not the walls.
+- `PUBLIC_GEO` stays off by default until the terms questions below are answered.
+
+**Open.**
+- Terms: Wisconsin's leaf-off imagery states none (the counties own the source; library copies
+  of the metadata restrict it to the program), as do Florida, Texas and Illinois' IDOT years.
+  Written answers are needed before relying on them commercially.
+- Only one client property; the ranking and the 5 % tolerance are untested elsewhere on real
+  buildings. The lidar method was tried on 14 public buildings afterwards (101.5). The driveway was not re-measured.
+- The 19 blank entries' coverage is not proven at any point; NAIP Plus, the per-year NAIP and
+  Florida were asked from one test point each.
+- The workflow was not run under a real Temporal server (unit-tested activities, API and
+  Postgres tests only); no Docker this session.
+- Esri tiles in state plane (Missouri's cached service, Maryland's cache) and New Jersey's 2025
+  files are not read.
+
+### 101.5 Lidar on 14 public sites (2026-11-24)
+
+**Question.** Section 101.4 tested the lidar reader on one real building, the client property.
+How does it do on public buildings of known outline, in other states, other lidar projects,
+other sizes and roof shapes?
+
+**Method.**
+
+* *Sites.* 14 public buildings in 9 states and DC (IL, MA, FL, CO, TX, PA, NY, MN, IN, DC),
+  from about 94 m² to 13,449 m², with flat, pitched and pyramidal roofs. The first ten were
+  picked before any lidar was read. Six of them gave no building, so four more (MN, IN, IL, TX)
+  were added to get more footprints to compare. No client property and no client data.
+* *Reference footprint.* The OpenStreetMap building polygon (way or multipolygon), fetched from
+  the Overpass API one query at a time, at least 5 s apart, with a generic User-Agent. Its area
+  is taken on the WGS84 ellipsoid with `basis.geo.geometry.geojson_area_m2` (Karney, the same
+  function the parcel check uses). OSM outlines are traced from imagery by volunteers. They
+  are a check, not ground truth: they may follow the walls or the roof, and they may be shifted
+  about a metre from where the lidar puts the building.
+* *Reader.* `basis.geo.lidar.summarize` unchanged, called the way the gatherer calls it when
+  there is no parcel: an 80 m square around the pin (`LIDAR_NO_PARCEL_HALF_M` = 40),
+  `max_nodes` = 64, and the reader's own `PoliteClient` (1 s per host, 60 s timeout, 3
+  retries). The pin is a point well inside the OSM outline, standing in for a geocoded
+  address. A second call with a parcel-like box (the OSM outline's bounds plus 10 m, which is
+  how the gatherer pads a parcel) was made when the building could reach past the 80 m square.
+  This happened for Independence Hall, the Air and Space Museum, Crown Hall and the Revere
+  House.
+* *Diagnosis.* The LAZ bytes the reader fetched were kept in memory only and decoded a second
+  time. On them, the steps of `lidar.measure` were repeated to get the mask the reader used.
+  The re-derived area equals the reader's footprint to 1e-6 m² on every site with a building.
+  The mask was then compared cell by cell with the OSM outline rasterised on the same 0.5 m grid.
+  To see whether an older or newer project would have done better, `summarize` was also run
+  with the project picked by name (`choose_project` swapped in the script's own process only,
+  not in the repository).
+* *Runs.* Laptop on home broadband, 2026-11-23/24. Each surprising reading was run a second
+  time with the same result: the Revere House merge, Lincoln Memorial's empty project, the Hill
+  House "no building" and the Crown Hall cut. The script was kept outside the repository (it reads only public data;
+  the landmarks' coordinates are public). No point tiles were written to disk.
+
+| Site (state; roof) | Project the reader chose (year it read) | Nodes / MB / s | Points per m² | Lidar footprint, m² (ft²) | OSM footprint, m² (ft²) | Diff | Peak / max / eave, m | Published height | Outcome |
+|---|---|---|---|---|---|---|---|---|---|
+| Lincoln Home, Springfield (IL; pitched) | `USGS_LPC_IL_WestCentral_2017_LAS_2019` (2019) | 17 / 3.7 / 20 | 8.3 | 199.5 (2,147) | 186.3 (2,005) | **+7.1 %** | 10.5 / 11.9 / 4.6 | none found | ok |
+| The Alamo church, San Antonio (TX; flat) | `USGS_LPC_TX_Central_B2_2017_LAS_2019` (2019) | 24 / 4.5 / 28 | 8.7 | 580.3 (6,246) | 541.4 (5,828) | **+7.2 %** | 8.9 / 10.0 / 6.2 | none found | ok |
+| LBJ Presidential Library, Austin (TX; flat) | `USGS_LPC_TX_Central_B1_2017_LAS_2019` (2019) | 14 / 3.0 / 17 | 4.9 | 2,341 (25,198) | 2,150 (23,142) | **+8.9 %** | 29.2 / 29.3 / 26.7 | 10 stories (no metres published) | ok |
+| S. R. Crown Hall, Chicago (IL; flat), 80 m square | `USGS_LPC_IL_4County_Cook_2017_LAS_2019` (2019) | 26 / 5.3 / 29 | 35.1 | 2,234 (24,047) | 2,511 (27,028) | **-11.0 %** | 10.4 / 15.4 / 8.3 | roof 7.3 m above grade (5.5 m above a floor raised 1.8 m) | building cut by the box |
+| the same, outline + 10 m | same | 28 / 5.6 / 31 | 29.6 | 2,544 (27,386) | 2,511 (27,028) | **+1.3 %** (+2.6 % on the published 67 x 37 m) | 10.4 / 15.4 / 8.3 | as above | ok |
+| Paul Revere House, Boston (MA; pitched), 80 m square | `MA_CentralEastern_1_2021` (2021) | 16 / 3.9 / 19 | 8.7 | 2,552 (27,472) | 94.0 (1,012) | **+2,615 %** | 24.7 / 25.3 / 3.2 | none found | wrong building: the block's roofs merged |
+| the same, outline + 10 m | same | 14 / 3.2 / 17 | 8.7 | 345 (3,714) | 94.0 (1,012) | **+267 %** | 24.2 / 25.0 / 3.0 | none found | wrong building: merged, then cut by the box |
+| James J. Hill House, St Paul (MN; pitched) | `MN_FullState` (no year in the name) | 28 / 14.1 / 31 | 8.5 | none | 1,579 (16,997) | | | | no building: class-6 points in 93 fragments |
+| Hemingway Home, Key West (FL; pitched) | `FL_TopobathyFLKeysNOAA_Hydroflattened_2019` (2019) | 22 / 5.8 / 25 | 30.1 | none | 201.7 (2,171) | | | | no building: project has no class 6 |
+| Molly Brown House, Denver (CO; hipped) | `CO_DRCOG_2_2020` (2020) | 20 / 5.5 / 24 | 4.3 | none | 272.8 (2,936) | | | | no building: no class 6 (nor in the 2008 or 2013 projects) |
+| Independence Hall, Philadelphia (PA; pitched) | `USGS_LPC_DE_DelawareValley_HD_2015_LAS_2017` (2017) | 20 / 11.0 / 23 | 16.5 | none | 924.1 (9,947) | | | | no building: no class 6 (same with outline box) |
+| Flatiron Building, New York (NY; flat) | `NY_NewYorkCity` (no year in the name) | 16 / 7.3 / 19 | 3.0 | none | 1,008 (10,848) | | | 86 m (OSM tag); 93.6 m to the top (Wikipedia) | no building: no class 6 |
+| Benjamin Harrison Home, Indianapolis (IN; pitched) | `USGS_LPC_IN_Central_MarionCo_2016_LAS_2018` (2018) | 16 / 7.8 / 18 | 6.9 | none | 361.8 (3,894) | | | | no building: no class 6 (nor in the 2011 project) |
+| Washington Monument (DC; pyramidion) | `USGS_LPC_MD_VA_Sandy_NCR_2014_LAS_2015` (2015) | 23 / 8.6 / 26 | 8.4 | none | 290.2 (3,124) | | (class 1 and 17 points reach 168.9 m) | 169.046 m (NGS 2013-14; OSM 169.294) | no building: the structure is class 17 and 1 |
+| National Air and Space Museum (DC; flat) | same 2015 project | 23 / 11.4 / 26; outline box 37 / 15.0 / 40 | 3.5; 4.2 | none | 13,449 (144,764) | | | 25.3 m (OSM tag) | no building: class 17 and 1 |
+| Lincoln Memorial (DC; flat) | `USGS_LPC_VA_Fairfax_County_2018` (2018) | 11 / 1.4 / 14 | **0.0** | none | 2,145 (23,083) | | (2015 project: class 1 and 17 points reach 31.2 m) | 30 m / 99 ft (Wikipedia) | no building: the chosen project has **no points** at the pin |
+
+Columns. *Project*: the 3DEP project `summarize` picked, and the year `project_year` read from
+its name (it takes the largest four-digit number, which in `..._2017_LAS_2019` is 2019; the
+2017 is probably the flight year, but that naming rule is not verified). *Nodes / MB / s*: the
+octree nodes read, the LAZ megabytes downloaded, and the seconds for the whole `summarize`
+call. At 1 s between requests to one host, the time is about one second per request.
+*Points per m²*: every return in the query box divided by the box's ground area. *Lidar
+footprint*: `building.footprint_m2`. *OSM footprint*: the polygon's area on the ellipsoid.
+*Diff*: (lidar - OSM) / OSM. *Peak / max / eave*: the 99th percentile, the highest point and
+the 5th percentile of the building's points, in metres above the median ground in a ring 2 to
+15 m around the footprint. For rows with no building, the bracketed heights are the 99th
+percentile or maximum of the points inside the OSM outline, above the median ground of the
+whole box. The reader does not report those.
+
+**Summary.**
+
+* **The footprint was read on 5 of 14 sites, and it was the right building on 4.** On those 4
+  the gap to OSM is +7.1, +7.2, +8.9 and -11.0 %, median +7.2 %. With Crown Hall's parcel-like
+  box the four read +1.3 to +8.9 %, and the median is the same.
+* **On the 4 right buildings the lidar outline sits outside the OSM outline.** The lidar cells
+  outside the OSM outline lie mostly within 1.5 m of it: 24 of 30 m² (Lincoln Home), 56 of 56
+  m² (Alamo), 173 of 184 m² (LBJ) and 75 of 94 m² (Crown Hall). That is an outward band, which
+  is what a roof edge or overhang outside traced walls looks like. It is not a second building.
+* **Worst case: wrong building, +2,615 %.** The Paul Revere House roof joins its neighbours'
+  roofs. The 3 x 3 closing bridged the gaps of a metre or less, and the reader returned the
+  whole connected block, 2,552 m² against 94 m² (overlap with the OSM house 93.75 m²).
+  The parcel-like box only cut that block smaller (345 m²). Its peak, 24.7 m, belongs to a
+  taller neighbour: the class-6 points inside the OSM house reach only 16.7 m (99th
+  percentile).
+* **9 of 14 gave no building.** At 8 of them the chosen project has no ASPRS class 6 near
+  the pin. At one of those, Lincoln Memorial, it has no points at all. Hill House has class 6
+  points, but the reader found no building (see below).
+* No project failed to cover a pin, and there were no timeouts and no HTTP errors. Each
+  `summarize` call read 7 to 37 nodes and 1.1 to 15.0 MB in 11 to 40 s.
+
+**Each gap explained (verified / suspected).**
+
+* *Lincoln Home +7.1 %.* Verified: 24 m² of the 30 m² extra lies within 1.5 m of the OSM
+  outline. The best whole-cell shift of the OSM outline (1.0 m south) raises the overlap from
+  169.5 to 183.5 of 186.8 m². So the OSM tracing is offset about 1 m, and the rest is an outward
+  band. Suspected, not verified: the band is the eaves of the pitched roof (no published
+  overhang was found).
+* *Alamo +7.2 %.* Verified: 55.5 of the 56 m² extra is within 1.5 m. A 1.1 m shift raises the
+  overlap from 524 to 539 m². Not explained: whether the church has any roof projection. The
+  roof is flat behind the facade, and the +7 % is larger than the +2 % that the synthetic tests
+  of 101.4 give at this density (8.7 points per m²).
+* *LBJ Library +8.9 %.* Verified: no OSM cell is missing, no shift helps, and 173 of the 184 m²
+  extra is within 1.5 m. The flat roof reads alike at peak and eave (29.2 and 26.7 m), as the
+  module says a flat roof should. Suspected: the upper storeys project past the outline OSM
+  traced. The Wikipedia article gives no dimensions to check this.
+* *Crown Hall -11.0 % in the 80 m square.* Verified as a cut by the box. The pin (a point well
+  inside the outline) is about 15 m east of the building's centre, so the 67 m long building
+  reaches past the box's west edge (OSM cells inside the box: 2,168 of 2,511 m²). The mask runs
+  to within 2 cells of the box edge. With the outline + 10 m box the result is +1.3 % against
+  OSM and +2.6 % against the published 67 x 37 m. Height: the roof surface reads 8.3 m (eave
+  percentile) against a published 7.3 m to the roof, and the peak (10.4 m) and maximum (15.4 m)
+  are the plate girders and the structure above the roof. That the 1 m difference is roof deck
+  and parapet is suspected.
+* *Washington Monument, Air and Space, Lincoln Memorial (2015 project).* Verified: the project
+  labels these structures class 17 (the ASPRS code for a bridge deck) and class 1, never 6. The
+  class 17 and class 1 points inside the Monument's outline reach 168.9 m above the box's ground,
+  against a published 169.046 m, so the height is in the data but the reader cannot see it.
+  Suspected: the producer used 17 for elevated structures in general. The project's metadata
+  was not read.
+* *Hemingway, Molly Brown, Independence Hall, Flatiron, Harrison.* Verified: the class counts in
+  the box contain no class 6, only 1 (unclassified), 2 (ground), 7, 17 and 18 (noise), and 11 or
+  12 in the older projects. For Molly Brown and Harrison, the older projects over the same pin
+  (CO 2008 and 2013, IN 2011) were also read and have no class 6 either, so the choice of
+  project is not the cause there.
+
+**Defects found (reproducing site and numbers; what changed follows).**
+
+1. **The chosen project can have no points at the pin, and the reader then reports "no
+   building", not "no lidar", and does not try another project.** Lincoln Memorial (pin
+   -77.050175, 38.889181): the index outlines of `USGS_LPC_VA_Fairfax_County_2018` and
+   `VA_NorthernVA_1_B22` both hold the pin. `summarize` picks the 2018 one, reads 11 nodes and
+   1.4 MB, and gets 0 points in the box. The `VA_NorthernVA_1_B22` project also has 0 points
+   (7 nodes). `USGS_LPC_MD_VA_Sandy_NCR_2014_LAS_2015` has 31,651 points (4.9 per m²) there.
+   The gatherer records `GEO_NO_BUILDING`, because the summary is not `None`. Re-run: identical.
+   Suspected cause: the project outlines in `resources.geojson` are coarser than the data.
+2. **Project names without a four-digit year rank as year 0.** `project_year` reads `None` for
+   `MN_FullState`, `NY_NewYorkCity`, `VA_NorthernVA_1_B22` and `MN_CentralMissRiver_5_B22`. At
+   Hill House both covering projects are undated, so the tie goes to the larger point count,
+   `MN_FullState`, a statewide project. The other one, `MN_CentralMissRiver_5_B22` (24.4 points
+   per m²), is probably newer; that `B22` means 2022 is not verified. A dated 2015 project would
+   outrank both. In this sample the B22 projects had no class 6 or no points, so the outcome did
+   not change, but the ranking is not what the docstring states ("the newest project").
+3. **Attached or near-touching buildings merge into one footprint.** Paul Revere House: +2,615 %
+   in the 80 m box and +267 % in the outline box, with the peak height of a neighbour. Nothing in
+   the summary flags it. The footprint is 27 times the OSM outline and still reads "ok".
+4. **The no-parcel box (80 m) cuts buildings that reach past it, with no flag.** Crown Hall:
+   -11.0 % against +1.3 % with a padded box. This matters only when there is no parcel. A
+   building wider than about 80 m minus twice the pin's distance from its centre is cut. Nothing
+   in `LidarSummary` says the mask reached the box edge.
+5. **Sparse or striped class-6 points fall apart, and a fragment can be taken as the
+   building.** Hill House with `MN_FullState` (8.5 points per m² overall, but 2,956 class-6
+   points over 1,579 m², 1.9 per m²): after the 3 x 3 closing the building is 93 components.
+   The pin's cell is in none of them, and the nearest component is 0.75 m² at 1.8 m. That
+   fragment was rejected only because it has no ground points 2 to 15 m away: it sits inside
+   the house. Had it passed, the reader would have returned a footprint of 0.75 m². That last
+   step is inferred from the code, not observed. That the points come in scan-line stripes is
+   suspected and was not measured. The synthetic tests of 101.4 use uniformly random points.
+
+**What lidar gave and did not give here.** Where class 6 exists and the building stands alone,
+the footprint reads 1 to 9 % over the OSM outline, mostly as a band within 1.5 m of it. That
+fits 101.4's observation that the outline is the roof, not the walls, but on these sites the
+overhang is suspected, not measured. Only 4 of 14 public buildings gave a usable footprint,
+because class 6 is often missing: 8 of the 14 sites were in projects with no class 6 near the
+pin. Coverage by a 3DEP project does not mean a footprint.
+
+**Not verified.**
+
+* The OSM outlines' accuracy. Only Crown Hall has published dimensions, and it agrees with OSM
+  to 1.3 %. The roof overhangs of Lincoln Home, the Alamo and LBJ were not measured.
+* Published heights could be checked on only two rows that gave a building (Crown Hall
+  roughly; LBJ only as 10 stories). The Monument's 168.9 m is from the points, not from the
+  reader.
+* What `B22` and the 2015 project's class 17 mean in the producers' metadata.
+* One run per site and project, plus one repeat of each surprising reading. No parcel boxes from
+  a real parcel layer: the padded OSM bounds stand in for them.
+
+**What changed after this run, and the re-check.** The reader was changed in the same branch,
+then run again at three of the sites on the final code (same machine, 2026-11-24, the 80 m
+no-parcel box):
+
+1. *Empty project passed over (defect 1, fixed).* `summarize` reads the covering projects in
+   rank order and passes over one with no point in the box, up to three (`MAX_PROJECTS`); the
+   ones passed over are listed in `skipped`. When all three are empty the gather records no
+   lidar (`BASIS-GEO-010`), not "no building".
+2. *Undated names (defect 2, documented, ranking unchanged).* A name without a year ranks after
+   every dated one: its age is unknown, and reading `B22` as 2022 is not verified. With (1), an
+   empty undated project no longer ends the search.
+3. *Cut or joined footprints (defects 3 and 4, flagged, not solved).* `building.reaches_box_edge`
+   is true, with `BASIS-GEO-017`, when the footprint comes within 1 m (2 cells) of the box. Two
+   cells because the 3 x 3 closing treats outside the box as empty and trims the outermost cell
+   of a building that runs past it: the first version, checking only the outermost cell, missed
+   the unit test's cut building, and the helper saw Crown Hall's mask stop 2 cells short.
+4. *Sparse fragments (defect 5).* Not changed; open.
+
+| Site, pin | Project read (passed over) | Points | Footprint, m² | Flag (017) | What it shows |
+|---|---|---|---|---|---|
+| Lincoln Memorial | 2015 Sandy NCR (passed over: Fairfax County 2018) | 31,656 | none | | (1) works: the empty 2018 project is passed over. Still no building: this project labels the structure class 17 and 1, not 6 |
+| Crown Hall, pin about 15 m east of centre | Cook County 2017 | 251,433 | 2,015 (OSM 2,511: -20 %) | yes | the cut is flagged |
+| Crown Hall, near centre | Cook County 2017 | 228,219 | 2,540 (+1.2 %) | yes | a false alarm: the 67 m building fits the 80 m box with about a metre to spare. Cautious by design |
+| Paul Revere House, a point by the house (3.3 m off its roof) | MA Central Eastern 2021 | 55,916 | 1,118 (OSM house 94) | yes | the joined block runs to the box and is flagged here; a block that stayed inside would not be |
+
+**What this means for the product.** A lidar footprint is a check on the sketch, never a
+measurement: it read a usable building on 4 of 14 public sites, 1 to 9 % over the traced
+outline where it did, and attached roofs merge. The heights are read only from class 6, so
+projects that label buildings otherwise (17, 1) give none even where the points reach the true
+height (the Washington Monument). Not changed and open: reading other classes for heights, a
+merge check against the parcel or the appraisal's living area, and the sparse fragments.
+
+## 102. Renovations: a row's own age, a renovation's schedule and its dispositions (2026-11-23)
+
+**Answer first.** Basis now handles the three renovation cases the standard distinguishes
+(docs/review_2026-10-15/RENOVATIONS.md). (1) The seller's renovation: a row can be depreciated on
+its own age over its own life; on the two stored client exports, hypothetical new kitchen
+cabinets and countertops (age 2 of 20 years) move the reconciliation gap by about a third of a
+point and the 5-year share up by about 0.3 points. (2) The buyer's renovation after service: a
+second schedule priced from the invoices with its own factor and dates, QIP for nonresidential
+interiors, and a disposition table for the lines it removed; the arithmetic matches an answer key
+computed by hand and the IRS Practice Unit's own worked example. (3) Bought, renovated, then
+placed in service: one date, the capitalized cost as an intake line in the basis and in the
+reconciliation's target. A study without renovations produces the same bytes as main. No
+model is called, no paid call: cost $0, tokens none.
+
+**Question.** Does the renovation arithmetic give the answers the IRS's own examples and a hand
+computation give, does a study without renovations come out exactly as before, and how much does
+a seller's renovation move a real study?
+
+**Setup.** The renovations branch, uncommitted. Fixtures: the synthetic
+study of `tests/unit/evidence/test_result.py` (a 2,000 SF house, appraiser's physical
+depreciation 25 %, itemized rows plus four concealed rows; fabricated values) with three kitchen
+rows added; the report's synthetic export (`tests/unit/report/support.py`). The client property:
+the two stored exports sections 87 and 96 replay (run 3A revision 5, run 3B revision 1), replayed
+by `evals.structure_replay` at the production variant on the 2020 RSMeans unit-cost table, by a
+private script (`$BASIS_EVAL_DATA_DIR/work/renovations_102/ages_client.py`); its figures are in
+`$BASIS_EVAL_DATA_DIR/reports/RENOVATIONS_AGES_2026-11-23.json`. Only shares and counts are printed
+here.
+
+### 102.1 The depreciation engine against the IRS's examples
+
+How to read this table: each row is an example the IRS publishes with its answer; "Basis" is
+what `basis/report/macrs.py` computes from the Pub 946 (2025) tables. Equal is better.
+
+| Example | IRS answer | Basis | Note |
+|---|---|---|---|
+| Practice Unit DCE-P-002 p.23: a $150,000 elevator of a 39-year building, in service 7/1/2011, disposed of 6/30/2014 | allowed $11,220, adjusted basis $138,780 | allowed $11,220.25, adjusted $138,779.75 | the Practice Unit rounds to the dollar; 1.177 % + 2.564 % + 2.564 % + 2.564 % x 5.5/12 |
+| Pub 946 (2025) ch. 4: $100,000 of residential rental property, in service July 2, 2023, sold March 2, 2025 | 2025 deduction $757.50 | $757.50 | 3.636 % x 2.5/12 |
+| Every column of Tables A-1 (5, 7, 15-year), A-8 (15-year SL), A-6 (12 months), A-7a (12 months) | sums to 100 % | 100 % each | the tables are transcribed; the alternation of A-6 is a rule, checked cell by cell against the printed table |
+
+The tables, not the formula: Pub 946 warns that "Figuring MACRS deductions without using the
+tables will generally result in a slightly different amount than using the tables", and the
+Practice Unit's $11,220 is the table's figure (the formula gives $11,217.95).
+
+### 102.2 The buyer's kitchen remodel: the answer key
+
+The synthetic residential rental study, bought 2023-03-10 and placed in service 2023-04-01
+(statutory bonus default 80 %, the 2023 phase-down), price 205,000, land 20,000. Its acquisition
+priced the kitchen cabinets (estimate 12,000, 5-year), the countertops (4,000, 5-year) and a
+hardwood floor (6,000, 27.5-year). In 2025 a kitchen remodel (contract 2025-02-10, work from
+2025-03-03, in service 2025-05-30; invoices and capitalized amount 38,500) replaced them with new
+cabinets (estimate 15,000), countertops (6,000) and a tile floor (9,000), and the engineer marked
+the three original lines removed on 2025-03-03.
+
+How to read this table: the renovation's schedule. "Estimate" is the cost table's price, used
+only to split the actual cost; "Allocated" is its share of the capitalized amount.
+
+| Line | Estimate | Allocated (hand) | Allocated (Basis) |
+|---|---|---|---|
+| Kitchen cabinets (5-year) | 15,000.00 | 15,000 x 38,500 / 30,000 = 19,250.00 | 19,250.00 |
+| Countertops (5-year) | 6,000.00 | 7,700.00 | 7,700.00 |
+| Tile floor (27.5-year) | 9,000.00 | 11,550.00 | 11,550.00 |
+| Total | 30,000.00 | 38,500.00 (factor 1.283333333, the project's own) | 38,500.00 |
+
+The bonus default of the remodel is 100 % (contract after 2025-01-19, Notice 2026-11 section
+3.03); the acquisition's lines and totals are exactly those of the same study without the
+remodel's rows. The 22.1 % gap between the estimates and the invoices is a warning only.
+
+How to read this table: the dispositions. "Basis" is the line's allocated amount in the
+acquisition study; "Allowed or allowable" is its bonus plus each year's MACRS deduction to the
+removal; "Adjusted" is what is left, the loss on its abandonment. Every figure was computed by
+hand from Pub 946 Tables A-1 and A-6 and matches Basis to the cent.
+
+| Line | Basis | Bonus (80 %) | MACRS by year | Allowed or allowable | Adjusted | Treatment |
+|---|---|---|---|---|---|---|
+| Cabinets, 5-year | 9,173.55 | 7,338.84 | 2023: 1,834.71 x 20 % = 366.94; 2024: x 32 % = 587.11; 2025: x 19.20 % / 2 = 176.13 | 8,469.02 | 704.53 | whole asset |
+| Countertops, 5-year | 3,057.85 | 2,446.28 | 122.31; 195.70; 58.71 | 2,823.00 | 234.85 | whole asset |
+| Hardwood floor, 27.5-year | 4,586.78 | none (real property) | 2023: 2.576 % (April) = 118.16; 2024: 3.636 % = 166.78; 2025: 3.636 % x 2.5/12 = 34.74 | 319.68 | 4,267.10 | partial disposition election |
+| 2025 total (3 lines, 1 election) | 16,818.18 | | | 11,611.70 | 5,206.48 | |
+
+With the CPA's word that no bonus was claimed (`acquisition_bonus_rate` 0) the cabinets' allowed
+figure is 1,834.71 + 2,935.54 + 880.66 = 5,650.91. The treatment column is Basis's inference from
+Reg. 1.168(i)-8 (a portion of the building needs the election; a line that is its own asset does
+not), the CPA's to confirm. The report prints the renovation's schedule with its own dates and
+bonus, the disposition table with each method, the totals by year and the election note; the
+preparer's schedule's acquisition rows sum to the depreciable basis, the renovation's to 38,500,
+all to their sum (`tests/unit/report/test_renovations_report.py`).
+
+### 102.3 Bought, renovated, then placed in service
+
+The same study bought for 185,000 with a 20,000 renovation before it was placed in service (the
+intake line `improvements_before_service` and a before-service project): the depreciable basis is
+185,000 and the reconciliation compares the depreciated schedule (181,500) with price less land
+plus the improvement (185,000): gap 1.9 %, reconciled. Without the line in the target the same
+schedule would sit at -10.0 %, the edge of the tolerance: the photographs show the renovated
+building, so the target must include what was spent on it. No disposition, one date. The line is
+spread over the classes pro rata like the closing costs (a simplification: RENOVATIONS.md 4.5).
+
+### 102.4 A study without renovations is unchanged
+
+The result of five fixtures (no structure inputs, no intake, the structure path withheld, the
+structure path allocated, a residential variant) as JSON, the report's PDF and the schedule's CSV
+and XLSX, hashed with this branch and with `origin/main`'s code (extracted with `git archive`,
+imported first on the path): every sha256 is equal. The new result members are left out when
+empty (`exclude_if`), so the JSON keys are the same 13. The pinned vendor hashes of
+`tests/unit/report/test_vendors.py` pass unchanged.
+
+### 102.5 The seller's renovation on the client property
+
+What supports an age: the client's UAD 3.6 appraisal marks the kitchen and the seven bathrooms
+`PartiallyUpdated` and gives no time frame (`RoomUpdatedTimeframeType` absent); the photographs
+were not reviewed for this. Nothing dates the update, so **the ages below are hypothetical**: the
+kitchen cabinets and countertops (6 rows on run 3A, 7 on run 3B) at an effective age of 2, 5 and
+10 years of a 20-year life, against the appraiser's 21.4 % for the improvements. Both replayed
+exports are withheld in production by their own blockers (unpriced rows and the cost year's
+index, as in sections 87 and 96), so the class shares are the allocation the result would give
+(`allocate` on the depreciated rows), not one it printed.
+
+How to read this table: the reconciliation gap is (price less land - depreciated schedule) /
+(price less land), within 10 % reconciles; the shares are of the depreciable basis. A smaller
+gap is closer to the price.
+
+| Export | Ages | Gap | 5-year share | 39-year share |
+|---|---|---|---|---|
+| run 3A | the appraiser's rate (today) | 8.99 % | 11.42 % | 83.67 % |
+| run 3A | 2 of 20 (10 %) | 8.69 % | 11.69 % | 83.42 % |
+| run 3A | 5 of 20 (25 %) | 9.09 % | | |
+| run 3A | 10 of 20 (50 %) | 9.76 % | | |
+| run 3B | the appraiser's rate (today) | 8.57 % | 8.52 % | 86.53 % |
+| run 3B | 2 of 20 | 8.24 % | 8.85 % | 86.22 % |
+| run 3B | 5 of 20 | 8.68 % | | |
+| run 3B | 10 of 20 | 9.42 % | | |
+
+On the synthetic fixture (102.2's study), cabinets at age 2 of 20 move the gap from 1.89 % to
+0.92 %; that is the fixture, not the client. The effect is small on the client property because
+the kitchen rows are a small part of a large building; it grows with the share the renovated rows
+hold. An age above the appraiser's rate (10 of 20) moves the gap the other way.
+
+**Verdict.** The arithmetic agrees with the IRS's two worked examples and with the hand-computed
+answer key; a study without renovations is byte-identical to main; the seller's-renovation ages
+behave as the age-life method predicts and stay inside the reconciliation's tolerance on the client
+property. The defaults change nothing until an engineer enters an age, a project or a removal.
+
+Tests (counts at writing): `test_component_age.py` 25, `test_macrs.py` 25, `test_renovations.py`
+(domain) 32, `test_renovations.py` (result) 42, `test_renovations_report.py` 7,
+`tests/api/test_renovations.py` 19, `test_process_assets_renovations.py` 5; the contract test,
+the tenancy walk, the known routes and migration 0039's test pass (backEnd/tests/LEDGER.md).
+
+**Open.**
+
+* No live study, no reprice run on a real stack: the route, the decision route and
+  `process_assets` were exercised on Postgres in the tests, not end to end in the workflow.
+* Not built: the UAD 3.6 update-status fields in the extraction (the suggestion function has no
+  input yet), the EXIF date-taken suggestion, pricing a before-service renovation's components
+  from its invoices, the mid-quarter convention (the report says half-year and leaves the 40 %
+  test to the preparer), a later renovation removing an earlier renovation's row.
+* The treatment split (election required or whole asset) is an inference, the CPA's to confirm.
+* Migration 0039 revises 0035 on this branch and is re-pointed when 0036-0038 land.
