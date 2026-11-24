@@ -160,6 +160,20 @@ SPEC_TABLES = {
     "review_drafts": "id study_id stage revision user_id document version created_at updated_at",
     # Operator alerts raised once per occurrence (migration 0026_retention_alerts).
     "alerts": "id key kind study_id service outbox_id payload",
+    # Property pictures (migration 0036_property_capture, docs/api/PROPERTY_CAPTURE.md).
+    "property_pins": "study_id address lat lon source place_label confirmed confirmed_by "
+    "confirmed_at updated_by version updated_at",
+    "property_captures": "id study_id requested_by status pin_version workflow_id code reason "
+    "resume_at started_at finished_at views updated_at",
+    "capture_views": "id study_id capture_id pin_version kind label lat lon ground_alt_m range_m "
+    "fov_deg heading_deg tilt_deg pixel_size_m imagery_date width height uri sha256 bytes "
+    "source captured_at",
+    "capture_state": "id lease_holder lease_expires_at breaker_open_until breaker_opened_at "
+    "breaker_code breaker_reason trips last_success_at last_navigation_at worker_seen_at "
+    "updated_at",
+    "capture_navigations": "id kind capture_id",
+    "capture_incidents": "code occurrences first_seen_at last_seen_at last_study_id "
+    "last_capture_id last_url last_http_status last_detail last_evidence updated_at",
 }
 
 # Beyond the per-table lists: S1_SPEC §1 says every table has created_at; studies.revision
@@ -280,6 +294,15 @@ SPEC_SIMPLE_FKS = {
     ("cost_indices", "run_id", "cost_index_runs"),
     ("cost_index_runs", "actor_id", "users"),
     ("study_search", "study_id", "studies"),
+    ("property_pins", "study_id", "studies"),
+    ("property_pins", "confirmed_by", "users"),
+    ("property_pins", "updated_by", "users"),
+    ("property_captures", "study_id", "studies"),
+    ("property_captures", "requested_by", "users"),
+    ("capture_views", "study_id", "studies"),
+    ("capture_navigations", "capture_id", "property_captures"),
+    ("capture_incidents", "last_study_id", "studies"),
+    ("capture_incidents", "last_capture_id", "property_captures"),
 }
 
 SPEC_UNIQUES = {
@@ -306,6 +329,8 @@ SPEC_UNIQUES = {
     ("org_events", ("seq",)),
     ("cost_indices", ("source", "series", "year", "region", "version")),
     ("demo_requests", ("seq",)),
+    ("property_captures", ("study_id", "id")),
+    ("capture_views", ("capture_id", "label")),
 }
 
 SPEC_PRIMARY_KEYS = {
@@ -323,9 +348,23 @@ SPEC_PRIMARY_KEYS = {
     "client_error_issues": ("fingerprint",),
     # The search document (0033): one per study.
     "study_search": ("study_id",),
+    # Property pictures (0036): one pin per study, the one shared state row, the navigation
+    # log's generated id, one incident per code.
+    "property_pins": ("study_id",),
+    "capture_state": ("id",),
+    "capture_navigations": ("id",),
+    "capture_incidents": ("code",),
 }
 
 SPEC_CHECKS = {
+    # Property pictures (0036).
+    "ck_property_pins_point_whole",
+    "ck_property_pins_something_to_find",
+    "ck_property_captures_status_valid",
+    "ck_capture_views_kind_valid",
+    "ck_capture_state_single_row",
+    "ck_capture_navigations_kind_valid",
+    "ck_capture_incidents_occurrences_positive",
     "ck_org_members_role_valid",
     "ck_documents_bytes_positive",
     "ck_corpus_versions_corpus_valid",
@@ -545,12 +584,14 @@ def test_migration_trigger_tables_match_models() -> None:
     drafts = load_migration(VERSIONS / "0024_review_drafts.py")
     issues = load_migration(VERSIONS / "0028_client_errors.py")
     signers = load_migration(VERSIONS / "0032_signer_details.py")
+    capture = load_migration(VERSIONS / "0036_property_capture.py")
     assert (
         *migration.UPDATED_AT_TABLES,
         *report.UPDATED_AT_TABLES,
         *drafts.UPDATED_AT_TABLES,
         *issues.UPDATED_AT_TABLES,
         *signers.UPDATED_AT_TABLES,
+        *capture.UPDATED_AT_TABLES,
     ) == UPDATED_AT_TABLES
     # 0013 adds study_events to the append-only tables (the same forbid_mutation() trigger).
     events = load_migration(VERSIONS / "0013_study_events.py")
@@ -704,6 +745,12 @@ def test_indexes() -> None:
         for index in t.indexes
     }
     assert indexes["ix_studies_org_id_created_at"] == ["studies.org_id", "created_at DESC"]
+    # 0036: one active capture per study (a partial unique index).
+    (active,) = [i for i in table("property_captures").indexes if i.unique]
+    assert active.name == "uq_property_captures_one_active"
+    assert str(active.dialect_options["postgresql"]["where"]) == (
+        "status IN ('queued', 'waiting', 'running')"
+    )
     # 0033: the library search's pg_trgm GIN index, deleted with its study.
     assert indexes["ix_study_search_document_trgm"] == ["study_search.document"]
     search = table("study_search")

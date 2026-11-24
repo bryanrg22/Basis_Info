@@ -27,6 +27,11 @@ class CapabilitiesOut(ResponseModel):
         "an image whose quantity the server computes (docs/api/OVERRIDES.md section 4; "
         "setting `TRACED_MEASUREMENT`)."
     )
+    property_capture: bool = Field(
+        default=False,
+        description="`POST .../property/captures` takes pictures of the property in the "
+        "background (setting `PROPERTY_CAPTURE`; docs/api/PROPERTY_CAPTURE.md).",
+    )
     room_create: bool = Field(
         description="The rooms review accepts a `room_create` correction. Always false: "
         "the API has no such correction yet (web/FRONTEND_BACKLOG.md section 14)."

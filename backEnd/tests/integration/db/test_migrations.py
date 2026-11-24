@@ -97,6 +97,10 @@
 * ``0035_demo_requests`` creates ``demo_requests`` (the public site's demo form: a role in
   the four the form offers, ``seq`` unique and generated), nothing backfilled; it downgrades
   back to ``0034`` exactly;
+* ``0036_property_capture`` creates the property pictures' tables (the pin, the captures with
+  one active per study, the never-updated views, the one-row capture state seeded with
+  ``id = 1``, the navigation log, the incidents) and lets ``alerts.kind`` be
+  ``capture_blocked``; it downgrades back to ``0035`` exactly;
 * upgrading at head is a no-op; offline (``--sql``) rendering works.
 
 Each test that changes the schema gets its own throwaway database in the shared
@@ -140,8 +144,8 @@ pytestmark = pytest.mark.integration
 # 0025_invitation_email lands after 0022 (user activity), 0023 (rate-limit hits) and 0024
 # (review drafts); 0026 (retention and alerts) revises 0025, and 0027_signature_input_versions
 # revises 0026 (it was 0024, then 0026, until the branches before it landed).
-HEAD = "0035"
-HISTORY = [f"{n:04d}" for n in range(35, 0, -1)]  # "0035" .. "0001"
+HEAD = "0036"
+HISTORY = [f"{n:04d}" for n in range(36, 0, -1)]  # "0036" .. "0001"
 EXPECTED_TRIGGERS = (
     {(f"{table}_set_updated_at", table) for table in UPDATED_AT_TABLES}
     | {(f"{table}_append_only", table) for table in APPEND_ONLY_TABLES}
@@ -1951,3 +1955,84 @@ async def test_0035_demo_requests_role_check_and_an_exact_downgrade(
         await connection.close()
     await downgrade(url, "0034")
     assert await snapshot(url) == at_0034
+
+
+async def test_0036_property_capture_rules_and_an_exact_downgrade(
+    empty_database_url: str,
+) -> None:
+    url = empty_database_url
+    await upgrade(url, "0035")
+    at_0035 = await snapshot(url)
+    await upgrade(url, "0036")
+    connection = await asyncpg.connect(plain_dsn(url))
+    try:
+        assert await connection.fetchval("SELECT count(*) FROM capture_state") == 1
+        with pytest.raises(asyncpg.CheckViolationError, match="single_row"):
+            await connection.execute("INSERT INTO capture_state (id) VALUES (2)")
+        org = await connection.fetchval("INSERT INTO orgs (name) VALUES ('Firm') RETURNING id")
+        user = await connection.fetchval(
+            "INSERT INTO users (firebase_uid, email) VALUES ('u1', 'u@x.example') RETURNING id"
+        )
+        study = await connection.fetchval(
+            "INSERT INTO studies (org_id, created_by, property_name) VALUES ($1, $2, 'P') "
+            "RETURNING id",
+            org,
+            user,
+        )
+        with pytest.raises(asyncpg.CheckViolationError, match="point_whole"):
+            await connection.execute(
+                "INSERT INTO property_pins (study_id, lat, source) VALUES ($1, 43.8, 'engineer')",
+                study,
+            )
+        with pytest.raises(asyncpg.CheckViolationError, match="something_to_find"):
+            await connection.execute(
+                "INSERT INTO property_pins (study_id, source) VALUES ($1, 'engineer')", study
+            )
+        await connection.execute(
+            "INSERT INTO property_pins (study_id, address, source) "
+            "VALUES ($1, '1 Main', 'engineer')",
+            study,
+        )
+        insert = (
+            "INSERT INTO property_captures (study_id, pin_version, status) VALUES ($1, 1, $2) "
+            "RETURNING id"
+        )
+        first = await connection.fetchval(insert, study, "running")
+        with pytest.raises(asyncpg.UniqueViolationError, match="one_active"):
+            await connection.fetchval(insert, study, "queued")
+        await connection.fetchval(insert, study, "failed")  # an ended one is not active
+        await connection.execute(
+            "INSERT INTO capture_views (study_id, capture_id, pin_version, kind, label, lat, lon, "
+            "ground_alt_m, range_m, fov_deg, heading_deg, tilt_deg, width, height, uri, sha256, "
+            "bytes, source, captured_at) VALUES ($1, $2, 1, 'aerial', 'today', 41.6, -93.6, 250, "
+            "150, 35, 0, 0, 1440, 900, 'gs://b/x.png', $3, 10, 's', now())",
+            study,
+            first,
+            "0" * 64,
+        )
+        with pytest.raises(asyncpg.exceptions.RestrictViolationError):
+            await connection.execute("UPDATE capture_views SET label = 'other'")
+        await connection.execute(
+            "INSERT INTO outbox (kind, payload) VALUES ('notification', '{}') "
+        )
+        outbox = await connection.fetchval("SELECT id FROM outbox LIMIT 1")
+        await connection.execute(
+            "INSERT INTO alerts (key, kind, outbox_id, payload) "
+            "VALUES ('capture-blocked:1:x', 'capture_blocked', $1, '{}')",
+            outbox,
+        )
+        for table in (
+            "alerts",
+            "outbox",
+            "capture_views",
+            "property_captures",
+            "property_pins",
+            "studies",
+            "users",
+            "orgs",
+        ):
+            await connection.execute(f"DELETE FROM {table}")
+    finally:
+        await connection.close()
+    await downgrade(url, "0035")
+    assert await snapshot(url) == at_0035

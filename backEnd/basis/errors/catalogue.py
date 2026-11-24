@@ -70,6 +70,8 @@ AREA_TITLES: Final[dict[str, str]] = {
     "CLIENT": "Browser error capture: `POST /v1/client-errors` (docs/api/CLIENT_ERRORS.md)",
     "DEMO": "Demo requests from the public site: `POST /v1/demo-requests` "
     "(docs/api/DEMO_REQUESTS.md)",
+    "CAPTURE": "Property pictures: the capture worker and `/v1/studies/{id}/property` "
+    "(docs/api/PROPERTY_CAPTURE.md)",
 }
 
 
@@ -3781,6 +3783,21 @@ ENTRIES: Final[tuple[Entry, ...]] = (
         "Set `ALERT_EMAIL_TO` on the relay so alerts reach someone.",
         "no",
     ),
+    _e(
+        E.ALERT_CAPTURE_BLOCKED,
+        "outcome",
+        "the capture worker (`python -m basis.capture`)",
+        "basis.capture.runner",
+        "A block signal (BASIS-CAPTURE-001 to 004) opened the capture breaker: every capture "
+        "waits until the breaker's time and resumes on its own. One alert per trip, keyed by the "
+        "trip number and the time it opened; a second signal while it is open raises none.",
+        "`alerts` row (`kind = capture_blocked`); the email; `GET /v1/ops/health` "
+        "`property_capture.breaker`.",
+        "Open the incident's evidence (`GET /v1/ops/capture-incidents`) and read what the page "
+        "said. Nothing to reset: the breaker closes after its wait, which doubles on each "
+        "consecutive trip. Set `PROPERTY_CAPTURE=false` to stop captures altogether.",
+        "no",
+    ),
     # ------------------------------------------------------------------ CLIENT
     _e(
         E.CLIENT_ERROR_RECORDED,
@@ -3908,6 +3925,191 @@ ENTRIES: Final[tuple[Entry, ...]] = (
         "The purge's JSON summary line (`deleted`, `cutoff`).",
         "Nothing; a firm that became a customer is in the firm records, not here.",
         "no",
+    ),
+    # ------------------------------------------------------------------ CAPTURE
+    _e(
+        E.CAPTURE_UNUSUAL_TRAFFIC,
+        "error",
+        "the capture worker (`python -m basis.capture`)",
+        "basis.capture.signals",
+        "The imagery site answered with its unusual-traffic page (a `/sorry/` address or the page text) instead of the map: it believes the traffic is automated. A block signal: the breaker opens.",
+        "The capture's `study_events` row `capture.paused` (`code`, `detail.evidence` the screenshot, HTML and page record under the capture's files); the `capture_incidents` row for the code (count, first and last seen, last study, last evidence); the capture worker's log line `capture signal` with `error_code`; one `capture_blocked` alert per breaker trip.",
+        "Nothing for the engineer: the capture waits and resumes when the breaker closes. Operator: read the evidence; if it repeats after each wait, lower the caps or turn `PROPERTY_CAPTURE` off.",
+        "automatic",
+    ),
+    _e(
+        E.CAPTURE_RECAPTCHA,
+        "error",
+        "the capture worker (`python -m basis.capture`)",
+        "basis.capture.signals",
+        "The page carries a reCAPTCHA challenge. Basis never answers one. A block signal: the breaker opens.",
+        "The capture's `study_events` row `capture.paused` (`code`, `detail.evidence` the screenshot, HTML and page record under the capture's files); the `capture_incidents` row for the code (count, first and last seen, last study, last evidence); the capture worker's log line `capture signal` with `error_code`; one `capture_blocked` alert per breaker trip.",
+        "Nothing for the engineer: the capture waits and resumes when the breaker closes. Operator: read the evidence; if it repeats after each wait, lower the caps or turn `PROPERTY_CAPTURE` off.",
+        "automatic",
+    ),
+    _e(
+        E.CAPTURE_WALL,
+        "error",
+        "the capture worker (`python -m basis.capture`)",
+        "basis.capture.signals",
+        "The page went to a consent or sign-in wall (`consent.` or `accounts.` host, or the page asks to sign in or accept) instead of the map. A block signal: the breaker opens.",
+        "The capture's `study_events` row `capture.paused` (`code`, `detail.evidence` the screenshot, HTML and page record under the capture's files); the `capture_incidents` row for the code (count, first and last seen, last study, last evidence); the capture worker's log line `capture signal` with `error_code`; one `capture_blocked` alert per breaker trip.",
+        "Nothing for the engineer: the capture waits and resumes when the breaker closes. Operator: read the evidence; if it repeats after each wait, lower the caps or turn `PROPERTY_CAPTURE` off.",
+        "automatic",
+    ),
+    _e(
+        E.CAPTURE_RATE_LIMITED,
+        "error",
+        "the capture worker (`python -m basis.capture`)",
+        "basis.capture.signals",
+        "HTTP 429 on the main document or on an imagery or data host. A 429 from the site's feedback or survey endpoints is ignored (EVAL_REPORT 98: their quota is shared by every anonymous visitor). A block signal: the breaker opens.",
+        "The capture's `study_events` row `capture.paused` (`code`, `detail.evidence` the screenshot, HTML and page record under the capture's files); the `capture_incidents` row for the code (count, first and last seen, last study, last evidence); the capture worker's log line `capture signal` with `error_code`; one `capture_blocked` alert per breaker trip.",
+        "Nothing for the engineer: the capture waits and resumes when the breaker closes. Operator: read the evidence; if it repeats after each wait, lower the caps or turn `PROPERTY_CAPTURE` off.",
+        "automatic",
+    ),
+    _e(
+        E.CAPTURE_BLANK_RENDER,
+        "error",
+        "the capture worker (`python -m basis.capture`)",
+        "basis.capture.signals",
+        "The view rendered blank or black (almost one colour) after the wait for imagery: the GPU or WebGL failed, or the imagery did not stream. Not a block signal; the capture fails and the engineer may start it again.",
+        "The capture's status `failed` with this `code`; the `capture.failed` timeline event; the `capture_incidents` row; the worker's log line with `error_code`; the evidence beside the capture's files.",
+        "Run it again; if every view is blank, check the worker's Chromium flags (`CAPTURE_CHROMIUM_ARGS`) and that WebGL is available.",
+        "after fix",
+    ),
+    _e(
+        E.CAPTURE_NO_PLACE,
+        "error",
+        "the capture worker (`python -m basis.capture`)",
+        "basis.capture.runner",
+        "The address search found no place: the page did not move to a place (no `@lat,lon` in its address) within the wait, or it moved to the no-place spot at latitude 0 near longitude 0 (open ocean), where a search that finds nothing leaves the camera.",
+        "The capture's status `failed` with this `code`; the `capture.failed` timeline event; the `capture_incidents` row; the worker's log line with `error_code`; the evidence beside the capture's files.",
+        "The engineer corrects the address or drops the pin on the house (`PUT .../property/pin` with `lat`/`lon`) and starts the capture again.",
+        "after fix",
+    ),
+    _e(
+        E.CAPTURE_TIMEOUT,
+        "error",
+        "the capture worker (`python -m basis.capture`)",
+        "basis.capture.runner",
+        "A page load or the wait for imagery took longer than its limit (`CAPTURE_PAGE_TIMEOUT_S`).",
+        "The capture's status `failed` with this `code`; the `capture.failed` timeline event; the `capture_incidents` row; the worker's log line with `error_code`; the evidence beside the capture's files.",
+        "Run it again; if it repeats, read the evidence: a slow network or a page that changed.",
+        "after fix",
+    ),
+    _e(
+        E.CAPTURE_BROWSER_CRASH,
+        "error",
+        "the capture worker (`python -m basis.capture`)",
+        "basis.capture.runner",
+        "The browser closed or crashed during the capture (a renderer crash, out of memory, a killed process).",
+        "The capture's status `failed` with this `code`; the `capture.failed` timeline event; the `capture_incidents` row; the worker's log line with `error_code`; the evidence beside the capture's files.",
+        "Run it again; if it repeats, check the worker's memory and the browser log.",
+        "after fix",
+    ),
+    _e(
+        E.CAPTURE_BREAKER_OPEN,
+        "outcome",
+        "the capture worker, or `POST .../property/captures`",
+        "basis.capture.governor",
+        "A capture was due while the breaker is open after a block signal: it waits until the "
+        "breaker's time (a durable timer in its workflow) and resumes on its own.",
+        "The capture's status `waiting` with `resume_at`; `capture.paused` on the timeline; the "
+        "`capture_incidents` row; `GET /v1/ops/health` `property_capture.breaker`.",
+        "Nothing; it resumes. The engineer sees that pictures are paused and when they resume.",
+        "automatic",
+    ),
+    _e(
+        E.CAPTURE_CAPS_SPENT,
+        "outcome",
+        "the capture worker",
+        "basis.capture.governor",
+        "The hourly or daily cap on page loads or camera moves is spent "
+        "(`CAPTURE_LOADS_PER_HOUR`, `CAPTURE_LOADS_PER_DAY`, `CAPTURE_MOVES_PER_HOUR`): the "
+        "capture waits until the oldest navigation in the window ages out.",
+        "The capture's status `waiting` with `resume_at`; `capture.paused`; the incident row; "
+        "`GET /v1/ops/health` `property_capture.used`.",
+        "Nothing; it resumes. Raise a cap only with a measurement behind it.",
+        "automatic",
+    ),
+    _e(
+        E.CAPTURE_GAVE_UP,
+        "error",
+        "the capture workflow",
+        "basis.capture.workflow",
+        "The capture waited longer than `CAPTURE_MAX_WAIT_HOURS` in all (breaker or caps) and "
+        "stopped waiting.",
+        "The capture's status `failed` with this code; `capture.failed`; the incident row.",
+        "Start the capture again once `GET /v1/ops/health` shows the breaker closed.",
+        "after fix",
+    ),
+    _e(
+        E.CAPTURE_COMPLETED,
+        "outcome",
+        "the capture worker",
+        "basis.capture.runner",
+        "Every planned view was taken and stored with its camera, date and pixel size.",
+        "The capture's status `succeeded`; `capture.completed` on the timeline; the views.",
+        "Nothing.",
+        "no",
+    ),
+    _e(
+        E.CAPTURE_OFF,
+        "refusal",
+        "`POST .../property/captures`",
+        "basis.api.routes.property",
+        "Property pictures are turned off on this deployment (`PROPERTY_CAPTURE=false`; "
+        "`GET /v1/capabilities` says `property_capture: false`).",
+        "409 `capture-off`.",
+        "An operator turns the setting on; until then the app does not offer it.",
+        "no",
+        problem="capture-off",
+    ),
+    _e(
+        E.CAPTURE_IN_PROGRESS,
+        "refusal",
+        "`POST .../property/captures`",
+        "basis.api.routes.property",
+        "A capture of this study is already queued, waiting or running (one at a time per study).",
+        "409 `capture-in-progress` naming the capture.",
+        "Wait for it; its status says when it resumes.",
+        "yes",
+        problem="capture-in-progress",
+    ),
+    _e(
+        E.CAPTURE_NO_ADDRESS,
+        "refusal",
+        "`POST .../property/captures`",
+        "basis.api.routes.property",
+        "The study has no property pin: neither an address nor a point to look at.",
+        "422 `capture-no-address`.",
+        "`PUT .../property/pin` with the address (or `lat`/`lon`), then start the capture.",
+        "after fix",
+        problem="capture-no-address",
+    ),
+    _e(
+        E.CAPTURE_PIN_PRECONDITION_FAILED,
+        "refusal",
+        "`PUT .../property/pin`",
+        "basis.api.routes.property",
+        "`If-Match` names a version of the pin that is no longer current: someone else moved or "
+        "confirmed it.",
+        "412 `precondition-failed` with the current `ETag`.",
+        "Read the pin again, reapply the change and send the new `ETag`.",
+        "yes",
+        problem="precondition-failed",
+    ),
+    _e(
+        E.CAPTURE_UNAVAILABLE,
+        "refusal",
+        "`POST .../property/captures`",
+        "basis.api.routes.property",
+        "The capture's workflow could not be started: the workflow service did not answer. The "
+        "capture row is marked failed with this code so nothing is left queued.",
+        "503 `service-unavailable` with `Retry-After`.",
+        "Retry after `Retry-After`.",
+        "yes",
+        problem="service-unavailable",
     ),
 )
 

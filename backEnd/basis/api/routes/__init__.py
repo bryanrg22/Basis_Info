@@ -18,6 +18,7 @@ from basis.api.routes import (
     ops_documents,
     orgs,
     outputs,
+    property_capture,
     report,
     reprice,
     result,
@@ -70,4 +71,7 @@ def api_routers() -> list[APIRouter]:
         retention.writes,
         cost_indices.reads,
         cost_indices.writes,
+        property_capture.reads,
+        property_capture.writes,
+        property_capture.ops_reads,
     ]

@@ -333,6 +333,23 @@ def prepare_case(case: Any, study_ids: dict[str, str]) -> None:
             case.body.get("license_state") is None
         ):
             case.body["license_number"] = case.body["license_state"] = None
+    if case.path.endswith("/property/pin") and case.method.upper() == "PUT":
+        # The property pin (docs/api/PROPERTY_CAPTURE.md): If-Match as on the intake; a
+        # generated tag is rightly 412 (tests/api/test_property_capture.py covers it). lat and
+        # lon come together or not at all, a relation between two fields the schema cannot say
+        # (the same test covers the refusal).
+        if case.headers:
+            case.headers.pop("If-Match", None)
+        # The pin's cross-field rules (a point or an address; lat with lon; a confirmation
+        # needs a point): a generated body that breaks one is replaced by a valid pin.
+        if isinstance(case.body, dict):
+            lat, lon = case.body.get("lat"), case.body.get("lon")
+            if (
+                (lat is None) != (lon is None)
+                or (case.body.get("address") is None and lat is None)
+                or (case.body.get("confirmed") and lat is None)
+            ):
+                case.body = {"address": "1 Main St", "lat": 41.61, "lon": -93.60}
     if case.path.endswith("/assets/reprice") and case.method.upper() == "POST":
         # "At least one member" of the square-foot model is not in the schema.
         if isinstance(case.body, dict) and case.body.get("structure_model") is not None:

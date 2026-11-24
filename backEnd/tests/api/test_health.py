@@ -128,6 +128,14 @@ def test_only_known_routes_exist(app: FastAPI) -> None:
         # the public site's demo form (tests/api/test_demo_requests.py, docs/api/DEMO_REQUESTS.md)
         "POST /v1/demo-requests",
         "GET /v1/ops/demo-requests",
+        # property pictures (tests/api/test_property_capture.py, docs/api/PROPERTY_CAPTURE.md)
+        "GET /v1/studies/{study_id}/property",
+        "PUT /v1/studies/{study_id}/property/pin",
+        "POST /v1/studies/{study_id}/property/captures",
+        "GET /v1/studies/{study_id}/property/captures",
+        "GET /v1/studies/{study_id}/property/captures/{capture_id}",
+        "GET /v1/studies/{study_id}/property/views/{view_id}/image",
+        "GET /v1/ops/capture-incidents",
         "GET /v1/ops/studies/{study_id}/documents",
         "GET /v1/ops/studies/{study_id}/documents/{document_id}/content",
         "GET /v1/studies",

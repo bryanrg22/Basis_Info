@@ -14685,6 +14685,140 @@ stay a ruling (surprise 1); where a quantity should live so it survives later re
 (surprise 2); the 365-day and 10 % thresholds (365 is not measured; 10 % is the studies' worst
 case); the 5,000-point and 100 m caps.
 
+## 98. Property pictures: capturing views of the property, gently, with every failure tracked (2026-11-23)
+
+**Question.** Can Basis take dated views of a study's property (top-down to measure on, side
+views to read the building) in the background? It must do this without being mistaken for
+abuse, stop at the first sign of a block, and track every failure the way user errors are
+tracked (code, log, timeline, grouped record, alert, ops health). Design:
+`PROPERTY_CAPTURE.md`. API: `docs/api/PROPERTY_CAPTURE.md`. Decisions are Bryan's
+(PROPERTY_CAPTURE.md section 6), including the MVP-only acceptance of Google's terms.
+
+**The standard, and what was taken from it.**
+
+* *Driving a browser.* Playwright is the maintained headless-browser library with a first-class
+  Python async API.
+  - Pinned to `playwright==1.64.1`: its `browsers.json` names Chromium build 1248, the build
+    already installed. The latest release (1.65.2) wants 1255, which would mean a browser
+    download.
+  - The Node driver was compared on the same local WebGL page, three runs each. Warm launch to
+    page ready: 0.25 s (Python) against 0.10 to 0.13 s (Node). Screenshot: 0.018 against
+    0.017 s. Memory: about 148 against 145 MB.
+  - Both are within noise of an 8 to 20 s spacing. The Python package avoids a second runtime
+    and a hand-written protocol between the two.
+  - It is a `capture` dependency group that `dev` includes. The Docker image (`--no-dev`) does
+    not carry it.
+* *Stopping when blocked.* The circuit breaker of Hystrix and Resilience4j: open, half-open,
+  closed. The open time grows exponentially: 60 min, doubling per consecutive trip, up to 24 h
+  (`CAPTURE_BREAKER_*`). A signal while open is the same episode: no second alert, no doubling.
+* *Gentleness.* The cap numbers are not measured against the site; nothing published states its
+  limits. They are chosen to stay far below a person's own use:
+  - one capture at a time across workers (a Postgres lease);
+  - a random 8 to 20 s since the last navigation of any worker;
+  - 6 page loads an hour and 30 a day;
+  - 120 camera moves an hour.
+
+  A property costs one page load: the camera moves with `history.pushState` and a `popstate`
+  event, which the viewer follows without reloading (probe 1).
+* *Tracking.* The existing systems, reused (PROPERTY_CAPTURE.md section 4):
+  - the catalogue area `CAPTURE` (001 to 017) and `BASIS-ALERT-005`;
+  - `error_code` on the log lines;
+  - `study_events` rows;
+  - the client-error issue grouping in its own `capture_incidents` table, because a capture
+    failure has no user, and `client_errors.user_id` is required and its kinds are browser
+    events;
+  - `AlertRepository.raise_once` with one key per trip;
+  - a `property_capture` member on `GET /v1/ops/health`.
+
+**What counts as a block signal** (`basis.capture.signals`):
+- the unusual-traffic page (`/sorry/` or its text);
+- a reCAPTCHA;
+- a consent or sign-in wall (`consent.` or `accounts.` host, the sign-in paths, "Before you
+  continue");
+- HTTP 429 on the main document or on a viewer, imagery or data host.
+
+What does not count: a 429 from `feedback-pa.clients6.google.com/.../survey/trigger/...`. It came
+on loads 1, 2 and 3 alike: that quota is shared by every anonymous visitor and says nothing
+about ours. Logging and analytics hosts do not count either.
+
+A blank, black or white frame is not a block signal but a failure of the view: the frame's mean
+and spread are measured over the map area.
+
+**Page loads (budget 30, ledger `work/earth_capture/loads.jsonl`): 7 used, no block signal seen.**
+
+| Load | What | Result |
+|---|---|---|
+| 1 (probe 1) | Search by place name; then one camera move | Landed at the property's camera (coordinates in the private report); the move needed no load; one survey 429 |
+| 2 (probe 2) | The real `PlaywrightBrowser`: switch on the accessibility tree, dismiss, two moves | The interface is Flutter web. Its buttons appear only after `flt-semantics-placeholder` is clicked. Both moved views were the viewer's projects page (mean 252, spread 8) |
+| 3 (probe 3) | The dismissal step by step, screenshot after each | An Escape closes the place panel; two moves before any extra Escape both stayed on the map; "Dismiss" closes one tip and shows the next |
+| 4 (run 1) | Full capture, address search | Place found; label read as the property's street address (in the private report); `aerial-close` stored. `aerial-wide` was the projects page again, refused as a white frame (BASIS-CAPTURE-005, evidence stored). **Cause: an Escape after a camera move.** Fixed: Escape only after a page load |
+| 5 (run 2) | Full capture, address search, after the fix | 6 clean views in 109 s; pin placed (`search`, unconfirmed) |
+| 6 (run 3) | Full capture, engineer's point loaded as a camera address with `0a` | 6 views, but the scale bar read 0.1075 m/px against 0.0841 recorded. The camera sat below the ground and the viewer raised it, so the range and pixel size were 28 % off. **Fixed:** a point is searched as `lat,lon`, which yields the ground altitude |
+| 7 (run 4) | Full capture, engineer's point searched | 6 clean views in 95 s; the scale bars match run 2's exactly; the engineer's point kept unchanged |
+
+**Scale: the pixel size against the viewer's own scale bar** (pixel scan of the bar's end ticks,
+no page load for the first two rows):
+
+| View | Range `d` | `2·d·tan(17.5°)/900` m/px | Bar | Bar m/px | Formula vs bar |
+|---|---|---|---|---|---|
+| probe 1, `b_pushstate` | 214 | 0.1499 | 20 m over 130 px | 0.1538 | -2.6 % |
+| probe 1, `a_search` | 589.2 | 0.4128 | 80 m over 190 px | 0.4211 | -2.0 % |
+| run 2 and run 4, `aerial-close` | 120 | 0.0841 | 10 m over 116 px | 0.0862 | -2.5 % |
+| run 2 and run 4, `aerial-wide` | 350 | 0.2452 | 40 m over 160 px | 0.2500 | -1.9 % |
+
+- `d` is the camera's distance to the point: the status bar's "Camera: 464 m" is 250 + 214.
+- `y` is the vertical field of view; reading it as the horizontal gives 0.094 m/px, far off.
+- The formula reads 1.9 to 2.6 % finer than the bar. That is recorded and not corrected: the bar
+  is itself the viewer's estimate.
+- Neither the formula nor the bar has been checked against a length measured on the ground. The
+  traced quantity stays the engineer's (EVAL_REPORT 78).
+
+**Imagery date.** The status bar (date, camera, coordinates) is drawn on the canvas with no
+accessible text, so `imagery_date` is null on every view. A person can read the date in the view
+itself ("8/4/2026" on the probe property). A traced measurement on such a view carries
+`measure:IMAGE_UNDATED` (#178) until the date is read.
+
+**Tests.** All with a fake browser and the in-memory store:
+- `tests/unit/capture`: 54 tests over every code's path. Each block signal writes exactly one
+  incident, one timeline event, the evidence (screenshot, HTML, page record), one log line with
+  the code and one alert per trip; a second trip doubles the wait and raises a second alert;
+  pauses keep the views; ops health after a trip, a lapse and a success.
+- The Postgres store (`tests/integration/db/test_capture_store.py`: racing trips raise one
+  alert, the lease is taken once), the routes (`tests/api/test_property_capture.py`) and
+  migration 0036 (`test_migrations.py`) are written and **not run**: Docker was unavailable this
+  session. `alembic check` was not run either.
+
+**Run records:**
+- `$BASIS_EVAL_DATA_DIR/verification/property_capture/v1/live_runs_2026-11-23` (manifest,
+  results, report; `evals.registry --component property_capture` lists it);
+- the runs' images and results in `work/earth_capture/runs/run1..run4`;
+- the probes in `work/earth_capture/probe/p1..p3`.
+
+**Not verified.**
+- A block signal from the real site: none occurred. The breaker is tested only with scripted
+  pages.
+- The first-visit notice on a fresh profile. It was closed in probe 2, but which control closed
+  it was not isolated. The production worker keeps a profile (`CAPTURE_PROFILE_DIR`) so it
+  appears once.
+- Earth rendering on Linux (needs Docker).
+- History and leaf-off dates, and Street View (not built).
+- Concurrency across two real capture workers (the lease is tested in memory, and written for
+  Postgres but not run).
+
+### 98.1 A search that finds nothing is not a place (2026-11-24)
+
+In the live run of 2026-11-24 (a study's pin set from an appraisal address whose ZIP code was
+misread), the address search matched nothing, but the page's address still carried a camera:
+latitude 0.0000, longitude -0.2049, altitude 0. The runner took that for the house, placed the
+pin there (`property.pin_placed`) and photographed open ocean; only the blank-frame check
+(`BASIS-CAPTURE-005`) stopped it. A failed geocode landing at 0, 0 is the well-known "Null
+Island" pattern. `camera.found_nothing` now treats a searched camera within 0.5 degrees of
+latitude 0 and 1 degree of longitude 0 (open ocean; the nearest land, Sao Tome, is 6.5 degrees
+east) as no place: the capture fails with `BASIS-CAPTURE-006` (no place), nothing is placed,
+and the engineer is told to correct the address or drop the pin. The engineer's own point is
+never tested this way. Unit tests: the box's edges, Sao Tome and the run's landing address.
+Not verified live (another page load on a misread address was not spent).
+
 ## 100. Reading the sketch's outline from the appraisal PDF's line work (2026-11-23)
 
 **Question.** Section 96 read the sketch's area table and left the perimeter a 1.5:1

@@ -107,6 +107,10 @@ UPDATED_AT_TABLES: Final = (
     "review_drafts",
     "client_error_issues",
     "signer_details",
+    "property_pins",
+    "property_captures",
+    "capture_state",
+    "capture_incidents",
 )
 # Tables whose rows can never be updated or deleted (forbid_mutation() trigger).
 APPEND_ONLY_TABLES: Final = (
@@ -121,7 +125,13 @@ APPEND_ONLY_TABLES: Final = (
 # migration 0018): a priced row's takeoff and cost, so the recorded trail cannot change.
 # ``client_errors`` (migration 0028) is a record of what a user saw: never edited, deleted
 # only by the client-error retention purge.
-NO_UPDATE_TABLES: Final = ("takeoffs", "cost_estimates", "report_signatures", "client_errors")
+NO_UPDATE_TABLES: Final = (
+    "takeoffs",
+    "cost_estimates",
+    "report_signatures",
+    "client_errors",
+    "capture_views",
+)
 # Tables whose rows cannot be inserted or updated once their corpus version is published.
 PUBLISHED_IMMUTABLE_TABLES: Final = ("chunks", "evidence_tables")
 
@@ -1613,8 +1623,9 @@ class RateLimitHit(Base):
 
 class Alert(Base):
     """An operator alert the application raised (migration ``0026_retention_alerts``,
-    docs/api/RETENTION_AND_ALERTS.md): a study failed (``study_failed``, ``study_id`` set)
-    or a service's heartbeat went stale (``heartbeat_stale``, ``service`` set). ``key`` names
+    docs/api/RETENTION_AND_ALERTS.md): a study failed (``study_failed``, ``study_id`` set),
+    a service's heartbeat went stale (``heartbeat_stale``, ``service`` set) or a block signal
+    opened the property-capture breaker (``capture_blocked``, migration ``0036``). ``key`` names
     the occurrence (the failure's activity key; the service and the last heartbeat before
     the silence) and is unique, so a retried activity or a repeated check never raises the
     same alert twice: the insert that loses is a no-op. ``outbox_id`` is the ``notification``
@@ -1623,7 +1634,9 @@ class Alert(Base):
 
     __tablename__ = "alerts"
     __table_args__ = (
-        CheckConstraint("kind IN ('study_failed', 'heartbeat_stale')", name="kind_valid"),
+        CheckConstraint(
+            "kind IN ('study_failed', 'heartbeat_stale', 'capture_blocked')", name="kind_valid"
+        ),
         UniqueConstraint("key"),
         Index(None, "study_id"),
     )
@@ -1811,3 +1824,233 @@ class DemoRequest(Base):
     notified_at: Mapped[datetime | None]
     notify_error: Mapped[str | None]
     created_at: Mapped[datetime] = _created_at()
+
+
+# ------------------------------------------------------------------ property pictures (0036)
+
+PIN_SOURCES: Final = ("engineer", "search")
+CAPTURE_STATUSES: Final = ("queued", "waiting", "running", "succeeded", "failed")
+CAPTURE_ACTIVE_STATUSES: Final = ("queued", "waiting", "running")
+CAPTURE_VIEW_KINDS: Final = ("aerial", "oblique", "history", "street")
+CAPTURE_NAVIGATION_KINDS: Final = ("load", "move")
+
+
+class PropertyPin(Base):
+    """Where a study's property is (migration ``0036_property_capture``,
+    docs/api/PROPERTY_CAPTURE.md): the address the engineer typed and the point the views are
+    centred on. ``source`` says who placed the point: ``search`` (the capture's address
+    search; not yet confirmed) or ``engineer`` (dropped or moved by hand). ``confirmed`` is the
+    engineer's word that the point is on the right house; nothing should be measured before
+    it. ``version`` is the entity tag of ``PUT .../property/pin`` (``If-Match``), incremented
+    by every write, the capture's own placement included. Mutable (``set_updated_at()``).
+    """
+
+    __tablename__ = "property_pins"
+    __table_args__ = (
+        CheckConstraint("(lat IS NULL) = (lon IS NULL)", name="point_whole"),
+        CheckConstraint("lat IS NULL OR (lat >= -90 AND lat <= 90)", name="lat_range"),
+        CheckConstraint("lon IS NULL OR (lon >= -180 AND lon <= 180)", name="lon_range"),
+        CheckConstraint("address IS NOT NULL OR lat IS NOT NULL", name="something_to_find"),
+        CheckConstraint("source IN ('engineer', 'search')", name="source_valid"),
+        CheckConstraint("version >= 1", name="version_positive"),
+    )
+
+    study_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("studies.id"), primary_key=True)
+    address: Mapped[str | None]
+    lat: Mapped[float | None] = mapped_column(Double)
+    lon: Mapped[float | None] = mapped_column(Double)
+    source: Mapped[str]
+    # The place the search matched (its name and address as the page showed it).
+    place_label: Mapped[str | None]
+    confirmed: Mapped[bool] = mapped_column(server_default=text("false"), default=False)
+    confirmed_by: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id"))
+    confirmed_at: Mapped[datetime | None]
+    updated_by: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id"))
+    version: Mapped[int] = mapped_column(server_default=text("1"), default=1)
+    created_at: Mapped[datetime] = _created_at()
+    updated_at: Mapped[datetime] = _updated_at()
+
+
+class PropertyCapture(Base):
+    """One capture of a study's property: its status and why (migration ``0036``).
+
+    ``status``: ``queued`` (the workflow was asked to start), ``waiting`` (paused by the
+    breaker or the caps until ``resume_at``; it resumes on its own), ``running``,
+    ``succeeded`` or ``failed``. ``code`` is the catalogue code of the last pause or the
+    failure (docs/ERROR_CODES.md, area ``CAPTURE``); ``reason`` the plain sentence the
+    engineer sees, which never names the imagery provider. ``pin_version`` is the pin it
+    was asked for: a view taken around an older pin is stale. One active capture per study
+    (a partial unique index on ``study_id`` while queued, waiting or running).
+    """
+
+    __tablename__ = "property_captures"
+    __table_args__ = (
+        CheckConstraint(
+            "status IN ('queued', 'waiting', 'running', 'succeeded', 'failed')",
+            name="status_valid",
+        ),
+        CheckConstraint("views >= 0", name="views_not_negative"),
+        UniqueConstraint("study_id", "id"),
+        Index("ix_property_captures_study_id_created_at", "study_id", text("created_at DESC")),
+        Index(
+            "uq_property_captures_one_active",
+            "study_id",
+            unique=True,
+            postgresql_where=text("status IN ('queued', 'waiting', 'running')"),
+        ),
+    )
+
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    study_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("studies.id"))
+    requested_by: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id"))
+    status: Mapped[str] = mapped_column(server_default=text("'queued'"), default="queued")
+    pin_version: Mapped[int]
+    workflow_id: Mapped[str | None]
+    code: Mapped[str | None]
+    reason: Mapped[str | None]
+    resume_at: Mapped[datetime | None]
+    started_at: Mapped[datetime | None]
+    finished_at: Mapped[datetime | None]
+    views: Mapped[int] = mapped_column(server_default=text("0"), default=0)
+    created_at: Mapped[datetime] = _created_at()
+    updated_at: Mapped[datetime] = _updated_at()
+
+
+class CaptureView(Base):
+    """One stored view of the property (migration ``0036``): the image under the study's
+    storage prefix (``studies/<id>/captures/<capture id>/<label>.png``, so the retention purge
+    takes it with the study's files) and how it was taken: the camera (``lat``/``lon`` of the
+    point looked at, ``ground_alt_m``, ``range_m`` from the camera to it, ``fov_deg`` the
+    vertical field of view, ``heading_deg``, ``tilt_deg``; 0 tilt looks straight down),
+    ``pixel_size_m`` (metres per pixel at the centre, top-down views only: ``2 * range *
+    tan(fov / 2) / height``, EVAL_REPORT 98), the imagery date the page showed
+    (``imagery_date``, as text: the page's own format), the size and the sha256. ``source``
+    is the provenance line shown with the view (Bryan's decision, PROPERTY_CAPTURE.md 6).
+    Never updated (``forbid_mutation()`` on UPDATE).
+    """
+
+    __tablename__ = "capture_views"
+    __table_args__ = (
+        CheckConstraint("kind IN ('aerial', 'oblique', 'history', 'street')", name="kind_valid"),
+        CheckConstraint("width > 0 AND height > 0", name="size_positive"),
+        CheckConstraint("pixel_size_m IS NULL OR pixel_size_m > 0", name="pixel_size_positive"),
+        ForeignKeyConstraint(
+            ["study_id", "capture_id"], ["property_captures.study_id", "property_captures.id"]
+        ),
+        UniqueConstraint("capture_id", "label"),
+        Index(None, "study_id", "captured_at"),
+    )
+
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    study_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("studies.id"))
+    capture_id: Mapped[uuid.UUID]
+    pin_version: Mapped[int]
+    kind: Mapped[str]
+    label: Mapped[str]
+    lat: Mapped[float] = mapped_column(Double)
+    lon: Mapped[float] = mapped_column(Double)
+    ground_alt_m: Mapped[float] = mapped_column(Double)
+    range_m: Mapped[float] = mapped_column(Double)
+    fov_deg: Mapped[float] = mapped_column(Double)
+    heading_deg: Mapped[float] = mapped_column(Double)
+    tilt_deg: Mapped[float] = mapped_column(Double)
+    pixel_size_m: Mapped[float | None] = mapped_column(Double)
+    imagery_date: Mapped[str | None]
+    width: Mapped[int]
+    height: Mapped[int]
+    uri: Mapped[str]
+    sha256: Mapped[str] = mapped_column(CHAR(64))
+    bytes: Mapped[int] = mapped_column(BigInteger)
+    source: Mapped[str]
+    captured_at: Mapped[datetime]
+    created_at: Mapped[datetime] = _created_at()
+
+
+class CaptureState(Base):
+    """The one row every capture worker shares (migration ``0036``; ``id`` is always 1).
+
+    The lease (``lease_holder``, ``lease_expires_at``): one capture at a time across every
+    worker, taken with one atomic ``UPDATE ... WHERE lease_holder IS NULL OR
+    lease_expires_at < now()`` and renewed while the capture runs, so a dead worker's lease
+    lapses. The breaker (``breaker_open_until``, ``breaker_code``, ``breaker_reason``,
+    ``breaker_opened_at``, ``trips`` consecutive trips; the wait doubles with each): opened by
+    a block signal, closed by the next successful capture after it lapsed. ``last_success_at``,
+    ``last_navigation_at`` (the spacing between navigations), ``worker_seen_at`` (the capture
+    worker's own heartbeat, read by ``GET /v1/ops/health``). Mutable (``set_updated_at()``).
+    """
+
+    __tablename__ = "capture_state"
+    __table_args__ = (
+        CheckConstraint("id = 1", name="single_row"),
+        CheckConstraint("trips >= 0", name="trips_not_negative"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=False)
+    lease_holder: Mapped[str | None]
+    lease_expires_at: Mapped[datetime | None]
+    breaker_open_until: Mapped[datetime | None]
+    breaker_opened_at: Mapped[datetime | None]
+    breaker_code: Mapped[str | None]
+    breaker_reason: Mapped[str | None]
+    trips: Mapped[int] = mapped_column(server_default=text("0"), default=0)
+    last_success_at: Mapped[datetime | None]
+    last_navigation_at: Mapped[datetime | None]
+    worker_seen_at: Mapped[datetime | None]
+    created_at: Mapped[datetime] = _created_at()
+    updated_at: Mapped[datetime] = _updated_at()
+
+
+class CaptureNavigation(Base):
+    """One navigation the capture browser made (migration ``0036``): a page ``load`` or a
+    camera ``move`` (the page's address changed without a load). The caps count these rows
+    per hour and per day, so a restarted worker does not start its budget over. Rows older
+    than two days are deleted by the worker (the longest window is a day).
+    """
+
+    __tablename__ = "capture_navigations"
+    __table_args__ = (
+        CheckConstraint("kind IN ('load', 'move')", name="kind_valid"),
+        Index(None, "kind", "created_at"),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, Identity(always=True), primary_key=True)
+    kind: Mapped[str]
+    capture_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("property_captures.id", ondelete="SET NULL")
+    )
+    created_at: Mapped[datetime] = _created_at()
+
+
+class CaptureIncident(Base):
+    """One kind of capture failure as operators track it (migration ``0036``): every
+    occurrence of one ``code`` (docs/ERROR_CODES.md, area ``CAPTURE``), the grouping of
+    ``client_error_issues`` applied to the capture worker, whose failures have no user.
+    ``occurrences`` and ``first_seen_at``/``last_seen_at`` are kept by the worker; the
+    ``last_*`` columns describe the newest occurrence: its study and capture, the page's
+    address and HTTP status, a plain detail, and ``last_evidence`` (the prefix holding its
+    screenshot, HTML and page record, beside the capture's files). Each occurrence is also a
+    ``capture.paused`` or ``capture.failed`` row on the study's timeline. Mutable.
+    """
+
+    __tablename__ = "capture_incidents"
+    __table_args__ = (
+        CheckConstraint("occurrences >= 1", name="occurrences_positive"),
+        Index(None, "last_seen_at"),
+    )
+
+    code: Mapped[str] = mapped_column(primary_key=True)
+    occurrences: Mapped[int] = mapped_column(server_default=text("1"), default=1)
+    first_seen_at: Mapped[datetime]
+    last_seen_at: Mapped[datetime]
+    last_study_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("studies.id", ondelete="SET NULL")
+    )
+    last_capture_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("property_captures.id", ondelete="SET NULL")
+    )
+    last_url: Mapped[str | None]
+    last_http_status: Mapped[int | None]
+    last_detail: Mapped[str | None]
+    last_evidence: Mapped[str | None]
+    created_at: Mapped[datetime] = _created_at()
+    updated_at: Mapped[datetime] = _updated_at()

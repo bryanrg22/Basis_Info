@@ -70,6 +70,7 @@ from basis.api.routes import demo_requests as demo_requests_route
 from basis.api.routes import eval_runs as eval_runs_route
 from basis.api.routes import ops as ops_route
 from basis.auth.firebase import FirebaseTokenVerifier
+from basis.capture.starter import CaptureStarter, TemporalCaptureStarter
 from basis.config import ConfigError, Settings
 from basis.db.engine import create_engine
 from basis.db.session import SESSIONMAKER_STATE_ATTR, create_sessionmaker
@@ -207,6 +208,7 @@ def create_app(
     storage: Storage | None = None,
     workflows: WorkflowService | None = None,
     localizer: Localizer | None = None,
+    capture_starter: CaptureStarter | None = None,
 ) -> FastAPI:
     """Build the API. ``settings`` is passed in so tests control every value.
 
@@ -227,6 +229,12 @@ def create_app(
             app.state.workflows = TemporalWorkflowService(
                 client, task_queue=settings.temporal_task_queue
             )
+            if app.state.capture_starter is None:
+                app.state.capture_starter = TemporalCaptureStarter(
+                    client,
+                    task_queue=settings.capture_task_queue,
+                    max_wait_hours=settings.capture_max_wait_hours,
+                )
         try:
             yield
         finally:
@@ -234,6 +242,7 @@ def create_app(
                 # A temporalio client holds no resources that need closing.
                 app.state.temporal = None
                 app.state.workflows = None
+                app.state.capture_starter = capture_starter
             if owned is not None:
                 await owned.dispose()
                 setattr(app.state, SESSIONMAKER_STATE_ATTR, None)
@@ -260,6 +269,9 @@ def create_app(
         install_database(app, db_sessionmaker)
     app.state.temporal = None
     app.state.workflows = workflows
+    # Property pictures' workflow starter (basis.capture.starter): the test's, else built
+    # with the Temporal client in the lifespan.
+    app.state.capture_starter = capture_starter
     app.state.localizer = (
         localizer
         if localizer is not None

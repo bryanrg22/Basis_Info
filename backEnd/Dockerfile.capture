@@ -1,0 +1,50 @@
+# The property capture worker (docs/review_2026-10-15/PROPERTY_CAPTURE.md, EVAL_REPORT 98):
+# the backend image plus the `capture` dependency group (Playwright) and a headless Chromium
+# with the system libraries it needs. A separate image so the API and the study worker do
+# not carry a browser. It runs `python -m basis.capture`, one capture at a time.
+#
+# Build from backEnd/:  docker build -f Dockerfile.capture -t basis-capture .
+# Run:                  docker run --rm -e BASIS_ENV=... -e PROPERTY_CAPTURE=on ... basis-capture
+#
+# Not built yet on the maintainer's machine (Docker was unavailable when this was written):
+# see the PR's "Not verified" list. Chromium in a container has no GPU; the viewer's WebGL2
+# then runs on SwiftShader, which was confirmed present but not yet tried on the viewer.
+
+FROM python:3.12-slim
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    UV_COMPILE_BYTECODE=1 \
+    UV_LINK_MODE=copy \
+    UV_PROJECT_ENVIRONMENT=/opt/venv \
+    PLAYWRIGHT_BROWSERS_PATH=/opt/ms-playwright \
+    PATH="/opt/venv/bin:$PATH"
+
+COPY --from=ghcr.io/astral-sh/uv:0.9.26 /uv /uvx /bin/
+
+WORKDIR /app
+
+# The runtime dependencies and the capture group only (not pytest, mypy, ...).
+COPY pyproject.toml uv.lock ./
+RUN --mount=type=cache,target=/root/.cache/uv \
+    uv sync --frozen --no-dev --group capture --no-install-project
+
+# Chromium at the build Playwright 1.64.1 pins (1248) and its system libraries.
+RUN playwright install --with-deps chromium chromium-headless-shell \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN useradd --create-home --uid 10001 basis
+
+COPY basis ./basis
+COPY alembic.ini ./
+RUN --mount=type=cache,target=/root/.cache/uv \
+    uv sync --frozen --no-dev --group capture
+
+RUN mkdir -p /tmp/basis-local-storage /home/basis/capture-profile \
+    && chown basis:basis /tmp/basis-local-storage /home/basis/capture-profile
+USER basis
+
+ARG GIT_SHA=unknown
+ENV GIT_SHA=$GIT_SHA
+
+CMD ["python", "-m", "basis.capture"]

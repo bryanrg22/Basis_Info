@@ -53,6 +53,13 @@ dev = [
     "ruff>=0.17.4",
     "schemathesis>=4.33.1",
     "testcontainers[postgres]>=4.15.0",
+    {include-group = "capture"},
+]
+# The property-capture worker (python -m basis.capture; EVAL_REPORT 98): Playwright 1.64.1,
+# the release whose Chromium build (1248) the capture was measured on. Neither the API nor the
+# study worker imports it. Its browser is installed separately (playwright install chromium).
+capture = [
+    "playwright==1.64.1",
 ]
 # Load testing (tooling/load, docs/perf/LOAD_TESTING.md): uv sync --group load
 load = [

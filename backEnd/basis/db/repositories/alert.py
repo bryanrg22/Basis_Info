@@ -15,7 +15,10 @@ Keys:
   workflow recorded, stable across the activity's retries;
 * ``heartbeat-stale:<service>:<last heartbeat, ISO 8601>``: one stale period of one
   service, named by the last heartbeat seen before the silence (``never`` when the service
-  has no row at all).
+  has no row at all);
+* ``capture-blocked:<trip number>:<opened at, ISO 8601>``: one trip of the property-capture
+  breaker (``basis.capture.store.blocked_alert_key``); a signal while the breaker is open
+  is the same trip and raises nothing.
 """
 
 from __future__ import annotations
@@ -34,6 +37,7 @@ from basis.db.repositories.outbox import NOTIFICATION, OutboxRepository
 ALERT_NOTIFICATION: Final = "alert"
 STUDY_FAILED: Final = "study_failed"
 HEARTBEAT_STALE: Final = "heartbeat_stale"
+CAPTURE_BLOCKED: Final = "capture_blocked"
 STUDY_FAILED_PREFIX: Final = "study-failed:"
 HEARTBEAT_STALE_PREFIX: Final = "heartbeat-stale:"
 MAX_REASON: Final = 2000
