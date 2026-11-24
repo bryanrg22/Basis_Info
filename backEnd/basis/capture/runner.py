@@ -604,6 +604,16 @@ class CaptureRunner:
                 page=landed,
             )
             return 0
+        if street.contributed(pano.pano_id):
+            await self._part_failed(
+                row,
+                "street",
+                E.CAPTURE_STREET_NO_COVERAGE,
+                "the nearest panorama is a visitor's photo, not street imagery",
+                browser=browser,
+                page=landed,
+            )
+            return 0
         heading = street.heading_deg(pano.lat, pano.lon, centre.lat, centre.lon)
         aim = street.pano_address(pano.pano_id, pano.lat, pano.lon, heading, options.street_origin)
         page = await self._navigate(row, browser, "move", aim)
@@ -628,8 +638,8 @@ class CaptureRunner:
         camera = Camera(
             centre.lat, centre.lon, centre.alt_m, max(distance, 0.1), street.STREET_FOV_DEG, heading
         )
-        width, height = _size
-        shot = Shot(png, width, height, frame, b"", DateReading(None, None, "not read"), None)
+        view_png, width, height = await asyncio.to_thread(street.crop_street, png)
+        shot = Shot(view_png, width, height, frame, b"", DateReading(None, None, "not read"), None)
         view = PlannedView(label, "street", camera)
         await self._store_view(row, view, shot, camera_at=pano)
         await self._progress(label)

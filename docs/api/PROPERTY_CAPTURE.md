@@ -163,7 +163,10 @@ per consecutive trip up to a day, and closes on the next success. Every number i
   the pin, the camera aimed at the house, stored as `street-front`. EVAL_REPORT 99 found the
   service refuses a headless browser (lookup 500, tiles 403); 99.1 found it renders in a headed
   one, so street level needs `CAPTURE_HEADLESS=false` (a real window; on a server the capture
-  image runs the worker under a virtual display). Refused, it records 020 and goes on.
+  image runs the worker under a virtual display). Refused, it records 020 and goes on. A
+  visitor's uploaded photo (a panorama id starting `CIHM0og` or `AF1Qip`) is not street
+  imagery: 019 with the reason. The stored picture is the band free of the page's interface
+  (230 px off the top, 180 px off the bottom).
 - **The date reader** is tesseract, a system program (`CAPTURE_TESSERACT`, else `tesseract`
   on the path). The capture worker's image needs it installed; without it every date is null
   with the reason and the capture records 021 once.

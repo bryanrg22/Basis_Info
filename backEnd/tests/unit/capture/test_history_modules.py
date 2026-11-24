@@ -24,6 +24,7 @@ import shutil
 from datetime import date
 
 import pytest
+from capturetest_support import map_png
 from PIL import Image, ImageDraw, ImageFont
 
 from basis.capture import history, leaf, street
@@ -323,6 +324,19 @@ def test_street_addresses_parse_and_heading() -> None:
     assert street.heading_deg(0, 0, -1, 0) == pytest.approx(180)
     assert street.heading_deg(0, 0, 0, -1) == pytest.approx(270)
     assert street.distance_m(0, 0, 1, 0) == pytest.approx(111_195, rel=1e-3)
+
+
+def test_visitor_panoramas_and_the_interface_band() -> None:
+    assert street.contributed("CIHM0ogKEICAgIDextra12")
+    assert street.contributed("AF1QipMabcdefghijklmnopqrstuvwxyz")
+    assert not street.contributed("j3NpyuT5TDM1Ksv_fDsy5A")
+    for height in (1240, 900):
+        png, width, kept = street.crop_street(map_png(1440, height, seed=3))
+        assert (width, kept) == (1440, height - 230 - 180)
+        with Image.open(io.BytesIO(png)) as image:
+            assert image.size == (1440, kept)
+    with pytest.raises(ValueError, match="too short"):
+        street.crop_street(map_png(1440, 480, seed=3))
 
 
 def test_a_refusal_is_read_from_the_failed_responses() -> None:
