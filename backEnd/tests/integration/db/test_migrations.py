@@ -2008,7 +2008,7 @@ async def test_0036_property_capture_rules_and_an_exact_downgrade(
         await connection.execute(
             "INSERT INTO capture_views (study_id, capture_id, pin_version, kind, label, lat, lon, "
             "ground_alt_m, range_m, fov_deg, heading_deg, tilt_deg, width, height, uri, sha256, "
-            "bytes, source, captured_at) VALUES ($1, $2, 1, 'aerial', 'today', 43.8, -88.9, 250, "
+            "bytes, source, captured_at) VALUES ($1, $2, 1, 'aerial', 'today', 41.6, -93.6, 250, "
             "150, 35, 0, 0, 1440, 900, 'gs://b/x.png', $3, 10, 's', now())",
             study,
             first,
