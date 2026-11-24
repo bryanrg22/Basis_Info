@@ -225,8 +225,7 @@ async def test_a_views_image_and_staleness(
     image = await on.get("alice", f"/v1/studies/{sid}/property/views/{view_id}/image")
     assert image.status_code == 200 and image.content == PNG
     assert image.headers["ETag"] == f'"{"a" * 64}"'
-    cached = await on.get(
-        "alice",
+    cached = await on.client.get(
         f"/v1/studies/{sid}/property/views/{view_id}/image",
         headers={**bearer("alice"), "If-None-Match": image.headers["ETag"]},
     )

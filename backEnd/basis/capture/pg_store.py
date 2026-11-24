@@ -83,11 +83,18 @@ def _write_state(row: CaptureState, state: GovernorState) -> None:
 
 
 async def _locked_state(session: AsyncSession) -> CaptureState:
+    """The shared row, locked. The migration seeds it; when it is missing (a truncated
+    database), it is created with ``ON CONFLICT DO NOTHING`` before the lock, so two workers
+    arriving at once both end up locking the one row instead of both inserting it."""
     row = await session.get(CaptureState, STATE_ID, with_for_update=True)
-    if row is None:  # the migration seeds it; a truncated test database may not have it
-        row = CaptureState(id=STATE_ID, trips=0)
-        session.add(row)
-        await session.flush()
+    if row is None:
+        await session.execute(
+            pg_insert(CaptureState).values(id=STATE_ID, trips=0).on_conflict_do_nothing()
+        )
+        row = await session.get(
+            CaptureState, STATE_ID, with_for_update=True, populate_existing=True
+        )
+        assert row is not None
     return row
 
 
@@ -213,10 +220,14 @@ class PgCaptureStore:
     ) -> None:
         async with self._sm.begin() as session:
             session.add(CaptureNavigation(kind=kind, capture_id=capture_id, created_at=now))
+            # An upsert, not an update: if the shared row were missing, an update would drop the
+            # time silently and the spacing between navigations would not hold.
             await session.execute(
-                update(CaptureState)
-                .where(CaptureState.id == STATE_ID)
-                .values(last_navigation_at=now)
+                pg_insert(CaptureState)
+                .values(id=STATE_ID, trips=0, last_navigation_at=now)
+                .on_conflict_do_update(
+                    index_elements=[CaptureState.id], set_={"last_navigation_at": now}
+                )
             )
             await session.execute(
                 delete(CaptureNavigation).where(
