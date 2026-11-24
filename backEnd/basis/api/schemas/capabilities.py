@@ -22,6 +22,11 @@ class CapabilitiesOut(ResponseModel):
         description="`asset` and `component` corrections accept `unit_cost` and "
         "`unit_cost_source`, the engineer's unit price (setting `UNIT_COST_OVERRIDE`)."
     )
+    traced_measurement: bool = Field(
+        description="`asset` corrections accept `measurement`, a shape the engineer traced on "
+        "an image whose quantity the server computes (docs/api/OVERRIDES.md section 4; "
+        "setting `TRACED_MEASUREMENT`)."
+    )
     room_create: bool = Field(
         description="The rooms review accepts a `room_create` correction. Always false: "
         "the API has no such correction yet (web/FRONTEND_BACKLOG.md section 14)."

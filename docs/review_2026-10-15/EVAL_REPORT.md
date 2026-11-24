@@ -14433,6 +14433,258 @@ accepted path here is from the widened and corrected setups and from fabricated 
 * Nothing was run live: no extraction with the setting on has run against the stack, and no
   study was priced with it.
 
+## 97. The engineer's traced measurement: the shape behind the quantity (2026-11-23)
+
+**Question.** An engineer who measures a driveway in Google Earth or on a site plan sends Basis
+three typed fields (`quantity`, `quantity_unit`, `quantity_source`, section 78): a number and a
+sentence. Can the measurement be the traced shape itself, with the quantity computed by the
+server and the image, its date and pixel size, the scale and an expected error kept for an
+audit? And which formula turns lon/lat corners into square feet without being the classic
+web-map bug? Design: `docs/review_2026-10-15/REMOTE_INSPECTION_AND_MEASUREMENT.md` section 7.2
+(on branch `claude/remote-inspection-measurement`); its sections 2, 5, 6 and 11 are the
+research on the standard. API contract: `docs/api/OVERRIDES.md` section 4.
+
+**Setup.** Code: `backEnd/basis/domain/traced.py` (pure: checks and geometry),
+`basis/activities/corrections.py` (`check_measurement`), `basis/activities/process_assets.py`
+(`traced_by_engineer`, the flags), `basis/api/routes/decisions.py` (`measurement_errors`,
+`check_measurement_targets`), `basis/api/schemas/reviews.py` (only `measurement` takes an
+object). Settings `TRACED_MEASUREMENT` (true), `MEASURE_IMAGE_AFTER_SERVICE_DAYS` (365),
+`MEASURE_ERROR_FLAG_PCT` (10). Codes `BASIS-CORRECT-046` and `BASIS-ASSETS-021` to `024`.
+Harness `backEnd/evals/trace_geometry.py` (record component `traced_measurement` v1), test
+`backEnd/tests/unit/evals/test_trace_geometry.py`. Run directories
+`$BASIS_EVAL_DATA_DIR/predictions/trace_geometry_2026-11-23/` and, re-run on the final code,
+`trace_geometry_2026-11-23_final/` (every error figure identical; times within 15 %), both
+linked under `$BASIS_EVAL_DATA_DIR/verification/traced_measurement/v1/` (`evals.registry` lists
+them: 4 cases passed each, $0.00). No model call, no paid call, no client data: every shape is synthetic.
+
+### 97.1 Answer first
+
+* **The shape is now a measurement.** An `asset` correction may carry `measurement`: area or
+  line shapes in lon/lat degrees or in pixels of an uploaded image with a clicked scale. The
+  server computes the SF, SY or LF, replaces the takeoff exactly as a typed quantity does (the
+  missing-input blocker goes, the computed quantity is kept), and keeps the shape, the image's
+  source, date and pixel size, the scale, the method and the expected error in
+  `takeoff_inputs.measurement`. A typed number works exactly as before (byte for byte, checked
+  against values read from `main`).
+* **Lon/lat: a local tangent plane on the WGS84 ellipsoid ships.** On 65 boxes with an exact
+  answer (25 to 49 N, 100 SF to 10 acres) it is within 0.0000002 % of the ellipsoid's area,
+  and within 0.0000005 % on 195 lines up to a mile. A mean-radius sphere (what Turf.js and
+  OpenLayers do) is 0.01 to 0.38 % off; counting web-map pixels with no latitude correction is
+  22 to 132 % too large. All three cost $0 and about a microsecond a shape, so the most
+  accurate one is also the cheapest within the noise of the best.
+* **Every measurement says how far off it may be.** One pixel on every edge (section 5 of the
+  note: area error behaves like perimeter times edge uncertainty), plus the scale's own error
+  on an image. A 20 x 50 ft driveway traced on 6-inch imagery is "up to 7 %"; a 20 x 40 ft one
+  on a plan at 0.25 ft per pixel with a 34 ft reference, "up to 6.69 %".
+* **Four review flags, never refusals:** an undated image, an image more than a year after
+  the placed-in-service date, lon/lat with no pixel size, an expected error above 10 %.
+* **Two things the contract assumed were not so** (97.6): a quantity-only correction is
+  already a manual classification that becomes a firm convention (the measurement now behaves
+  identically, as asked); and an engineer's quantity, typed or traced, does not survive a
+  later assets rejection that does not send it again.
+
+### 97.2 The standard
+
+* **What the IRS asks.** No measuring method or tolerance (Publication 5653, ch. 3 D(1)); a
+  quality study's take-offs "are carefully documented" (ch. 4 C.8) and a study may not rest on
+  estimates "that have no supporting records" (CCA 199921045). So the bar is the record behind
+  the number: method, source, date, and how good it is.
+* **How established tools measure.** Turf.js (`@turf/area`: the ring area of Chamberlain and
+  Duquette, "Some Algorithms for Polygons on a Sphere", JPL Publication 07-03, 2007, with
+  `earthRadius = 6371008.8`, the WGS84 mean radius) and OpenLayers (`ol/sphere` `getArea` and
+  `getLength`: the same formula and a haversine length on `DEFAULT_RADIUS = 6371008.8`), read in
+  their source on 2026-11-23. Property-measuring and plan-takeoff tools set the scale from the
+  georeferenced image or one known length the user clicks (note section 6). GeographicLib's
+  ellipsoidal polygon area would be a fourth candidate; neither `geographiclib` nor `pyproj` is
+  in `uv.lock`, and none was added for it.
+* **How good hand tracing is** (note section 5, independent studies): about 4 % on a
+  driveway-sized rectangle in Google Earth, worst 10.3 %; 2.4 % (worst 5.0 %) on 3-inch aerial
+  imagery. `MEASURE_ERROR_FLAG_PCT = 10` is that worst case.
+
+### 97.3 The comparison: lon/lat area
+
+**How to read this table.** Each row is one way of turning a traced lon/lat ring into square
+feet, run on the same 65 boxes: quadrilaterals bounded by two meridians and two parallels at
+latitudes 25, 27, ... 49 N, sized about 100 SF, 1,000 SF (a driveway), 10,000 SF, 1 acre and 10
+acres, with the south-west corner at 88.9 W. A box's edges along parallels are exactly what a
+web map draws as straight horizontal lines, so it is the shape as traced. The answer is the
+box's area on the WGS84 ellipsoid in closed form: `A = (a^2 dlambda / 2)(q(phi2) - q(phi1))`
+with Snyder's authalic function `q` (USGS Professional Paper 1395, 1987, ch. 3), the integral
+of the area element `M N cos phi dphi dlambda`. **Error** is |computed - exact| / exact, in
+percent, **lower is better**; mean and worst over the 13 latitudes. **Time** is microseconds
+per shape on a laptop (one CPU, Python 3.12), **lower is better**. Models: no AI model.
+Tokens: none. Cost: $0.
+
+| Setup | Models | Tokens | 100 SF mean / worst % | 1,000 SF mean / worst % | 10,000 SF mean / worst % | 1 acre mean / worst % | 10 acres mean / worst % | Time per shape |
+|---|---|---|---|---|---|---|---|---|
+| a. Screen pixels of a web map (Web Mercator, no latitude correction) | No AI model | none | 64.7 / 132.1 | 64.7 / 132.1 | 64.7 / 132.1 | 64.7 / 132.1 | 64.7 / 132.1 | 1.0 µs |
+| b. Sphere of mean radius 6,371,008.8 m, Chamberlain-Duquette (Turf.js, OpenLayers) | No AI model | none | 0.146 / 0.316 | 0.146 / 0.316 | 0.146 / 0.316 | 0.146 / 0.316 | 0.146 / 0.316 | 0.5 µs |
+| c. Local tangent plane on the WGS84 ellipsoid, radii of curvature at the mean latitude (**shipped**) | No AI model | none | 8e-8 / 2e-7 | 1e-8 / 4e-8 | 7e-9 / 2e-8 | 3e-9 / 9e-9 | 4e-9 / 6e-9 | 1.1 µs |
+| d. Ellipsoidal geodesic polygon (GeographicLib) | not run | | | | | | | not in `uv.lock` |
+
+By latitude, the web map is 22.3 % too large at 25 N, 57.1 % at 37 N and 132.1 % at 49 N (it is
+off by sec^2 of the latitude); the sphere is 0.21 % over at 25 N, 0.04 % under at 37 N and 0.32 % under
+at 49 N (the sphere's radius against the ellipsoid's curvature; the sign changes between 35 and
+36 N).
+
+### 97.4 The comparison: lon/lat length
+
+**How to read this table.** The same three setups on 195 lines: along a meridian (exact
+length: the 20-point Gauss-Legendre integral of the meridional radius M), along a parallel
+(exact: `N cos phi dlambda`) and on a 45-degree diagonal (exact: the endpoint placed by
+Vincenty's direct geodesic, T. Vincenty, *Survey Review* 23(176), 1975, at the distance asked),
+10, 50, 150, 500 and 5,280 ft long at the 13 latitudes. **Error** in percent, mean and worst,
+**lower is better**. Models: no AI model. Tokens: none. Cost: $0.
+
+| Setup | Models | Tokens | Meridian mean / worst % | Parallel mean / worst % | Diagonal mean / worst % | Time per line |
+|---|---|---|---|---|---|---|
+| a. Screen pixels of a web map | No AI model | none | 27.9 / 52.6 | 27.4 / 52.1 | 27.7 / 52.4 | 0.7 µs |
+| b. Haversine on the mean sphere (Turf.js, OpenLayers) | No AI model | none | 0.193 / 0.381 | 0.234 / 0.302 | 0.073 / 0.158 | 0.6 µs |
+| c. Tangent plane per segment at its middle latitude (**shipped**) | No AI model | none | 2e-9 / 2e-8 | 2e-9 / 2e-8 | 5e-8 / 4e-7 | 0.7 µs |
+
+Where the plane stops being exact: a single 10 km segment is 1.6e-5 % off at worst and a 100 km
+one 0.0017 % (the sphere stays near 0.38 %). A typed or traced quantity is capped at 10,000,000,
+and a driveway, fence or lot is under a mile, so no traced item comes near either.
+
+### 97.5 The answer key's own limit, rotation, and the image scale
+
+**The key checks itself.** The closed form against a 20-point Gauss-Legendre integration of the
+same area element: worst disagreement 1.8e-7 % over the 65 boxes. The meridian integral against
+Helmert's series in the third flattening: 3.8e-8 %. A degree of latitude centred at 45 N comes
+out at 111,131.78 m, the standard series' value (`tests/unit/evals/test_trace_geometry.py`).
+
+**The closing edge is a parallel, not a geodesic.** A method whose polygon edges are geodesics
+sees a slightly different shape: on the mean sphere the lens between a parallel and the great
+circle through its ends is at most 0.0003 % of a box (the 10-acre one at 49 N), and the two
+edges' lenses nearly cancel (net 4.7e-8 %). So the key's own approximation is ten thousand times
+smaller than the sphere's error and far below the 0.01 SF a quantity is rounded to.
+
+**Rotation.** A 20 x 50 ft and a 660 x 660 ft rectangle, turned in 15-degree steps through 180
+degrees, corners placed by Vincenty's direct geodesic from the centre, at the 13 latitudes. How
+to read: **spread** is (largest - smallest area) / drawn area over the 12 turns, **against drawn**
+the worst |area - drawn| / drawn, in percent, lower is better.
+
+| Setup | Driveway spread / against drawn % | 10 acres spread / against drawn % |
+|---|---|---|
+| a. Web map pixels | 1.9e-7 / 132.1 | 3.3e-9 / 132.1 |
+| b. Mean sphere | 5.6e-8 / 0.316 | 5.2e-8 / 0.316 |
+| c. Tangent plane (**shipped**) | 3.3e-8 / 2.3e-8 | 4.8e-8 / 2.6e-8 |
+
+All three keep a shape's area as it turns; only the shipped method also keeps the area drawn.
+
+**Image space: how a scale clicked wrong carries into the quantity** (closed form, no data). How
+to read: a 34 ft reference spans 136, 68 or 34 pixels at 0.25, 0.5 or 1 ft per pixel; clicked k
+pixels wrong, the scale is off by k / pixels, an area by (1 + k / pixels)^2 - 1, a length by k /
+pixels. **Stated** is the expected error Basis writes for that trace (one pixel on every edge
+plus 2 pixels on the scale, twice for an area); lower is better everywhere.
+
+| ft per px | Reference px | Off by px | Scale % | Driveway 20 x 40 ft % (SF) | Fence 150 ft % (ft) | Stated, driveway % | Stated, fence % |
+|---|---|---|---|---|---|---|---|
+| 0.25 | 136 | 1 | 0.74 | 1.48 (11.8) | 0.74 (1.1) | 6.69 | 1.80 |
+| 0.25 | 136 | 2 | 1.47 | 2.96 (23.7) | 1.47 (2.2) | 6.69 | 1.80 |
+| 0.25 | 136 | 5 | 3.68 | 7.49 (59.9) | 3.68 (5.5) | 6.69 | 1.80 |
+| 0.5 | 68 | 1 | 1.47 | 2.96 (23.7) | 1.47 (2.2) | 13.38 | 3.61 |
+| 0.5 | 68 | 2 | 2.94 | 5.97 (47.8) | 2.94 (4.4) | 13.38 | 3.61 |
+| 0.5 | 68 | 5 | 7.35 | 15.25 (122.0) | 7.35 (11.0) | 13.38 | 3.61 |
+| 1 | 34 | 1 | 2.94 | 5.97 (47.8) | 2.94 (4.4) | 26.76 | 7.22 |
+| 1 | 34 | 2 | 5.88 | 12.11 (96.9) | 5.88 (8.8) | 26.76 | 7.22 |
+| 1 | 34 | 5 | 14.71 | 31.57 (252.6) | 14.71 (22.1) | 26.76 | 7.22 |
+
+So a 34 ft reference on a coarse image is a weak scale: at 1 ft per pixel the stated error of a
+driveway is 27 % and the flag (`measure:COARSE`, above 10 %) tells the reviewer. A longer
+reference (the plan's own scale bar, a lot line) shrinks the scale term in proportion.
+
+**Time of the checks.** A driveway (4 corners) is checked and measured in 0.05 ms; the largest
+measurement allowed (5,000 points: ten 500-corner rings, every pair of edges compared for
+crossings) in 22 ms. Without a total cap the contract's limits allow 50 rings with 20 cutouts of
+500 points each (525,000 points), which no request should make the API or the worker compute, so
+`MAX_POINTS = 5000` is added (97.6).
+
+### 97.6 Verdict, deviations and surprises
+
+**Verdict.** Ship the local tangent plane (c) for lon/lat, planar pixels times the clicked scale
+for images, and the one-pixel expected error; record the shape with the quantity.
+
+**Deviations from the contract, and why.**
+
+* **A total of 5,000 points per measurement** (not in the contract's limits): the simplicity
+  check compares every pair of a ring's edges; 97.5 has the time.
+* **`pixel_size_m` at most 100 m**: the contract asked only for finite; a pixel above 100 m
+  (coarser than Landsat's 30 m) cannot measure a property.
+* **The request schema** (`CorrectionFields`) accepted only flat scalars; it now lets the one
+  field `measurement` hold an object (refusing any other object, NUL in a string or key, a
+  non-finite number, nesting beyond 8 levels), so PostgreSQL can store whatever passes.
+* **`takeoffs.inputs`** stores the nested record as an object, not a JSON string: the column is
+  JSON and already held nested objects (`asset_correction`, `assumptions`); only the domain
+  `Takeoff.inputs` is flat, so the record is added where the row is written.
+* **A measurement on another entity type** is refused by the API (the contract asked for it);
+  today an unknown field on a `component` reaches the worker, which refuses the whole
+  rejection.
+* **Two corrections of the same asset**: the later one's quantity wins, typed or traced, so the
+  two never stand together in the merged correction (otherwise the worker would refuse it).
+* **No reason is required** for a measurement alone, as for a typed quantity ("follow the
+  existing rule"); the note's 7.2 proposes one.
+
+**Surprises, re-run before recording.**
+
+1. **A quantity-only correction is a manual classification and becomes a firm convention.**
+   The contract assumed it was not (as a price-only one is not). `process_assets._overrides`
+   strips only the price fields, so `{quantity, quantity_unit, quantity_source}` makes the asset
+   `manual` with the old classification, and `promote_conventions` promotes every manual asset
+   as the engineer's ruling (REVIEW_RULES 7.4). Seen in the code, then on `main` e885ca1 (the
+   regression run: `method: manual`), then in
+   `test_a_measurement_only_correction_is_handled_as_a_quantity_only_one` (both `manual`, both
+   candidates). The measurement does the same, as the contract asked ("behave identically").
+   Whether measuring an item should make its classification a ruling is the maintainer's call.
+2. **An engineer's quantity does not survive a later rejection.** A typed or traced quantity
+   applies to the revision its rejection builds; on the next assets rejection that does not
+   send it again (or a reprice), the takeoff is recomputed and the patio is back to its count
+   with `cross:COST_NEEDS_QUANTITY`. Run twice, once typed and once traced: revision 2 812.50 SF
+   and 800.00 SF, revision 3 1.00 EA for both. A unit price is kept on the component row; a
+   quantity is not. Not fixed here (it needs a decision on where a quantity lives); recorded in
+   OVERRIDES.md 4 and FRONTEND_BACKLOG 17.
+3. **The browser's error catalogue was stale on `main`**: `web/live/error-catalogue.js` had 304
+   codes against 310 in the catalogue (the six `BASIS-DEMO` codes of #165 not regenerated), and
+   `web/tests/result-workspace.test.cjs` pinned 304. Regenerated with
+   `web/scripts/sync-error-catalogue.py`: 315 codes; the test now pins 315.
+4. A typed quantity on a concealed row of the structure model is accepted and ignored (the row
+   keeps the model's quantity); a measurement there behaves the same.
+
+### 97.7 Verified and not verified
+
+Verified (numbers in `backEnd/tests/LEDGER.md`): the domain checks and geometry (97 tests,
+mutation-checked); the activity checks, the route's value check, the schema (24); `process_assets`
+on Postgres (14: the replaced takeoff, each flag at its boundary, the regression line against
+`main`'s values, the convention candidacy, the merge rule, the refusals; mutation-checked); the
+decision and draft routes on Postgres (19: each refusal, the document check, the setting, the
+roles, the stale revision); the settings (13); the harness (9) and its full run (4 cases
+passed). The OpenAPI document, the error catalogue and the browser catalogue are regenerated.
+
+Not verified:
+
+* No live study and no workflow run end to end with a measurement (no lifecycle test added: the
+  workflow is unchanged, the activities' results are recorded in history, and the corrections
+  travel through the same `CorrectionInput`); the Schemathesis contract test is the one in the
+  gates below, which empties corrections in positive cases.
+* The lon/lat method was measured against a mathematical key, not against ground truth: how
+  well an engineer traces is the note's section 5 (other people's studies), not measured here.
+* The expected-error formula is a bound by assumption (one pixel per edge), not measured on
+  traces; a typed wall height's error is not counted.
+* In image space the expected error counts one pixel of the image as displayed. An image
+  enlarged beyond its native pixel size (a 6-inch aerial shown at 3 inches a pixel) therefore
+  understates it: on one such hand trace of a driveway the stated bound was 2.4 % where the
+  native pixel gives about twice that. The image's native pixel size is not asked for in
+  image space.
+* No screen: nothing in the app sends a measurement yet (FRONTEND_BACKLOG 17).
+* Overlapping areas, overlapping cutouts and a traced total larger than the lot are not
+  detected; no exhibit image is stored; the report does not print the source.
+
+**Open (the maintainer's).** Whether a measurement alone should need a reason (the note says
+yes, the typed quantity does not); whether a quantity-only correction, typed or traced, should
+stay a ruling (surprise 1); where a quantity should live so it survives later revisions
+(surprise 2); the 365-day and 10 % thresholds (365 is not measured; 10 % is the studies' worst
+case); the 5,000-point and 100 m caps.
+
 ## 100. Reading the sketch's outline from the appraisal PDF's line work (2026-11-23)
 
 **Question.** Section 96 read the sketch's area table and left the perimeter a 1.5:1
