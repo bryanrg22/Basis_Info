@@ -3,8 +3,10 @@
 
 * **The project.** ``resources.geojson`` (the index the EPT bucket's maintainers publish, about
   2.5 MB compressed) lists every project with its outline; the newest project (the year in its
-  name) whose outline holds the pin is used. The index is cached in memory for
-  ``INDEX_TTL``.
+  name; a name without one ranks after every dated one) whose outline holds the pin is used.
+  When that project has no point in the box (its outline in the index is coarser than its
+  data), the next is read, up to ``MAX_PROJECTS`` (EVAL_REPORT 101.5). The index is cached in
+  memory for ``INDEX_TTL``.
 * **Only the tiles over the lot.** EPT is an octree: ``ept.json`` gives the cube, each
   ``ept-hierarchy/<key>.json`` the point counts of the nodes below it (``-1`` = a further
   hierarchy file). Points are spread over every depth, so every node whose box meets the query
@@ -39,7 +41,7 @@ import math
 import re
 import time
 from collections.abc import Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Any, Final
 
 import numpy as np
@@ -58,6 +60,7 @@ BUILDING: Final = 6
 CELL_M: Final = 0.5
 BUILDING_SEARCH_M: Final = 15.0
 GROUND_RING_M: Final = (2.0, 15.0)
+EDGE_CELLS: Final = 2  # a footprint this close to the box's edge (1 m) is cut by it
 PEAK_PERCENTILE: Final = 99.0
 EAVE_PERCENTILE: Final = 5.0
 CREDIT: Final = "U.S. Geological Survey, 3D Elevation Program (3DEP) lidar"
@@ -74,24 +77,33 @@ def project_year(name: str) -> int | None:
     return max(years) if years else None
 
 
-def choose_project(
+def rank_projects(
     features: Sequence[dict[str, Any]], lon: float, lat: float
-) -> dict[str, Any] | None:
-    """The newest project whose outline holds the point (ties: more points)."""
+) -> list[dict[str, Any]]:
+    """Every project whose outline holds the point, newest first by the year in its name. A
+    name without a year (``MN_FullState``, ``..._B22``) ranks after every dated one, since its
+    age is unknown; ties go to the project with more points."""
     covering = [
         f
         for f in features
         if isinstance(f.get("geometry"), dict) and point_in_geojson(lon, lat, f["geometry"])
     ]
-    if not covering:
-        return None
-    return max(
+    return sorted(
         covering,
         key=lambda f: (
             project_year(str(f.get("properties", {}).get("name", ""))) or 0,
             int(f.get("properties", {}).get("count") or 0),
         ),
+        reverse=True,
     )
+
+
+def choose_project(
+    features: Sequence[dict[str, Any]], lon: float, lat: float
+) -> dict[str, Any] | None:
+    """The first of :func:`rank_projects`, or ``None`` when no outline holds the point."""
+    ranked = rank_projects(features, lon, lat)
+    return ranked[0] if ranked else None
 
 
 async def load_index(client: PoliteClient, *, now: float | None = None) -> list[dict[str, Any]]:
@@ -221,6 +233,10 @@ class Building:
     points: int
     distance_m: float  # 0 when the pin is on it
     outline_cells: int
+    # The footprint comes within 1 m of the edge of the area read: it may be cut there, or be a
+    # block of attached roofs that runs to it (EVAL_REPORT 101.5). Cautious: a building that
+    # just fits is flagged too, and attached roofs merged well inside the area are not.
+    reaches_box_edge: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -236,6 +252,9 @@ class LidarSummary:
     building: Building | None
     nodes: int
     bytes: int
+    # Newer projects over the point that had no point in the box, passed over (EVAL_REPORT
+    # 101.5: an index outline can be coarser than the project's data).
+    skipped: tuple[str, ...] = ()
 
 
 def measure(
@@ -286,6 +305,12 @@ def measure(
         label = int(labels[ii[nearest], jj[nearest]])
     mask = labels == label
     footprint = float(mask.sum()) * CELL_M * CELL_M
+    # Within EDGE_CELLS of the box: the closing above treats outside the box as empty, so it
+    # trims the outermost cell of a building that runs past it.
+    m = EDGE_CELLS
+    reaches_edge = bool(
+        mask[:m, :].any() or mask[-m:, :].any() or mask[:, :m].any() or mask[:, -m:].any()
+    )
     edge = mask & ~ndimage.binary_erosion(mask, structure=np.ones((3, 3)), border_value=0)
     on = mask[bi, bj]
     bz = z[is_b][on]
@@ -312,8 +337,12 @@ def measure(
             points=int(bz.size),
             distance_m=distance,
             outline_cells=int(edge.sum()),
+            reaches_box_edge=reaches_edge,
         ),
     )
+
+
+MAX_PROJECTS: Final = 3
 
 
 async def summarize(
@@ -324,11 +353,29 @@ async def summarize(
     *,
     max_nodes: int,
 ) -> LidarSummary | None:
-    """The lidar summary for the point, or ``None`` when no project covers it."""
+    """The lidar summary for the point, from the newest project with points in the box.
+
+    ``None`` when no project covers the point, or when none of the first ``MAX_PROJECTS`` that
+    do has a point in the box (an index outline can be coarser than the data: EVAL_REPORT
+    101.5, the Lincoln Memorial). The projects passed over are listed in ``skipped``."""
     features = await load_index(client)
-    project = choose_project(features, lon, lat)
-    if project is None:
-        return None
+    skipped: list[str] = []
+    for project in rank_projects(features, lon, lat)[:MAX_PROJECTS]:
+        summary = await _read_project(client, project, lon, lat, box_lonlat, max_nodes)
+        if summary.points > 0:
+            return replace(summary, skipped=tuple(skipped))
+        skipped.append(summary.project)
+    return None
+
+
+async def _read_project(
+    client: PoliteClient,
+    project: dict[str, Any],
+    lon: float,
+    lat: float,
+    box_lonlat: tuple[float, float, float, float],
+    max_nodes: int,
+) -> LidarSummary:
     props = project.get("properties", {})
     name = str(props.get("name", ""))
     ept_url = str(props.get("url", ""))

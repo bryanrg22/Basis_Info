@@ -22,7 +22,7 @@ Numbers are never reused. Source of truth: `backEnd/basis/errors/catalogue.py` (
 rendered from it: `uv run python -m basis.errors.catalogue --write`; a test fails while it is
 stale).
 
-348 codes in 26 areas.
+349 codes in 26 areas.
 
 ## API: API: request plumbing (authentication, idempotency, limits, dependencies)
 
@@ -501,4 +501,5 @@ stale).
 | `BASIS-GEO-014` | outcome | the geo worker (`python -m basis.geo`); `basis.geo.gather` | The gather ran every source the registry has for the point; each source's outcome is in `sources`. | The gather's status `succeeded`; `geo.completed` on the timeline. | Nothing. | no |
 | `BASIS-GEO-015` | error | the geo worker (`python -m basis.geo`); `basis.geo.workflow` | The gather step itself failed after its retries (a timeout, a dead worker, an error it did not classify). | The gather's status `failed` with this `code`; `geo.failed` on the timeline; the `geo_incidents` row. | Ask again (`POST .../property/public`). | yes |
 | `BASIS-GEO-016` | outcome | the geo worker (`python -m basis.geo`); `basis.geo.lidar` | The lidar covers the point but has no building-classified points (class 6) near the pin, so no heights or footprint are read; the project and its density are still reported. | `lidar.building` null with this `code`. | Nothing; the project may not classify buildings. | no |
+| `BASIS-GEO-017` | outcome | the geo worker (`python -m basis.geo`); `basis.geo.lidar` | The building under the pin comes within 1 m of the edge of the area read, so its footprint may be cut there or be a block of attached roofs running to it, and its heights may be a neighbour's (EVAL_REPORT 101.5). Cautious: a building that just fits is flagged too; attached roofs merged well inside the area are not. | `lidar.building.reaches_box_edge` true with this `code`. | Measure the building another way (the sketch or a traced outline); do not take this footprint as the building's. | no |
 

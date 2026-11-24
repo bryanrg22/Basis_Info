@@ -436,6 +436,7 @@ class E:
     GEO_COMPLETED = "BASIS-GEO-014"
     GEO_GATHER_FAILED = "BASIS-GEO-015"
     GEO_NO_BUILDING = "BASIS-GEO-016"
+    GEO_LIDAR_FOOTPRINT_UNCERTAIN = "BASIS-GEO-017"
 
 
 def tag(code: str, message: str) -> str:

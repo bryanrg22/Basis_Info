@@ -392,7 +392,12 @@ class Gatherer:
         out["credit"] = lidar.CREDIT
         out["terms_class"] = "public-domain"
         out["terms_url"] = lidar.TERMS_URL
-        out["code"] = None if summary.building is not None else E.GEO_NO_BUILDING
+        if summary.building is None:
+            out["code"] = E.GEO_NO_BUILDING
+        elif summary.building.reaches_box_edge:
+            out["code"] = E.GEO_LIDAR_FOOTPRINT_UNCERTAIN
+        else:
+            out["code"] = None
         return out
 
     async def _site_check(self, row: GatherRow, found: Sequence[parcels.Parcel]) -> None:

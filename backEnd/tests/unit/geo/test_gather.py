@@ -251,6 +251,23 @@ async def test_lidar_outcomes(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -
     assert summary["project"] == "P_2018" and summary["code"] == E.GEO_NO_BUILDING
     assert summary["terms_class"] == "public-domain" and "3DEP" in summary["credit"]
 
+    def building(edge: bool) -> lidar.Building:
+        return lidar.Building(200.0, 8.0, 8.5, 5.0, 100.0, 900, 0.0, 60, reaches_box_edge=edge)
+
+    for edge, code in ((False, None), (True, E.GEO_LIDAR_FOOTPRINT_UNCERTAIN)):
+
+        async def with_building(*_a: Any, _edge: bool = edge, **_k: Any) -> lidar.LidarSummary:
+            return lidar.LidarSummary(
+                "P_2018", 2018, "u", 10, 100.0, 0.1, 9, 10, building(_edge), 1, 5, ("Q_2020",)
+            )
+
+        monkeypatch.setattr(lidar, "summarize", with_building)
+        store, gatherer, gid, _ = setup(tmp_path, servers(), config)
+        await gatherer.run(gid)
+        summary = store.finished[gid]["lidar"]
+        assert summary["code"] == code and summary["building"]["reaches_box_edge"] is edge
+        assert list(summary["skipped"]) == ["Q_2020"]
+
 
 async def test_the_fail_activity_marks_a_running_gather_failed_once(tmp_path: Path) -> None:
     store, gatherer, gid, _ = setup(tmp_path, servers())

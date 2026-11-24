@@ -23531,7 +23531,7 @@
           "eave_m": {
             "type": "number",
             "title": "Eave M",
-            "description": "Median height of the roof's edge points."
+            "description": "The roof's lowest points above the ground (5th percentile): the eaves."
           },
           "ground_elevation_m": {
             "type": "number",
@@ -23545,6 +23545,12 @@
             "type": "number",
             "title": "Distance M",
             "description": "0 when the pin is on the building."
+          },
+          "reaches_box_edge": {
+            "type": "boolean",
+            "title": "Reaches Box Edge",
+            "description": "The building comes within 1 m of the edge of the area read: the footprint may be cut, or be a block of attached roofs. Merges well inside the area are not flagged.",
+            "default": false
           }
         },
         "type": "object",
@@ -23605,7 +23611,15 @@
               }
             ],
             "title": "Code",
-            "description": "`BASIS-GEO-016` when no building points are near the pin."
+            "description": "`BASIS-GEO-016` when no building points are near the pin; `BASIS-GEO-017` when the building reaches the edge of the area read."
+          },
+          "skipped": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Skipped",
+            "description": "Newer projects over the point that had no point around it, passed over."
           },
           "credit": {
             "type": "string",

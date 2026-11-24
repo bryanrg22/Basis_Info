@@ -35,7 +35,7 @@ logged with `BASIS-GEO-004` and never fails the capture.
 | `history` | One view per year, newest first; the current view appears in it as its year's view. |
 | `parcels` | The parcel under the pin (`under_pin: true`) and the same owner's adjacent ones: `parcel_id`, `owner`, `address`, `area_sqft` / `area_acres` (the polygon on the WGS84 ellipsoid), `layer_acres` (the layer's own figure), values, `year_built`, `building_area_sqft`, `stories` (null where the state's layer has none), `geometry` (GeoJSON, lon/lat), `credit`, `terms_class`. |
 | `site_check` | The parcel against the appraisal's site area (`site.area_sqft`), computed when read so a later extraction counts: `status` `agree`, `adjacent_match` (`BASIS-GEO-013`, a note: the owner's adjacent parcels together match), `disagree` (`BASIS-GEO-012`, `flag: true`: show it as a review flag), `no_appraisal`, `no_parcel`; `difference_pct`, the figures compared, `tolerance_pct` (`GEO_SITE_TOLERANCE_PCT`, 5). Null until a gather succeeded. |
-| `lidar` | The federal 3DEP project at the point (`project`, `year`, `points`, `density_per_m2`) and the building under the pin: `footprint_m2` / `footprint_sqft` (the roof's outline as flown, overhangs included), `peak_m` (99th percentile above the ground around it), `max_m`, `eave_m`, `ground_elevation_m`; `building` null with `code` `BASIS-GEO-016` when no building points are near the pin. |
+| `lidar` | The federal 3DEP project at the point (`project`, `year`, `points`, `density_per_m2`) and the building under the pin: `footprint_m2` / `footprint_sqft` (the roof's outline as flown, overhangs included), `peak_m` (99th percentile above the ground around it), `max_m`, `eave_m` (5th percentile: the eaves), `ground_elevation_m`, `reaches_box_edge`; `building` null with `code` `BASIS-GEO-016` when no building points are near the pin; `code` `BASIS-GEO-017` and `reaches_box_edge` true when the building comes within 1 m of the edge of the area read (the footprint may be cut there, or be a block of attached roofs running to it; a building that just fits is flagged too). Attached roofs merged well inside the area are not flagged: treat a lidar footprint as a check on the sketch, never as a measurement (EVAL_REPORT 101.5). `skipped` lists newer projects over the point that had no point there; the next one is read, up to three. Where lidar reads a building alone it reads 1 to 9 % over a traced outline; 4 of 14 public sites gave one (EVAL_REPORT 101.5). |
 
 A public view (`PublicViewOut`):
 
@@ -79,6 +79,7 @@ status and detail).
 | 011 | A lidar tile or the project's metadata could not be read |
 | 015 | The gather step itself failed after its retries: the gather is `failed` |
 | 016 | Lidar covers the point but has no building points near the pin (an outcome) |
+| 017 | The lidar building comes within 1 m of the edge of the area read: cut, or attached roofs (an outcome) |
 
 `GET /v1/ops/geo-incidents` (operators, `OPS_OPERATOR_UIDS`): the incident rows, newest first,
 with the catalogue's meaning of each code.

@@ -95,10 +95,18 @@ class LidarBuildingOut(ResponseModel):
     footprint_sqft: float
     peak_m: float = Field(description="Roof peak above the ground around it (99th percentile).")
     max_m: float = Field(description="The highest building point (a chimney reads here).")
-    eave_m: float = Field(description="Median height of the roof's edge points.")
+    eave_m: float = Field(
+        description="The roof's lowest points above the ground (5th percentile): the eaves."
+    )
     ground_elevation_m: float
     points: int
     distance_m: float = Field(description="0 when the pin is on the building.")
+    reaches_box_edge: bool = Field(
+        default=False,
+        description="The building comes within 1 m of the edge of the area read: the footprint "
+        "may be cut, or be a block of attached roofs. Merges well inside the area are not "
+        "flagged.",
+    )
 
 
 class LidarOut(ResponseModel):
@@ -108,7 +116,12 @@ class LidarOut(ResponseModel):
     density_per_m2: float
     building: LidarBuildingOut | None
     code: str | None = Field(
-        description=f"`{E.GEO_NO_BUILDING}` when no building points are near the pin."
+        description=f"`{E.GEO_NO_BUILDING}` when no building points are near the pin; "
+        f"`{E.GEO_LIDAR_FOOTPRINT_UNCERTAIN}` when the building reaches the edge of the area read."
+    )
+    skipped: list[str] = Field(
+        default_factory=list,
+        description="Newer projects over the point that had no point around it, passed over.",
     )
     credit: str
     terms_class: str

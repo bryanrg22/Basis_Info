@@ -14702,11 +14702,220 @@ sketch leaves out are candidates). What lidar does not give: the garage apart fr
 - Terms: Wisconsin's leaf-off imagery states none (the counties own the source; library copies
   of the metadata restrict it to the program), as do Florida, Texas and Illinois' IDOT years.
   Written answers are needed before relying on them commercially.
-- Only one client property; the ranking, the 5 % tolerance and the lidar method are untested
-  elsewhere on real buildings. The driveway was not re-measured.
+- Only one client property; the ranking and the 5 % tolerance are untested elsewhere on real
+  buildings. The lidar method was tried on 14 public buildings afterwards (101.5). The driveway was not re-measured.
 - The 19 blank entries' coverage is not proven at any point; NAIP Plus, the per-year NAIP and
   Florida were asked from one test point each.
 - The workflow was not run under a real Temporal server (unit-tested activities, API and
   Postgres tests only); no Docker this session.
 - Esri tiles in state plane (Missouri's cached service, Maryland's cache) and New Jersey's 2025
   files are not read.
+
+### 101.5 Lidar on 14 public sites (2026-11-24)
+
+**Question.** Section 101.4 tested the lidar reader on one real building, the client property.
+How does it do on public buildings of known outline, in other states, other lidar projects,
+other sizes and roof shapes?
+
+**Method.**
+
+* *Sites.* 14 public buildings in 9 states and DC (IL, MA, FL, CO, TX, PA, NY, MN, IN, DC),
+  from about 94 m² to 13,449 m², with flat, pitched and pyramidal roofs. The first ten were
+  picked before any lidar was read. Six of them gave no building, so four more (MN, IN, IL, TX)
+  were added to get more footprints to compare. No client property and no client data.
+* *Reference footprint.* The OpenStreetMap building polygon (way or multipolygon), fetched from
+  the Overpass API one query at a time, at least 5 s apart, with a generic User-Agent. Its area
+  is taken on the WGS84 ellipsoid with `basis.geo.geometry.geojson_area_m2` (Karney, the same
+  function the parcel check uses). OSM outlines are traced from imagery by volunteers. They
+  are a check, not ground truth: they may follow the walls or the roof, and they may be shifted
+  about a metre from where the lidar puts the building.
+* *Reader.* `basis.geo.lidar.summarize` unchanged, called the way the gatherer calls it when
+  there is no parcel: an 80 m square around the pin (`LIDAR_NO_PARCEL_HALF_M` = 40),
+  `max_nodes` = 64, and the reader's own `PoliteClient` (1 s per host, 60 s timeout, 3
+  retries). The pin is a point well inside the OSM outline, standing in for a geocoded
+  address. A second call with a parcel-like box (the OSM outline's bounds plus 10 m, which is
+  how the gatherer pads a parcel) was made when the building could reach past the 80 m square.
+  This happened for Independence Hall, the Air and Space Museum, Crown Hall and the Revere
+  House.
+* *Diagnosis.* The LAZ bytes the reader fetched were kept in memory only and decoded a second
+  time. On them, the steps of `lidar.measure` were repeated to get the mask the reader used.
+  The re-derived area equals the reader's footprint to 1e-6 m² on every site with a building.
+  The mask was then compared cell by cell with the OSM outline rasterised on the same 0.5 m grid.
+  To see whether an older or newer project would have done better, `summarize` was also run
+  with the project picked by name (`choose_project` swapped in the script's own process only,
+  not in the repository).
+* *Runs.* Laptop on home broadband, 2026-11-23/24. Each surprising reading was run a second
+  time with the same result: the Revere House merge, Lincoln Memorial's empty project, the Hill
+  House "no building" and the Crown Hall cut. The script was kept outside the repository (it reads only public data;
+  the landmarks' coordinates are public). No point tiles were written to disk.
+
+| Site (state; roof) | Project the reader chose (year it read) | Nodes / MB / s | Points per m² | Lidar footprint, m² (ft²) | OSM footprint, m² (ft²) | Diff | Peak / max / eave, m | Published height | Outcome |
+|---|---|---|---|---|---|---|---|---|---|
+| Lincoln Home, Springfield (IL; pitched) | `USGS_LPC_IL_WestCentral_2017_LAS_2019` (2019) | 17 / 3.7 / 20 | 8.3 | 199.5 (2,147) | 186.3 (2,005) | **+7.1 %** | 10.5 / 11.9 / 4.6 | none found | ok |
+| The Alamo church, San Antonio (TX; flat) | `USGS_LPC_TX_Central_B2_2017_LAS_2019` (2019) | 24 / 4.5 / 28 | 8.7 | 580.3 (6,246) | 541.4 (5,828) | **+7.2 %** | 8.9 / 10.0 / 6.2 | none found | ok |
+| LBJ Presidential Library, Austin (TX; flat) | `USGS_LPC_TX_Central_B1_2017_LAS_2019` (2019) | 14 / 3.0 / 17 | 4.9 | 2,341 (25,198) | 2,150 (23,142) | **+8.9 %** | 29.2 / 29.3 / 26.7 | 10 stories (no metres published) | ok |
+| S. R. Crown Hall, Chicago (IL; flat), 80 m square | `USGS_LPC_IL_4County_Cook_2017_LAS_2019` (2019) | 26 / 5.3 / 29 | 35.1 | 2,234 (24,047) | 2,511 (27,028) | **-11.0 %** | 10.4 / 15.4 / 8.3 | roof 7.3 m above grade (5.5 m above a floor raised 1.8 m) | building cut by the box |
+| the same, outline + 10 m | same | 28 / 5.6 / 31 | 29.6 | 2,544 (27,386) | 2,511 (27,028) | **+1.3 %** (+2.6 % on the published 67 x 37 m) | 10.4 / 15.4 / 8.3 | as above | ok |
+| Paul Revere House, Boston (MA; pitched), 80 m square | `MA_CentralEastern_1_2021` (2021) | 16 / 3.9 / 19 | 8.7 | 2,552 (27,472) | 94.0 (1,012) | **+2,615 %** | 24.7 / 25.3 / 3.2 | none found | wrong building: the block's roofs merged |
+| the same, outline + 10 m | same | 14 / 3.2 / 17 | 8.7 | 345 (3,714) | 94.0 (1,012) | **+267 %** | 24.2 / 25.0 / 3.0 | none found | wrong building: merged, then cut by the box |
+| James J. Hill House, St Paul (MN; pitched) | `MN_FullState` (no year in the name) | 28 / 14.1 / 31 | 8.5 | none | 1,579 (16,997) | | | | no building: class-6 points in 93 fragments |
+| Hemingway Home, Key West (FL; pitched) | `FL_TopobathyFLKeysNOAA_Hydroflattened_2019` (2019) | 22 / 5.8 / 25 | 30.1 | none | 201.7 (2,171) | | | | no building: project has no class 6 |
+| Molly Brown House, Denver (CO; hipped) | `CO_DRCOG_2_2020` (2020) | 20 / 5.5 / 24 | 4.3 | none | 272.8 (2,936) | | | | no building: no class 6 (nor in the 2008 or 2013 projects) |
+| Independence Hall, Philadelphia (PA; pitched) | `USGS_LPC_DE_DelawareValley_HD_2015_LAS_2017` (2017) | 20 / 11.0 / 23 | 16.5 | none | 924.1 (9,947) | | | | no building: no class 6 (same with outline box) |
+| Flatiron Building, New York (NY; flat) | `NY_NewYorkCity` (no year in the name) | 16 / 7.3 / 19 | 3.0 | none | 1,008 (10,848) | | | 86 m (OSM tag); 93.6 m to the top (Wikipedia) | no building: no class 6 |
+| Benjamin Harrison Home, Indianapolis (IN; pitched) | `USGS_LPC_IN_Central_MarionCo_2016_LAS_2018` (2018) | 16 / 7.8 / 18 | 6.9 | none | 361.8 (3,894) | | | | no building: no class 6 (nor in the 2011 project) |
+| Washington Monument (DC; pyramidion) | `USGS_LPC_MD_VA_Sandy_NCR_2014_LAS_2015` (2015) | 23 / 8.6 / 26 | 8.4 | none | 290.2 (3,124) | | (class 1 and 17 points reach 168.9 m) | 169.046 m (NGS 2013-14; OSM 169.294) | no building: the structure is class 17 and 1 |
+| National Air and Space Museum (DC; flat) | same 2015 project | 23 / 11.4 / 26; outline box 37 / 15.0 / 40 | 3.5; 4.2 | none | 13,449 (144,764) | | | 25.3 m (OSM tag) | no building: class 17 and 1 |
+| Lincoln Memorial (DC; flat) | `USGS_LPC_VA_Fairfax_County_2018` (2018) | 11 / 1.4 / 14 | **0.0** | none | 2,145 (23,083) | | (2015 project: class 1 and 17 points reach 31.2 m) | 30 m / 99 ft (Wikipedia) | no building: the chosen project has **no points** at the pin |
+
+Columns. *Project*: the 3DEP project `summarize` picked, and the year `project_year` read from
+its name (it takes the largest four-digit number, which in `..._2017_LAS_2019` is 2019; the
+2017 is probably the flight year, but that naming rule is not verified). *Nodes / MB / s*: the
+octree nodes read, the LAZ megabytes downloaded, and the seconds for the whole `summarize`
+call. At 1 s between requests to one host, the time is about one second per request.
+*Points per m²*: every return in the query box divided by the box's ground area. *Lidar
+footprint*: `building.footprint_m2`. *OSM footprint*: the polygon's area on the ellipsoid.
+*Diff*: (lidar - OSM) / OSM. *Peak / max / eave*: the 99th percentile, the highest point and
+the 5th percentile of the building's points, in metres above the median ground in a ring 2 to
+15 m around the footprint. For rows with no building, the bracketed heights are the 99th
+percentile or maximum of the points inside the OSM outline, above the median ground of the
+whole box. The reader does not report those.
+
+**Summary.**
+
+* **The footprint was read on 5 of 14 sites, and it was the right building on 4.** On those 4
+  the gap to OSM is +7.1, +7.2, +8.9 and -11.0 %, median +7.2 %. With Crown Hall's parcel-like
+  box the four read +1.3 to +8.9 %, and the median is the same.
+* **On the 4 right buildings the lidar outline sits outside the OSM outline.** The lidar cells
+  outside the OSM outline lie mostly within 1.5 m of it: 24 of 30 m² (Lincoln Home), 56 of 56
+  m² (Alamo), 173 of 184 m² (LBJ) and 75 of 94 m² (Crown Hall). That is an outward band, which
+  is what a roof edge or overhang outside traced walls looks like. It is not a second building.
+* **Worst case: wrong building, +2,615 %.** The Paul Revere House roof joins its neighbours'
+  roofs. The 3 x 3 closing bridged the gaps of a metre or less, and the reader returned the
+  whole connected block, 2,552 m² against 94 m² (overlap with the OSM house 93.75 m²).
+  The parcel-like box only cut that block smaller (345 m²). Its peak, 24.7 m, belongs to a
+  taller neighbour: the class-6 points inside the OSM house reach only 16.7 m (99th
+  percentile).
+* **9 of 14 gave no building.** At 8 of them the chosen project has no ASPRS class 6 near
+  the pin. At one of those, Lincoln Memorial, it has no points at all. Hill House has class 6
+  points, but the reader found no building (see below).
+* No project failed to cover a pin, and there were no timeouts and no HTTP errors. Each
+  `summarize` call read 7 to 37 nodes and 1.1 to 15.0 MB in 11 to 40 s.
+
+**Each gap explained (verified / suspected).**
+
+* *Lincoln Home +7.1 %.* Verified: 24 m² of the 30 m² extra lies within 1.5 m of the OSM
+  outline. The best whole-cell shift of the OSM outline (1.0 m south) raises the overlap from
+  169.5 to 183.5 of 186.8 m². So the OSM tracing is offset about 1 m, and the rest is an outward
+  band. Suspected, not verified: the band is the eaves of the pitched roof (no published
+  overhang was found).
+* *Alamo +7.2 %.* Verified: 55.5 of the 56 m² extra is within 1.5 m. A 1.1 m shift raises the
+  overlap from 524 to 539 m². Not explained: whether the church has any roof projection. The
+  roof is flat behind the facade, and the +7 % is larger than the +2 % that the synthetic tests
+  of 101.4 give at this density (8.7 points per m²).
+* *LBJ Library +8.9 %.* Verified: no OSM cell is missing, no shift helps, and 173 of the 184 m²
+  extra is within 1.5 m. The flat roof reads alike at peak and eave (29.2 and 26.7 m), as the
+  module says a flat roof should. Suspected: the upper storeys project past the outline OSM
+  traced. The Wikipedia article gives no dimensions to check this.
+* *Crown Hall -11.0 % in the 80 m square.* Verified as a cut by the box. The pin (a point well
+  inside the outline) is about 15 m east of the building's centre, so the 67 m long building
+  reaches past the box's west edge (OSM cells inside the box: 2,168 of 2,511 m²). The mask runs
+  to within 2 cells of the box edge. With the outline + 10 m box the result is +1.3 % against
+  OSM and +2.6 % against the published 67 x 37 m. Height: the roof surface reads 8.3 m (eave
+  percentile) against a published 7.3 m to the roof, and the peak (10.4 m) and maximum (15.4 m)
+  are the plate girders and the structure above the roof. That the 1 m difference is roof deck
+  and parapet is suspected.
+* *Washington Monument, Air and Space, Lincoln Memorial (2015 project).* Verified: the project
+  labels these structures class 17 (the ASPRS code for a bridge deck) and class 1, never 6. The
+  class 17 and class 1 points inside the Monument's outline reach 168.9 m above the box's ground,
+  against a published 169.046 m, so the height is in the data but the reader cannot see it.
+  Suspected: the producer used 17 for elevated structures in general. The project's metadata
+  was not read.
+* *Hemingway, Molly Brown, Independence Hall, Flatiron, Harrison.* Verified: the class counts in
+  the box contain no class 6, only 1 (unclassified), 2 (ground), 7, 17 and 18 (noise), and 11 or
+  12 in the older projects. For Molly Brown and Harrison, the older projects over the same pin
+  (CO 2008 and 2013, IN 2011) were also read and have no class 6 either, so the choice of
+  project is not the cause there.
+
+**Defects found (reproducing site and numbers; what changed follows).**
+
+1. **The chosen project can have no points at the pin, and the reader then reports "no
+   building", not "no lidar", and does not try another project.** Lincoln Memorial (pin
+   -77.050175, 38.889181): the index outlines of `USGS_LPC_VA_Fairfax_County_2018` and
+   `VA_NorthernVA_1_B22` both hold the pin. `summarize` picks the 2018 one, reads 11 nodes and
+   1.4 MB, and gets 0 points in the box. The `VA_NorthernVA_1_B22` project also has 0 points
+   (7 nodes). `USGS_LPC_MD_VA_Sandy_NCR_2014_LAS_2015` has 31,651 points (4.9 per m²) there.
+   The gatherer records `GEO_NO_BUILDING`, because the summary is not `None`. Re-run: identical.
+   Suspected cause: the project outlines in `resources.geojson` are coarser than the data.
+2. **Project names without a four-digit year rank as year 0.** `project_year` reads `None` for
+   `MN_FullState`, `NY_NewYorkCity`, `VA_NorthernVA_1_B22` and `MN_CentralMissRiver_5_B22`. At
+   Hill House both covering projects are undated, so the tie goes to the larger point count,
+   `MN_FullState`, a statewide project. The other one, `MN_CentralMissRiver_5_B22` (24.4 points
+   per m²), is probably newer; that `B22` means 2022 is not verified. A dated 2015 project would
+   outrank both. In this sample the B22 projects had no class 6 or no points, so the outcome did
+   not change, but the ranking is not what the docstring states ("the newest project").
+3. **Attached or near-touching buildings merge into one footprint.** Paul Revere House: +2,615 %
+   in the 80 m box and +267 % in the outline box, with the peak height of a neighbour. Nothing in
+   the summary flags it. The footprint is 27 times the OSM outline and still reads "ok".
+4. **The no-parcel box (80 m) cuts buildings that reach past it, with no flag.** Crown Hall:
+   -11.0 % against +1.3 % with a padded box. This matters only when there is no parcel. A
+   building wider than about 80 m minus twice the pin's distance from its centre is cut. Nothing
+   in `LidarSummary` says the mask reached the box edge.
+5. **Sparse or striped class-6 points fall apart, and a fragment can be taken as the
+   building.** Hill House with `MN_FullState` (8.5 points per m² overall, but 2,956 class-6
+   points over 1,579 m², 1.9 per m²): after the 3 x 3 closing the building is 93 components.
+   The pin's cell is in none of them, and the nearest component is 0.75 m² at 1.8 m. That
+   fragment was rejected only because it has no ground points 2 to 15 m away: it sits inside
+   the house. Had it passed, the reader would have returned a footprint of 0.75 m². That last
+   step is inferred from the code, not observed. That the points come in scan-line stripes is
+   suspected and was not measured. The synthetic tests of 101.4 use uniformly random points.
+
+**What lidar gave and did not give here.** Where class 6 exists and the building stands alone,
+the footprint reads 1 to 9 % over the OSM outline, mostly as a band within 1.5 m of it. That
+fits 101.4's observation that the outline is the roof, not the walls, but on these sites the
+overhang is suspected, not measured. Only 4 of 14 public buildings gave a usable footprint,
+because class 6 is often missing: 8 of the 14 sites were in projects with no class 6 near the
+pin. Coverage by a 3DEP project does not mean a footprint.
+
+**Not verified.**
+
+* The OSM outlines' accuracy. Only Crown Hall has published dimensions, and it agrees with OSM
+  to 1.3 %. The roof overhangs of Lincoln Home, the Alamo and LBJ were not measured.
+* Published heights could be checked on only two rows that gave a building (Crown Hall
+  roughly; LBJ only as 10 stories). The Monument's 168.9 m is from the points, not from the
+  reader.
+* What `B22` and the 2015 project's class 17 mean in the producers' metadata.
+* One run per site and project, plus one repeat of each surprising reading. No parcel boxes from
+  a real parcel layer: the padded OSM bounds stand in for them.
+
+**What changed after this run, and the re-check.** The reader was changed in the same branch,
+then run again at three of the sites on the final code (same machine, 2026-11-24, the 80 m
+no-parcel box):
+
+1. *Empty project passed over (defect 1, fixed).* `summarize` reads the covering projects in
+   rank order and passes over one with no point in the box, up to three (`MAX_PROJECTS`); the
+   ones passed over are listed in `skipped`. When all three are empty the gather records no
+   lidar (`BASIS-GEO-010`), not "no building".
+2. *Undated names (defect 2, documented, ranking unchanged).* A name without a year ranks after
+   every dated one: its age is unknown, and reading `B22` as 2022 is not verified. With (1), an
+   empty undated project no longer ends the search.
+3. *Cut or joined footprints (defects 3 and 4, flagged, not solved).* `building.reaches_box_edge`
+   is true, with `BASIS-GEO-017`, when the footprint comes within 1 m (2 cells) of the box. Two
+   cells because the 3 x 3 closing treats outside the box as empty and trims the outermost cell
+   of a building that runs past it: the first version, checking only the outermost cell, missed
+   the unit test's cut building, and the helper saw Crown Hall's mask stop 2 cells short.
+4. *Sparse fragments (defect 5).* Not changed; open.
+
+| Site, pin | Project read (passed over) | Points | Footprint, m² | Flag (017) | What it shows |
+|---|---|---|---|---|---|
+| Lincoln Memorial | 2015 Sandy NCR (passed over: Fairfax County 2018) | 31,656 | none | | (1) works: the empty 2018 project is passed over. Still no building: this project labels the structure class 17 and 1, not 6 |
+| Crown Hall, pin about 15 m east of centre | Cook County 2017 | 251,433 | 2,015 (OSM 2,511: -20 %) | yes | the cut is flagged |
+| Crown Hall, near centre | Cook County 2017 | 228,219 | 2,540 (+1.2 %) | yes | a false alarm: the 67 m building fits the 80 m box with about a metre to spare. Cautious by design |
+| Paul Revere House, a point by the house (3.3 m off its roof) | MA Central Eastern 2021 | 55,916 | 1,118 (OSM house 94) | yes | the joined block runs to the box and is flagged here; a block that stayed inside would not be |
+
+**What this means for the product.** A lidar footprint is a check on the sketch, never a
+measurement: it read a usable building on 4 of 14 public sites, 1 to 9 % over the traced
+outline where it did, and attached roofs merge. The heights are read only from class 6, so
+projects that label buildings otherwise (17, 1) give none even where the points reach the true
+height (the Washington Monument). Not changed and open: reading other classes for heights, a
+merge check against the parcel or the appraisal's living area, and the sparse fragments.

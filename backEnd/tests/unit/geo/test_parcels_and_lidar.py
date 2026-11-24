@@ -244,6 +244,29 @@ def test_the_newest_project_holding_the_point_is_chosen() -> None:
     assert lidar.project_year("NoYear") is None
 
 
+def test_undated_projects_rank_after_dated_ones_and_ties_go_to_more_points() -> None:
+    def proj(name: str, count: int) -> dict[str, Any]:
+        return {
+            "properties": {"name": name, "count": count},
+            "geometry": rect(LON - 0.1, LAT - 0.1, 30_000, 30_000),
+        }
+
+    # EVAL_REPORT 101.5: MN_FullState and the *_B22 projects carry no year in their name.
+    feats = [proj("MN_FullState", 900), proj("XX_2015", 1), proj("YY_B22", 50), proj("ZZ_2015", 7)]
+    names = [f["properties"]["name"] for f in lidar.rank_projects(feats, LON, LAT)]
+    assert names == ["ZZ_2015", "XX_2015", "MN_FullState", "YY_B22"]
+    assert lidar.rank_projects(feats, LON + 20, LAT) == []
+
+
+def test_a_building_cut_by_the_box_is_flagged() -> None:
+    # The 10 x 20 m building runs 10 m north and south of the pin: an 8 m half-box cuts it.
+    _, _, whole = lidar.measure(synthetic_points(), LON, LAT, box_m(40))
+    _, _, cut = lidar.measure(synthetic_points(), LON, LAT, box_m(8))
+    assert whole is not None and not whole.reaches_box_edge
+    assert cut is not None and cut.reaches_box_edge
+    assert cut.footprint_m2 < whole.footprint_m2
+
+
 def laz(points: lidar.Points) -> bytes:
     import laspy
 
@@ -342,3 +365,48 @@ async def test_lidar_failures() -> None:
     with pytest.raises(SourceError):
         await lidar.load_index(bad.client())
     lidar._index_cache.clear()
+
+
+def _ept_project(
+    router: Router, name: str, points: lidar.Points, root: list[float]
+) -> dict[str, Any]:
+    router.on(
+        f"/{name}/ept.json", {"bounds": root, "srs": {"horizontal": "3857"}, "dataType": "laszip"}
+    )
+    router.on(f"/{name}/ept-hierarchy/0-0-0-0.json", {"0-0-0-0": 10})
+    router.on(f"/{name}/ept-data/0-0-0-0.laz", httpx.Response(200, content=laz(points)))
+    return {
+        "properties": {"name": name, "count": 9, "url": f"https://lidar.test/{name}/ept.json"},
+        "geometry": rect(LON - 0.1, LAT - 0.1, 30_000, 30_000),
+    }
+
+
+async def test_a_project_with_no_point_at_the_pin_is_passed_over() -> None:
+    # EVAL_REPORT 101.5, the Lincoln Memorial: the newest project's index outline holds the pin
+    # but its data has no point there; the next project's has.
+    lidar._index_cache.clear()
+    cx, cy = to_mercator(LON, LAT)
+    root = [cx - 2000, cy - 2000, 0, cx + 2000, cy + 2000, 4000]
+    pts = synthetic_points()
+    away = lidar.Points(pts.x + 1000 / 0.72, pts.y, pts.z, pts.cls)  # 1 km east, out of the box
+    router = Router()
+    empty_a = _ept_project(router, "AA_Empty_2022", away, root)
+    empty_b = _ept_project(router, "BB_Empty_2020", away, root)
+    full = _ept_project(router, "CC_Full_2015", pts, root)
+    router.on(
+        "resources.geojson", {"type": "FeatureCollection", "features": [full, empty_b, empty_a]}
+    )
+    box = lidar.box_around(LON, LAT, 40)
+    summary = await lidar.summarize(router.client(), LON, LAT, box, max_nodes=8)
+    assert summary is not None and summary.project == "CC_Full_2015"
+    assert summary.skipped == ("AA_Empty_2022", "BB_Empty_2020")
+    assert summary.building is not None and summary.points > 0
+
+    # Three empty projects: no lidar, and a fourth is never read.
+    lidar._index_cache.clear()
+    router = Router()
+    feats = [_ept_project(router, f"P{i}_Empty_202{i}", away, root) for i in range(3)]
+    feats.append(_ept_project(router, "P9_Full_2010", pts, root))
+    router.on("resources.geojson", {"type": "FeatureCollection", "features": feats})
+    assert await lidar.summarize(router.client(), LON, LAT, box, max_nodes=8) is None
+    assert not any("P9_Full_2010" in str(r.url) for r in router.requests)
