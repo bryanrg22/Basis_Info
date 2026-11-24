@@ -7,6 +7,14 @@ no build step.
 | --- | --- | --- |
 | Landing | `index.html` | The product story, section by section, each with a working figure |
 | Sign in | `signin.html` | The public sign-in page. Its buttons do not sign anyone in yet; they point visitors to the demo page. The team's real sign-in is the app (`web/index.html?mode=live#login`), which no public page links to |
+
+On a phone the product is not offered (2026-11-23): the landing page and the demo form work, the
+sign-in page shows a note to sign in on a computer instead of its form, and the app
+(`web/index.html`) sends every product link to that page before any of its scripts run.
+`src/phone.js` decides: a touch-first device (MDN's test: `navigator.maxTouchPoints`, then
+`pointer: coarse`) whose screen is under 600 CSS px on its short side. Phones are 320 to 440 px
+either way up; tablets start at 744 (iPad mini), and a narrow desktop window or a touchscreen
+laptop is never sent away. The rule's cases are in `web/tests/phone-gate.test.cjs`.
 | Book a demo | `demo.html` | The demo request form; it posts to the Basis API (`POST /v1/demo-requests`, `docs/api/DEMO_REQUESTS.md`) at the address in the page's `basis-api` meta tag |
 
 ## Layout
@@ -18,6 +26,7 @@ src/
   entry.css      the sign-in and demo pages
   paper.js       the landing page's entry module (imports the figures below)
   entry.js       the entry pages' forms (imports terminal.js and overview.js)
+  phone.js       the phone check: sets html[data-device=phone]; the app's entry script uses it too
   record.js, rooms.js, kitchen.js, trust.js, sign.js, reveal.js, connect.js, scroll.js
                  one module per figure or behaviour; each file's header says what it shows
   terminal.js, overview.js

@@ -22,7 +22,7 @@ Numbers are never reused. Source of truth: `backEnd/basis/errors/catalogue.py` (
 rendered from it: `uv run python -m basis.errors.catalogue --write`; a test fails while it is
 stale).
 
-328 codes in 25 areas.
+329 codes in 25 areas.
 
 ## API: API: request plumbing (authentication, idempotency, limits, dependencies)
 
@@ -361,6 +361,7 @@ stale).
 | `BASIS-CHECK-028` | flag | extract_fields; `basis.extraction.pipeline` | Azure Document Intelligence refused the PDF; only the text layer was read. | issue `azure_di_rejected`. (reason `azure_di_rejected`) | Check the values; a clean PDF may read better. | no |
 | `BASIS-CHECK-029` | flag | extract_fields; `basis.extraction.mismo36` | A UAD 3.6 XML value is not printed where its caption is on the report PDF. | issue `xml_pdf_mismatch:<keys>` (warning). (reason `xml_pdf_mismatch`) | Check the XML against the PDF. | no |
 | `BASIS-CHECK-030` | flag | extract_fields; `basis.activities.appraisal_sources` | A bare XML with no report PDF: no regions, no study corpus. | issue `no_report_pdf` (warning). (reason `no_report_pdf`) | Upload the report PDF as another appraisal document. | no |
+| `BASIS-CHECK-031` | flag | extract_fields; `basis.extraction.validation` | The living area on the appraisal's sketch and the gross living area box differ by more than the tolerance (`TAKEOFF_SKETCH_GLA_TOLERANCE`, read only with `TAKEOFF_SKETCH=on`). One of them is wrong, and the takeoff does not use the sketch until they agree. | issue `gla_vs_sketch`. (reason `gla_vs_sketch`) | Correct the gross living area if the sketch is right, or the sketch's living area if the box is. | no |
 | `BASIS-CHECK-040` | flag | analyze_photo; `basis.vision.analyze` | The model could not tell the room or found nothing usable. | photo `review_reason` `ambiguous`; the photo is in `flagged_photos`. (reason `ambiguous`) | Assign the room and add components by hand. | no |
 | `BASIS-CHECK-041` | flag | analyze_photo; `basis.vision.analyze` | The room identity is below the confidence floor. | `low_room_confidence:<c>`. (reason `low_room_confidence:`) | Confirm the room. | no |
 | `BASIS-CHECK-042` | flag | analyze_photo; `basis.vision.analyze` | The model's answer stayed invalid after one retry; the photo got an `ambiguous` analysis. | `invalid_model_output[:calls]`. (reason `invalid_model_output`) | Re-analyze the photo (a `photo` correction) or add by hand. | no |

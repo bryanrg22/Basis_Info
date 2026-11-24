@@ -84,6 +84,11 @@
 .entry-note a{color:var(--accent);font-weight:600;text-underline-offset:3px}
 .notice{padding:14px 16px;border-radius:10px;background:#eef4ec;border:1px solid #c9dccb;font-size:15px;line-height:1.55;color:var(--ink)}
 .notice a{color:var(--accent);font-weight:600}
+/* On a phone (src/phone.js sets html[data-device=phone]) the sign-in form gives way to a note:
+   the product runs on a computer for now; the demo link stays. */
+.phone-note{display:none;margin-top:30px;gap:18px}
+html[data-device=phone] .phone-note{display:grid}
+html[data-device=phone] .entry-form [data-signin],html[data-device=phone] .entry-form>.sub{display:none}
 .done{display:grid;gap:14px}
 .done .tick{width:44px;height:44px;border-radius:50%;display:grid;place-items:center;background:#e3ebe2;color:var(--accent)}
 .done h1{margin-top:4px}
