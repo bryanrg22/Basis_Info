@@ -238,3 +238,91 @@ def test_the_public_table_prints_changes_and_never_a_quantity() -> None:
 def test_pct_change() -> None:
     assert st.pct_change("110", "100") == "+10.0 %"
     assert st.pct_change(None, "100") == "-" and st.pct_change("1", "0") == "-"
+
+
+# ------------------------------------------------------------------ the outline reader's perimeters
+
+
+def _two_blocks_pdf(tmp_path: Path) -> tuple[Path, Any]:
+    """A fabricated house (40 x 25 ft, 1,000 SF) with a second floor in two blocks drawn on
+    separate pages, and the table's reading."""
+    import sys
+
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "extraction"))
+    from sketch_pdf import SketchPage, build, rectangle
+
+    from basis.extraction.pdf_text import read_pdf
+    from basis.extraction.sketch import read_document_sketch
+
+    ground = SketchPage().walls(rectangle(0, 0, 40, 25)).walls(rectangle(40, 0, 20, 20))
+    ground.section("Living Area").row("First Floor", "1000 Sq ft", "40 x 25 = 1000")
+    ground.section("Non-living Area").row("2 Car Attached", "400 Sq ft", "20 x 20 = 400")
+    main = SketchPage(scale=8.0).walls(rectangle(0, 0, 30, 20))
+    main.section("Living Area").row("Second Floor", "600 Sq ft", "30 x 20 = 600")
+    bonus = SketchPage(scale=9.0).walls(rectangle(0, 0, 20, 12))
+    bonus.section("Living Area").row("Second Floor", "240 Sq ft", "20 x 12 = 240")
+    data = build(ground, main, bonus)
+    path = tmp_path / "sketch.pdf"
+    path.write_bytes(data)
+    reading = read_document_sketch(None, read_pdf(data).pages)
+    assert reading is not None
+    return path, reading
+
+
+def test_the_reader_s_perimeters_are_written_as_the_extraction_writes_them(
+    tmp_path: Path,
+) -> None:
+    path, reading = _two_blocks_pdf(tmp_path)
+    fields, trace = st.read_outline_fields(reading, path)
+    assert [(f["section"], f["field"], f["value_num"], f["source"], f["page"]) for f in fields] == [
+        ("sketch", "ground_perimeter_ft", "170.0", "drawing", 1),
+        ("sketch", "upper_perimeter_ft", "164.0", "drawing", 2),
+    ]
+    assert trace["status"] == "read" and trace["upper"]["separate_pages"] is True
+
+    # The other two ways the separate pages could have been combined, for the side-by-side.
+    variants = st.outline_variants(fields, trace)
+    assert list(variants) == [st.GROUND_ONLY, st.UPPER_SHARED]
+    assert [f["field"] for f in variants[st.GROUND_ONLY]] == ["ground_perimeter_ft"]
+    shared = {f["field"]: f["value_num"] for f in variants[st.UPPER_SHARED]}
+    assert shared == {"ground_perimeter_ft": "170.0", "upper_perimeter_ft": "124.0"}  # 164 - 2 x 20
+    assert fields[1]["value_num"] == "164.0"  # the reader's own fields are not touched
+
+    # A floor on one page leaves nothing to compare.
+    assert st.outline_variants(fields, {**trace, "upper": {"separate_pages": False}}) == {}
+    assert st.outline_variants(fields[:1], {"ground": trace["ground"]}) == {}
+
+
+def test_the_reader_s_setups_follow_the_outline_setup() -> None:
+    full = st.setups(D("0.01"), outline=True, read=True, variants=[st.GROUND_ONLY, st.UPPER_SHARED])
+    assert [s.name for s in full[5:]] == [
+        st.OUTLINE_SETUP,
+        "GLA corrected, sketch on, ground outline only",
+        "GLA corrected, sketch on, upper blocks sharing a wall",
+    ]
+    assert "read from the PDF's line work by the outline reader" in full[5].what
+    assert "not produced by the reader" in st.setups(D("0.01"), outline=True)[5].what
+    assert [s.variant for s in full[5:]] == [None, st.GROUND_ONLY, st.UPPER_SHARED]
+    assert all(s.gla_corrected and s.tolerance == D("0.01") for s in full[5:])
+
+
+def test_a_variant_s_fields_take_the_place_of_the_outline_s(tmp_path: Path) -> None:
+    path, reading = _two_blocks_pdf(tmp_path)
+    fields, trace = st.read_outline_fields(reading, path)
+    variants = st.outline_variants(fields, trace)
+    table = st.field_dicts(reading)
+    document = _export()
+    for f in document["extraction"][0]["fields"]:
+        if (f["section"], f["field"]) == ("improvements", "stories"):
+            f["value_num"] = f["value_text"] = "2"
+
+    def siding(added: list[dict[str, Any]]) -> D:
+        prepared = st.with_fields(document, [*table, *added], gla=D(1840))
+        read = measurements_from_fields(field_rows(prepared), sketch_tolerance=D("0.01"))
+        return D(st.geometry(read)["siding_sf"] or "0")
+
+    walls = D(9) * D("0.85")
+    assert siding(fields) == ((170 + 164) * walls).quantize(D("0.01"))
+    assert siding(variants[st.UPPER_SHARED]) == ((170 + 124) * walls).quantize(D("0.01"))
+    assert siding(variants[st.GROUND_ONLY]) < siding(variants[st.UPPER_SHARED])  # a rectangle
+    assert siding([]) < siding(variants[st.GROUND_ONLY])  # both rectangles

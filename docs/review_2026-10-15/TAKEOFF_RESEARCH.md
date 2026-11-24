@@ -227,8 +227,9 @@ stories + 480 garage + 180.6 x 1 ft overhang) x 1.118 (6/12 pitch)".
   dimensions; a reader would replace 3.1 and 3.2 with measured values. **Partly done
   (2026-11-23, `SKETCH_READER.md`, EVAL_REPORT 96, behind `TAKEOFF_SKETCH`, default off):** the
   sketch's area table gives the ground floor (3.2's footprint), the garage (3.6) and a
-  dimensioned patio (3.8). Still derived: the perimeter (the table's text does not carry the
-  outline; the drawing's line work does, and is not read yet) and every room's area (3.1).
+  dimensioned patio (3.8). The perimeter (3.2) is read from the drawing's line work when the
+  PDF has any (`SKETCH_READER.md` section 6, EVAL_REPORT 100, behind `TAKEOFF_SKETCH_OUTLINE`,
+  default off); an image sketch leaves it derived. Still derived: every room's area (3.1).
 * Aerial or site-plan measurement for 3.8.
 * The RSMeans city cost index by ZIP and the historical cost index by year (EVAL_REPORT
   27.7).

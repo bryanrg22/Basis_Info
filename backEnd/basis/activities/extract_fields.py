@@ -264,6 +264,7 @@ class ExtractFields:
             method=settings.extraction_method,
             sketch=settings.takeoff_sketch == "on",
             sketch_gla_tolerance=Decimal(str(settings.takeoff_sketch_gla_tolerance)),
+            sketch_outline=settings.sketch_outline,
             grounded=GroundedModel(
                 model=settings.extraction_grounded_model,
                 reasoning_effort=settings.extraction_grounded_reasoning_effort,
