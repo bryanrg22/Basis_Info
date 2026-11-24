@@ -667,6 +667,33 @@ class Settings(BaseSettings):
     capture_viewer_origin: str = Field(
         default="https://earth.google.com", pattern=r"^https?://[^/\s]+$"
     )
+    # Public geographic sources (docs/api/PUBLIC_GEO.md, PROPERTY_CAPTURE.md section 10,
+    # EVAL_REPORT section 101): a worker of its own (`python -m basis.geo`) gathers government
+    # imagery (the best current view and one per year), the state's open parcel layer and the
+    # federal lidar around the pin. PUBLIC_GEO: the API takes gathers and the capture route
+    # starts one beside each capture (false, the default: 409 geo-off). GEO_TASK_QUEUE: its own
+    # task queue. GEO_EXTENT_M (160): the side of the square every public view covers on the
+    # ground (it holds a lot of a few acres and its street, with room for a misplaced pin).
+    # GEO_MAX_IMAGE_PX (2048): a view's pixels a side at most, so a
+    # 3-inch source over 160 m is kept at 7.8 cm (2,048 px, about 1 MB as JPEG). GEO_HOST_INTERVAL_S
+    # (1.0): the least time between two requests to one host; GEO_REQUEST_TIMEOUT_S (60) and
+    # GEO_RETRIES (3) bound one request (section 101: the slowest source answered in 22 s).
+    # GEO_HISTORY (true): fetch one view per year too. GEO_LIDAR (true) and GEO_LIDAR_MAX_NODES
+    # (64; 14 in the measured gather). GEO_SITE_TOLERANCE_PCT (5): the parcel and the appraisal's
+    # site area agree within this (section 101). GEO_RECENT_HOURS (12): a pin gathered this
+    # recently is not gathered again unless asked.
+    public_geo: bool = False
+    geo_task_queue: str = "basis-geo"
+    geo_extent_m: float = Field(default=160.0, ge=20, le=1000)
+    geo_max_image_px: int = Field(default=2048, ge=256, le=4096)
+    geo_host_interval_s: float = Field(default=1.0, ge=0.2, le=60)
+    geo_request_timeout_s: float = Field(default=60.0, gt=0, le=600)
+    geo_retries: int = Field(default=3, ge=0, le=10)
+    geo_history: bool = True
+    geo_lidar: bool = True
+    geo_lidar_max_nodes: int = Field(default=64, ge=1, le=1000)
+    geo_site_tolerance_pct: float = Field(default=5.0, gt=0, le=100)
+    geo_recent_hours: float = Field(default=12.0, ge=0, le=720)
 
     @property
     def vision_output_budget(self) -> int:
@@ -765,6 +792,7 @@ class Settings(BaseSettings):
         "capture_profile_dir",
         "capture_tesseract",
         "capture_viewer_origin",
+        "geo_task_queue",
         mode="before",
     )
     @classmethod

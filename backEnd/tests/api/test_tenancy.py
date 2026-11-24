@@ -107,6 +107,10 @@ BODIES: Final[dict[str, Any]] = {
         "lat": 41.61,
         "lon": -93.60,
     },
+    # public geographic sources (tests/api/test_public_geo.py, docs/api/PUBLIC_GEO.md)
+    "GET /v1/studies/{study_id}/property/public": None,
+    "POST /v1/studies/{study_id}/property/public": None,
+    "GET /v1/studies/{study_id}/property/public/views/{view_id}/image": None,
     "POST /v1/studies/{study_id}/property/captures": None,
     "GET /v1/studies/{study_id}/property/captures": None,
     "GET /v1/studies/{study_id}/property/captures/{capture_id}": None,

@@ -54,12 +54,22 @@ dev = [
     "schemathesis>=4.33.1",
     "testcontainers[postgres]>=4.15.0",
     {include-group = "capture"},
+    {include-group = "geo"},
 ]
 # The property-capture worker (python -m basis.capture; EVAL_REPORT 98): Playwright 1.64.1,
 # the release whose Chromium build (1248) the capture was measured on. Neither the API nor the
 # study worker imports it. Its browser is installed separately (playwright install chromium).
 capture = [
     "playwright==1.64.1",
+]
+# The public geographic sources worker (python -m basis.geo; EVAL_REPORT 101): laspy and lazrs
+# read the federal lidar's LAZ point tiles (no pure-Python LAZ decoder exists), geographiclib
+# measures parcel polygons on the ellipsoid (Karney 2013, the algorithm behind PROJ's geod).
+# Neither the API nor the study worker imports them.
+geo = [
+    "geographiclib==2.1",
+    "laspy[lazrs]==2.7.0",
+    "lazrs==0.8.2",
 ]
 # Load testing (tooling/load, docs/perf/LOAD_TESTING.md): uv sync --group load
 load = [

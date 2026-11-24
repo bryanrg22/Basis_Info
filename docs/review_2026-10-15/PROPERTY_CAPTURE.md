@@ -264,3 +264,35 @@ These are needs for Bryan's design, not a screen. The API side is FRONTEND_BACKL
    It is built behind `CAPTURE_STREET_VIEW` (off) and records `BASIS-CAPTURE-020` with its
    evidence when tried. Making it work would mean presenting the browser as something it is
    not; that is Bryan's decision (section 6 of EVAL_REPORT 99).
+
+## 10. Public sources: government imagery, history, parcels and lidar (EVAL_REPORT 101)
+
+Built on branch `claude/public-geo-sources` (API: `docs/api/PUBLIC_GEO.md`; code: `basis/geo/`).
+Behind `PUBLIC_GEO` (default off). A worker of its own (`python -m basis.geo`) gathers, around
+the pin's point: the best public top-down image, one image per year for history, the parcel
+under the pin with the owner's adjacent ones, and the lidar heights and roof outline. Each is
+stored with its source, credit, terms class and georeference. `POST .../property/captures`
+also queues a gather (the capture's starter is wrapped in `app.py`; the capture route and
+workflow are untouched), and `POST .../property/public` asks for one directly.
+
+**Why its own workflow and tables.** The capture workflow belongs to the capture work, and a
+public view is not a camera view: it has a Mercator box, a credit and terms, and no range,
+tilt or field of view. Faking a camera would mislead, so public views live in `geo_views`
+(migration 0038) with the same measuring rule (centre, `pixel_size_m`, north up) plus the exact
+box.
+
+**When each source is preferred.**
+
+| Need | Preferred | Why |
+|---|---|---|
+| Measure paving, walks, fence | The state's 15 cm or finer image, leaf-off within four years of the newest | Section 101: edges 2.5 times sharper than the Google view on the test property; free to store and trace where the terms allow |
+| The same where no state serves one | The property pictures' close view (section 3) for looking; an uploaded site plan or survey for measuring | NAIP at 60 cm makes a driveway a blur |
+| What existed on a date | The public series (state years first, then NAIP) | One view per year, dated by the source; NAIP only shows presence, not dimensions |
+| Lot area, owner's adjacent parcels | The state's open parcel layer (CT, FL, MA, MD, MN, NC, NJ, OH, WI in the registry) | Area on the ellipsoid and the layer's own acres, checked against the appraisal |
+| Year built, building area | The parcel layer where it has them (CT, FL, MA, MD, MN, NC, NJ) | A second source beside the appraisal |
+| Height, roof outline | Federal 3DEP lidar | Public domain; the outline is the roof as flown, overhangs included |
+
+**Not yet.** States with sharp imagery but terms not stated (WI, FL, TX, Illinois' IDOT years)
+need written answers before commercial reliance (section 101, Open). Florida's and Texas's
+imagery is regional and stops at 2021. New Jersey's 2025 imagery is files in state plane, not
+read.

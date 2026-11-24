@@ -456,6 +456,30 @@ Nothing below is built in the app.
 
   Design the area so those can join it.
 
+## 19. Public records of the property: what the API offers and the app does not use (EVAL_REPORT 101)
+
+`GET /v1/studies/{id}/property/public` (docs/api/PUBLIC_GEO.md), behind `PUBLIC_GEO`
+(`GET /v1/capabilities` says `public_geo`). Needs, not a design:
+
+1. **The public image beside the property pictures.** `current` is the image to measure on
+   where the state serves one (sharper than the captured view on the test property). Show its
+   `credit` with it, always, and its `year` and leaf-off. A traced shape converts exactly as on
+   a capture view (`pixel_size_m`, north up); send `source_id`, `year` and `pixel_size_m` with
+   the measurement.
+2. **A date slider.** `history` is one view per year, newest first, each with its year and
+   source; leaf-off years marked. Coarse years (NAIP, `pixel_size_m` 0.6 to 1 m) are for seeing
+   what existed, not for measuring: say so on them.
+3. **The parcel outline** (`parcels[].geometry`) over the image, the one under the pin and the
+   owner's adjacent ones in a second style, with the area and the layer's own acres.
+4. **The site check at the appraisal gate.** `site_check.flag` true (`BASIS-GEO-012`) is a review
+   flag on the appraisal's site area: show `message` beside `site.area_sqft`. `adjacent_match`
+   (`BASIS-GEO-013`) is a note: "the site is these parcels". Nothing to show for `no_appraisal`.
+5. **A height panel** from `lidar`: peak, eaves, the roof outline's area (say it includes the
+   overhangs), the project's year; nothing when `building` is null.
+6. **Status.** `gather.status` and `message`; a source that failed appears in `gather.sources`
+   only (the engineer does not need it unless nothing came back). `stale` when the pin moved:
+   offer to gather again (`POST .../property/public` with `force`).
+
 ## Testing
 
 `web/tests/firm-pages.test.cjs` renders the firm pages (Home, Library, Activity, Team,

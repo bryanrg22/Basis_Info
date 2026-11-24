@@ -19,6 +19,7 @@ from basis.api.routes import (
     orgs,
     outputs,
     property_capture,
+    property_public,
     report,
     reprice,
     result,
@@ -74,4 +75,7 @@ def api_routers() -> list[APIRouter]:
         property_capture.reads,
         property_capture.writes,
         property_capture.ops_reads,
+        property_public.reads,
+        property_public.writes,
+        property_public.ops_reads,
     ]

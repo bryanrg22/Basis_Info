@@ -14541,3 +14541,172 @@ repository.
 - Not verified: another property (one property's key is small); Linux (SwiftShader on macOS is
   the proxy); a real block signal from the site (none came); street level headed or with
   another identity (not tried, Bryan's decision); the date reading on a viewer redesign.
+
+## 101. Public geographic sources: government imagery, history, parcels and lidar per property (2026-11-23)
+
+**Question.** Can Basis gather, for a study's pin, the public records an engineer uses beside
+the property pictures (EVAL_REPORT 98): the sharpest free top-down image to measure on, a dated
+series for history, the parcel and its area against the appraisal, and the building's heights
+and footprint from lidar; each stored with its source, credit, terms and georeference, gently,
+with every failure tracked? Design: `PROPERTY_CAPTURE.md` section 10. API:
+`docs/api/PUBLIC_GEO.md`. Code: `basis/geo/`. Research: the 32-state survey in
+`REMOTE_INSPECTION_AND_MEASUREMENT.md` section 12 (branch `claude/remote-inspection-measurement`)
+and the hands-on Wisconsin check in its section 11.
+
+**The standard, and what was taken from it.**
+
+* *Asking the servers.* Every public imagery service found speaks one of four protocols: an
+  ArcGIS ImageServer (`exportImage`), an ArcGIS MapServer (`export`), OGC WMS `GetMap`, or a
+  cached XYZ tile set. All accept a Web Mercator box (`bboxSR/imageSR=3857`, `CRS=EPSG:3857`),
+  including services stored in state plane or UTM, so every view is requested in EPSG:3857,
+  north up. Mercator is conformal: a pixel is square on the ground and `pixel_size_m` at the
+  centre converts a traced shape exactly as a property-capture view does (heading 0). The box
+  is stored too, for the exact inverse.
+* *Areas.* Parcel polygons are measured on the WGS84 ellipsoid with Karney's algorithm
+  (`geographiclib`, the method behind PROJ's `geod`), never in Mercator, which inflates area by
+  `1 / cos^2(lat)` (1.93 times at the test latitude). The Wisconsin layer's own `Shape__Area` is
+  such a Mercator area and is not used.
+* *Lidar.* The federal 3DEP point clouds as Entwine Point Tiles on AWS, located through the
+  maintainers' project index; only the octree nodes over the lot are read; LAZ is decoded with
+  `laspy` and the `lazrs` backend (no pure-Python LAZ decoder exists; the `geo` dependency group,
+  which only the geo worker needs). Building and ground are the ASPRS classes 6 and 2.
+* *Politeness.* One request at a time per host and 1 s between two; timeouts; retries with
+  exponential backoff and jitter that honour `Retry-After`; no retry of other 4xx (the standard
+  pattern of the AWS and Google client libraries).
+* *Tracking.* The capture's pattern reused: catalogue area `GEO` (001 to 016), `error_code` on
+  the log lines, `study_events` (`geo.*`), and a grouped incident table keyed by code and
+  source (a public server fails on its own, so the source is part of the key).
+
+**Setup.** One gather on the client property (in Wisconsin) (the pin of EVAL_REPORT 98, the only
+client property asked); one small request per registry source at its state's capitol (a public
+point; the Wisconsin capitol for the federal sources), with the centre of the service's extent
+tried once when the capitol is outside a partial service; laptop on home broadband,
+2026-11-23. The private record is `$BASIS_EVAL_DATA_DIR/work/public_geo_2026-11-23/`
+(`retest_2026-11-23.json`, `client_run/result.json`, the images and the overlays).
+
+### 101.1 The registry, re-tested live
+
+128 entries in `basis/geo/sources.json`: federal NAIP Plus and the USGS NAIP service (fallbacks
+everywhere), NAIP by year 2004 to 2023, and 15 states. Each was asked without a key; 126 were
+asked (the two marked `unsupported` were not: New Jersey's 2025 imagery is only 210 MB
+state-plane files, and the Texas parcel layer refuses `query`).
+
+| State | Imagery entries | Real image at a test point | Finest native pixel | Years | Leaf-off stated | Terms as stated | Parcel layer (polygon vs the layer's acres at the capitol) |
+|---|---|---|---|---|---|---|---|
+| Federal | 22 | 15 | 60 cm | 2005-2023 | no | public domain | none |
+| CT | 6 | 6 | 7.6 cm | 1990-2023 | yes | open, credit | yes (-18.6 %) |
+| FL | 15 | 5 | 15 cm | 2007-2021 | not stated | none stated | yes (+8.0 %) |
+| IL | 11 | 10 | 15 cm | 2011-2025 | not stated | public domain / none | none |
+| IN | 9 | 8 | 7.6 cm | 2005-2025 | some years | public domain (CC0) | outlines only |
+| KY | 3 | 3 | 7.6 cm | 2013-2023 | yes | public domain | none |
+| MA | 4 (tiles) | 4 | 15 cm | 2019-2025 | some years | open, credit | yes (+7.2 %) |
+| MD | 5 | 5 | 15 cm | 2012-2024 | not stated | open, credit | yes (-2.0 %) |
+| MN | 11 (WMS) | 11 | 30 cm | 2008-2025 | metro 2025 | public domain | 60 counties (-1.9 %) |
+| MO | 4 | 4 | 15 cm | 2008-2024 | 2023-2024 | open (CC BY) | none |
+| NC | 5 | 5 | 15 cm | 2010-2024 | not stated | open, credit | yes (0.0 %) |
+| NJ | 4 (WMS) + 1 files | 4 | 30 cm live | 2007-2020 | yes | open, credit | yes (+3.0 %) |
+| OH | 3 | 3 | 15 cm | 2006-2025 | OSIP III | open / none | yes (0.0 %) |
+| PA | 2 | 2 | 15 cm | 2019-2022 | not stated | open, credit | geometry only, not seeded |
+| TX | 3 | 3 | 15 cm | 2019-2021 | yes | none stated | refuses query (unavailable) |
+| WI | 9 | 9 | 15 cm here (7.6 cm finest) | 2005-2024 | latest and 2010 | none stated / NAIP | yes (+23.6 %) |
+
+Columns: "Real image" counts the entries that answered with real imagery at the capitol or at the
+extent's centre; the rest answered blank there (a partial service: NAIP years that did not fly
+those states, Florida's county rotation, one Illinois block, Indiana 2024), so their coverage was
+not proven at a point. No entry failed: 0 HTTP errors, 0 timeouts. "Finest native pixel" is the
+registry's value, which is the service's finest; a county inside a mosaic may be coarser.
+Per-request time: median 10 s and at most 113 s, but these include waiting behind the same
+host's other entries at one request a second (Illinois' 11 entries share one host); a single
+request, measured in the gather below, took at most 9.8 s.
+
+**The parcel areas** at the capitols, the layer's acres against the polygon on the ellipsoid:
+-18.6 to +23.6 %, median +2.0 %. Capitol parcels are odd (squares, streets, campuses), but it
+shows the two figures are not interchangeable. The site check therefore accepts either figure
+of the parcel under the pin, and states which.
+
+### 101.2 One gather on the client property
+
+| Part | Outcome |
+|---|---|
+| Parcels | 2 parcels of one owner: the one under the pin and its neighbour, found as adjacent (gap under 3 m), 1.2 s |
+| Current view | The state's leaf-off mosaic, the county's 2020 flight (year read at the point from the index layer), 15.2 cm pixels, 1,050 x 1,050 over 160 m, 156 KB, 6.3 s |
+| History | 9 years: 2024 (state NAIP), 2022, 2018, 2017, 2015, 2013 (NAIP), 2010 (state leaf-off, 46 cm), 2008, 2005 (NAIP); 10 years blank (NAIP not flown here those years) |
+| Lidar | 2018 project, 14 nodes, 4.1 MB read and not stored, 18.2 s |
+| Whole gather | 43 requests, 67 s, 10 views, 290 KB stored |
+
+### 101.3 Is the public image better to measure on than the Google view?
+
+Sharpness proxy: the edge width of Marziliano et al. (2002), a standard no-reference blur
+measure: the ground distance between the intensity extremes on either side of the strongest 1 %
+of edges (Sobel), along the row or column the edge crosses, median over the edges. Same ground
+window on every image (the house and drive, 40 x 40 m; and 60 x 60 m).
+
+| Image | Nominal pixel | Edge width, house window (median; IQR) | Edge width, 60 m window | Edges |
+|---|---|---|---|---|
+| State leaf-off 2020 (public) | 15.2 cm | 0.30 m (0.30 to 0.46) | 0.46 m | 644 / 1,322 |
+| Google Earth top-down view (EVAL_REPORT 98) | 8.4 cm | 0.76 m (0.67 to 0.93) | 0.76 m | 1,295 / 3,133 |
+| State leaf-off 2010 | 46 cm | 1.37 m | 1.37 m | 56 / 125 |
+| NAIP 2024 (state service) | 60 cm | 3.0 m | 3.0 m | 44 / 95 |
+| NAIP 2022 | 60 cm | 4.8 m | 5.4 m | 27 / 69 |
+
+The public image's edges are 2.5 times narrower than the Google view's although its pixels are
+1.8 times larger: the Google view is a screen capture of imagery shown above its resolution (its
+edges spread over 9 of its pixels; the state image's over 2 to 3).
+
+**Measuring on each** (traced in ground metres on metre grids over the stored views; the
+client's figures are in the private record; percentages here):
+
+| Feature | Reference | Public 2020 leaf-off | Google view |
+|---|---|---|---|
+| Fence (one straight run) | earlier hand trace, rough | -1.0 % | not readable: under leaf-on canopy, no contrast |
+| Garage roof, two sides | the sketch's wall lines | +7 % and +9 % (consistent with a 0.35 m eave overhang each side) | edges blur over about 0.8 m; not read to better than +-1 m |
+| Driveway | earlier hand trace, rough | not re-traced: the earlier trace's corners were not saved, and its northern half lies under evergreens in this image | open part only, under leaf-on canopy south of the house |
+
+**Lot area against the appraisal's site area.** The parcel under the pin alone is 60 % short of
+the appraisal; with the owner's adjacent parcel the layer's acres sum to the appraisal's figure
+exactly (0.0 %) and the two polygons on the ellipsoid to +0.14 %. The check answers
+`adjacent_match` (`BASIS-GEO-013`), not a flag. `GEO_SITE_TOLERANCE_PCT` = 5 is a judgment
+between this case (0.0 to 0.14 %) and the capitols' spread between two figures of one parcel
+(median 2 %, beyond 5 % at five of nine); one property cannot measure it.
+
+### 101.4 Lidar: heights and footprint
+
+The footprint method was chosen on synthetic buildings of known area (10 x 20 m and 16 x 30 m,
+rotated 0 to 45 degrees, offset within a cell, 20 draws each), the area read against the truth:
+
+| Points per m^2 | 0.5 m grid, closed once (chosen) | 0.5 m grid, not closed | 1 m grid | 1 m grid, closed once |
+|---|---|---|---|---|
+| 2.0 | -9 % / -6 % | fails (the pin's cell empty) | -0 % / +0 % | +4 % / +3 % |
+| 3.4 (the test project) | -3 % / -2 % | -18 % / -13 % | +7 % / +4 % | +8 % / +5 % |
+| 8.0 | +2 % / +1 % | +0 % / +0 % | +12 % / +7 % | +12 % / +8 % |
+
+On the client building (2018 project, 3.4 points per m^2 over the parcel box): roof peak about 9.0 m
+above the ground around it (99th percentile; the highest point 10.1 m, a chimney or ridge
+cap), eaves about 3.2 m (5th percentile), and a roof outline 29 % larger than the sketch's first
+floor and garage together. The overhang measured on the image accounts for about 11 %; the
+rest is not explained from these records (porches, a deck roof, or a part of the building the
+sketch leaves out are candidates). What lidar does not give: the garage apart from the house
+(one connected roof), floors or stories, wall lines.
+
+**Verdict.**
+- Where a state serves 15 cm or finer imagery, it is the better image to measure on: sharper
+  than the Google view on this property and free to store, trace and print where its terms
+  allow. Ranked default: pixel class, then leaf-off within four years, then recency.
+- The dated series is real (9 years back to 2005 here), but mostly federal 60 cm to 1 m NAIP:
+  enough to see what existed, not to measure.
+- The parcel check found the two-parcel site automatically and matched the appraisal exactly.
+- Lidar gives heights and a roof outline; the outline is the roof, not the walls.
+- `PUBLIC_GEO` stays off by default until the terms questions below are answered.
+
+**Open.**
+- Terms: Wisconsin's leaf-off imagery states none (the counties own the source; library copies
+  of the metadata restrict it to the program), as do Florida, Texas and Illinois' IDOT years.
+  Written answers are needed before relying on them commercially.
+- Only one client property; the ranking, the 5 % tolerance and the lidar method are untested
+  elsewhere on real buildings. The driveway was not re-measured.
+- The 19 blank entries' coverage is not proven at any point; NAIP Plus, the per-year NAIP and
+  Florida were asked from one test point each.
+- The workflow was not run under a real Temporal server (unit-tested activities, API and
+  Postgres tests only); no Docker this session.
+- Esri tiles in state plane (Missouri's cached service, Maryland's cache) and New Jersey's 2025
+  files are not read.

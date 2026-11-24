@@ -97,12 +97,14 @@ async def events(sm: async_sessionmaker[AsyncSession], sid: str, *types: str) ->
 async def test_capabilities_follow_the_settings(api: Api, off_api: Api) -> None:
     on = await api.get("alice", "/v1/capabilities")
     assert on.status_code == 200, on.text
-    # property_capture is off by default (PROPERTY_CAPTURE, EVAL_REPORT 98) in both apps.
+    # property_capture is off by default (PROPERTY_CAPTURE, EVAL_REPORT 98) in both apps, and
+    # so is public_geo (PUBLIC_GEO, EVAL_REPORT 101).
     assert on.json() == {
         "object_exclusion": True,
         "unit_cost_override": True,
         "room_create": False,
         "property_capture": False,
+        "public_geo": False,
     }
     off = await off_api.get("alice", "/v1/capabilities")
     assert off.json() == {
@@ -110,6 +112,7 @@ async def test_capabilities_follow_the_settings(api: Api, off_api: Api) -> None:
         "unit_cost_override": False,
         "room_create": False,
         "property_capture": False,
+        "public_geo": False,
     }
 
 

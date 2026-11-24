@@ -6,7 +6,8 @@ Format ``BASIS-<AREA>-<nnn>``: the area names the step or component the failure 
 ``CORRECT``, ``ASSETS``, ``EXPORT``, ``CHECK`` for the validators' flags, ``COST`` for
 the cost index store, ``REPORT`` for the study report, ``RETENTION`` for the client-data
 purge, ``ALERT`` for the operator alerts, ``CLIENT`` for the browser error capture, ``DEMO``
-for the public site's demo requests, ``CAPTURE`` for the property pictures) and the
+for the public site's demo requests, ``CAPTURE`` for the property pictures, ``GEO`` for the
+public geographic sources) and the
 number is stable once published: a code is never renumbered or reused, a retired one is
 marked retired in the catalogue.
 
@@ -417,6 +418,24 @@ class E:
     CAPTURE_STREET_NO_COVERAGE = "BASIS-CAPTURE-019"
     CAPTURE_STREET_REFUSED = "BASIS-CAPTURE-020"
     CAPTURE_DATE_UNREAD = "BASIS-CAPTURE-021"
+
+    # ---------------------------------------------------------------- public geographic sources
+    GEO_OFF = "BASIS-GEO-001"
+    GEO_NO_POINT = "BASIS-GEO-002"
+    GEO_IN_PROGRESS = "BASIS-GEO-003"
+    GEO_UNAVAILABLE = "BASIS-GEO-004"
+    GEO_SOURCE_HTTP = "BASIS-GEO-005"
+    GEO_SOURCE_TIMEOUT = "BASIS-GEO-006"
+    GEO_SOURCE_BAD_RESPONSE = "BASIS-GEO-007"
+    GEO_NO_IMAGERY = "BASIS-GEO-008"
+    GEO_NO_PARCEL = "BASIS-GEO-009"
+    GEO_NO_LIDAR = "BASIS-GEO-010"
+    GEO_LIDAR_UNREADABLE = "BASIS-GEO-011"
+    GEO_SITE_AREA_MISMATCH = "BASIS-GEO-012"
+    GEO_SITE_AREA_ADJACENT = "BASIS-GEO-013"
+    GEO_COMPLETED = "BASIS-GEO-014"
+    GEO_GATHER_FAILED = "BASIS-GEO-015"
+    GEO_NO_BUILDING = "BASIS-GEO-016"
 
 
 def tag(code: str, message: str) -> str:

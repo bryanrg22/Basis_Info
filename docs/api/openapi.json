@@ -9471,7 +9471,7 @@
           "me"
         ],
         "summary": "The engineer overrides this deployment accepts",
-        "description": "Any signed-in user, with or without a firm. `object_exclusion` (`OBJECT_EXCLUSION`), `unit_cost_override` (`UNIT_COST_OVERRIDE`) and `property_capture` (`PROPERTY_CAPTURE`) follow their settings; `room_create` is always false. A client that gets anything but a 200 should offer none of them.",
+        "description": "Any signed-in user, with or without a firm. `object_exclusion` (`OBJECT_EXCLUSION`), `unit_cost_override` (`UNIT_COST_OVERRIDE`), `property_capture` (`PROPERTY_CAPTURE`) and `public_geo` (`PUBLIC_GEO`) follow their settings; `room_create` is always false. A client that gets anything but a 200 should offer none of them.",
         "operationId": "get_capabilities_v1_capabilities_get",
         "responses": {
           "200": {
@@ -12192,6 +12192,452 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/IncidentListOut"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing, malformed, expired or revoked bearer token.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation failed (`errors` lists each field), or an `Idempotency-Key` was reused with a different request.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Rate limit exceeded; see `Retry-After`.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "A dependency (the database) is unavailable; see `Retry-After`.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Your role is too low for this action (the study or firm is visible to you); `no-firm`: you are not a member of any firm; `email-unverified`: your sign-in does not verify the invited email.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "FirebaseIdToken": []
+          }
+        ]
+      }
+    },
+    "/v1/studies/{study_id}/property/public": {
+      "get": {
+        "tags": [
+          "property"
+        ],
+        "summary": "The property's public records: images, parcels, lidar",
+        "description": "The newest gather of the public sources: the current public top-down view, one view per year, the parcel under the pin (and the owner's adjacent ones), the check of the parcel's area against the appraisal's site area, and the lidar heights and footprint, each with its source, credit and terms.",
+        "operationId": "get_public_v1_studies__study_id__property_public_get",
+        "security": [
+          {
+            "FirebaseIdToken": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "study_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "description": "Study id.",
+              "title": "Study Id"
+            },
+            "description": "Study id."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicPropertyOut"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing, malformed, expired or revoked bearer token.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation failed (`errors` lists each field), or an `Idempotency-Key` was reused with a different request.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Rate limit exceeded; see `Retry-After`.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "A dependency (the database) is unavailable; see `Retry-After`.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "property"
+        ],
+        "summary": "Gather the property's public records (in the background)",
+        "description": "202 with the queued gather; poll `GET .../property/public`. 200 with the recent gather when the same pin was gathered within `GEO_RECENT_HOURS` (send `force: true` to gather again). 409 `geo-off`, 409 `geo-in-progress`, 422 `geo-no-point`, 503 when the workflow cannot start.",
+        "operationId": "start_gather_v1_studies__study_id__property_public_post",
+        "security": [
+          {
+            "FirebaseIdToken": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "study_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "description": "Study id.",
+              "title": "Study Id"
+            },
+            "description": "Study id."
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 130,
+              "pattern": "^(\"[!#-~]{1,128}\"|[!#-~]{1,128})$",
+              "title": "Idempotency-Key"
+            },
+            "description": "Required on POST and DELETE. 1 to 128 visible ASCII characters; a UUID is recommended. Retries with the same key and body replay the response."
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "anyOf": [
+                  {
+                    "$ref": "#/components/schemas/GatherIn"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Body"
+              }
+            }
+          }
+        },
+        "responses": {
+          "202": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GatherOut"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Missing or malformed `Idempotency-Key`.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing, malformed, expired or revoked bearer token.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflicts with the current state (stale stage or revision, duplicate, archived, upload mismatch, or the same `Idempotency-Key` still in flight).",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "The request body is larger than 1 MiB.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation failed (`errors` lists each field), or an `Idempotency-Key` was reused with a different request.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Rate limit exceeded; see `Retry-After`.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "A dependency (the database) is unavailable; see `Retry-After`.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GatherOut"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "403": {
+            "description": "Your role is too low for this action (the study or firm is visible to you); `no-firm`: you are not a member of any firm; `email-unverified`: your sign-in does not verify the invited email.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found, or not visible to you (the two are indistinguishable).",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/studies/{study_id}/property/public/views/{view_id}/image": {
+      "get": {
+        "tags": [
+          "property"
+        ],
+        "summary": "One public view's image",
+        "description": "`ETag` is the image's sha256; `If-None-Match` with it answers 304.",
+        "operationId": "get_public_image_v1_studies__study_id__property_public_views__view_id__image_get",
+        "security": [
+          {
+            "FirebaseIdToken": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "view_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "description": "Public view id.",
+              "title": "View Id"
+            },
+            "description": "Public view id."
+          },
+          {
+            "name": "study_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "description": "Study id.",
+              "title": "Study Id"
+            },
+            "description": "Study id."
+          },
+          {
+            "name": "if-none-match",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "If-None-Match"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "image/jpeg": {},
+              "image/png": {}
+            }
+          },
+          "401": {
+            "description": "Missing, malformed, expired or revoked bearer token.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation failed (`errors` lists each field), or an `Idempotency-Key` was reused with a different request.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Rate limit exceeded; see `Retry-After`.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "A dependency (the database) is unavailable; see `Retry-After`.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "304": {
+            "description": "Not modified."
+          },
+          "404": {
+            "description": "Not found, or not visible to you (the two are indistinguishable).",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/ops/geo-incidents": {
+      "get": {
+        "tags": [
+          "ops"
+        ],
+        "summary": "Public-source failures, grouped by code and source (operators)",
+        "description": "One row per `BASIS-GEO-<nnn>` and source: count, first and last seen, and the newest occurrence's study, gather, request and HTTP status. Platform operators only.",
+        "operationId": "list_geo_incidents_v1_ops_geo_incidents_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GeoIncidentListOut"
                 }
               }
             }
@@ -15133,6 +15579,12 @@
             "type": "boolean",
             "title": "Property Capture",
             "description": "`POST .../property/captures` takes pictures of the property in the background (setting `PROPERTY_CAPTURE`; docs/api/PROPERTY_CAPTURE.md).",
+            "default": false
+          },
+          "public_geo": {
+            "type": "boolean",
+            "title": "Public Geo",
+            "description": "`POST .../property/public` gathers the property's public records: government imagery, parcels and lidar (setting `PUBLIC_GEO`; docs/api/PUBLIC_GEO.md).",
             "default": false
           },
           "room_create": {
@@ -21687,6 +22139,232 @@
           }
         ]
       },
+      "GatherIn": {
+        "properties": {
+          "force": {
+            "type": "boolean",
+            "title": "Force",
+            "description": "Gather again even when the same pin was gathered within `GEO_RECENT_HOURS`.",
+            "default": false
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "title": "GatherIn"
+      },
+      "GatherOut": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "queued",
+              "running",
+              "succeeded",
+              "failed"
+            ],
+            "title": "Status"
+          },
+          "code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Code"
+          },
+          "message": {
+            "type": "string",
+            "title": "Message"
+          },
+          "requested_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Requested At"
+          },
+          "started_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Started At"
+          },
+          "finished_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Finished At"
+          },
+          "pin_version": {
+            "type": "integer",
+            "title": "Pin Version"
+          },
+          "stale": {
+            "type": "boolean",
+            "title": "Stale"
+          },
+          "sources": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "type": "array",
+            "title": "Sources",
+            "description": "Each source asked: `source`, `kind`, `status` (`ok`, `blank`: outside its coverage, `none`: nothing there, `failed`), `code`, `seconds`, `year`."
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "status",
+          "code",
+          "message",
+          "requested_at",
+          "started_at",
+          "finished_at",
+          "pin_version",
+          "stale",
+          "sources"
+        ],
+        "title": "GatherOut"
+      },
+      "GeoIncidentListOut": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/GeoIncidentOut"
+            },
+            "type": "array",
+            "title": "Items"
+          }
+        },
+        "type": "object",
+        "required": [
+          "items"
+        ],
+        "title": "GeoIncidentListOut"
+      },
+      "GeoIncidentOut": {
+        "properties": {
+          "code": {
+            "type": "string",
+            "title": "Code"
+          },
+          "source_id": {
+            "type": "string",
+            "title": "Source Id"
+          },
+          "what": {
+            "type": "string",
+            "title": "What",
+            "description": "The catalogue's meaning of the code."
+          },
+          "occurrences": {
+            "type": "integer",
+            "title": "Occurrences"
+          },
+          "first_seen_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "First Seen At"
+          },
+          "last_seen_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Last Seen At"
+          },
+          "last_study_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Study Id"
+          },
+          "last_gather_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Gather Id"
+          },
+          "last_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Url"
+          },
+          "last_http_status": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Http Status"
+          },
+          "last_detail": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Detail"
+          }
+        },
+        "type": "object",
+        "required": [
+          "code",
+          "source_id",
+          "what",
+          "occurrences",
+          "first_seen_at",
+          "last_seen_at",
+          "last_study_id",
+          "last_gather_id",
+          "last_url",
+          "last_http_status",
+          "last_detail"
+        ],
+        "title": "GeoIncidentOut"
+      },
       "GitOut": {
         "properties": {
           "sha": {
@@ -22828,6 +23506,133 @@
         ],
         "title": "Letterhead"
       },
+      "LidarBuildingOut": {
+        "properties": {
+          "footprint_m2": {
+            "type": "number",
+            "title": "Footprint M2",
+            "description": "The roof's outline as flown (overhangs included)."
+          },
+          "footprint_sqft": {
+            "type": "number",
+            "title": "Footprint Sqft"
+          },
+          "peak_m": {
+            "type": "number",
+            "title": "Peak M",
+            "description": "Roof peak above the ground around it (99th percentile)."
+          },
+          "max_m": {
+            "type": "number",
+            "title": "Max M",
+            "description": "The highest building point (a chimney reads here)."
+          },
+          "eave_m": {
+            "type": "number",
+            "title": "Eave M",
+            "description": "Median height of the roof's edge points."
+          },
+          "ground_elevation_m": {
+            "type": "number",
+            "title": "Ground Elevation M"
+          },
+          "points": {
+            "type": "integer",
+            "title": "Points"
+          },
+          "distance_m": {
+            "type": "number",
+            "title": "Distance M",
+            "description": "0 when the pin is on the building."
+          }
+        },
+        "type": "object",
+        "required": [
+          "footprint_m2",
+          "footprint_sqft",
+          "peak_m",
+          "max_m",
+          "eave_m",
+          "ground_elevation_m",
+          "points",
+          "distance_m"
+        ],
+        "title": "LidarBuildingOut"
+      },
+      "LidarOut": {
+        "properties": {
+          "project": {
+            "type": "string",
+            "title": "Project"
+          },
+          "year": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Year"
+          },
+          "points": {
+            "type": "integer",
+            "title": "Points"
+          },
+          "density_per_m2": {
+            "type": "number",
+            "title": "Density Per M2"
+          },
+          "building": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/LidarBuildingOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Code",
+            "description": "`BASIS-GEO-016` when no building points are near the pin."
+          },
+          "credit": {
+            "type": "string",
+            "title": "Credit"
+          },
+          "terms_class": {
+            "type": "string",
+            "title": "Terms Class"
+          },
+          "terms_url": {
+            "type": "string",
+            "title": "Terms Url"
+          }
+        },
+        "type": "object",
+        "required": [
+          "project",
+          "year",
+          "points",
+          "density_per_m2",
+          "building",
+          "code",
+          "credit",
+          "terms_class",
+          "terms_url"
+        ],
+        "title": "LidarOut"
+      },
       "LocalizationOut": {
         "properties": {
           "status": {
@@ -23813,6 +24618,174 @@
         "additionalProperties": false,
         "type": "object",
         "title": "PageIn"
+      },
+      "ParcelOut": {
+        "properties": {
+          "parcel_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Parcel Id"
+          },
+          "source_id": {
+            "type": "string",
+            "title": "Source Id"
+          },
+          "under_pin": {
+            "type": "boolean",
+            "title": "Under Pin",
+            "description": "False: one of the same owner's adjacent parcels."
+          },
+          "owner": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Owner"
+          },
+          "address": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Address"
+          },
+          "area_sqft": {
+            "type": "number",
+            "title": "Area Sqft",
+            "description": "The polygon's area on the WGS84 ellipsoid."
+          },
+          "area_acres": {
+            "type": "number",
+            "title": "Area Acres"
+          },
+          "layer_acres": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Layer Acres",
+            "description": "The layer's own acres (assessor or deed)."
+          },
+          "land_value": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Land Value"
+          },
+          "improvement_value": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Improvement Value"
+          },
+          "total_value": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Total Value"
+          },
+          "year_built": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Year Built"
+          },
+          "building_area_sqft": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Building Area Sqft"
+          },
+          "stories": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Stories"
+          },
+          "geometry": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Geometry",
+            "description": "GeoJSON polygon, lon/lat."
+          },
+          "credit": {
+            "type": "string",
+            "title": "Credit"
+          },
+          "terms_class": {
+            "type": "string",
+            "title": "Terms Class"
+          }
+        },
+        "type": "object",
+        "required": [
+          "parcel_id",
+          "source_id",
+          "under_pin",
+          "owner",
+          "address",
+          "area_sqft",
+          "area_acres",
+          "layer_acres",
+          "land_value",
+          "improvement_value",
+          "total_value",
+          "year_built",
+          "building_area_sqft",
+          "stories",
+          "geometry",
+          "credit",
+          "terms_class"
+        ],
+        "title": "ParcelOut"
       },
       "PhotoObjectOut": {
         "properties": {
@@ -24859,6 +25832,265 @@
         ],
         "title": "ProvenanceOut",
         "description": "Who produced a row and from what (``basis.db.repositories.provenance``)."
+      },
+      "PublicPropertyOut": {
+        "properties": {
+          "enabled": {
+            "type": "boolean",
+            "title": "Enabled",
+            "description": "Whether this deployment gathers public sources (`PUBLIC_GEO`)."
+          },
+          "gather": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/GatherOut"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The newest gather."
+          },
+          "current": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/PublicViewOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "history": {
+            "items": {
+              "$ref": "#/components/schemas/PublicViewOut"
+            },
+            "type": "array",
+            "title": "History",
+            "description": "Newest year first."
+          },
+          "parcels": {
+            "items": {
+              "$ref": "#/components/schemas/ParcelOut"
+            },
+            "type": "array",
+            "title": "Parcels"
+          },
+          "site_check": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SiteCheckOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "lidar": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/LidarOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "type": "object",
+        "required": [
+          "enabled",
+          "gather",
+          "current",
+          "history",
+          "parcels",
+          "site_check",
+          "lidar"
+        ],
+        "title": "PublicPropertyOut"
+      },
+      "PublicViewOut": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id"
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "current",
+              "history"
+            ],
+            "title": "Kind",
+            "description": "`current`: the best public image at the point (pixel size, then leaf-off, then recency); `history`: one per year."
+          },
+          "label": {
+            "type": "string",
+            "title": "Label"
+          },
+          "source_id": {
+            "type": "string",
+            "title": "Source Id",
+            "description": "The registry entry (basis/geo/sources.json)."
+          },
+          "year": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Year",
+            "description": "The imagery's year (read at the point for mosaics)."
+          },
+          "year_label": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Year Label",
+            "description": "When the source mixes years, e.g. `2018-2024 by county`."
+          },
+          "leaf_off": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Leaf Off",
+            "description": "As the source states it; null when not stated."
+          },
+          "lat": {
+            "type": "number",
+            "title": "Lat",
+            "description": "The view's centre (the pin it was taken around)."
+          },
+          "lon": {
+            "type": "number",
+            "title": "Lon"
+          },
+          "pixel_size_m": {
+            "type": "number",
+            "title": "Pixel Size M",
+            "description": "Ground metres per pixel at the centre, north up (Web Mercator is conformal: square on the ground). Convert a traced pixel like a property view: east = (x - width / 2) * s, north = (height / 2 - y) * s."
+          },
+          "native_pixel_m": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Native Pixel M",
+            "description": "The source's own pixel size."
+          },
+          "crs": {
+            "type": "string",
+            "title": "Crs",
+            "description": "`EPSG:3857`."
+          },
+          "bbox": {
+            "items": {
+              "type": "number"
+            },
+            "type": "array",
+            "title": "Bbox",
+            "description": "`[xmin, ymin, xmax, ymax]` in EPSG:3857 metres: the exact georeference."
+          },
+          "bbox_lonlat": {
+            "items": {
+              "type": "number"
+            },
+            "type": "array",
+            "title": "Bbox Lonlat",
+            "description": "`[west, south, east, north]`."
+          },
+          "width": {
+            "type": "integer",
+            "title": "Width"
+          },
+          "height": {
+            "type": "integer",
+            "title": "Height"
+          },
+          "content_type": {
+            "type": "string",
+            "title": "Content Type"
+          },
+          "sha256": {
+            "type": "string",
+            "title": "Sha256"
+          },
+          "credit": {
+            "type": "string",
+            "title": "Credit",
+            "description": "The credit line to show and print with the image."
+          },
+          "terms_class": {
+            "type": "string",
+            "enum": [
+              "public-domain",
+              "open-with-credit",
+              "no-terms-stated",
+              "restricted"
+            ],
+            "title": "Terms Class"
+          },
+          "terms_url": {
+            "type": "string",
+            "title": "Terms Url",
+            "description": "Where the terms were read."
+          },
+          "captured_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Captured At"
+          },
+          "stale": {
+            "type": "boolean",
+            "title": "Stale",
+            "description": "Taken around an earlier pin than the current one."
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "kind",
+          "label",
+          "source_id",
+          "year",
+          "year_label",
+          "leaf_off",
+          "lat",
+          "lon",
+          "pixel_size_m",
+          "native_pixel_m",
+          "crs",
+          "bbox",
+          "bbox_lonlat",
+          "width",
+          "height",
+          "content_type",
+          "sha256",
+          "credit",
+          "terms_class",
+          "terms_url",
+          "captured_at",
+          "stale"
+        ],
+        "title": "PublicViewOut"
       },
       "ReconciliationOut": {
         "properties": {
@@ -27264,6 +28496,146 @@
         ],
         "title": "SignerDetailsOut",
         "description": "Your signer details and their version (also the ``ETag``; 0 while none are saved)."
+      },
+      "SiteCheckOut": {
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": [
+              "agree",
+              "adjacent_match",
+              "disagree",
+              "no_appraisal",
+              "no_parcel"
+            ],
+            "title": "Status"
+          },
+          "flag": {
+            "type": "boolean",
+            "title": "Flag",
+            "description": "True only for `disagree`: show it as a review flag."
+          },
+          "code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Code",
+            "description": "`BASIS-GEO-012` (disagree) or `BASIS-GEO-013` (adjacent)."
+          },
+          "message": {
+            "type": "string",
+            "title": "Message"
+          },
+          "appraisal_sqft": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Appraisal Sqft",
+            "description": "The appraisal's `site.area_sqft`."
+          },
+          "parcel_sqft": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Parcel Sqft",
+            "description": "The pin's parcel figure compared."
+          },
+          "layer_sqft": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Layer Sqft"
+          },
+          "polygon_sqft": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Polygon Sqft"
+          },
+          "difference_pct": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Difference Pct",
+            "description": "(parcel - appraisal) / appraisal."
+          },
+          "parcels": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "type": "array",
+            "title": "Parcels",
+            "description": "The parcel ids in the set that was compared."
+          },
+          "combined_sqft": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Combined Sqft"
+          },
+          "tolerance_pct": {
+            "type": "number",
+            "title": "Tolerance Pct"
+          }
+        },
+        "type": "object",
+        "required": [
+          "status",
+          "flag",
+          "code",
+          "message",
+          "appraisal_sqft",
+          "parcel_sqft",
+          "layer_sqft",
+          "polygon_sqft",
+          "difference_pct",
+          "parcels",
+          "combined_sqft",
+          "tolerance_pct"
+        ],
+        "title": "SiteCheckOut"
       },
       "SourceIn": {
         "properties": {
