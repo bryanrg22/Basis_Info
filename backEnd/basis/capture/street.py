@@ -49,6 +49,17 @@ MAPS_ORIGIN: Final = "https://www.google.com"
 STREET_FOV_DEG: Final = 75.0
 STREET_PITCH_DEG: Final = 90.0  # the address's ``t``: 90 looks at the horizon
 TILE_HOSTS: Final = ("streetviewpixels-pa.clients6.google.com",)
+# A panorama a visitor uploaded (a photo sphere, often indoors) rather than the service's own
+# street imagery: its id starts with one of these (EVAL_REPORT 99.1: the panorama nearest a
+# pin inside the Wisconsin State Capitol was a visitor's 2019 photo of the rotunda, id
+# CIHM0og...; the service's own beside it had a plain 22-character id). Observed, not
+# documented by the service.
+CONTRIBUTED_PREFIXES: Final = ("CIHM0og", "AF1Qip")
+# The stored street picture is the band free of the page's interface (EVAL_REPORT 99.1, on
+# 1440 x 900 and 1440 x 1240 screenshots): the place card at the top left ends 195 to 215 px
+# down, and the compass, zoom, mini map, logo and footer start 165 px above the bottom.
+STREET_CROP_TOP_PX: Final = 230
+STREET_CROP_BOTTOM_PX: Final = 180
 LOOKUP_PATH: Final = "/maps/photometa/"
 _POSITION: Final = re.compile(
     r"/@(?P<lat>-?\d+(?:\.\d+)?),(?P<lon>-?\d+(?:\.\d+)?),\d+(?:\.\d+)?a,(?:[\d.]+y,)?"
@@ -89,6 +100,31 @@ def parse_pano(address: str) -> Pano | None:
     if position is None or pano is None:
         return None
     return Pano(pano["id"], float(position["lat"]), float(position["lon"]))
+
+
+def contributed(pano_id: str) -> bool:
+    """Whether the panorama is a visitor's upload, not street imagery
+    (:data:`CONTRIBUTED_PREFIXES`)."""
+    return pano_id.startswith(CONTRIBUTED_PREFIXES)
+
+
+def crop_street(png: bytes) -> tuple[bytes, int, int]:
+    """The band of a street-level screenshot free of the page's interface, as a PNG with its
+    width and height. CPU work: call it on a thread."""
+    import io
+
+    from PIL import Image
+
+    with Image.open(io.BytesIO(png)) as image:
+        image.load()
+        width, height = image.size
+        top, bottom = STREET_CROP_TOP_PX, height - STREET_CROP_BOTTOM_PX
+        if bottom - top < 100:
+            raise ValueError(f"screenshot {width}x{height} is too short to crop the interface off")
+        band = image.crop((0, top, width, bottom))
+        out = io.BytesIO()
+        band.save(out, "PNG")
+        return out.getvalue(), width, bottom - top
 
 
 def heading_deg(from_lat: float, from_lon: float, to_lat: float, to_lon: float) -> float:

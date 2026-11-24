@@ -62,6 +62,8 @@ LANDING = (
     + PANO
     + "!2e0!6shttps:%2F%2Fexample"
 )
+# EVAL_REPORT 99.1: the panorama nearest a pin can be a visitor's photo (id CIHM0og...).
+CONTRIBUTED = LANDING.replace(PANO, "CIHM0ogKEICAgIDextra12")
 NO_PANO = (
     "https://www.google.com/maps/@43.8500000,-103.2000000,0a,90y,90t/data=!3m3!1e1!3m1!6shttps:"
     "%2F%2Fstreetviewpixels-pa.clients6.google.com%2Fv1%2Fthumbnail%3Fpanoid%26yaw%3D0"
@@ -315,6 +317,8 @@ async def test_a_panorama_is_aimed_at_the_pin_and_stored_with_where_it_stood() -
     assert view.tilt_deg == 90 and view.pixel_size_m is None
     assert view.range_m == pytest.approx(55.8, abs=0.5)
     assert view.imagery_date is None and view.imagery_date_note == "not read"
+    # Stored without the page's interface: 230 px off the top and 180 px off the bottom.
+    assert (view.width, view.height) == (1440, 900 - 230 - 180)
     assert len(rig.browser.loads) == 2  # the viewer's search and the panorama
     assert "map_action=pano&viewpoint=43.8500000,-103.2000000" in rig.browser.loads[1]
     assert f"!1s{PANO}!2e0" in rig.browser.moves[-1] and "185.8h" in rig.browser.moves[-1]
@@ -328,6 +332,12 @@ async def test_a_panorama_is_aimed_at_the_pin_and_stored_with_where_it_stood() -
     [
         (NO_PANO, (), E.CAPTURE_STREET_NO_COVERAGE, "the page named no panorama near the property"),
         (NO_PANO, (LOOKUP_500,), E.CAPTURE_STREET_REFUSED, "the panorama lookup failed (HTTP 500)"),
+        (
+            CONTRIBUTED,
+            (),
+            E.CAPTURE_STREET_NO_COVERAGE,
+            "the nearest panorama is a visitor's photo, not street imagery",
+        ),
     ],
 )
 async def test_no_panorama_is_its_own_code_without_retry(

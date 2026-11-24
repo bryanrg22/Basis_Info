@@ -14575,6 +14575,28 @@ gone), so the loads were counted by hand: 16 and 17 of the day's 30.
 street level needs it false. The capture image installs Xvfb and starts the worker under
 `xvfb-run` (a virtual display; harmless headless). `CAPTURE_STREET_VIEW` stays off by default.
 
-**Not verified.** The capture runner's whole street step headed (the camera turned to the house
-and the picture stored) and a headed run inside the capture image under Xvfb; a headed browser's
-standing over many captures (whether it keeps being served).
+**The whole capture, headed (same day).** One capture through the real `CaptureRunner`, the
+real `PgCaptureStore` (a fresh database at head, its ledger and governor) and the Playwright
+factory, `CAPTURE_STREET_VIEW=true` and `CAPTURE_HEADLESS=false`, the pin at the Wisconsin State
+Capitol (a public place), the caps lowered by the day's earlier loads. It succeeded: 2 page loads
+and 39 camera moves, 13 views (2 aerial, 4 oblique, 6 history from 2020 to 2026, `street-front`
+with its panorama, where the camera stood and its heading to the pin). The dates of 4 of the 6
+first views were not read (`BASIS-CAPTURE-021`); the headless runs of section 99 read them all,
+so the headed window's rendering of the status bar is the suspect, not verified.
+
+The street picture showed two defects, fixed the same day:
+- *A visitor's photo, not street imagery.* The panorama nearest the pin was a visitor's 2019
+  photo sphere inside the rotunda (the pin is inside the building). Its id starts `CIHM0og`;
+  the service's own panorama on the street beside it (the probes above) has a plain
+  22-character id. `street.contributed` now refuses ids starting `CIHM0og` or `AF1Qip` with
+  `BASIS-CAPTURE-019` and the reason. Observed on these two panoramas, not documented.
+- *The page's interface in the picture,* the place card, the search box, the service's name,
+  the mini map and the footer. `street.crop_street` now stores the band from 230 px below the
+  top to 180 px above the bottom (the card ends 195 to 215 px down; the controls start 165 px
+  above the bottom on both 900 and 1,240 px screenshots): 1,440 x 830 at the clean views'
+  viewport.
+
+**Not verified.** The crop and the visitor-photo rule in a second live capture (they are
+unit-tested on synthetic screenshots and on the two ids seen); a headed run inside the capture
+image under Xvfb; a headed browser's standing over many captures; why 4 of 6 dates were unread
+headed.
