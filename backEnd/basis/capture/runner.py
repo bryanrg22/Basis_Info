@@ -51,7 +51,14 @@ from basis.capture import history as hist
 from basis.capture import leaf as leafs
 from basis.capture import messages, street
 from basis.capture.browser import BrowserCrashed, BrowserFactory, CaptureBrowser
-from basis.capture.camera import ORIGIN, Camera, parse, pixel_size_m, search_address
+from basis.capture.camera import (
+    ORIGIN,
+    Camera,
+    found_nothing,
+    parse,
+    pixel_size_m,
+    search_address,
+)
 from basis.capture.frame import Layout, crop_view
 from basis.capture.governor import GovernorConfig, NavigationKind
 from basis.capture.imagery_date import (
@@ -295,7 +302,7 @@ class CaptureRunner:
         landed = await browser.current()
         await self._check(row, browser, landed)
         camera = parse(landed.url)
-        if camera is None:
+        if camera is None or (not pin.has_point and found_nothing(camera)):
             await self._stop_failed(
                 row, browser, E.CAPTURE_NO_PLACE, "the page named no place", landed
             )

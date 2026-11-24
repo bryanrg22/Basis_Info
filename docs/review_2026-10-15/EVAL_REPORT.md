@@ -14309,6 +14309,20 @@ itself ("8/4/2026" on the probe property). A traced measurement on such a view c
 - Concurrency across two real capture workers (the lease is tested in memory, and written for
   Postgres but not run).
 
+### 98.1 A search that finds nothing is not a place (2026-11-24)
+
+In the live run of 2026-11-24 (a study's pin set from an appraisal address whose ZIP code was
+misread), the address search matched nothing, but the page's address still carried a camera:
+latitude 0.0000, longitude -0.2049, altitude 0. The runner took that for the house, placed the
+pin there (`property.pin_placed`) and photographed open ocean; only the blank-frame check
+(`BASIS-CAPTURE-005`) stopped it. A failed geocode landing at 0, 0 is the well-known "Null
+Island" pattern. `camera.found_nothing` now treats a searched camera within 0.5 degrees of
+latitude 0 and 1 degree of longitude 0 (open ocean; the nearest land, Sao Tome, is 6.5 degrees
+east) as no place: the capture fails with `BASIS-CAPTURE-006` (no place), nothing is placed,
+and the engineer is told to correct the address or drop the pin. The engineer's own point is
+never tested this way. Unit tests: the box's edges, Sao Tome and the run's landing address.
+Not verified live (another page load on a misread address was not spent).
+
 ## 99. Property pictures: history, imagery dates, leaf-off, street level and clean views (2026-11-23)
 
 **Question.** Section 98's capture takes today's views only, leaves `imagery_date` null, keeps
