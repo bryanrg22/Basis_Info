@@ -11,7 +11,8 @@ from pydantic import BaseModel, ConfigDict, Field
 from basis.extraction.cleaners import CleanValue, clean_field
 from basis.extraction.field_mappings import FIELD_BY_KEY
 
-Source = Literal["azure", "regex", "table", "llm", "manual", "mismo_xml"]
+# "drawing": read from the PDF's own line work (basis.extraction.sketch_outline).
+Source = Literal["azure", "regex", "table", "llm", "manual", "mismo_xml", "drawing"]
 Severity = Literal["error", "warning"]
 
 

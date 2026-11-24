@@ -309,7 +309,7 @@ route follows a later intake change.
   | `input:basement_area` | a basement room with no printed basement area | appraisal review: `improvements.basement_area_sqft` |
   | `input:basement_finish` | the basement's finished share is not printed | appraisal review: `improvements.basement_finish_percent` |
   | `input:site_area` | no site area for landscaping | appraisal review: `site.area_sqft` or `site.area_acres` |
-  | `input:exterior_area`, `input:room` | a measured item in an exterior room, or in no room | assets review: the measured quantity (an `asset` correction's `quantity`, `quantity_unit`, `quantity_source`) |
+  | `input:exterior_area`, `input:room` | a measured item in an exterior room, or in no room | assets review: the measured quantity (an `asset` correction's `quantity`, `quantity_unit`, `quantity_source`, or a traced `measurement`: docs/api/OVERRIDES.md section 4) |
   | `input:room_type` | a measured item in a room of unknown type | rooms review: the room's type |
   | `input:count` | a counted item with no count | components review: the count |
   | `input:cabinet_run` | a cabinet or countertop run (the room's perimeter is not one) | assets review: the measured quantity |
@@ -369,8 +369,20 @@ and prices were drawn from, read back from the stored rows (EVAL_REPORT section 
 row already carries its own `takeoff_inputs` (`room_area_source`: `gla_share`,
 `basement_share`, `garage_area`, `typical_for_room_type`, `default_150_sf`; `quantity_source:
 appraisal_derived` for the roof, siding, gutters and landscaping; `needs_measurement` for a site
-item the appraisal cannot size), its `cost_source` text and its `cost_trail` (how its cost was
-reached, as data, recorded when it was priced: docs/api/COST_INDICES.md, "Per-asset cost
+item the appraisal cannot size; `quantity_source: engineer` with `measured_by_engineer` and
+`computed_quantity` for a quantity the engineer measured, and `measurement`, an object, when it was
+traced: the shape, the image's source, date and pixel size, the scale, the method and the expected
+error, docs/api/OVERRIDES.md section 4); with `TAKEOFF_SKETCH=on` and a sketch table in the
+appraisal, `sketch_check` on the roof, siding, gutter, landscaping, garage and patio rows: one
+sentence saying whether the appraisal's sketch was used, with its living area, the printed GLA, how
+far apart they are and the tolerance, and `footprint_source: sketch` when the footprint is the
+sketch's ground floor, EVAL_REPORT 96; with `TAKEOFF_SKETCH_OUTLINE=on` as well and an outline read
+from the PDF's line work, `perimeter_field` on the roof and `ground_perimeter_field` and
+`upper_perimeter_field` on the siding read `sketch.ground_perimeter_ft (drawing, page N)`, the
+assumptions say "perimeter read from the appraisal sketch's outline" in place of the 1.5:1
+rectangle, and `sketch_outline` gives the reason when an outline that was read is not used,
+EVAL_REPORT 100), its `cost_source` text and its `cost_trail` (how its cost was reached, as data,
+recorded when it was priced: docs/api/COST_INDICES.md, "Per-asset cost
 trail"); `summary.takeoff` is the study-level view the end-to-end scorer prints.
 
 ```json

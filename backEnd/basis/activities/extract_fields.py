@@ -57,8 +57,8 @@ from __future__ import annotations
 
 import uuid
 from collections.abc import Awaitable, Callable
-from decimal import Decimal
-from typing import Final
+from decimal import Decimal, InvalidOperation
+from typing import Any, Final
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -105,7 +105,7 @@ from basis.extraction.pdf_text import InvalidDocument
 from basis.extraction.persist import persist_extraction, stored_azure_result
 from basis.extraction.pipeline import ExtractionContext, extract_appraisal_upload
 from basis.extraction.results import ExtractedField, ExtractionResult
-from basis.extraction.validation import validate_fields
+from basis.extraction.validation import gla_vs_sketch, validate_fields
 from basis.llm import prompts
 from basis.llm.errors import ProviderError
 from basis.llm.provider import Budget
@@ -262,6 +262,9 @@ class ExtractFields:
             previous_azure=reuse,
             heartbeat=heartbeat,
             method=settings.extraction_method,
+            sketch=settings.takeoff_sketch == "on",
+            sketch_gla_tolerance=Decimal(str(settings.takeoff_sketch_gla_tolerance)),
+            sketch_outline=settings.sketch_outline,
             grounded=GroundedModel(
                 model=settings.extraction_grounded_model,
                 reasoning_effort=settings.extraction_grounded_reasoning_effort,
@@ -363,6 +366,17 @@ async def _addition_rows(
     return found
 
 
+def _sketch_tolerance(raw: dict[str, Any]) -> Decimal | None:
+    """The GLA tolerance the extraction read the sketch with (``raw["sketch"]``); None when
+    the sketch was not read."""
+    sketch = raw.get("sketch")
+    value = sketch.get("gla_tolerance") if isinstance(sketch, dict) else None
+    try:
+        return None if value is None else Decimal(str(value))
+    except InvalidOperation:
+        return None
+
+
 async def _with_corrections(
     repo: ExtractionRepository,
     study_id: uuid.UUID,
@@ -425,6 +439,9 @@ async def _with_corrections(
     off = form.get("not_on_form") if isinstance(form, dict) else None
     off_form = frozenset(off) if isinstance(off, list) else frozenset()
     issues = kept + validate_fields(fields, not_on_form=off_form)
+    # The sketch against the GLA box is judged again on the corrected fields, at the tolerance
+    # the extraction recorded: a corrected GLA (or sketch area) clears it.
+    issues += gla_vs_sketch(fields, _sketch_tolerance(result.raw))
     threshold = float(result.raw.get("review_threshold", 0.90))
     gate = review_gate(fields, issues, threshold=threshold, not_on_form=off_form)
     raw = {

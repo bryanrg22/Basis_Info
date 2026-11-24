@@ -37,6 +37,7 @@ from basis.api.operators import require_operator
 from basis.api.ratelimit import RateLimiter, get_rate_limiter, rate_limited
 from basis.api.routes.common import API_PREFIX, problems
 from basis.api.schemas.ops import OpsHealthOut, ServiceHealthOut
+from basis.api.schemas.property import CaptureHealthOut
 from basis.auth.firebase import EMULATOR_ENV_VAR, Principal
 from basis.config import Settings
 from basis.db.session import SESSIONMAKER_STATE_ATTR
@@ -47,6 +48,7 @@ from basis.storage import GcsStorage, Storage
 CACHE_TTL_S: Final = 10.0
 OPS_RATE_LIMIT_PER_MIN: Final = 30
 OPS_POLLERS_STATE_ATTR: Final = "ops_pollers"
+CAPTURE_CHECK_TIMEOUT_S: Final = 2.0
 
 logger = logging.getLogger(__name__)
 
@@ -107,6 +109,30 @@ async def _none() -> None:
     return None
 
 
+async def read_capture_health(
+    sessionmaker: async_sessionmaker[AsyncSession], settings: Settings
+) -> dict[str, Any] | None:
+    """The ``property_capture`` member, bounded like every other check; None when the
+    database does not answer (the rest of the document still does)."""
+    from basis.capture.governor import GovernorConfig
+    from basis.capture.health import capture_health
+    from basis.capture.pg_store import PgCaptureStore
+
+    now = datetime.now(UTC)
+    try:
+        async with asyncio.timeout(CAPTURE_CHECK_TIMEOUT_S):
+            snapshot = await PgCaptureStore(sessionmaker).snapshot(now)
+    except Exception:
+        logger.warning("ops health: capture state unreadable", exc_info=True)
+        return None
+    return capture_health(
+        snapshot,
+        enabled=settings.property_capture,
+        config=GovernorConfig.of(settings),
+        now=now,
+    )
+
+
 async def evaluate(request: Request) -> tuple[dict[str, Any], int]:
     app = request.app
     settings: Settings = app.state.settings
@@ -156,7 +182,13 @@ async def evaluate(request: Request) -> tuple[dict[str, Any], int]:
             firebase_hosting=hosting.firebase_hosting(firebase_adapter),
         )
     )
-    body = OpsHealthOut(services=[ServiceHealthOut.of(s) for s in services])
+    capture = None
+    if sessionmaker is not None:
+        capture = await read_capture_health(sessionmaker, settings)
+    body = OpsHealthOut(
+        services=[ServiceHealthOut.of(s) for s in services],
+        property_capture=None if capture is None else CaptureHealthOut.model_validate(capture),
+    )
     return body.model_dump(mode="json"), 503 if overall_failed(services) else 200
 
 

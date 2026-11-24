@@ -2,15 +2,15 @@
 docs/review_2026-10-15/RENOVATIONS.md, EVAL_REPORT section 102).
 
 Revision ID: 0039
-Revises: 0035
+Revises: 0038
 Create Date: 2026-11-23
 
 Hand-written to match ``basis.db.models`` (``alembic check`` proves it).
 
-Numbered 0039 because open branches claim 0036 to 0038 (the property capture branch has 0036;
-two branches cut from it may add 0037 and 0038). It revises 0035, the head of ``main`` when it
-was written: whichever of those lands first, this file's ``down_revision`` is re-pointed to the
-new head when it is rebased (docs/DEVELOPING.md section 7, "A new migration").
+Numbered 0039 because open branches claimed 0036 to 0038 (the property capture branch has
+0036, its two follow-ups 0037 and 0038). It was written on 0035, the head of ``main`` then,
+and is re-pointed to 0038 now that those revisions precede it (docs/DEVELOPING.md section 7,
+"A new migration").
 
 * ``studies.renovations``: the document (``basis.domain.renovations.StudyRenovations`` as
   JSONB), NULL for "none".
@@ -27,7 +27,7 @@ from alembic import op
 from sqlalchemy.dialects import postgresql
 
 revision: str = "0039"
-down_revision: str | Sequence[str] | None = "0035"
+down_revision: str | Sequence[str] | None = "0038"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 

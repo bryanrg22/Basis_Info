@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import os
 import re
+from decimal import Decimal
 from email.utils import parseaddr
 from functools import lru_cache
 from pathlib import Path
@@ -430,6 +431,35 @@ class Settings(BaseSettings):
     # only where a field is missing; typical: the legacy typical area per room type for
     # every room and no property-level quantities (the behaviour before section 35).
     takeoff_areas: Literal["appraisal", "typical"] = "appraisal"
+    # Whether the appraisal's building sketch is read (basis.extraction.sketch;
+    # SKETCH_READER.md; EVAL_REPORT section 96). on: the extraction writes the sketch's
+    # area calculation table as `sketch` fields (living area, ground floor, garage, patio,
+    # each with its page), and the takeoff uses the ground floor as the footprint and the
+    # sketch's garage and patio when the sketch's living area is within
+    # TAKEOFF_SKETCH_GLA_TOLERANCE of the printed GLA; outside it the takeoff is today's,
+    # with the reason on the roof, siding, gutter and landscaping rows, and the appraisal is
+    # flagged at its gate (the gla_vs_sketch reason) so the engineer corrects the
+    # figure that is wrong. off (the default:
+    # section 96 measured one property, whose sketch and GLA disagree): no sketch field is
+    # written or read. The tolerance is a fraction of the GLA, default 0.01 (the three public
+    # sample reports of section 96 agree to the square foot; the client's differ by 12.5 %).
+    takeoff_sketch: Literal["off", "on"] = "off"
+    takeoff_sketch_gla_tolerance: float = Field(default=0.01, ge=0, le=1)
+    # Whether the sketch's outline is read from the appraisal PDF's own line work
+    # (basis.extraction.sketch_outline; SKETCH_READER.md section 6; EVAL_REPORT section
+    # 100). on, with TAKEOFF_SKETCH=on: on each sketch page the extraction closes the solid
+    # strokes into loops, believes a loop only when its area and the dimensions of the
+    # table's calculation both reproduce a verified row at one scale per page, and writes
+    # `sketch.ground_perimeter_ft` (first floor and attached garage as one outline) and
+    # `sketch.upper_perimeter_ft`, which the roof and the siding then use in place of the
+    # 1.5:1 rectangle. A scanned or image sketch, a loop that does not match, or an
+    # attachment the drawing does not show writes nothing, and the reason is kept in the
+    # extraction's raw["sketch"]["outline"]. off (the default: section 100 read one client
+    # PDF from one sketching tool; every other stored sketch is an image): the PDF's line
+    # work is not opened. It gates the reader only: a perimeter an earlier extraction wrote
+    # stays in that revision's fields and is used while TAKEOFF_SKETCH is on. Without
+    # TAKEOFF_SKETCH=on it does nothing.
+    takeoff_sketch_outline: Literal["off", "on"] = "off"
     # Where the cost year and location factor come from. study: the year of the intake's
     # placed_in_service_date and the factor (basis.domain.costs.REGIONAL_COST_FACTORS) of
     # the intake's state, else the appraisal's effective-date year and subject.state, each
@@ -590,11 +620,146 @@ class Settings(BaseSettings):
     # the decision route (422), the behaviour before section 90. Section 90 turned both on:
     # each keeps the model's or the table's value beside the engineer's, with who, when and
     # why. Turn UNIT_COST_OVERRIDE on only once every worker runs section 90's release (an
-    # older worker refuses the rejection's corrections; docs/api/OVERRIDES.md section 6).
+    # older worker refuses the rejection's corrections; docs/api/OVERRIDES.md section 7).
     # Overrides already recorded keep pricing when it is turned off: they are the
     # engineer's decisions, not this setting's.
     object_exclusion: bool = True
     unit_cost_override: bool = True
+    # The engineer's traced measurement (docs/api/OVERRIDES.md section 4, EVAL_REPORT 97;
+    # basis.domain.traced). TRACED_MEASUREMENT: an `asset` correction may carry
+    # `measurement`, a shape traced on an image whose quantity the server computes and keeps
+    # with the shape, the image, its date and pixel size, the scale and an expected error
+    # (reported by GET /v1/capabilities as `traced_measurement`); false refuses it at the
+    # decision and draft routes (422), the behaviour before section 97. Deploy the worker
+    # first, as for UNIT_COST_OVERRIDE: an older worker refuses `measurement` as an unknown
+    # field. MEASURE_IMAGE_AFTER_SERVICE_DAYS: a traced image captured more than this many
+    # days after the intake's placed-in-service date is flagged `measure:IMAGE_AFTER_SERVICE`
+    # (365: a year of grace for a purchase closed before the image's flight; not measured,
+    # the maintainer's call). MEASURE_ERROR_FLAG_PCT: a traced quantity whose expected error
+    # is above this percentage is flagged `measure:COARSE` (10: the worst case the
+    # independent studies of REMOTE_INSPECTION_AND_MEASUREMENT.md section 5 report for
+    # today's hand method, Google Earth, on a driveway-sized area). Both are review flags,
+    # never refusals, and neither changes a quantity.
+    traced_measurement: bool = True
+    measure_image_after_service_days: int = Field(default=365, ge=0, le=36_500)
+    measure_error_flag_pct: float = Field(default=10.0, gt=0, le=1000)
+
+    # Property pictures (docs/review_2026-10-15/PROPERTY_CAPTURE.md, docs/api/PROPERTY_CAPTURE.md,
+    # EVAL_REPORT section 98): a separate worker (`python -m basis.capture`) opens the property in
+    # a headless browser and stores dated views of it. PROPERTY_CAPTURE: the API accepts
+    # captures (false, the default: 409 capture-off, and GET /v1/capabilities says false).
+    # CAPTURE_TASK_QUEUE: the capture workflow's own task queue, so a study worker never runs
+    # it. Gentleness (section 98; not measured against the site, chosen to stay far below a
+    # person's own use): one capture at a time across every worker (a lease in Postgres),
+    # CAPTURE_SPACING_MIN_S..MAX_S seconds at random between two navigations (8..20),
+    # CAPTURE_LOADS_PER_HOUR (6) and CAPTURE_LOADS_PER_DAY (30) page loads, and
+    # CAPTURE_MOVES_PER_HOUR (120) camera moves (a move changes the page's address without a
+    # load). A block signal opens the breaker for CAPTURE_BREAKER_MINUTES (60), doubled for
+    # each consecutive trip up to CAPTURE_BREAKER_MAX_HOURS (24); a capture waits for the
+    # breaker or the caps at most CAPTURE_MAX_WAIT_HOURS (48) before it gives up.
+    # CAPTURE_PAGE_TIMEOUT_S (60) bounds one load; CAPTURE_SETTLE_S (12) is the wait for the
+    # imagery to stream after a load or a move (section 98: 100 % streamed after 12 to 15 s).
+    # CAPTURE_PROFILE_DIR: the browser's persistent profile (unset: a fresh one per process).
+    # CAPTURE_CHROMIUM_ARGS: comma-separated Chromium flags (unset: Metal ANGLE on macOS, the
+    # default elsewhere). CAPTURE_RECENT_HOURS (12): a study captured this recently is not
+    # captured again unless the pin moved. CAPTURE_SOURCE_TEXT: the provenance line stored
+    # with every view and shown to the engineer; it must not name the imagery provider
+    # (AGENTS.md), and what it says is Bryan's decision (PROPERTY_CAPTURE.md section 6).
+    # EVAL_REPORT section 99 (history, imagery dates, leaf-off, street level, clean views):
+    # CAPTURE_HISTORY (true): after today's views, walk the straight-down view's dated
+    # history with the viewer's "Older images" arrow (one camera move a date, no page load)
+    # and keep the newest date, every date within CAPTURE_HISTORY_WINDOW_DAYS (730: the
+    # property's dates came 0.3 to 4 years apart, median 2.2, so two years either side of
+    # the placed-in-service date catches about one date each side) of the study's
+    # placed-in-service date (else the appraisal's effective date), and the leaf-off dates,
+    # up to CAPTURE_HISTORY_MAX_VIEWS (6: the probe property's plan kept 3 to 5 dates for
+    # every placed-in-service year tried, and a view is about 1.5 MB); CAPTURE_HISTORY_MAX_STEPS
+    # (40) bounds the walk (the probe property has 13 dates). CAPTURE_STREET_VIEW (false):
+    # try one street-level picture of the front (one more page load); section 99 found the
+    # service refuses a headless browser (lookup 500, tiles 403) and 99.1 that it renders in
+    # a headed one, so it needs CAPTURE_HEADLESS=false. CAPTURE_HEADLESS (true): run the
+    # browser without a window; false opens a real window (on a server, under the virtual
+    # display the capture image starts with `xvfb-run`; 99.1).
+    # CAPTURE_CLEAN_VIEWS (true): render the viewport CAPTURE_FRAME_MARGIN_PX (170)
+    # taller above and below and store the band between, free of the viewer's interface,
+    # with every range lengthened so the stored view keeps section 98's ground pixel size
+    # (false: section 98's uncropped 1440 x 900 views). CAPTURE_TESSERACT: the text reader
+    # that reads the imagery date off the status bar (unset: `tesseract` on the path; none:
+    # the date stays null with the reason). CAPTURE_VIEWER_ORIGIN: where the viewer is
+    # (the real one by default; the block tests point it at a local server).
+    property_capture: bool = False
+    capture_task_queue: str = "basis-capture"
+    capture_spacing_min_s: float = Field(default=8.0, ge=0, le=600)
+    capture_spacing_max_s: float = Field(default=20.0, ge=0, le=600)
+    capture_loads_per_hour: int = Field(default=6, ge=1, le=1000)
+    capture_loads_per_day: int = Field(default=30, ge=1, le=10_000)
+    capture_moves_per_hour: int = Field(default=120, ge=1, le=10_000)
+    capture_breaker_minutes: float = Field(default=60.0, gt=0, le=10_080)
+    capture_breaker_max_hours: float = Field(default=24.0, gt=0, le=720)
+    capture_max_wait_hours: float = Field(default=48.0, gt=0, le=720)
+    capture_page_timeout_s: float = Field(default=60.0, gt=0, le=600)
+    capture_settle_s: float = Field(default=12.0, ge=0, le=300)
+    capture_profile_dir: str | None = None
+    capture_chromium_args: Annotated[tuple[str, ...] | None, NoDecode] = None
+    capture_recent_hours: float = Field(default=12.0, ge=0, le=720)
+    capture_source_text: str = Field(
+        default="Aerial imagery viewed online; date as the imagery shows it",
+        min_length=1,
+        max_length=200,
+    )
+    capture_history: bool = True
+    capture_history_window_days: int = Field(default=730, ge=0, le=36_500)
+    capture_history_max_views: int = Field(default=6, ge=0, le=60)
+    capture_history_max_steps: int = Field(default=40, ge=1, le=200)
+    capture_street_view: bool = False
+    capture_headless: bool = True
+    capture_clean_views: bool = True
+    capture_frame_margin_px: int = Field(default=170, ge=0, le=600)
+    capture_tesseract: str | None = None
+    capture_viewer_origin: str = Field(
+        default="https://earth.google.com", pattern=r"^https?://[^/\s]+$"
+    )
+    # Public geographic sources (docs/api/PUBLIC_GEO.md, PROPERTY_CAPTURE.md section 10,
+    # EVAL_REPORT section 101): a worker of its own (`python -m basis.geo`) gathers government
+    # imagery (the best current view and one per year), the state's open parcel layer and the
+    # federal lidar around the pin. PUBLIC_GEO: the API takes gathers and the capture route
+    # starts one beside each capture (false, the default: 409 geo-off). GEO_TASK_QUEUE: its own
+    # task queue. GEO_EXTENT_M (160): the side of the square every public view covers on the
+    # ground (it holds a lot of a few acres and its street, with room for a misplaced pin).
+    # GEO_MAX_IMAGE_PX (2048): a view's pixels a side at most, so a
+    # 3-inch source over 160 m is kept at 7.8 cm (2,048 px, about 1 MB as JPEG). GEO_HOST_INTERVAL_S
+    # (1.0): the least time between two requests to one host; GEO_REQUEST_TIMEOUT_S (60) and
+    # GEO_RETRIES (3) bound one request (section 101: the slowest source answered in 22 s).
+    # GEO_HISTORY (true): fetch one view per year too. GEO_LIDAR (true) and GEO_LIDAR_MAX_NODES
+    # (64; 14 in the measured gather). GEO_SITE_TOLERANCE_PCT (5): the parcel and the appraisal's
+    # site area agree within this (section 101). GEO_RECENT_HOURS (12): a pin gathered this
+    # recently is not gathered again unless asked.
+    public_geo: bool = False
+    geo_task_queue: str = "basis-geo"
+    geo_extent_m: float = Field(default=160.0, ge=20, le=1000)
+    geo_max_image_px: int = Field(default=2048, ge=256, le=4096)
+    geo_host_interval_s: float = Field(default=1.0, ge=0.2, le=60)
+    geo_request_timeout_s: float = Field(default=60.0, gt=0, le=600)
+    geo_retries: int = Field(default=3, ge=0, le=10)
+    geo_history: bool = True
+    geo_lidar: bool = True
+    geo_lidar_max_nodes: int = Field(default=64, ge=1, le=1000)
+    geo_site_tolerance_pct: float = Field(default=5.0, gt=0, le=100)
+    geo_recent_hours: float = Field(default=12.0, ge=0, le=720)
+
+    @property
+    def sketch_tolerance(self) -> Decimal | None:
+        """What ``measurements_from_fields`` takes: the GLA tolerance with
+        ``TAKEOFF_SKETCH=on``, None (the sketch fields are not read) with off."""
+        if self.takeoff_sketch != "on":
+            return None
+        return Decimal(str(self.takeoff_sketch_gla_tolerance))
+
+    @property
+    def sketch_outline(self) -> bool:
+        """Whether the extraction reads the sketch's outline from the PDF's line work:
+        ``TAKEOFF_SKETCH_OUTLINE=on`` together with ``TAKEOFF_SKETCH=on``."""
+        return self.takeoff_sketch == "on" and self.takeoff_sketch_outline == "on"
 
     @property
     def vision_output_budget(self) -> int:
@@ -678,6 +843,42 @@ class Settings(BaseSettings):
         if isinstance(value, str):
             return tuple(part.strip() for part in value.split(",") if part.strip())
         return value
+
+    @field_validator("capture_chromium_args", mode="before")
+    @classmethod
+    def _split_chromium_args(cls, value: object) -> object:
+        if isinstance(value, str):
+            parts = tuple(part.strip() for part in value.split(",") if part.strip())
+            return parts or None
+        return value
+
+    @field_validator(
+        "capture_task_queue",
+        "capture_source_text",
+        "capture_profile_dir",
+        "capture_tesseract",
+        "capture_viewer_origin",
+        "geo_task_queue",
+        mode="before",
+    )
+    @classmethod
+    def _blank_capture_text_is_unset(cls, value: object, info: ValidationInfo) -> object:
+        # .env.example ships these empty; empty means the default, as for the other settings.
+        if isinstance(value, str) and not value.strip():
+            field = cls.model_fields[str(info.field_name)]
+            return field.default
+        return value
+
+    @model_validator(mode="after")
+    def _check_capture_spacing(self) -> Settings:
+        if self.capture_spacing_min_s > self.capture_spacing_max_s:
+            raise ConfigError(
+                "CAPTURE_SPACING_MIN_S must not exceed CAPTURE_SPACING_MAX_S "
+                f"({self.capture_spacing_min_s} > {self.capture_spacing_max_s})"
+            )
+        if self.capture_loads_per_hour > self.capture_loads_per_day:
+            raise ConfigError("CAPTURE_LOADS_PER_HOUR must not exceed CAPTURE_LOADS_PER_DAY")
+        return self
 
     @field_validator("demo_request_allowed_origins", mode="before")
     @classmethod

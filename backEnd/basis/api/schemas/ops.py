@@ -8,6 +8,7 @@ from typing import Literal
 from pydantic import Field
 
 from basis.api.schemas.common import ResponseModel
+from basis.api.schemas.property import CaptureHealthOut
 from basis.ops.services import LastInference, ModelRoute, RouteHop, Service
 
 ServiceId = Literal[
@@ -150,3 +151,9 @@ class ServiceHealthOut(ResponseModel):
 class OpsHealthOut(ResponseModel):
     schema_version: Literal[1] = 1
     services: list[ServiceHealthOut]
+    property_capture: CaptureHealthOut | None = Field(
+        default=None,
+        description="Property pictures (docs/api/OPS_HEALTH.md section 7): on or off, the "
+        "capture worker, the breaker, the navigations against the caps, the last success. "
+        "Null when the database could not be read.",
+    )

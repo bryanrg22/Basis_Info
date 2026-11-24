@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 import re
 import uuid
 from datetime import datetime
@@ -22,19 +23,69 @@ ReviewStage = Literal["appraisal_review", "rooms_review", "components_review", "
 
 # Correction values are field-level edits: a flat object whose values are JSON scalars or
 # lists of scalars. Strings exclude NUL (JSONB cannot store it); floats must be finite
-# (JSON has no NaN). Deeper nesting is not needed by any S1-S3 entity.
+# (JSON has no NaN). The one nested value is an asset correction's traced ``measurement``
+# (EVAL_REPORT 97): an object whose rules (keys, shapes, numbers) are checked by
+# ``basis.domain.traced`` with a 422 that names what is wrong; here only that it is JSON
+# PostgreSQL can store (no NUL, finite numbers, bounded depth) and that no other field is an
+# object.
 CorrectionText = Annotated[str, Field(max_length=MAX_CORRECTION_TEXT, pattern=NO_NUL_PATTERN)]
 CorrectionScalar = CorrectionText | StrictBool | int | FiniteFloat | None
+OBJECT_FIELDS: Final = frozenset({"measurement"})
+MAX_OBJECT_DEPTH: Final = 8  # measurement > shapes > shape > cutouts > ring > point > number
+CorrectionObject = Annotated[
+    dict[str, Any],
+    Field(
+        description="Only `measurement` (an asset correction's traced measurement, "
+        "docs/api/OVERRIDES.md section 4) takes an object."
+    ),
+]
 CorrectionValue = (
-    CorrectionScalar | Annotated[list[CorrectionScalar], Field(max_length=MAX_LIST_ITEMS)]
+    CorrectionScalar
+    | Annotated[list[CorrectionScalar], Field(max_length=MAX_LIST_ITEMS)]
+    | CorrectionObject
 )
 FIELD_NAME_PATTERN: Final = r"^[A-Za-z_][A-Za-z0-9_.]{0,63}$"
 _FIELD_NAME: Final = re.compile(r"[A-Za-z_][A-Za-z0-9_.]{0,63}")
 
 
+def _storable(value: Any, depth: int) -> str | None:
+    """Why a nested JSON value cannot be stored as a correction (None when it can)."""
+    if depth > MAX_OBJECT_DEPTH:
+        return f"nested deeper than {MAX_OBJECT_DEPTH} levels"
+    if isinstance(value, str):
+        if "\x00" in value or len(value) > MAX_CORRECTION_TEXT:
+            return f"a string with NUL or over {MAX_CORRECTION_TEXT} characters"
+        return None
+    if isinstance(value, float) and not math.isfinite(value):
+        return "a number that is not finite"
+    if isinstance(value, dict):
+        for key, item in value.items():
+            if "\x00" in key or len(key) > 64:
+                return "a key with NUL or over 64 characters"
+            found = _storable(item, depth + 1)
+            if found:
+                return found
+    if isinstance(value, list):
+        for item in value:
+            found = _storable(item, depth + 1)
+            if found:
+                return found
+    return None
+
+
 def _check_field_names(value: dict[str, Any]) -> dict[str, Any]:
     if not all(_FIELD_NAME.fullmatch(key) for key in value):
         raise ValueError(f"field names must match {FIELD_NAME_PATTERN}")
+    for key, item in value.items():
+        if isinstance(item, dict):
+            if key not in OBJECT_FIELDS:
+                raise ValueError(
+                    f"{key} is not a field that takes an object (only "
+                    f"{', '.join(sorted(OBJECT_FIELDS))} does)"
+                )
+            problem = _storable(item, 1)
+            if problem:
+                raise ValueError(f"{key} holds {problem}")
     return value
 
 

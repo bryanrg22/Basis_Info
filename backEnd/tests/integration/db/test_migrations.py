@@ -97,9 +97,19 @@
 * ``0035_demo_requests`` creates ``demo_requests`` (the public site's demo form: a role in
   the four the form offers, ``seq`` unique and generated), nothing backfilled; it downgrades
   back to ``0034`` exactly;
+* ``0038_public_geo`` creates the public geographic sources' tables (gathers with one active per
+  study, views and parcels never updated, incidents by code and source) and drops them exactly;
+* ``0036_property_capture`` creates the property pictures' tables (the pin, the captures with
+  one active per study, the never-updated views, the one-row capture state seeded with
+  ``id = 1``, the navigation log, the incidents) and lets ``alerts.kind`` be
+  ``capture_blocked``; it downgrades back to ``0035`` exactly;
+* ``0037_capture_history`` adds the capture's ``notes`` (default ``[]``) and the views'
+  imagery date, its note, the leaf label (three values), the green share (0 to 1) and the
+  street-level camera point (both or neither) and panorama id, nothing backfilled; it
+  downgrades back to ``0036`` exactly;
 * ``0039_study_renovations`` adds ``studies.renovations`` (an object or NULL) and
   ``studies.renovations_version`` (0, never negative), nothing backfilled; it downgrades back
-  to ``0035`` exactly;
+  to ``0038`` exactly;
 * upgrading at head is a no-op; offline (``--sql``) rendering works.
 
 Each test that changes the schema gets its own throwaway database in the shared
@@ -143,10 +153,8 @@ pytestmark = pytest.mark.integration
 # 0025_invitation_email lands after 0022 (user activity), 0023 (rate-limit hits) and 0024
 # (review drafts); 0026 (retention and alerts) revises 0025, and 0027_signature_input_versions
 # revises 0026 (it was 0024, then 0026, until the branches before it landed).
-# 0039_study_renovations revises 0035 on this branch; it is numbered after the 0036-0038 that
-# open branches claim, and re-pointed to whichever lands first (its module doc).
 HEAD = "0039"
-HISTORY = ["0039", *(f"{n:04d}" for n in range(35, 0, -1))]  # "0039", "0035" .. "0001"
+HISTORY = [f"{n:04d}" for n in range(39, 0, -1)]  # "0039" .. "0001"
 EXPECTED_TRIGGERS = (
     {(f"{table}_set_updated_at", table) for table in UPDATED_AT_TABLES}
     | {(f"{table}_append_only", table) for table in APPEND_ONLY_TABLES}
@@ -1958,12 +1966,215 @@ async def test_0035_demo_requests_role_check_and_an_exact_downgrade(
     assert await snapshot(url) == at_0034
 
 
-async def test_0039_study_renovations_checks_and_an_exact_downgrade(
+async def test_0036_property_capture_rules_and_an_exact_downgrade(
     empty_database_url: str,
 ) -> None:
     url = empty_database_url
     await upgrade(url, "0035")
     at_0035 = await snapshot(url)
+    await upgrade(url, "0036")
+    connection = await asyncpg.connect(plain_dsn(url))
+    try:
+        assert await connection.fetchval("SELECT count(*) FROM capture_state") == 1
+        with pytest.raises(asyncpg.CheckViolationError, match="single_row"):
+            await connection.execute("INSERT INTO capture_state (id) VALUES (2)")
+        org = await connection.fetchval("INSERT INTO orgs (name) VALUES ('Firm') RETURNING id")
+        user = await connection.fetchval(
+            "INSERT INTO users (firebase_uid, email) VALUES ('u1', 'u@x.example') RETURNING id"
+        )
+        study = await connection.fetchval(
+            "INSERT INTO studies (org_id, created_by, property_name) VALUES ($1, $2, 'P') "
+            "RETURNING id",
+            org,
+            user,
+        )
+        with pytest.raises(asyncpg.CheckViolationError, match="point_whole"):
+            await connection.execute(
+                "INSERT INTO property_pins (study_id, lat, source) VALUES ($1, 43.8, 'engineer')",
+                study,
+            )
+        with pytest.raises(asyncpg.CheckViolationError, match="something_to_find"):
+            await connection.execute(
+                "INSERT INTO property_pins (study_id, source) VALUES ($1, 'engineer')", study
+            )
+        await connection.execute(
+            "INSERT INTO property_pins (study_id, address, source) "
+            "VALUES ($1, '1 Main', 'engineer')",
+            study,
+        )
+        insert = (
+            "INSERT INTO property_captures (study_id, pin_version, status) VALUES ($1, 1, $2) "
+            "RETURNING id"
+        )
+        first = await connection.fetchval(insert, study, "running")
+        with pytest.raises(asyncpg.UniqueViolationError, match="one_active"):
+            await connection.fetchval(insert, study, "queued")
+        await connection.fetchval(insert, study, "failed")  # an ended one is not active
+        await connection.execute(
+            "INSERT INTO capture_views (study_id, capture_id, pin_version, kind, label, lat, lon, "
+            "ground_alt_m, range_m, fov_deg, heading_deg, tilt_deg, width, height, uri, sha256, "
+            "bytes, source, captured_at) VALUES ($1, $2, 1, 'aerial', 'today', 41.6, -93.6, 250, "
+            "150, 35, 0, 0, 1440, 900, 'gs://b/x.png', $3, 10, 's', now())",
+            study,
+            first,
+            "0" * 64,
+        )
+        with pytest.raises(asyncpg.exceptions.RestrictViolationError):
+            await connection.execute("UPDATE capture_views SET label = 'other'")
+        await connection.execute(
+            "INSERT INTO outbox (kind, payload) VALUES ('notification', '{}') "
+        )
+        outbox = await connection.fetchval("SELECT id FROM outbox LIMIT 1")
+        await connection.execute(
+            "INSERT INTO alerts (key, kind, outbox_id, payload) "
+            "VALUES ('capture-blocked:1:x', 'capture_blocked', $1, '{}')",
+            outbox,
+        )
+        for table in (
+            "alerts",
+            "outbox",
+            "capture_views",
+            "property_captures",
+            "property_pins",
+            "studies",
+            "users",
+            "orgs",
+        ):
+            await connection.execute(f"DELETE FROM {table}")
+    finally:
+        await connection.close()
+    await downgrade(url, "0035")
+    assert await snapshot(url) == at_0035
+
+
+async def test_0037_capture_history_columns_and_an_exact_downgrade(
+    empty_database_url: str,
+) -> None:
+    url = empty_database_url
+    await upgrade(url, "0036")
+    at_0036 = await snapshot(url)
+    await upgrade(url, "0037")
+    connection = await asyncpg.connect(plain_dsn(url))
+    try:
+        org = await connection.fetchval("INSERT INTO orgs (name) VALUES ('Firm') RETURNING id")
+        user = await connection.fetchval(
+            "INSERT INTO users (firebase_uid, email) VALUES ('u1', 'u@x.example') RETURNING id"
+        )
+        study = await connection.fetchval(
+            "INSERT INTO studies (org_id, created_by, property_name) VALUES ($1, $2, 'P') "
+            "RETURNING id",
+            org,
+            user,
+        )
+        await connection.execute(
+            "INSERT INTO property_pins (study_id, address, source) "
+            "VALUES ($1, '1 Main', 'engineer')",
+            study,
+        )
+        capture = await connection.fetchval(
+            "INSERT INTO property_captures (study_id, pin_version, status) "
+            "VALUES ($1, 1, 'running') RETURNING id",
+            study,
+        )
+        assert (
+            await connection.fetchval("SELECT notes FROM property_captures WHERE id = $1", capture)
+            == "[]"
+        )
+        insert = (
+            "INSERT INTO capture_views (study_id, capture_id, pin_version, kind, label, lat, lon, "
+            "ground_alt_m, range_m, fov_deg, heading_deg, tilt_deg, width, height, uri, sha256, "
+            "bytes, source, captured_at, imagery_on, leaf, green_share, camera_lat, camera_lon) "
+            "VALUES ($1, $2, 1, 'history', $3, 41.6, -93.6, 250, 165, 35, 0, 0, 1440, 900, "
+            "'gs://b/x.png', $4, 10, 's', now(), '2021-03-12', $5, $6, $7, $8)"
+        )
+        await connection.execute(
+            insert, study, capture, "history-2021-03-12", "0" * 64, "leaf-off", 0.17, None, None
+        )
+        with pytest.raises(asyncpg.CheckViolationError, match="leaf_valid"):
+            await connection.execute(
+                insert, study, capture, "a", "0" * 64, "bare", None, None, None
+            )
+        with pytest.raises(asyncpg.CheckViolationError, match="green_share_range"):
+            await connection.execute(insert, study, capture, "b", "0" * 64, None, 1.5, None, None)
+        with pytest.raises(asyncpg.CheckViolationError, match="camera_point_whole"):
+            await connection.execute(insert, study, capture, "c", "0" * 64, None, None, 43.8, None)
+        for table in ("capture_views", "property_captures", "property_pins", "studies", "users"):
+            await connection.execute(f"DELETE FROM {table}")
+        await connection.execute("DELETE FROM orgs")
+    finally:
+        await connection.close()
+    await downgrade(url, "0036")
+    assert await snapshot(url) == at_0036
+
+
+async def test_0038_public_geo_rules_and_an_exact_downgrade(empty_database_url: str) -> None:
+    url = empty_database_url
+    await upgrade(url, "0037")
+    at_0037 = await snapshot(url)
+    await upgrade(url, "0038")
+    connection = await asyncpg.connect(plain_dsn(url))
+    try:
+        org = await connection.fetchval("INSERT INTO orgs (name) VALUES ('Firm') RETURNING id")
+        user = await connection.fetchval(
+            "INSERT INTO users (firebase_uid, email) VALUES ('u1', 'u@x.example') RETURNING id"
+        )
+        study = await connection.fetchval(
+            "INSERT INTO studies (org_id, created_by, property_name) VALUES ($1, $2, 'P') "
+            "RETURNING id",
+            org,
+            user,
+        )
+        insert = (
+            "INSERT INTO geo_gathers (study_id, pin_version, lat, lon, status) "
+            "VALUES ($1, 1, 41.60, -93.60, $2) RETURNING id"
+        )
+        first = await connection.fetchval(insert, study, "running")
+        with pytest.raises(asyncpg.UniqueViolationError, match="one_active"):
+            await connection.fetchval(insert, study, "queued")
+        await connection.fetchval(insert, study, "succeeded")
+        with pytest.raises(asyncpg.CheckViolationError, match="status_valid"):
+            await connection.fetchval(insert, study, "waiting")
+        await connection.execute(
+            "INSERT INTO geo_views (study_id, gather_id, source_id, kind, label, lat, lon, "
+            "pixel_size_m, bbox, width, height, uri, content_type, sha256, bytes, credit, "
+            "terms_class, terms_url, captured_at) VALUES ($1, $2, 's', 'current', 'c', 41.60, "
+            "-93.60, 0.15, '[0, 0, 1, 1]', 10, 10, 'gs://b/x.jpg', 'image/jpeg', $3, 1, 'c', "
+            "'public-domain', 'https://x', now())",
+            study,
+            first,
+            "0" * 64,
+        )
+        with pytest.raises(asyncpg.exceptions.RestrictViolationError):
+            await connection.execute("UPDATE geo_views SET label = 'other'")
+        with pytest.raises(asyncpg.CheckViolationError, match="kind_valid"):
+            await connection.execute(
+                "INSERT INTO geo_views (study_id, gather_id, source_id, kind, label, lat, lon, "
+                "pixel_size_m, bbox, width, height, uri, content_type, sha256, bytes, credit, "
+                "terms_class, terms_url, captured_at) VALUES ($1, $2, 's', 'oblique', 'o', 0, 0, "
+                "1, '[]', 1, 1, 'u', 't', $3, 1, 'c', 't', 'u', now())",
+                study,
+                first,
+                "0" * 64,
+            )
+        await connection.execute(
+            "INSERT INTO geo_incidents (code, source_id, first_seen_at, last_seen_at, "
+            "last_gather_id) VALUES ('BASIS-GEO-005', 'a', now(), now(), $1)",
+            first,
+        )
+        for table in ("geo_incidents", "geo_views", "geo_gathers", "studies", "users", "orgs"):
+            await connection.execute(f"DELETE FROM {table}")
+    finally:
+        await connection.close()
+    await downgrade(url, "0037")
+    assert await snapshot(url) == at_0037
+
+
+async def test_0039_study_renovations_checks_and_an_exact_downgrade(
+    empty_database_url: str,
+) -> None:
+    url = empty_database_url
+    await upgrade(url, "0038")
+    at_0038 = await snapshot(url)
     connection = await asyncpg.connect(plain_dsn(url))
     try:
         await connection.execute(
@@ -1999,5 +2210,5 @@ async def test_0039_study_renovations_checks_and_an_exact_downgrade(
         await connection.execute("DELETE FROM orgs")
     finally:
         await connection.close()
-    await downgrade(url, "0035")
-    assert await snapshot(url) == at_0035
+    await downgrade(url, "0038")
+    assert await snapshot(url) == at_0038
