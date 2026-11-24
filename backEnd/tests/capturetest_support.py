@@ -89,6 +89,21 @@ class FakeBrowser:
     url: str = "about:blank"
     closed: bool = False
     _last: PageRecord | None = None
+    # EVAL_REPORT 99. History: the dates the viewer offers, newest first, as the page shows
+    # them (None: no history control); ``history_blank`` the indexes that render black.
+    history_dates: list[str] | None = None
+    history_blank: set[int] = field(default_factory=set)
+    history_index: int | None = None
+    history_presses: int = 0
+    # Street level: the address the panorama lookup lands on and its failed responses, and
+    # the failed responses and picture after the camera turns to the house.
+    street_landing: str | None = None
+    street_failed: tuple[Response, ...] = ()
+    street_aim_failed: tuple[Response, ...] = ()
+    street_png: bytes | None = None
+    # The screenshot's height (the clean layout's viewport is taller than 900).
+    height: int = 900
+    settles: list[tuple[float, bool]] = field(default_factory=list)
 
     async def load(self, url: str) -> PageRecord:
         n = len(self.loads)
@@ -100,6 +115,13 @@ class FakeBrowser:
             self.url = scripted.url
             self._last = scripted
             return scripted
+        self.history_index = None
+        if "map_action=pano" in url and self.street_landing is not None:
+            self.url = self.street_landing
+            self._last = PageRecord(
+                url=self.url, status=200, title="Maps", html=self.html, failed=self.street_failed
+            )
+            return self._last
         self.url = self.landing if "/search/" in url else url
         self._last = PageRecord(url=self.url, status=200, title="Google Earth", html=self.html)
         return self._last
@@ -114,11 +136,30 @@ class FakeBrowser:
             self._last = scripted
             return scripted
         self.url = url
-        self._last = PageRecord(url=url, status=None, title="Google Earth", html=self.html)
+        failed = self.street_aim_failed if "/maps/@" in url else ()
+        self._last = PageRecord(
+            url=url, status=None, title="Google Earth", html=self.html, failed=failed
+        )
         return self._last
 
-    async def settle(self, seconds: float) -> None:
-        return None
+    async def settle(self, seconds: float, *, dismiss: bool = True) -> None:
+        self.settles.append((seconds, dismiss))
+
+    async def history_on(self) -> PageRecord | None:
+        if self.history_dates is None:
+            return None
+        self.history_index = 0
+        self.history_presses += 1
+        return await self.current()
+
+    async def history_older(self) -> PageRecord | None:
+        if self.history_dates is None or self.history_index is None:
+            return None
+        if self.history_index + 1 >= len(self.history_dates):
+            return None
+        self.history_index += 1
+        self.history_presses += 1
+        return await self.current()
 
     async def current(self) -> PageRecord:
         if self._last is not None:
@@ -128,11 +169,21 @@ class FakeBrowser:
     async def screenshot(self) -> bytes:
         if self.closed:
             raise BrowserCrashed("closed")
+        if self.history_index is not None:
+            if self.history_index in self.history_blank:
+                return black_png(height=self.height)
+            return map_png(height=self.height, seed=100 + self.history_index)
+        if "/maps/@" in self.url and self.street_png is not None:
+            return self.street_png
         if (len(self.moves) - 1) in self.blank_moves:
-            return black_png()
+            return black_png(height=self.height)
+        if self.height != 900:
+            return map_png(height=self.height)
         return self.png
 
     async def imagery_date(self) -> str | None:
+        if self.history_index is not None and self.history_dates is not None:
+            return f"older-{self.history_dates[self.history_index]}"
         return self.date
 
     async def place_label(self) -> str | None:

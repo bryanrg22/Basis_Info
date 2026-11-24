@@ -54,10 +54,11 @@ class Camera:
         if not 0 <= self.tilt_deg < 90:
             raise ValueError("tilt must be from 0 (straight down) to below 90 degrees")
 
-    def address(self) -> str:
-        """The page address that puts the camera here."""
+    def address(self, origin: str = ORIGIN) -> str:
+        """The page address that puts the camera here (``origin``: the viewer's, or a local
+        test server's in the block tests)."""
         return (
-            f"{ORIGIN}/web/@{self.lat:.7f},{self.lon:.7f},{self.alt_m:.2f}a,"
+            f"{origin}/web/@{self.lat:.7f},{self.lon:.7f},{self.alt_m:.2f}a,"
             f"{self.range_m:.2f}d,{self.fov_deg:g}y,{self.heading_deg:g}h,"
             f"{self.tilt_deg:g}t,{self.roll_deg:g}r"
         )
@@ -90,12 +91,12 @@ def parse(address: str) -> Camera | None:
         return None
 
 
-def search_address(query: str) -> str:
+def search_address(query: str, origin: str = ORIGIN) -> str:
     """The page address of a search for ``query`` (an address or a place name)."""
     cleaned = " ".join(query.split())
     if not cleaned:
         raise ValueError("empty search")
-    return f"{ORIGIN}/web/search/{quote_plus(cleaned, safe='')}"
+    return f"{origin}/web/search/{quote_plus(cleaned, safe='')}"
 
 
 def pixel_size_m(range_m: float, fov_deg: float, height_px: int) -> float:

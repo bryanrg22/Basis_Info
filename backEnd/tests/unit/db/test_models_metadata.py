@@ -164,10 +164,12 @@ SPEC_TABLES = {
     "property_pins": "study_id address lat lon source place_label confirmed confirmed_by "
     "confirmed_at updated_by version updated_at",
     "property_captures": "id study_id requested_by status pin_version workflow_id code reason "
-    "resume_at started_at finished_at views updated_at",
+    "resume_at started_at finished_at views notes updated_at",
+    # 0037_capture_history (EVAL_REPORT 99): the notes; the views' date, leaf and street camera.
     "capture_views": "id study_id capture_id pin_version kind label lat lon ground_alt_m range_m "
     "fov_deg heading_deg tilt_deg pixel_size_m imagery_date width height uri sha256 bytes "
-    "source captured_at",
+    "source captured_at imagery_on imagery_date_note leaf green_share camera_lat camera_lon "
+    "pano_id",
     "capture_state": "id lease_holder lease_expires_at breaker_open_until breaker_opened_at "
     "breaker_code breaker_reason trips last_success_at last_navigation_at worker_seen_at "
     "updated_at",
@@ -732,8 +734,9 @@ def test_jsonb_columns_store_none_as_sql_null() -> None:
     # ops health (0021): service_heartbeats.report; the firm's history (0022):
     # org_events.before/after/detail; gate drafts (0024): review_drafts.document;
     # alerts (0026): alerts.payload; browser error capture (0028): client_errors.event;
-    # signer details (0032): report_signatures.letterhead
-    assert len(jsonb) == 39
+    # signer details (0032): report_signatures.letterhead; capture notes (0037):
+    # property_captures.notes
+    assert len(jsonb) == 40
     for name, column in jsonb:
         assert table(name).c[column].type.none_as_null, f"{name}.{column}"
 

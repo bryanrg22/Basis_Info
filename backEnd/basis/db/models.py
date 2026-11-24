@@ -1912,6 +1912,10 @@ class PropertyCapture(Base):
     started_at: Mapped[datetime | None]
     finished_at: Mapped[datetime | None]
     views: Mapped[int] = mapped_column(server_default=text("0"), default=0)
+    # Migration 0037: the parts that did not work while the capture went on (history, street
+    # level, an unread date), each ``{"part", "code", "message"}``; the message is the
+    # engineer's and never names the provider (EVAL_REPORT 99).
+    notes: Mapped[Any] = mapped_column(JSON_DOC, server_default=text("'[]'::jsonb"), default=list)
     created_at: Mapped[datetime] = _created_at()
     updated_at: Mapped[datetime] = _updated_at()
 
@@ -1927,6 +1931,12 @@ class CaptureView(Base):
     (``imagery_date``, as text: the page's own format), the size and the sha256. ``source``
     is the provenance line shown with the view (Bryan's decision, PROPERTY_CAPTURE.md 6).
     Never updated (``forbid_mutation()`` on UPDATE).
+
+    Migration ``0037`` (EVAL_REPORT 99): ``imagery_on`` the imagery date as a date,
+    ``imagery_date_note`` how it was read or why it was not, ``leaf`` (``leaf-off``,
+    ``leaf-on``, ``unknown``) by the month and latitude rule, ``green_share`` the green
+    vegetation share of a top-down view, and for a ``street`` view where the camera stood
+    (``camera_lat``, ``camera_lon``) and the panorama's id (``pano_id``).
     """
 
     __tablename__ = "capture_views"
@@ -1934,6 +1944,12 @@ class CaptureView(Base):
         CheckConstraint("kind IN ('aerial', 'oblique', 'history', 'street')", name="kind_valid"),
         CheckConstraint("width > 0 AND height > 0", name="size_positive"),
         CheckConstraint("pixel_size_m IS NULL OR pixel_size_m > 0", name="pixel_size_positive"),
+        CheckConstraint("leaf IN ('leaf-off', 'leaf-on', 'unknown')", name="leaf_valid"),
+        CheckConstraint(
+            "green_share IS NULL OR (green_share >= 0 AND green_share <= 1)",
+            name="green_share_range",
+        ),
+        CheckConstraint("(camera_lat IS NULL) = (camera_lon IS NULL)", name="camera_point_whole"),
         ForeignKeyConstraint(
             ["study_id", "capture_id"], ["property_captures.study_id", "property_captures.id"]
         ),
@@ -1963,6 +1979,13 @@ class CaptureView(Base):
     bytes: Mapped[int] = mapped_column(BigInteger)
     source: Mapped[str]
     captured_at: Mapped[datetime]
+    imagery_on: Mapped[date | None]
+    imagery_date_note: Mapped[str | None]
+    leaf: Mapped[str | None]
+    green_share: Mapped[float | None] = mapped_column(Double)
+    camera_lat: Mapped[float | None] = mapped_column(Double)
+    camera_lon: Mapped[float | None] = mapped_column(Double)
+    pano_id: Mapped[str | None]
     created_at: Mapped[datetime] = _created_at()
 
 

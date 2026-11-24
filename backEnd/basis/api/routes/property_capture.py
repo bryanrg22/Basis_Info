@@ -56,6 +56,7 @@ from basis.api.users import (
     study_access,
 )
 from basis.capture import messages
+from basis.capture.leaf import Dated, measure_on
 from basis.capture.starter import CaptureStarter, CaptureStartError
 from basis.config import Settings
 from basis.db.enums import OrgRole
@@ -110,6 +111,12 @@ async def _capture_out(
     repo: PropertyRepository, row: PropertyCapture, pin: PropertyPin | None
 ) -> CaptureOut:
     views = await repo.views(row.id)
+    choice = measure_on(
+        [
+            Dated(str(v.id), v.imagery_on, v.leaf or "unknown", v.pixel_size_m)  # type: ignore[arg-type]
+            for v in views
+        ]
+    )
     return CaptureOut(
         id=row.id,
         status=row.status,  # type: ignore[arg-type]
@@ -121,6 +128,8 @@ async def _capture_out(
         finished_at=row.finished_at,
         pin_version=row.pin_version,
         views=[_view_out(v, pin) for v in views],
+        notes=list(row.notes or []),
+        measure_on=None if choice is None else uuid.UUID(choice),
     )
 
 

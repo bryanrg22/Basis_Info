@@ -380,7 +380,7 @@ proposed routes from the sample once the backend has them.
   report profile (`PUT .../profile`), whose `name` is printed on reports. Renaming the firm itself
   is not on the page yet.
 
-## 18. Property pictures: what the API offers and the app does not use (EVAL_REPORT 98)
+## 18. Property pictures: what the API offers and the app does not use (EVAL_REPORT 98, 99)
 
 The backend takes dated views of the study's property in the background
 (`docs/api/PROPERTY_CAPTURE.md`). How the Property area changes the engineer's work is in
@@ -411,8 +411,10 @@ Nothing below is built in the app.
   - On `failed`, show the message and a "Take them again" action.
   - `code` is for support, through the error catalogue.
 * **The views.** `capture.views[]`, each with `label`, `kind`, its camera, `pixel_size_m` (null
-  on tilted views), `imagery_date` (null today; the date is visible in the image's own status
-  bar), `source` (show it with the image) and `stale`. The image is at
+  on tilted views), `imagery_date` / `imagery_on` (read off the viewer's status bar since
+  EVAL_REPORT 99; null with `imagery_date_note` saying why), `leaf`, `source` (show it with the
+  image) and `stale`. Views taken since EVAL_REPORT 99 have no viewer interface in them, so the
+  date must be shown beside the image, not looked for in it. The image is at
   `GET .../property/views/{view_id}/image` (PNG, `ETag`, 304). `aerial-close` is the one to
   measure on, `aerial-wide` gives context, and `side-*` show each face.
 * **Measuring from a "needs measurement" row.** A row with a takeoff blocker for an area or a
@@ -424,14 +426,33 @@ Nothing below is built in the app.
 
   Send PR #178's `measurement` (section 17) with `space: lonlat` and `image.source` (the view's
   `source`). Set `image.pixel_size_m` to the view's value, and `image.captured_on` to the
-  imagery date when known; leave it out when it is not, which flags `measure:IMAGE_UNDATED`.
+  view's `imagery_on` when it has one; leave it out when it is null, which flags
+  `measure:IMAGE_UNDATED`.
   Asked of the backend, not built: an `image.view_id` on the measurement, so the row links back
   to the exact view.
+* **History (EVAL_REPORT 99).** Views with `kind: history` (`label` `history-YYYY-MM-DD`) are
+  top-down views on earlier imagery dates, with `aerial-close`'s camera (the same
+  georeference: a shape traced on one lines up on another). Order them by `imagery_on`.
+  - Mark each with `leaf` (`leaf-off` "trees bare", `leaf-on` "trees in leaf", `unknown`), and a
+    31 December date as "year only".
+  - Mark the one nearest the study's placed-in-service date (the intake's) "at placed in
+    service".
+  - Offer two dates side by side, or one over the other with a slider, for before and after.
+  - Measuring: `capture.measure_on` is the suggested view's id (the newest leaf-off top-down
+    view, else the newest dated one). Open the measuring tool on it by default and let the
+    engineer switch to any other top-down view (`pixel_size_m` not null). Send that view's
+    `imagery_on` as `captured_on`.
+  - `green_share` is supporting evidence; show it only in a detail view, if at all.
+* **Notes.** `capture.notes[]` (`part`, `code`, `message`) are parts that did not work while
+  the capture succeeded (history, street level, an unread date). Show each `message` as given,
+  quietly, under the views; they need no action.
+* **Street level.** `kind: street` (`street-front`) with `camera_lat`/`camera_lon` (where the
+  camera stood) and `heading_deg` (towards the house): not taken today (`CAPTURE_STREET_VIEW`
+  is off; EVAL_REPORT 99 found it refused headless). Design a place for one ground-level
+  picture of the front, never offered for measuring.
 * **Not built in the API:**
-  - historical and leaf-off dates;
-  - Street View;
-  - reading the imagery date as text;
-  - prefilling the pin's address from the appraisal's subject address.
+  - prefilling the pin's address from the appraisal's subject address;
+  - choosing which history dates to keep from the app (the plan is the worker's).
 
   Design the area so those can join it.
 

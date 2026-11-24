@@ -30,3 +30,17 @@ FAILED_OTHER: Final = "Property pictures could not be taken. Take them again lat
 
 def failed(code: str) -> str:
     return FAILED.get(code, FAILED_OTHER)
+
+
+# Parts that did not work while the capture went on (EVAL_REPORT 99): the capture's ``notes``.
+PART: Final[dict[str, str]] = {
+    E.CAPTURE_HISTORY_UNAVAILABLE: "Earlier pictures of the property could not be taken this "
+    "time; today's pictures are ready.",
+    E.CAPTURE_STREET_NO_COVERAGE: "There are no street-level pictures near this property.",
+    E.CAPTURE_STREET_REFUSED: "Street-level pictures are not available yet.",
+    E.CAPTURE_DATE_UNREAD: "The date of some pictures could not be read; they are marked undated.",
+}
+
+
+def part(code: str) -> str:
+    return PART.get(code, FAILED_OTHER)

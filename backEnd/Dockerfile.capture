@@ -29,8 +29,12 @@ COPY pyproject.toml uv.lock ./
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --frozen --no-dev --group capture --no-install-project
 
-# Chromium at the build Playwright 1.64.1 pins (1248) and its system libraries.
+# Chromium at the build Playwright 1.64.1 pins (1248) and its system libraries, and tesseract,
+# which reads each view's imagery date off the viewer's status bar (EVAL_REPORT 99;
+# CAPTURE_TESSERACT, else `tesseract` on the path). Not built yet with tesseract added.
 RUN playwright install --with-deps chromium chromium-headless-shell \
+    && apt-get update \
+    && apt-get install -y --no-install-recommends tesseract-ocr \
     && rm -rf /var/lib/apt/lists/*
 
 RUN useradd --create-home --uid 10001 basis

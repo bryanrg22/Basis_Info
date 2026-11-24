@@ -14308,3 +14308,236 @@ itself ("8/4/2026" on the probe property). A traced measurement on such a view c
 - History and leaf-off dates, and Street View (not built).
 - Concurrency across two real capture workers (the lease is tested in memory, and written for
   Postgres but not run).
+
+## 99. Property pictures: history, imagery dates, leaf-off, street level and clean views (2026-11-23)
+
+**Question.** Section 98's capture takes today's views only, leaves `imagery_date` null, keeps
+the viewer's toolbar and status bar in every picture, and has no street-level picture. Can the
+same capture, within the same gentleness, also take (1) the dated history of the straight-down
+view, (2) the imagery date of every view, (3) a leaf-off label and the view to measure on, (4)
+a ground-level picture of the front, and (5) pictures free of the viewer's interface? Design:
+`PROPERTY_CAPTURE.md` sections 7 to 9. API: `docs/api/PROPERTY_CAPTURE.md` sections 3, 4 and 6.
+Bryan's decision of section 98 stands: Google views, signed out and headless, for the MVP demo
+only; no customer-facing text names Google.
+
+**Answer first.**
+
+- **History works, for no extra page load.** The viewer's own "Older images" arrow steps
+  through every date, one camera move each. On the probe property it listed all 12 dates found
+  by hand and a 13th (1985-12-31, a featureless blur). A full capture with history took 1 page
+  load and 20 camera moves, in 5.5 minutes, and kept 3 dated views.
+- **The imagery date is read off the status bar by tesseract**: 56 of 56 saved views right; in
+  the first two live walks 12 of 13 dates each, the miss a space read inside "9/14/2006". With
+  spaces inside a date closed before parsing, run 3 read the same "9/1 4/2006" on the live page
+  and kept 2006-09-14: 13 of 13. History dates must also agree with the page address, so a misread digit
+  cannot become a wrong date. The accessibility tree carries no date; the page address carries
+  the date asked for, not the one shown.
+- **Leaf-off by month and latitude** agreed with the hand check on 6 of 6 dates (written knowing
+  the key, so not an independent test); a green-pixel share alone on 4 of 6. One property is a
+  small key.
+- **Clean views.** The viewer cannot hide all its interface. A viewport 170 px taller above and
+  below, cropped back to 1440 x 900, keeps every pixel of the stored view free of it with the
+  same centre and the same metres per pixel (checked by hovering: the status bar names the
+  point under the pointer).
+- **Street level does not work headless.** The service refuses the browser: its panorama lookup
+  answers HTTP 500 and its tiles HTTP 403, in both of Chromium's headless modes and in the
+  viewer's own street-level mode, while WebGL renders the top-down viewer fine. It is built,
+  off by default, and records `BASIS-CAPTURE-020` with evidence when tried.
+- **SwiftShader** (the software renderer a GPU-less Linux worker uses) rendered every view of a
+  full capture with history, pixel for pixel within 0.2 grey levels of Metal's, at the same
+  pace.
+- **Block signals are now tested against a real browser**: five pages served locally
+  (unusual-traffic, reCAPTCHA, consent wall, HTTP 429, a black page) through the capture's own
+  code path. No block signal came from the real site in this section.
+- **No AI model.** Tokens: none. Paid calls: none.
+
+**The standard, and what was taken from it.**
+
+- *Historical imagery.* Google Earth web's historical imagery mode (its timeline of dated dots,
+  the older and newer arrows, 3D buildings switched off while it is on) is the only source the
+  decision allows; the dates are the provider's. Public-domain alternatives (NAIP, state
+  orthoimagery) stay the fallback of section 98.
+- *Reading text drawn on a canvas.* Tesseract 5.5.1 (the open-source OCR engine), one text line
+  (`--psm 7`) on the strip scaled up 4x with Lanczos, the usual preparation for small UI text.
+  It is a system program, installed in the capture image (`Dockerfile.capture`), not a Python
+  dependency.
+- *Leaf-off.* Aerial programs fly "leaf-off" in spring between snowmelt and leaf-out (the
+  Wisconsin Regional Orthoimagery Consortium flies every cycle that way). The USA National
+  Phenology Network's 30-year First Leaf Index puts Wisconsin's first leaf in late April or early
+  May. The latitude shift is Richardson et al. 2019 ("Testing Hopkins' Bioclimatic Law with
+  PhenoCam data", Applied Plant Sciences): deciduous green-up 2.65 days later and green-down 2.0
+  days earlier per degree north (Hopkins' own rule: 4 days). The picture measure is the
+  excess-green-minus-excess-red index (Meyer and Neto 2008) with its published zero threshold.
+- *Street level.* The documented panorama address (`/maps/@?api=1&map_action=pano&viewpoint=`)
+  opens the panorama nearest a point; the heading to the house is the initial great-circle
+  bearing.
+- *Clean pictures.* A crop is the standard way to remove an overlay one cannot switch off; a
+  symmetric crop leaves the optical centre where the camera looks.
+
+**Page loads (budget: 15 for this section; ledger `work/earth_capture/loads.jsonl`).** Every
+navigation went through the capture's governor (caps, 8 to 20 s spacing) and the ledger; the
+exploration scripts used `basis.capture.governor.admit` and `spacing_s` on the same ledger. The
+governor paused one run before it started (`BASIS-CAPTURE-010`, the hourly cap; a double count
+in the exploration script's log, fixed) and no load was spent.
+
+How to read this table: one row per page load of this section, in order; "Moves" are camera
+moves and control presses (no page load), each spaced like a load.
+
+| Load | What | Moves | Result |
+|---|---|---|---|
+| 8 (probe E1) | The viewer: history, stepping, address dates, layout, its street level | 26 | 13 dates by the arrow; address dates 2 of 3; the interface cannot be hidden; the georeference measured by hovering; street level: lookup 500 three times |
+| 9 (probe S1) | Street level in the maps page, Chromium's new headless mode | 1 | Black: lookup 500, then tiles 403 on the panorama |
+| 10 (probe S2) | Street level, the headless shell (section 98's mode), the panorama by its id | 0 | Black: lookup 500, tiles 403 |
+| 11, 12 (run 1) | Full capture, Metal, clean views, dates, history, street level on | 20 | 9 views; street level recorded as `BASIS-CAPTURE-020` with evidence |
+| 13 (run 2) | Full capture, SwiftShader, street level off | 20 | 9 views, no blank frame |
+| 14 (run 3) | Full capture of the finished code, Metal, street level off | 20 | 9 views; all 13 dates read |
+
+Total for this section: 7 loads (14 of 30 on the ledger). No block signal.
+
+**1. History: stepping through the dates.**
+
+How to read this table: each way of moving between dates, what it costs and whether it can
+list the dates; "Right" is the imagery shown against the date asked for.
+
+| Way | Page loads | Moves per date | Lists the dates | Right |
+|---|---|---|---|---|
+| The viewer's "Older images" arrow (shipped) | 0 | 1 | Yes: disabled at the oldest | 12 of 12 steps (status bar = address = header) |
+| The date set in the page address (`pushState` + `popstate`) | 0 | 1 | No | 2 of 3: an absent date (2019-01-01) shows the newest imagery before it (2017-04-22) while the address and header say 2019-01-01 |
+
+Dates found against the 12 known (hand check of 2026-11-22):
+
+| Run | Dates listed | Of the 12 known | Extra | Dates read |
+|---|---|---|---|---|
+| Probe E1 (900 px) | 13 | 12 | 1985-12-31 (a blur) | 13 of 13 |
+| Run 1 (1240 px, Metal) | 13 | 12 | 1985-12-31 | 12 of 13 (9/14/2006 read as "9/1 4/2006") |
+| Run 2 (1240 px, SwiftShader) | 13 | 12 | 1985-12-31 | 12 of 13 (the same) |
+| Run 3 (1240 px, Metal, the space fix) | 13 | 12 | 1985-12-31 | 13 of 13 ("9/1 4/2006" read again, kept as 2006-09-14) |
+
+The plan (`CAPTURE_HISTORY_WINDOW_DAYS` 730, `CAPTURE_HISTORY_MAX_VIEWS` 6) with a hypothetical
+placed-in-service date of 2017-06-30 kept 2026-08-04 (newest), 2017-04-22 (69 days from it) and
+2021-03-12 (leaf-off). Uncapped, the plan keeps 3 to 7 dates for any placed-in-service year from
+1990 to 2026 (median 4; 7 only for 2007): the cap of 6 keeps every planned date for 36 of 37
+years and costs about 1.5 MB a view. The window: the property's dates came 0.3 to 3.5 years
+apart after 1992 (median 2.3), so two years either side catches about one date each side.
+
+**2. The imagery date.**
+
+How to read this table: each way of reading the date, on how many views, how many right
+(against the hand-checked dates, or for history the date the viewer shows), and its limits.
+
+| Way | Views | Right | Wrong | Limit |
+|---|---|---|---|---|
+| Accessibility tree (switched on) | Today's and history views of probe E1 | 0 | 0 | Carries no date at all |
+| Page address, `data=` (history only) | 16 history views (13 by the arrow, 3 by address) | 15 | 1 | The date asked for, not shown; read 2022-01-01 for a moment after history was switched on |
+| History header by OCR (history only) | 17 | 16 | 1 | The same: shows the date asked for |
+| Status bar by OCR (shipped) | 56 saved views (19 of section 98's runs, 28 of the probes, 9 of run 1) | 56 | 0 | About 0.06 s a view; live walks 24 of 26 before the space fix, 13 of 13 after (run 3) |
+
+A history date is kept only when the status bar and the page address agree (every date read in
+runs 1 to 3 agreed: 12, 12 and 13). A misread that is not a date ("2/31/1985") is refused, not guessed.
+
+**3. Leaf-off.**
+
+How to read this table: each method's label on the six dates of the hand check (Mar 12 2021 and
+Apr 22 2017 leaf-off; Aug 4 2026, Jun 20 2023, Oct 8 2013 leaf-on; May 3 2020 partly leafed,
+expected "unknown"). "Wrong" is a confident wrong label; "abstained" is unknown where the key
+has a label.
+
+| Method | Agree | Wrong | Abstained |
+|---|---|---|---|
+| Month and latitude (shipped) | 6 of 6 | 0 | 0 |
+| Green share alone (on ≥ 0.50, off ≤ 0.30) | 4 of 6 | 2 (Apr 22 2017 "on", May 3 2020 "on") | 0 |
+| Both must agree | 5 of 6 | 0 | 1 (Apr 22 2017) |
+
+The green share is high in a leaf-off April (lawn and evergreens): 0.58 against 0.23 for the
+March picture. On the dates outside the key the month rule abstains on both 31 December dates
+(the 2005 one is in full leaf). The view to measure on (`measure_on`) is the newest leaf-off
+top-down view: 2021-03-12, which the hand check also called leaf-off and sharp. **Not
+independent:** the autumn edges (leaf-on to 15 October, leaf-off from 10 November at 44° N) were
+set knowing the key's 8 October leaf-on picture.
+
+**4. Street level.**
+
+How to read this table: each way tried, within the page loads above; "Lookup" is the panorama
+lookup's answer, "Tiles" the imagery tiles'.
+
+| Way | Lookup | Tiles | Picture |
+|---|---|---|---|
+| The viewer's own street-level mode (click, click again, drag the figure) | 500 (three times) | not asked | Never entered |
+| Maps, documented panorama address, Chromium new headless, Metal | 500, then 400 for an empty id | not asked | Black (mean 3.6) |
+| Maps, the panorama by its id (moved to, no load), new headless | not asked | 403 | Black (mean 7.7) |
+| Maps, the panorama by its id, headless shell, Metal | 500 | 403 | Black (mean 7.9) |
+| The capture's own path (run 1) | 400 and 500 | not asked | `BASIS-CAPTURE-020` recorded with screenshot, HTML and record |
+| Waiting longer (5, 12, 25 s) | | | Black at every wait |
+
+WebGL2 worked in the same browser (the top-down viewer rendered; renderer "ANGLE Metal"). A
+GL flag, a viewport or a wait cannot fix a refused request, so none was tried beyond these.
+The browser announces itself as "HeadlessChrome" with `navigator.webdriver` true; presenting it
+otherwise is a way around the refusal, which is Bryan's decision and was not tried. A headed
+window rendered the panorama in the hand check (not acceptable for the product).
+
+**5. Clean views.**
+
+How to read this table: each way of removing the viewer's interface, and what is left of a
+1440 x 900 frame.
+
+| Way | Interface left | Image kept | Georeference |
+|---|---|---|---|
+| Hide it (the viewer's "Hide the menu bar"; its settings have no other switch) | Search box, history date, corner buttons, status bar | 900 rows with overlays | Unchanged |
+| Crop a 900 px viewport to the clean band | None | 636 rows (history mode) to 708 | The centre moves 12 to 24 px off the camera's point |
+| A taller viewport (1240 px) cropped symmetrically (shipped) | None | 900 rows | Unchanged: same centre, same m/px |
+
+The georeference was measured, not assumed: the status bar names the point under the pointer.
+On a 9-point grid the viewport's centre read the camera's own point at 900 and at 1130 px tall,
+and the fitted metres per pixel were 0.0842 to 0.0846 and 0.0671 to 0.0676 (across and down) against 0.0841 and 0.0670 from
+`2·range·tan(fov/2)/height` (the offsets of points off the centre vary by up to 2 % with the
+ground's height under them). Every range is lengthened by 1240 / 900, so `aerial-close` is taken
+at 165.3 m and keeps 0.0841 m a pixel. Run 1's stored views have no interface pixel in them
+(checked by eye on all nine).
+
+**6. Software rendering (SwiftShader).** Run 2 used `--use-angle=swiftshader,
+--enable-unsafe-swiftshader` (renderer "ANGLE (Google, Vulkan 1.3.0 (SwiftShader Device))" by
+`python -m basis.capture.smoke` with the same flags).
+
+How to read this table: the same capture on the GPU and on the software renderer; seconds are
+dominated by the 8 to 20 s random spacing and the 12 s wait for imagery, not by rendering.
+
+| Run | Renderer | Today's 6 views | History walk (14 presses, 3 kept) | Blank frames | Difference from Metal |
+|---|---|---|---|---|---|
+| Run 1 | Metal (GPU) | 105 s | 222 s | 0 | — |
+| Run 2 | SwiftShader (CPU) | 106 s | 229 s | 0 | 0.05 to 0.21 grey levels mean absolute, under 0.01 % of pixels off by more than 16 |
+| Run 3 | Metal (GPU), the finished code | 103 s | 222 s | 0 | — |
+
+Section 98's run 4 (6 views, no history) took 95 s.
+
+**Tests** (all without the real site):
+
+- `tests/unit/capture/test_history_street_runner.py`: the walk, the plan and its cap, no
+  history control, no readable date, a black date, a block signal on a history press, a resume,
+  street success, no panorama, a refused lookup, refused tiles, a black panorama, clean views,
+  no text reader, and the regression that the default options take section 98's capture
+  exactly.
+- `tests/unit/capture/test_history_modules.py`: the layout's geometry and a known point before
+  and after the crop, the date formats, the address date and its check, generated status strips
+  read by tesseract, every leaf window edge, the hand-checked key, the green share, the view to
+  measure on, the plan's priorities and window edges, the street addresses and refusals.
+- `tests/unit/capture/test_block_pages_browser.py`: the real headless Chromium against five
+  locally served pages through the capture's code path: each block page's code, evidence
+  (screenshot, HTML, page record), one alert, the `capture.paused` event and the breaker open in
+  ops health; the black page fails with `BASIS-CAPTURE-005` and no breaker. Skipped where
+  Chromium is not installed.
+- Migration 0037, the Postgres store and the API, run on a local Postgres 18 (no Docker).
+
+**Run records:** `$BASIS_EVAL_DATA_DIR/verification/property_capture/v2/history_2026-11-23`
+(manifest, results, report; `evals.registry --component property_capture` lists it), and
+`$BASIS_EVAL_DATA_DIR/work/earth_capture/probe2/` (probes `e1`, `s1`, `s2`; runs `runs/r1` to
+`runs/r3`; `eval/measure.json` with every reading). The views stay there; none is in the
+repository.
+
+**Verified and not verified.**
+
+- Verified: history stepping, the date reading, the leaf labels on one property, clean views
+  and their georeference, Street level's refusal, SwiftShader rendering on this Mac, the block
+  pages against a real browser served locally.
+- Not verified: another property (one property's key is small); Linux (SwiftShader on macOS is
+  the proxy); a real block signal from the site (none came); street level headed or with
+  another identity (not tried, Bryan's decision); the date reading on a viewer redesign.

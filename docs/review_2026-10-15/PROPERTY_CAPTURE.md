@@ -33,12 +33,17 @@ in `web/FRONTEND_BACKLOG.md` section 18. Background is in the research note
      - a point loaded without its ground altitude placed every camera below the ground.
    - Both found point and engineer point now give the right scale.
    - The pixel size reads 1.9 to 2.6 % finer than the viewer's own scale bar.
-5. **Not built.**
-   - Historical and leaf-off dates.
-   - Street View.
-   - Reading the imagery date as text: the viewer draws it on its canvas, so it is visible in
-     the view but `imagery_date` is null.
-   - A Linux render, which needs Docker, unavailable this session.
+5. **Added by EVAL_REPORT 99** (section 9 below):
+   - **History**: the dated history of the straight-down view, stepped with the viewer's own
+     arrow (one camera move a date, no page load). The capture keeps the newest date, the
+     dates around the placed-in-service date and the leaf-off dates, at most 6.
+   - **The imagery date of every view**, read off the status bar (tesseract, 56 of 56 views
+     right), and a **leaf-off label** by the month and the latitude.
+   - **Clean views**: no toolbar, buttons or status bar in a stored view; same centre, same
+     metres per pixel.
+   - **Street View**: built, but the service refuses a headless browser (panorama lookup 500,
+     tiles 403), so it is off and records its own code when tried.
+6. **Not built.** A Linux render of the viewer (the image exists; it has not run the viewer).
 
 ## 2. How it works
 
@@ -75,19 +80,23 @@ it again; the views already stored are kept and only the missing ones are taken
 | `aerial-wide` | Straight down, 350 m (about 24.5 cm a pixel) | The lot in its setting: access, parking, neighbours |
 | `side-south`, `-west`, `-north`, `-east` | Tilted 60°, 150 m, looking N, E, S, W | Reading each face of the building and the site. Not for measuring: the tilt has no single scale, and `pixel_size_m` is null |
 
-Wanted next, not built:
-- **History.** The date at purchase, before and after a renovation, and a leaf-off date when
-  trees hide the drive. The research note found 12 dates for the probe's property, two of them
-  sharp and leaf-off.
-- **Street View** when there is coverage.
+Added by EVAL_REPORT 99 (section 9):
+
+| View | Camera | For |
+|---|---|---|
+| `history-YYYY-MM-DD` | `aerial-close`'s, on that imagery date | What existed at the purchase date; before and after a renovation; a leaf-off picture to measure paved areas on |
+| `street-front` | At the nearest panorama, aimed at the house | Reading the front. Off: refused headless |
+
+With clean views (the default) every range above is lengthened by 1240 / 900 so the stored
+1440 x 900 band keeps the same ground and metres per pixel: `aerial-close` is taken at 165.3 m.
 
 ## 4. How failures are tracked, reusing what exists
 
 | Today's system | Reused how |
 |---|---|
-| The `BASIS-<AREA>-<nnn>` catalogue | New area `CAPTURE`, codes 001 to 017, plus `BASIS-ALERT-005`. `docs/ERROR_CODES.md` is regenerated from it. |
+| The `BASIS-<AREA>-<nnn>` catalogue | New area `CAPTURE`, codes 001 to 017, plus `BASIS-ALERT-005`; 018 to 021 for the parts EVAL_REPORT 99 added (history unavailable, no panorama, panorama refused, date unread). `docs/ERROR_CODES.md` is regenerated from it. |
 | Structured logs with `error_code` | `capture signal`, `capture paused`, `capture failed`, `capture breaker opened` |
-| The study timeline (`study_events`) | Events `capture.requested`, `.started`, `.paused`, `.failed`, `.completed`, `property.pin_set`, `property.pin_placed`. The code goes in `code`; the engineer's sentence, the resume time and the evidence go in `detail`. |
+| The study timeline (`study_events`) | Events `capture.requested`, `.started`, `.paused`, `.failed`, `.completed`, `.part_failed` (a part that did not work while the capture went on), `property.pin_set`, `property.pin_placed`. The code goes in `code`; the engineer's sentence, the resume time, the part and the evidence go in `detail`. |
 | Client-error issues (EVAL_REPORT 65) | The same grouping (one row per issue, with count and first and last seen), in its own table `capture_incidents`, keyed by code. See below for why not reuse the table itself. |
 | Operator alerts (`raise_once`, outbox, relay) | Kind `capture_blocked`, keyed by the trip number and the time it opened: exactly one per trip. Rendered by `notify/render.py`. |
 | `GET /v1/ops/health` | A `property_capture` member: on or off, the worker, the breaker, usage against the caps, the last success. |
@@ -151,9 +160,8 @@ These are needs for Bryan's design, not a screen. The API side is FRONTEND_BACKL
      date is read, its imagery date.
    - **The wide aerial** is for the site in context.
    - **The four side views** are for reading the building's faces and roof.
-   - **History, when built:** what existed at the purchase date, before and after a
-     renovation, and a leaf-off date when canopy hides the drive.
-   - **Street View, when built,** where it has coverage.
+   - **History:** see item 7.
+   - **Street level:** see item 8.
 5. **From a "needs measurement" item straight to the aerial.** A row the takeoff could not size
    (a driveway, walks, a patio, a fence) links to the close aerial. The engineer draws the shape
    there, and the area or length lands on that row through PR #178's `measurement`:
@@ -166,6 +174,27 @@ These are needs for Bryan's design, not a screen. The API side is FRONTEND_BACKL
 6. **The audit trail.** Every view keeps its camera, pin version, capture time and sha256, and
    the timeline records who set the pin and who confirmed it. "Show how you measured it if the
    question comes up in an audit" (research note 11.2) is then answered inside Basis.
+7. **History in a study** (EVAL_REPORT 99). The Property area shows the dated top-down views
+   as a strip of dates, each with its leaf label, beside today's close aerial.
+   - **The placed-in-service date.** The view nearest the intake's placed-in-service date (or
+     the appraisal's effective date) is marked "at placed in service". It answers "what was
+     there when it was placed in service": a patio or a fence that appears only later is not
+     part of the purchase.
+   - **Before and after.** Two dates side by side (or one over the other with a slider) show
+     a renovation: a new drive, an added deck, a demolished shed. The engineer decides what
+     the dates mean; Basis only shows them with their dates.
+   - **Measuring.** `measure_on` names the suggested view: the newest leaf-off one, where trees
+     do not hide the pavement. Measuring on it means the quantity is as of that date, which
+     the row shows (`captured_on` is the view's `imagery_on`). If the property changed after
+     that date, the engineer measures on a newer view instead; the choice is theirs.
+   - **Undated or unknown.** A view whose date could not be read says "undated" and is never
+     suggested; a 31 December date is shown as "year only".
+   - **Nothing found.** When history could not be taken the capture's note says so in one
+     sentence, and today's views are unaffected.
+8. **Street level in a study** (when it works; off today). One picture of the front from the
+   nearest street, with its date and "looking south from the street" from its heading. It is
+   for reading the front (materials, entrances, the drive's apron), never for measuring.
+   Today the capture's note reads "Street-level pictures are not available yet."
 
 ## 8. Verified and not verified
 
@@ -186,9 +215,52 @@ These are needs for Bryan's design, not a screen. The API side is FRONTEND_BACKL
 - the worker against a real Temporal;
 - the Linux render.
 
+**Verified since (EVAL_REPORT 99):**
+- the Postgres store, the routes and migrations 0036 and 0037 on a local Postgres 18 (no
+  Docker);
+- the breaker against a real headless browser on five block pages served locally;
+- history, dates, leaf labels, clean views and street level's refusal on the probe property
+  (two full captures, Metal and SwiftShader).
+
 **Not verified:**
-- a block signal from the real site (none occurred, so the breaker's behaviour against the real
-  site is tested only with the fake browser);
+- a block signal from the real site (none occurred; the breaker is tested with the fake
+  browser and with locally served block pages in a real browser);
 - the first-visit notice on a fresh profile (dismissed once in probe 2, its close button's name
   not confirmed);
 - the pixel size against a length measured on the ground.
+
+## 9. History, imagery dates, leaf-off, street level and clean views (EVAL_REPORT 99)
+
+1. **History.** Earth's historical imagery control opens a row of dated dots; its "Older
+   images" arrow steps to the next older date and is disabled at the oldest. Two ways were
+   compared on the probe property in one page load:
+   - **the arrow**, one camera move a date: it listed all 13 dates (the 12 found by hand and
+     a 1985 one) in 12 presses, and the page address then carried each date exactly;
+   - **setting the date in the page address** (`history.pushState` and `popstate`, as the
+     camera moves): one move a date as well, and it renders a date it is given, but it cannot
+     list the dates, and an address asking for a date the viewer does not have shows the
+     newest imagery at or before it (asked 2019-01-01, showed 2017-04-22) while the address
+     and the header keep the date asked for.
+   Shipped: the arrow. A capture walks every date once (13 moves here), screenshots each, and
+   keeps the planned ones; nothing is loaded again.
+2. **The imagery date.** Read off the status bar by tesseract on the strip scaled up four
+   times: 56 of 56 views right (EVAL_REPORT 99's table), about 0.06 s each. A history date
+   must also agree with the date in the page address, so a misread digit cannot become a
+   wrong date; it then stays null with the reason.
+3. **Leaf-off.** The month against the latitude (shipped) agreed with the hand check on 6 of 6
+   dates; a green-pixel share alone on 4 of 6. One property is a small key; the month rule's
+   autumn edge was written knowing the key. The share is stored beside the label as
+   evidence. A 31 December date is "year only": the viewer's 2005-12-31 picture is in full
+   leaf.
+4. **Clean views.** The viewer offers no way to hide all its interface (only the menu bar).
+   The viewport is made 170 px taller above and below and the stored view is the band
+   between: hovering the viewport's centre reads the camera's own point in the status bar at
+   900 and at 1130 px tall, so the centre does not move, and the metres per pixel follow the
+   whole viewport's height (hover grid: 0.0842 to 0.0846 m/px against 0.0841 by the formula
+   at 900 px, 0.0671 to 0.0676 against 0.0670 at 1130 px).
+5. **Street level.** Every headless attempt was refused: the panorama lookup
+   (`/maps/photometa/si/v1`) answered 500, the tiles 403, in both of Chromium's headless modes
+   and in Earth's own street-level mode, while WebGL rendered Earth fine in the same browser.
+   It is built behind `CAPTURE_STREET_VIEW` (off) and records `BASIS-CAPTURE-020` with its
+   evidence when tried. Making it work would mean presenting the browser as something it is
+   not; that is Bryan's decision (section 6 of EVAL_REPORT 99).

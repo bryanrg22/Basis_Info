@@ -4030,6 +4030,67 @@ ENTRIES: Final[tuple[Entry, ...]] = (
         "yes",
         problem="service-unavailable",
     ),
+    _e(
+        E.CAPTURE_HISTORY_UNAVAILABLE,
+        "error",
+        "the capture worker (`python -m basis.capture`)",
+        "basis.capture.runner",
+        "The historical views could not be taken: the viewer showed no history control, or "
+        "stepping through its dates read no date. The capture still completes with today's "
+        "views; nothing else is lost.",
+        "A note on the capture (`notes`, part `history`); the `capture.part_failed` timeline "
+        "event; the `capture_incidents` row; the worker's log line with `error_code`; the "
+        "evidence beside the capture's files.",
+        "If it repeats on every capture, the viewer's history control changed: read the "
+        "evidence's page record and adjust `basis.capture.playwright_browser`.",
+        "after fix",
+    ),
+    _e(
+        E.CAPTURE_STREET_NO_COVERAGE,
+        "outcome",
+        "the capture worker (`python -m basis.capture`)",
+        "basis.capture.street",
+        "Street-level pictures were asked for (`CAPTURE_STREET_VIEW`) and the page named no "
+        "panorama near the property. The capture still completes with its other views.",
+        "A note on the capture (`notes`, part `street`); the `capture.part_failed` timeline "
+        "event; the `capture_incidents` row; the worker's log line with `error_code`; the "
+        "evidence beside the capture's files.",
+        "Nothing to fix where there is no coverage. If it happens where coverage exists, read "
+        "the evidence's failed responses: the panorama lookup answered an error "
+        "(EVAL_REPORT 99).",
+        "no",
+    ),
+    _e(
+        E.CAPTURE_STREET_REFUSED,
+        "error",
+        "the capture worker (`python -m basis.capture`)",
+        "basis.capture.street",
+        "The street-level panorama was refused or rendered black: its imagery tiles answered "
+        "HTTP 403 or its lookup an error, or the frame was black (EVAL_REPORT 99: the case for "
+        "every headless attempt so far). Not a block signal, no retry; the capture still "
+        "completes with its other views.",
+        "A note on the capture (`notes`, part `street`); the `capture.part_failed` timeline "
+        "event; the `capture_incidents` row; the worker's log line with `error_code`; the "
+        "evidence beside the capture's files.",
+        "Leave `CAPTURE_STREET_VIEW` off until a headless approach is shown to render "
+        "(EVAL_REPORT 99).",
+        "no",
+    ),
+    _e(
+        E.CAPTURE_DATE_UNREAD,
+        "outcome",
+        "the capture worker (`python -m basis.capture`)",
+        "basis.capture.imagery_date",
+        "A view's imagery date could not be read from the viewer's status bar (no text "
+        "reader installed, the reader failed, or no date in what it read). The view is "
+        "stored with `imagery_date` null and the reason in `imagery_date_note`; a measurement "
+        "on it is then undated.",
+        "`imagery_date_note` on the view; the `capture_incidents` row (one per capture); the "
+        "worker's log line with `error_code`.",
+        "Install tesseract on the capture worker or set `CAPTURE_TESSERACT`; if it is "
+        "installed, read the stored status strip (`<label>.status.png`) beside the view.",
+        "after fix",
+    ),
 )
 
 BY_CODE: Final[dict[str, Entry]] = {entry.code: entry for entry in ENTRIES}

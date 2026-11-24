@@ -15268,6 +15268,36 @@
         ],
         "title": "CaptureListOut"
       },
+      "CaptureNoteOut": {
+        "properties": {
+          "part": {
+            "type": "string",
+            "enum": [
+              "history",
+              "street",
+              "date"
+            ],
+            "title": "Part"
+          },
+          "code": {
+            "type": "string",
+            "title": "Code",
+            "description": "The `BASIS-CAPTURE-<nnn>` (docs/ERROR_CODES.md)."
+          },
+          "message": {
+            "type": "string",
+            "title": "Message",
+            "description": "What to tell the engineer; never names the provider."
+          }
+        },
+        "type": "object",
+        "required": [
+          "part",
+          "code",
+          "message"
+        ],
+        "title": "CaptureNoteOut"
+      },
       "CaptureOut": {
         "properties": {
           "id": {
@@ -15354,6 +15384,27 @@
             },
             "type": "array",
             "title": "Views"
+          },
+          "notes": {
+            "items": {
+              "$ref": "#/components/schemas/CaptureNoteOut"
+            },
+            "type": "array",
+            "title": "Notes",
+            "description": "Parts that did not work while the capture went on (EVAL_REPORT 99): history, street level, an unread date. The capture still succeeded."
+          },
+          "measure_on": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Measure On",
+            "description": "The view suggested for measuring paved areas: the newest leaf-off top-down view, else the newest dated top-down view. The engineer may pick another (a date before a renovation, for example)."
           }
         },
         "type": "object",
@@ -29627,7 +29678,7 @@
           "label": {
             "type": "string",
             "title": "Label",
-            "description": "`aerial-close`, `aerial-wide`, `side-south` ..."
+            "description": "`aerial-close`, `aerial-wide`, `side-south` ..., `history-YYYY-MM-DD` (a dated top-down view with `aerial-close`'s camera), `street-front`."
           },
           "lat": {
             "type": "number",
@@ -29683,7 +29734,86 @@
               }
             ],
             "title": "Imagery Date",
-            "description": "As the imagery showed it; null if it did not."
+            "description": "As the imagery showed it (`M/D/YYYY`, read off the viewer's status bar; EVAL_REPORT 99); null when it could not be read (`imagery_date_note` says why)."
+          },
+          "imagery_on": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Imagery On",
+            "description": "`imagery_date` as a date (what a measurement's `captured_on` takes)."
+          },
+          "imagery_date_note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Imagery Date Note",
+            "description": "How the date was read (`status-bar`, `..., matches the address`), or why it was not. Null on views taken before EVAL_REPORT 99."
+          },
+          "leaf": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "leaf-off",
+                  "leaf-on",
+                  "unknown"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Leaf",
+            "description": "Trees bare or in leaf on the imagery date, by the month and the latitude (EVAL_REPORT 99); `unknown` between seasons, for a date known only to the year, or undated. Null on views taken before EVAL_REPORT 99."
+          },
+          "green_share": {
+            "anyOf": [
+              {
+                "type": "number",
+                "maximum": 1.0,
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Green Share",
+            "description": "Share of green vegetation pixels in a top-down view: supporting evidence for `leaf`, not the label itself (lawns and evergreens are green in every season)."
+          },
+          "camera_lat": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Camera Lat",
+            "description": "Street-level views: where the camera stood (the panorama); `lat`, `lon` are the house it looks at, `heading_deg` from the one to the other."
+          },
+          "camera_lon": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Camera Lon"
           },
           "width": {
             "type": "integer",

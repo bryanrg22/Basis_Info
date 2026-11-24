@@ -9,8 +9,11 @@
   3D model of the town (the probe's town has none, REMOTE_INSPECTION_AND_MEASUREMENT 11.1)
   these are the flat photo tilted: they help to read the site, not to measure.
 
-Historical dates (purchase date, leaf-off) and street-level views are not in the plan yet
-(EVAL_REPORT 98 says why).
+The ranges are those of an uncropped 1440 x 900 viewport. With clean views
+(:class:`~basis.capture.frame.Layout` with margins) each range is lengthened by the viewport's
+extra height, so the stored band covers the same ground at the same metres per pixel.
+Historical dates (``history``, :mod:`basis.capture.history`) use ``aerial-close``'s camera;
+the street-level view (``street``) is :mod:`basis.capture.street`'s.
 """
 
 from __future__ import annotations
@@ -19,6 +22,7 @@ from dataclasses import dataclass
 from typing import Final, Literal
 
 from basis.capture.camera import Camera
+from basis.capture.frame import Layout
 
 ViewKind = Literal["aerial", "oblique", "history", "street"]
 CLOSE_RANGE_M: Final = 120.0
@@ -40,17 +44,20 @@ class PlannedView:
         return self.camera.tilt_deg == 0
 
 
-def plan(centre: Camera) -> list[PlannedView]:
+def plan(centre: Camera, layout: Layout | None = None) -> list[PlannedView]:
+    scale = (layout or Layout()).range_for
     views = [
-        PlannedView("aerial-close", "aerial", centre.looking(range_m=CLOSE_RANGE_M)),
-        PlannedView("aerial-wide", "aerial", centre.looking(range_m=WIDE_RANGE_M)),
+        PlannedView("aerial-close", "aerial", centre.looking(range_m=scale(CLOSE_RANGE_M))),
+        PlannedView("aerial-wide", "aerial", centre.looking(range_m=scale(WIDE_RANGE_M))),
     ]
     for heading, face in SIDES:
         views.append(
             PlannedView(
                 f"side-{face}",
                 "oblique",
-                centre.looking(range_m=SIDE_RANGE_M, heading_deg=heading, tilt_deg=SIDE_TILT_DEG),
+                centre.looking(
+                    range_m=scale(SIDE_RANGE_M), heading_deg=heading, tilt_deg=SIDE_TILT_DEG
+                ),
             )
         )
     return views

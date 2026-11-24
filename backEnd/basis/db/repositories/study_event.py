@@ -96,7 +96,10 @@ Event vocabulary (``event_type``; the actor in brackets):
   capture of the property (``entity_id`` the capture; ``code`` ``E.CAPTURE_COMPLETED`` on
   completion); ``capture.paused`` / ``capture.failed`` [system]: ``code`` the
   ``BASIS-CAPTURE-<nnn>``, ``detail`` the engineer's sentence (``reason``), ``resume_at``, the
-  signal, its HTTP status and the evidence prefix (migration ``0036``).
+  signal, its HTTP status and the evidence prefix (migration ``0036``); ``capture.part_failed``
+  [system]: a part of the capture did not work while it went on (history, street level, an
+  unread date; ``code`` 018 to 021, ``detail`` the engineer's sentence, ``part`` and the
+  evidence; EVAL_REPORT 99).
 
 Durations: an ``activity.*`` end row carries ``started_at`` (the attempt's start on the
 worker's clock) and ``duration_ms`` (monotonic on the worker), so a step's duration never

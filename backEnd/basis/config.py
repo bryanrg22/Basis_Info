@@ -617,6 +617,25 @@ class Settings(BaseSettings):
     # captured again unless the pin moved. CAPTURE_SOURCE_TEXT: the provenance line stored
     # with every view and shown to the engineer; it must not name the imagery provider
     # (AGENTS.md), and what it says is Bryan's decision (PROPERTY_CAPTURE.md section 6).
+    # EVAL_REPORT section 99 (history, imagery dates, leaf-off, street level, clean views):
+    # CAPTURE_HISTORY (true): after today's views, walk the straight-down view's dated
+    # history with the viewer's "Older images" arrow (one camera move a date, no page load)
+    # and keep the newest date, every date within CAPTURE_HISTORY_WINDOW_DAYS (730: the
+    # property's dates came 0.3 to 4 years apart, median 2.2, so two years either side of
+    # the placed-in-service date catches about one date each side) of the study's
+    # placed-in-service date (else the appraisal's effective date), and the leaf-off dates,
+    # up to CAPTURE_HISTORY_MAX_VIEWS (6: the probe property's plan kept 3 to 5 dates for
+    # every placed-in-service year tried, and a view is about 1.5 MB); CAPTURE_HISTORY_MAX_STEPS
+    # (40) bounds the walk (the probe property has 13 dates). CAPTURE_STREET_VIEW (false):
+    # try one street-level picture of the front (one more page load); section 99 found the
+    # service refuses a headless browser (lookup 500, tiles 403), so it stays off until that
+    # changes. CAPTURE_CLEAN_VIEWS (true): render the viewport CAPTURE_FRAME_MARGIN_PX (170)
+    # taller above and below and store the band between, free of the viewer's interface,
+    # with every range lengthened so the stored view keeps section 98's ground pixel size
+    # (false: section 98's uncropped 1440 x 900 views). CAPTURE_TESSERACT: the text reader
+    # that reads the imagery date off the status bar (unset: `tesseract` on the path; none:
+    # the date stays null with the reason). CAPTURE_VIEWER_ORIGIN: where the viewer is
+    # (the real one by default; the block tests point it at a local server).
     property_capture: bool = False
     capture_task_queue: str = "basis-capture"
     capture_spacing_min_s: float = Field(default=8.0, ge=0, le=600)
@@ -636,6 +655,17 @@ class Settings(BaseSettings):
         default="Aerial imagery viewed online; date as the imagery shows it",
         min_length=1,
         max_length=200,
+    )
+    capture_history: bool = True
+    capture_history_window_days: int = Field(default=730, ge=0, le=36_500)
+    capture_history_max_views: int = Field(default=6, ge=0, le=60)
+    capture_history_max_steps: int = Field(default=40, ge=1, le=200)
+    capture_street_view: bool = False
+    capture_clean_views: bool = True
+    capture_frame_margin_px: int = Field(default=170, ge=0, le=600)
+    capture_tesseract: str | None = None
+    capture_viewer_origin: str = Field(
+        default="https://earth.google.com", pattern=r"^https?://[^/\s]+$"
     )
 
     @property
@@ -730,7 +760,12 @@ class Settings(BaseSettings):
         return value
 
     @field_validator(
-        "capture_task_queue", "capture_source_text", "capture_profile_dir", mode="before"
+        "capture_task_queue",
+        "capture_source_text",
+        "capture_profile_dir",
+        "capture_tesseract",
+        "capture_viewer_origin",
+        mode="before",
     )
     @classmethod
     def _blank_capture_text_is_unset(cls, value: object, info: ValidationInfo) -> object:

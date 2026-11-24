@@ -11,7 +11,7 @@ second guard. The lease is one conditional ``UPDATE``.
 from __future__ import annotations
 
 import uuid
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 from typing import Any
 
 from sqlalchemy import delete, func, select, update
@@ -25,6 +25,7 @@ from basis.capture.store import (
     CaptureRow,
     Incident,
     NewView,
+    Note,
     PinRow,
     Snapshot,
     alert_payload,
@@ -38,6 +39,7 @@ from basis.db.models import (
     CaptureView,
     PropertyCapture,
     PropertyPin,
+    Study,
 )
 from basis.db.repositories.alert import CAPTURE_BLOCKED, AlertRepository
 from basis.db.repositories.study_event import StudyEventRepository
@@ -58,6 +60,7 @@ def _row(capture: PropertyCapture) -> CaptureRow:
         started_at=capture.started_at,
         finished_at=capture.finished_at,
         views=capture.views,
+        notes=tuple(capture.notes or ()),
     )
 
 
@@ -157,6 +160,30 @@ class PgCaptureStore:
                 place_label=row.place_label,
                 confirmed=row.confirmed,
             )
+
+    async def reference_date(self, study_id: uuid.UUID) -> tuple[date, str] | None:
+        """The intake's placed-in-service date, else the effective date the appraisal's
+        extraction fields of the current revision give (as the cost index resolves it,
+        ``basis.domain.measurements.resolve_cost_index``)."""
+        from basis.db.repositories.extraction import ExtractionRepository
+        from basis.domain.measurements import measurements_from_fields
+
+        async with self._sm() as session:
+            study = await session.get(Study, study_id)
+            if study is None:
+                return None
+            if study.intake is not None and study.intake.placed_in_service_date is not None:
+                return study.intake.placed_in_service_date, "placed in service (intake)"
+            repo = ExtractionRepository(session)
+            rows = []
+            for extraction in await repo.list_for_revision(study_id, study.revision):
+                rows.extend(await repo.fields(extraction.id))
+            if not rows:
+                return None
+            effective = measurements_from_fields(rows).effective_date
+            if effective is None:
+                return None
+            return effective.value, "appraisal effective date"
 
     async def acquire_lease(self, holder: str, ttl: timedelta, now: datetime) -> bool:
         async with self._sm.begin() as session:
@@ -365,6 +392,24 @@ class PgCaptureStore:
                 entity_id=row.id,
                 code=incident.code,
                 detail=event_detail(incident, reason, None),
+            )
+
+    async def part_failed(self, capture_id: uuid.UUID, note: Note, incident: Incident) -> None:
+        async with self._sm.begin() as session:
+            row = await session.get(PropertyCapture, capture_id, with_for_update=True)
+            assert row is not None
+            notes = list(row.notes or [])
+            if all(n.get("code") != note.code for n in notes):
+                row.notes = [*notes, note.as_json()]
+            await upsert_incident(session, incident)
+            await StudyEventRepository(session).record(
+                row.study_id,
+                "capture.part_failed",
+                actor="system",
+                entity_type="property_capture",
+                entity_id=row.id,
+                code=incident.code,
+                detail={**event_detail(incident, note.message, None), "part": note.part},
             )
 
     async def complete(self, capture_id: uuid.UUID, *, views: int, now: datetime) -> None:

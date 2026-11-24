@@ -105,6 +105,7 @@ GET /v1/studies/{id}/timeline?limit=200&cursor=<next_cursor>&event_type=activity
 | `capture.started`, `capture.completed` | system | The capture worker began (`detail.first`: not a resume) or finished it | `entity_id` the capture; `code` `BASIS-CAPTURE-012` on completion, `detail.views` |
 | `capture.paused` | system | A block signal, an open breaker or a spent cap paused the capture; it resumes on its own | `code` the `BASIS-CAPTURE-<nnn>`; `detail`: `reason` (the engineer's sentence), `resume_at`, `signal`, `http_status`, `evidence` (the prefix of the screenshot, HTML and page record) |
 | `capture.failed` | system | The capture failed (blank view, no place, timeout, crash, gave up, could not start) | `code`; `detail` as for `capture.paused`, without `resume_at` |
+| `capture.part_failed` | system | A part did not work while the capture went on: history, street level, an unread date (EVAL_REPORT 99) | `code` 018 to 021; `detail`: `reason` (the engineer's sentence), `part`, `signal`, `evidence` where a page was involved |
 
 Not recorded per row, on purpose: the model's `photo_objects` (SAM 3 candidates, tens per
 photo) and the rows a model call wrote (components, fields): the activity event carries the
