@@ -108,7 +108,10 @@ class ViewOut(ResponseModel):
     source: str = Field(description="The provenance line to show with the view.")
     captured_at: datetime
     pin_version: int
-    stale: bool = Field(description="Taken around an earlier pin than the current one.")
+    stale: bool = Field(
+        description="Taken at another point than the pin's current one (more than 1 m away); "
+        "confirming the pin or editing its address does not make a view stale."
+    )
 
 
 class CaptureNoteOut(ResponseModel):
