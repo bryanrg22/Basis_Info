@@ -11,6 +11,9 @@ and database with a fake workflow starter:
   start that fails is 503 BASIS-CAPTURE-017 and leaves the capture failed, not queued;
 * a view's image is served with its sha256 as ``ETag`` and 304 on ``If-None-Match``;
   ``stale`` marks views of an earlier pin;
+* EVAL_REPORT 99: a capture answers its views' imagery date (text and date), how it was read,
+  the leaf label and green share, a street view's camera point, the capture's notes, and
+  ``measure_on``, the newest leaf-off top-down view;
 * ``GET /v1/ops/capture-incidents`` is operators only; ``GET /v1/ops/health`` carries the
   ``property_capture`` member; ``GET /v1/capabilities`` says ``property_capture``.
 """
@@ -19,7 +22,7 @@ from __future__ import annotations
 
 import uuid
 from collections.abc import AsyncIterator
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from typing import Any
 
 import httpx
@@ -312,3 +315,91 @@ async def test_operators_read_the_incidents_and_the_health_member(
     health = (await on.get(OPERATOR, "/v1/ops/health")).json()["property_capture"]
     assert health["enabled"] is True and health["breaker"]["state"] == "closed"
     assert health["used"]["loads_hour_cap"] == 6
+
+
+async def test_dates_leaf_notes_and_the_view_to_measure_on(
+    on: Api,
+    sessionmaker: async_sessionmaker[AsyncSession],
+) -> None:
+    sid = (await on.create_study("alice"))["id"]
+    await put_pin(on, "alice", sid, {"address": "1 Main St", "lat": 43.85, "lon": -103.20})
+    capture_id = (await on.post("alice", f"/v1/studies/{sid}/property/captures", {})).json()["id"]
+    common: dict[str, Any] = {
+        "study_id": uuid.UUID(sid),
+        "capture_id": uuid.UUID(capture_id),
+        "pin_version": 1,
+        "lat": 43.85,
+        "lon": -103.20,
+        "ground_alt_m": 250,
+        "range_m": 165.33,
+        "fov_deg": 35,
+        "heading_deg": 0,
+        "tilt_deg": 0,
+        "pixel_size_m": 0.0841,
+        "width": 1440,
+        "height": 900,
+        "sha256": "a" * 64,
+        "bytes": 10,
+        "source": "Aerial imagery",
+        "captured_at": datetime.now(UTC),
+    }
+    rows = [
+        ("aerial", "aerial-close", "8/4/2026", date(2026, 8, 4), "leaf-on", 0.78, {}),
+        ("history", "history-2021-03-12", "3/12/2021", date(2021, 3, 12), "leaf-off", 0.17, {}),
+        ("history", "history-2017-04-22", "4/22/2017", date(2017, 4, 22), "leaf-off", 0.49, {}),
+        (
+            "street",
+            "street-front",
+            None,
+            None,
+            "unknown",
+            None,
+            {"tilt_deg": 90, "pixel_size_m": None, "camera_lat": 43.8505, "camera_lon": -103.20},
+        ),
+    ]
+    ids: dict[str, uuid.UUID] = {}
+    async with session_scope(sessionmaker) as session:
+        for kind, label, text, on_date, leaf, green, extra in rows:
+            view = CaptureView(
+                **{
+                    **common,
+                    "kind": kind,
+                    "label": label,
+                    "uri": f"gs://test-bucket/{label}.png",
+                    "imagery_date": text,
+                    "imagery_on": on_date,
+                    "imagery_date_note": "status-bar" if text else "not read",
+                    "leaf": leaf,
+                    "green_share": green,
+                    **extra,
+                }
+            )
+            session.add(view)
+            await session.flush()
+            ids[label] = view.id
+        capture = await session.get(PropertyCapture, uuid.UUID(capture_id))
+        assert capture is not None
+        capture.notes = [
+            {
+                "part": "street",
+                "code": E.CAPTURE_STREET_REFUSED,
+                "message": "Street-level pictures are not available yet.",
+            }
+        ]
+    body = (await on.get("alice", f"/v1/studies/{sid}/property")).json()["capture"]
+    assert body["measure_on"] == str(ids["history-2021-03-12"])
+    assert body["notes"] == [
+        {
+            "part": "street",
+            "code": E.CAPTURE_STREET_REFUSED,
+            "message": "Street-level pictures are not available yet.",
+        }
+    ]
+    views = {v["label"]: v for v in body["views"]}
+    assert views["history-2021-03-12"]["imagery_on"] == "2021-03-12"
+    assert views["history-2021-03-12"]["leaf"] == "leaf-off"
+    assert views["history-2021-03-12"]["green_share"] == pytest.approx(0.17)
+    assert views["street-front"]["camera_lat"] == 43.8505
+    assert views["street-front"]["imagery_date"] is None
+    assert views["street-front"]["imagery_date_note"] == "not read"
+    assert "google" not in str(body).lower()

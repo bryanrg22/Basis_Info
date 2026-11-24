@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import uuid
-from datetime import datetime
+from datetime import date, datetime
 from typing import Literal
 
 from pydantic import Field, model_validator
@@ -53,7 +53,10 @@ class PinOut(ResponseModel):
 class ViewOut(ResponseModel):
     id: uuid.UUID
     kind: Literal["aerial", "oblique", "history", "street"]
-    label: str = Field(description="`aerial-close`, `aerial-wide`, `side-south` ...")
+    label: str = Field(
+        description="`aerial-close`, `aerial-wide`, `side-south` ..., `history-YYYY-MM-DD` "
+        "(a dated top-down view with `aerial-close`'s camera), `street-front`."
+    )
     lat: float = Field(description="The point the camera looks at (the view's centre).")
     lon: float
     ground_alt_m: float
@@ -67,7 +70,38 @@ class ViewOut(ResponseModel):
         "scale bar, not checked against a measured length). Null for tilted views, which "
         "must not be measured on."
     )
-    imagery_date: str | None = Field(description="As the imagery showed it; null if it did not.")
+    imagery_date: str | None = Field(
+        description="As the imagery showed it (`M/D/YYYY`, read off the viewer's status bar; "
+        "EVAL_REPORT 99); null when it could not be read (`imagery_date_note` says why)."
+    )
+    imagery_on: date | None = Field(
+        default=None,
+        description="`imagery_date` as a date (what a measurement's `captured_on` takes).",
+    )
+    imagery_date_note: str | None = Field(
+        default=None,
+        description="How the date was read (`status-bar`, `..., matches the address`), or why "
+        "it was not. Null on views taken before EVAL_REPORT 99.",
+    )
+    leaf: Literal["leaf-off", "leaf-on", "unknown"] | None = Field(
+        default=None,
+        description="Trees bare or in leaf on the imagery date, by the month and the latitude "
+        "(EVAL_REPORT 99); `unknown` between seasons, for a date known only to the year, or "
+        "undated. Null on views taken before EVAL_REPORT 99.",
+    )
+    green_share: float | None = Field(
+        default=None,
+        ge=0,
+        le=1,
+        description="Share of green vegetation pixels in a top-down view: supporting evidence "
+        "for `leaf`, not the label itself (lawns and evergreens are green in every season).",
+    )
+    camera_lat: float | None = Field(
+        default=None,
+        description="Street-level views: where the camera stood (the panorama); `lat`, `lon` "
+        "are the house it looks at, `heading_deg` from the one to the other.",
+    )
+    camera_lon: float | None = Field(default=None)
     width: int
     height: int
     sha256: str
@@ -78,6 +112,12 @@ class ViewOut(ResponseModel):
         description="Taken at another point than the pin's current one (more than 1 m away); "
         "confirming the pin or editing its address does not make a view stale."
     )
+
+
+class CaptureNoteOut(ResponseModel):
+    part: Literal["history", "street", "date"]
+    code: str = Field(description="The `BASIS-CAPTURE-<nnn>` (docs/ERROR_CODES.md).")
+    message: str = Field(description="What to tell the engineer; never names the provider.")
 
 
 class CaptureOut(ResponseModel):
@@ -94,6 +134,17 @@ class CaptureOut(ResponseModel):
     finished_at: datetime | None
     pin_version: int
     views: list[ViewOut] = Field(default_factory=list)
+    notes: list[CaptureNoteOut] = Field(
+        default_factory=list,
+        description="Parts that did not work while the capture went on (EVAL_REPORT 99): "
+        "history, street level, an unread date. The capture still succeeded.",
+    )
+    measure_on: uuid.UUID | None = Field(
+        default=None,
+        description="The view suggested for measuring paved areas: the newest leaf-off "
+        "top-down view, else the newest dated top-down view. The engineer may pick another "
+        "(a date before a renovation, for example).",
+    )
 
 
 class PropertyOut(ResponseModel):

@@ -12,14 +12,19 @@ held to the in-memory store's rules (EVAL_REPORT 98), on a real database:
 * the navigation log feeds the caps and prunes rows older than two days;
 * the search puts the found point on a pin without one (unconfirmed, version + 1) and never
   moves an engineer's point;
-* a success closes the breaker and records the last success; the snapshot reports it all.
+* a success closes the breaker and records the last success; the snapshot reports it all;
+* EVAL_REPORT 99 (migration 0037): a history view's date, leaf label and green share and a
+  street view's camera point and panorama round-trip; a part that did not work writes its
+  note once per code, its incident and a ``capture.part_failed`` event; the reference date
+  is the intake's placed-in-service date, else the appraisal's effective date from the
+  current revision's extraction fields, else none.
 """
 
 from __future__ import annotations
 
 import asyncio
 import uuid
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 
 import pytest
 from dbtest_support import Factory
@@ -28,13 +33,18 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from basis.capture.governor import GovernorConfig
 from basis.capture.pg_store import PgCaptureStore
-from basis.capture.store import Incident, NewView
+from basis.capture.store import Incident, NewView, Note
 from basis.db.models import (
     Alert,
     CaptureIncident,
     CaptureNavigation,
+    CaptureView,
+    Document,
+    Extraction,
+    ExtractionField,
     PropertyCapture,
     PropertyPin,
+    Study,
     StudyEvent,
 )
 from basis.db.session import session_scope
@@ -221,3 +231,161 @@ async def test_the_search_places_a_point_only_on_a_pin_without_one(
     assert await store.place_pin(kept_capture, 41.60, -93.60, None, NOW) == 1
     kept = await store.pin(kept_study)
     assert kept is not None and kept.lat == 40.0
+
+
+def _history_view(
+    study_id: uuid.UUID, capture_id: uuid.UUID, label: str, **extra: object
+) -> NewView:
+    values: dict[str, object] = {
+        "study_id": study_id,
+        "capture_id": capture_id,
+        "pin_version": 1,
+        "kind": "history",
+        "label": label,
+        "lat": 43.85,
+        "lon": -103.20,
+        "ground_alt_m": 250,
+        "range_m": 165.33,
+        "fov_deg": 35,
+        "heading_deg": 0,
+        "tilt_deg": 0,
+        "pixel_size_m": 0.0841,
+        "imagery_date": "3/12/2021",
+        "width": 1440,
+        "height": 900,
+        "uri": f"gs://b/{label}.png",
+        "sha256": "0" * 64,
+        "bytes": 10,
+        "source": "Aerial imagery",
+        "captured_at": NOW,
+        "imagery_on": date(2021, 3, 12),
+        "imagery_date_note": "status-bar, matches the address",
+        "leaf": "leaf-off",
+        "green_share": 0.171,
+    }
+    values.update(extra)
+    return NewView(**values)  # type: ignore[arg-type]
+
+
+async def test_history_and_street_views_notes_and_the_reference_date(
+    committed: async_sessionmaker[AsyncSession],
+) -> None:
+    store = PgCaptureStore(committed)
+    study_id, capture_id = await seeded(committed)
+    await store.start(capture_id, NOW)
+    await store.add_view(_history_view(study_id, capture_id, "history-2021-03-12"))
+    await store.add_view(
+        _history_view(
+            study_id,
+            capture_id,
+            "street-front",
+            kind="street",
+            tilt_deg=90,
+            pixel_size_m=None,
+            leaf="unknown",
+            green_share=None,
+            imagery_on=None,
+            imagery_date=None,
+            imagery_date_note="not read",
+            camera_lat=43.8505,
+            camera_lon=-103.2000,
+            pano_id="AbCdEfGhIjKl",
+        )
+    )
+    async with session_scope(committed) as session:
+        rows = {
+            v.label: v
+            for v in await session.scalars(
+                select(CaptureView).where(CaptureView.capture_id == capture_id)
+            )
+        }
+    history = rows["history-2021-03-12"]
+    assert (history.imagery_on, history.leaf, history.green_share) == (
+        date(2021, 3, 12),
+        "leaf-off",
+        pytest.approx(0.171),
+    )
+    front = rows["street-front"]
+    assert (front.camera_lat, front.camera_lon, front.pano_id, front.tilt_deg) == (
+        43.8505,
+        -103.2000,
+        "AbCdEfGhIjKl",
+        90,
+    )
+    note = Note("street", E.CAPTURE_STREET_REFUSED, "Street-level pictures are not available yet.")
+    for _ in range(2):
+        await store.part_failed(
+            capture_id, note, incident(E.CAPTURE_STREET_REFUSED, study_id, capture_id, NOW)
+        )
+    row = await store.capture(capture_id)
+    assert row is not None and row.notes == (note.as_json(),)  # once per code
+    async with session_scope(committed) as session:
+        counted = await session.get(CaptureIncident, E.CAPTURE_STREET_REFUSED)
+        assert counted is not None and counted.occurrences == 2
+        events = (
+            await session.scalars(
+                select(StudyEvent).where(
+                    StudyEvent.study_id == study_id, StudyEvent.event_type == "capture.part_failed"
+                )
+            )
+        ).all()
+        assert len(events) == 2 and events[0].code == E.CAPTURE_STREET_REFUSED
+        assert events[0].detail["part"] == "street"
+    # The reference date: nothing yet, then the appraisal's effective date, then the intake.
+    assert await store.reference_date(study_id) is None
+    async with session_scope(committed) as session:
+        document = Document(
+            study_id=study_id,
+            kind="appraisal",
+            filename="appraisal.pdf",
+            content_type="application/pdf",
+            bytes=100,
+            sha256="1" * 64,
+            gcs_uri=f"gs://bucket/{uuid.uuid4()}",
+        )
+        session.add(document)
+        await session.flush()
+        extraction = Extraction(
+            study_id=study_id, document_id=document.id, revision=1, method="m", raw={}
+        )
+        session.add(extraction)
+        await session.flush()
+        session.add(
+            ExtractionField(
+                study_id=study_id,
+                extraction_id=extraction.id,
+                section="reconciliation",
+                field="effective_date_of_appraisal",
+                value_date=date(2024, 9, 1),
+                source="azure",
+            )
+        )
+    assert await store.reference_date(study_id) == (
+        date(2024, 9, 1),
+        "appraisal effective date",
+    )
+    from basis.domain.intake import StudyIntake
+
+    example = {
+        "purchase_price": "650000.00",
+        "acquisition_costs": [],
+        "land_method": "appraisal_site_value",
+        "appraisal_site_value": "90000.00",
+        "appraisal_effective_date": "2025-03-14",
+        "property_use": "residential_rental",
+        "dwelling_unit_income_share": "1",
+        "transient_lodging": False,
+        "placed_in_service_date": "2025-05-01",
+        "acquisition_date": "2025-04-15",
+        "state": "NY",
+        "zip": "12345",
+    }
+    async with session_scope(committed) as session:
+        study = await session.get(Study, study_id)
+        assert study is not None
+        study.intake = StudyIntake.model_validate(example)
+    assert await store.reference_date(study_id) == (
+        date(2025, 5, 1),
+        "placed in service (intake)",
+    )
+    assert await store.reference_date(uuid.uuid4()) is None

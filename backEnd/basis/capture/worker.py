@@ -23,7 +23,7 @@ from basis.capture.activities import CaptureActivities
 from basis.capture.governor import GovernorConfig
 from basis.capture.health import WORKER_BEAT
 from basis.capture.pg_store import PgCaptureStore
-from basis.capture.runner import CaptureRunner
+from basis.capture.runner import CaptureOptions, CaptureRunner
 from basis.capture.workflow import PropertyCaptureWorkflow
 from basis.config import Settings, load_settings
 from basis.db.engine import create_engine
@@ -58,6 +58,7 @@ async def run_capture_worker(settings: Settings, stop: asyncio.Event) -> None:
     holder = f"capture-{uuid.uuid4()}"
     config = GovernorConfig.of(settings)
     browser = playwright_factory(settings)
+    options = CaptureOptions.of(settings)
 
     def runner(heartbeat: Callable[[str], None]) -> CaptureRunner:
         return CaptureRunner(
@@ -70,6 +71,7 @@ async def run_capture_worker(settings: Settings, stop: asyncio.Event) -> None:
             settle_s=settings.capture_settle_s,
             source_text=settings.capture_source_text,
             heartbeat=heartbeat,
+            options=options,
         )
 
     async def beat() -> None:

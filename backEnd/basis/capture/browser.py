@@ -9,6 +9,12 @@ page looks like afterwards (:class:`~basis.capture.signals.PageRecord`), with th
 responses since the previous call, so the runner can check for a block after every
 navigation. A browser that died raises :class:`BrowserCrashed`; one that took too long raises
 ``TimeoutError``.
+
+``history_on`` and ``history_older`` press the viewer's own history controls (EVAL_REPORT 99):
+each fetches imagery of another date for the same camera, so the runner counts it as a camera
+move (governor, spacing, block check) like a ``move``. They answer the page afterwards, or
+None when the control is not there (no history control; no older date: the arrow is
+disabled at the oldest date).
 """
 
 from __future__ import annotations
@@ -29,8 +35,17 @@ class CaptureBrowser(Protocol):
 
     async def move(self, url: str) -> PageRecord: ...
 
-    async def settle(self, seconds: float) -> None:
-        """Wait for the imagery to stream and close whatever covers the view."""
+    async def settle(self, seconds: float, *, dismiss: bool = True) -> None:
+        """Wait for the imagery to stream and, with ``dismiss``, close whatever covers the
+        view (never on the street-level page, whose Close leaves the panorama)."""
+        ...
+
+    async def history_on(self) -> PageRecord | None:
+        """Switch the viewer's historical imagery on; None when it has no such control."""
+        ...
+
+    async def history_older(self) -> PageRecord | None:
+        """Step to the next older date; None at the oldest date or without the control."""
         ...
 
     async def current(self) -> PageRecord:

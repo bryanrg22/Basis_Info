@@ -15,7 +15,7 @@ from __future__ import annotations
 
 import uuid
 from dataclasses import dataclass, field, replace
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 from typing import Any, Final, Protocol
 
 from basis.capture import governor as gov
@@ -60,6 +60,7 @@ class CaptureRow:
     started_at: datetime | None = None
     finished_at: datetime | None = None
     views: int = 0
+    notes: tuple[dict[str, Any], ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -85,6 +86,29 @@ class NewView:
     bytes: int
     source: str
     captured_at: datetime
+    # EVAL_REPORT 99: the date as a date and how it was read (or why not), leaf-off or not,
+    # the green share of a top-down view, and for a street-level view where the camera
+    # stood and the panorama's id.
+    imagery_on: date | None = None
+    imagery_date_note: str | None = None
+    leaf: str | None = None
+    green_share: float | None = None
+    camera_lat: float | None = None
+    camera_lon: float | None = None
+    pano_id: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class Note:
+    """A part of a capture that did not work while the capture itself went on (history,
+    street level, a date): its code and the engineer's sentence (never the provider)."""
+
+    part: str
+    code: str
+    message: str
+
+    def as_json(self) -> dict[str, Any]:
+        return {"part": self.part, "code": self.code, "message": self.message}
 
 
 @dataclass(frozen=True, slots=True)
@@ -162,6 +186,11 @@ class CaptureStore(Protocol):
 
     async def pin(self, study_id: uuid.UUID) -> PinRow | None: ...
 
+    async def reference_date(self, study_id: uuid.UUID) -> tuple[date, str] | None:
+        """The date the history is planned around and where it came from: the intake's
+        placed-in-service date, else the appraisal's effective date; None when neither."""
+        ...
+
     async def acquire_lease(self, holder: str, ttl: timedelta, now: datetime) -> bool: ...
 
     async def renew_lease(self, holder: str, ttl: timedelta, now: datetime) -> bool: ...
@@ -207,6 +236,11 @@ class CaptureStore(Protocol):
 
     async def fail(self, capture_id: uuid.UUID, *, reason: str, incident: Incident) -> None: ...
 
+    async def part_failed(self, capture_id: uuid.UUID, note: Note, incident: Incident) -> None:
+        """A part did not work and the capture goes on: the note on the capture (once per
+        code), the incident, and the ``capture.part_failed`` timeline event."""
+        ...
+
     async def complete(self, capture_id: uuid.UUID, *, views: int, now: datetime) -> None: ...
 
     async def worker_seen(self, now: datetime) -> None: ...
@@ -233,6 +267,7 @@ class MemoryCaptureStore:
     lease_holder: str | None = None
     lease_expires_at: datetime | None = None
     worker_seen_at: datetime | None = None
+    references: dict[uuid.UUID, tuple[date, str]] = field(default_factory=dict)
 
     # -------------------------------------------------------------- helpers for the tests
     def add_capture(
@@ -278,6 +313,9 @@ class MemoryCaptureStore:
 
     async def pin(self, study_id: uuid.UUID) -> PinRow | None:
         return self.pins.get(study_id)
+
+    async def reference_date(self, study_id: uuid.UUID) -> tuple[date, str] | None:
+        return self.references.get(study_id)
 
     async def acquire_lease(self, holder: str, ttl: timedelta, now: datetime) -> bool:
         free = (
@@ -410,6 +448,18 @@ class MemoryCaptureStore:
         self._incident(incident)
         self._event(
             row.study_id, "capture.failed", incident.code, event_detail(incident, reason, None)
+        )
+
+    async def part_failed(self, capture_id: uuid.UUID, note: Note, incident: Incident) -> None:
+        row = self.captures[capture_id]
+        if all(n.get("code") != note.code for n in row.notes):
+            row = self._set(capture_id, notes=(*row.notes, note.as_json()))
+        self._incident(incident)
+        self._event(
+            row.study_id,
+            "capture.part_failed",
+            incident.code,
+            {**event_detail(incident, note.message, None), "part": note.part},
         )
 
     async def complete(self, capture_id: uuid.UUID, *, views: int, now: datetime) -> None:

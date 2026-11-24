@@ -30,6 +30,7 @@ def test_the_defaults_are_off_and_gentle() -> None:
         12.0,
     )
     assert s.capture_profile_dir is None and s.capture_chromium_args is None
+    assert s.capture_headless is True and s.capture_street_view is False
     assert "google" not in s.capture_source_text.lower()
 
 
@@ -55,3 +56,20 @@ def test_empty_text_settings_are_the_defaults(monkeypatch: pytest.MonkeyPatch) -
     s = settings()
     assert s.capture_source_text.startswith("Aerial imagery")
     assert s.capture_task_queue == "basis-capture" and s.capture_profile_dir is None
+
+
+def test_the_section_99_defaults_and_the_viewer_origin() -> None:
+    s = settings()
+    assert s.capture_history is True and s.capture_street_view is False
+    assert (s.capture_history_window_days, s.capture_history_max_views) == (730, 6)
+    assert s.capture_history_max_steps == 40
+    assert s.capture_clean_views is True and s.capture_frame_margin_px == 170
+    assert s.capture_tesseract is None
+    assert s.capture_viewer_origin == "https://earth.google.com"
+    assert settings(capture_tesseract="").capture_tesseract is None
+    assert settings(capture_viewer_origin="").capture_viewer_origin == "https://earth.google.com"
+    local = settings(capture_viewer_origin="http://127.0.0.1:8123")
+    assert local.capture_viewer_origin == "http://127.0.0.1:8123"
+    for bad in ("earth.google.com", "https://earth.google.com/web", "ftp://x"):
+        with pytest.raises(ValueError):
+            settings(capture_viewer_origin=bad)

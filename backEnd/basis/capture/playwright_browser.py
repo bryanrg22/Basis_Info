@@ -13,6 +13,13 @@ Playwright (``playwright==1.64.1``, the release whose Chromium build is 1248; EV
   are read from those texts; when the page shows none, they are None and nothing fails.
 * Playwright's timeout becomes ``TimeoutError``; a crashed or closed page becomes
   :class:`~basis.capture.browser.BrowserCrashed`.
+* History (EVAL_REPORT 99): the "Show historical imagery" switch, then the "Older images"
+  button once per date; the button is disabled at the oldest date. While history is on,
+  :meth:`PlaywrightBrowser.settle` clicks only the tips' Dismiss, never Close (the history
+  panel's own Close would end history). After every click the pointer goes back to the
+  view's centre, so no tooltip hangs over the view.
+* The viewport is the capture's :class:`~basis.capture.frame.Layout`: taller than the stored
+  view by its margins when the views are cropped clean (``CAPTURE_CLEAN_VIEWS``).
 """
 
 from __future__ import annotations
@@ -25,10 +32,13 @@ from contextlib import asynccontextmanager
 from typing import Any, Final
 
 from basis.capture.browser import BrowserCrashed, BrowserFactory, CaptureBrowser
+from basis.capture.frame import Layout
 from basis.capture.signals import PageRecord, Response
 from basis.config import Settings
 
 VIEWPORT: Final = {"width": 1440, "height": 900}
+HISTORY_SWITCH: Final = "Show historical imagery"
+OLDER: Final = "Older images"
 MAC_ARGS: Final = ("--use-angle=metal", "--enable-gpu", "--ignore-gpu-blocklist")
 _DATE: Final = re.compile(r"\b(\d{1,2}/\d{1,2}/\d{4})\b")
 _PLACE: Final = re.compile(r"\b[A-Z]{2} \d{5}\b")
@@ -69,6 +79,7 @@ class PlaywrightBrowser:
         self._semantics = False
         self._place: str | None = None
         self._loaded = False
+        self._history = False
         page.on("response", self._on_response)
         page.on("crash", self._on_crash)
 
@@ -111,6 +122,7 @@ class PlaywrightBrowser:
     async def load(self, url: str) -> PageRecord:
         self._semantics = False
         self._loaded = True
+        self._history = False
         response = await self._guard(
             self._page.goto(url, wait_until="domcontentloaded", timeout=self._timeout_ms)
         )
@@ -121,10 +133,44 @@ class PlaywrightBrowser:
         await asyncio.sleep(0.5)
         return await self._record(None)
 
-    async def settle(self, seconds: float) -> None:
+    async def settle(self, seconds: float, *, dismiss: bool = True) -> None:
         await asyncio.sleep(seconds)
+        if not dismiss:
+            self._loaded = False
+            return
         await self._remember_place()
         await self._dismiss()
+
+    async def _centre_pointer(self) -> None:
+        size = self._page.viewport_size or VIEWPORT
+        await self._guard(self._page.mouse.move(size["width"] / 2, size["height"] / 2))
+
+    async def _press(self, role: str, name: str, *, enabled: bool) -> bool:
+        await self._enable_semantics()
+        target = self._page.get_by_role(role, name=name, exact=True)
+        if await self._guard(target.count()) == 0:
+            return False
+        if enabled and not await self._guard(target.first.is_enabled()):
+            return False
+        await self._guard(target.first.click(timeout=5000))
+        await asyncio.sleep(0.5)
+        await self._centre_pointer()
+        return True
+
+    async def history_on(self) -> PageRecord | None:
+        if self._history:
+            return await self._record(None)
+        if not await self._press("switch", HISTORY_SWITCH, enabled=False):
+            return None
+        self._history = True
+        return await self._record(None)
+
+    async def history_older(self) -> PageRecord | None:
+        if not self._history:
+            return None
+        if not await self._press("button", OLDER, enabled=True):
+            return None
+        return await self._record(None)
 
     async def _remember_place(self) -> None:
         """The place panel a search opens names the match; read it before it is closed."""
@@ -147,7 +193,10 @@ class PlaywrightBrowser:
             await self._guard(self._page.keyboard.press("Escape"))
             await asyncio.sleep(0.5)
         await self._enable_semantics()
-        for label in ("Close", "Dismiss", "Dismiss", "Dismiss"):
+        labels = (
+            ("Dismiss", "Dismiss") if self._history else ("Close", "Dismiss", "Dismiss", "Dismiss")
+        )
+        for label in labels:
             target = self._page.get_by_role("button", name=label, exact=True)
             if await self._guard(target.count()) == 0:
                 continue
@@ -156,6 +205,8 @@ class PlaywrightBrowser:
             except Exception:  # an unclickable leftover never fails the capture
                 continue
             await asyncio.sleep(0.6)
+        if self._history:
+            await self._centre_pointer()
 
     async def _enable_semantics(self) -> None:
         if not self._semantics:
@@ -191,6 +242,12 @@ class PlaywrightBrowser:
         return self._place
 
 
+def layout_of(settings: Settings) -> Layout:
+    """The viewport and stored band the settings ask for (``CAPTURE_CLEAN_VIEWS``)."""
+    margin = settings.capture_frame_margin_px if settings.capture_clean_views else 0
+    return Layout(VIEWPORT["width"], VIEWPORT["height"], margin)
+
+
 def playwright_factory(settings: Settings) -> BrowserFactory:
     """Open a browser per capture and close it after, so a crash never outlives a capture."""
 
@@ -200,9 +257,9 @@ def playwright_factory(settings: Settings) -> BrowserFactory:
 
         async with async_playwright() as playwright:
             options: dict[str, Any] = {
-                "headless": True,
+                "headless": settings.capture_headless,
                 "args": chromium_args(settings),
-                "viewport": VIEWPORT,
+                "viewport": layout_of(settings).viewport,
                 "device_scale_factor": 1,
                 "locale": "en-US",
             }
@@ -212,7 +269,9 @@ def playwright_factory(settings: Settings) -> BrowserFactory:
                 )
                 browser = None
             else:
-                browser = await playwright.chromium.launch(headless=True, args=options.pop("args"))
+                browser = await playwright.chromium.launch(
+                    headless=options["headless"], args=options.pop("args")
+                )
                 options.pop("headless")
                 context = await browser.new_context(**options)
             try:

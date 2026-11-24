@@ -16,6 +16,21 @@ evidence kept with the capture's files (``.../captures/<id>/evidence/<time>-<cod
 screenshot, the HTML and ``page.json`` with the address, the HTTP status and the failed
 responses), never in the repository. Views already stored are kept across a pause, and a
 resumed capture takes only the ones it is missing.
+
+EVAL_REPORT 99 adds, each behind :class:`CaptureOptions` (whose defaults are EVAL_REPORT 98's
+capture exactly; :meth:`CaptureOptions.of` reads the settings):
+
+* clean views: a taller viewport cropped to the band between the margins
+  (:mod:`basis.capture.frame`), the status strip kept beside the view as the date's evidence;
+* the imagery date read from the status bar (:mod:`basis.capture.imagery_date`) and a
+  leaf-off label (:mod:`basis.capture.leaf`) on every dated view;
+* history: the dated history of the straight-down view, walked with the viewer's arrow, and
+  the dates :func:`basis.capture.history.select` keeps;
+* street level (:mod:`basis.capture.street`), one more page load.
+
+A part that does not work (no history, no street-level picture, an unread date) leaves a
+note on the capture, an incident and a ``capture.part_failed`` event, with evidence where a
+page was involved, and the capture goes on: it never fails the capture or opens the breaker.
 """
 
 from __future__ import annotations
@@ -28,17 +43,35 @@ import random
 import uuid
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 from typing import Final
 
 from basis.capture import governor as gov
-from basis.capture import messages
+from basis.capture import history as hist
+from basis.capture import leaf as leafs
+from basis.capture import messages, street
 from basis.capture.browser import BrowserCrashed, BrowserFactory, CaptureBrowser
-from basis.capture.camera import Camera, found_nothing, parse, pixel_size_m, search_address
+from basis.capture.camera import (
+    ORIGIN,
+    Camera,
+    found_nothing,
+    parse,
+    pixel_size_m,
+    search_address,
+)
+from basis.capture.frame import Layout, crop_view
 from basis.capture.governor import GovernorConfig, NavigationKind
+from basis.capture.imagery_date import (
+    DateReading,
+    address_date,
+    agreed,
+    parse_status_text,
+    read_status_date,
+)
 from basis.capture.plan import PlannedView, plan
 from basis.capture.signals import Frame, PageRecord, Signal, detect, frame_stats
-from basis.capture.store import CaptureRow, CaptureStore, Incident, NewView, PinRow
+from basis.capture.store import CaptureRow, CaptureStore, Incident, NewView, Note, PinRow
+from basis.config import Settings
 from basis.errors.codes import E
 from basis.storage import Storage
 
@@ -52,6 +85,55 @@ START_RANGE_M: Final = 250.0
 # The map without the toolbar above it and the status bar below it, for the blank check.
 TOOLBAR_PX: Final = 90
 STATUS_BAR_PX: Final = 32
+
+
+@dataclass(frozen=True, slots=True)
+class CaptureOptions:
+    """What a capture takes beyond EVAL_REPORT 98's six views. The defaults are that capture
+    exactly (no crop, the browser's own date, no history, no street level), which the
+    regression tests hold; :meth:`of` is what the worker runs (EVAL_REPORT 99)."""
+
+    origin: str = ORIGIN
+    layout: Layout = Layout()
+    read_dates: bool = False
+    tesseract: str | None = None
+    history: bool = False
+    history_window_days: int = 730
+    history_max_views: int = 6
+    history_max_steps: int = 40
+    street_view: bool = False
+    street_origin: str = street.MAPS_ORIGIN
+
+    @classmethod
+    def of(cls, settings: Settings) -> CaptureOptions:
+        from basis.capture.imagery_date import tesseract_path
+
+        margin = settings.capture_frame_margin_px if settings.capture_clean_views else 0
+        return cls(
+            origin=settings.capture_viewer_origin,
+            layout=Layout(margin=margin),
+            read_dates=True,
+            tesseract=tesseract_path(settings.capture_tesseract),
+            history=settings.capture_history,
+            history_window_days=settings.capture_history_window_days,
+            history_max_views=settings.capture_history_max_views,
+            history_max_steps=settings.capture_history_max_steps,
+            street_view=settings.capture_street_view,
+        )
+
+
+@dataclass(frozen=True, slots=True)
+class Shot:
+    """A screenshot made ready to store: the view (cropped clean when the layout says so),
+    its size, its frame statistics, the status strip and the date read from it."""
+
+    view: bytes
+    width: int
+    height: int
+    frame: Frame
+    strip: bytes
+    date: DateReading
+    green: leafs.Greenness | None
 
 
 @dataclass(frozen=True, slots=True)
@@ -105,6 +187,7 @@ class CaptureRunner:
         sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
         rng: random.Random | None = None,
         heartbeat: Callable[[str], None] | None = None,
+        options: CaptureOptions | None = None,
     ) -> None:
         self._store = store
         self._storage = storage
@@ -118,6 +201,8 @@ class CaptureRunner:
         self._sleep = sleep
         self._rng = rng or random.SystemRandom()
         self._heartbeat = heartbeat or (lambda _step: None)
+        self._options = options or CaptureOptions()
+        self._undated_noted = False
 
     # ------------------------------------------------------------------ entry point
     async def run(self, capture_id: uuid.UUID) -> Outcome:
@@ -148,17 +233,30 @@ class CaptureRunner:
         await self._admit(row, "load")
         await self._store.start(row.id, self._clock())
         have = await self._store.labels(row.id)
+        self._undated_noted = False
         try:
             async with self._browser() as browser:
                 centre = await self._locate(row, pin, browser)
                 stored = len(have)
-                for view in plan(centre):
+                planned = plan(centre, self._options.layout)
+                for view in planned:
                     if view.label in have:
                         continue
                     await self._take(row, browser, view)
                     stored += 1
-                    await self._store.renew_lease(self._holder, LEASE_TTL, self._clock())
-                    self._heartbeat(view.label)
+                    await self._progress(view.label)
+                # A resumed capture does not repeat a part already done or already noted as
+                # not working: the walk stored its dates, or there was nothing to walk.
+                noted = {n.get("code") for n in (await self._current(row)).notes}
+                if self._options.history and not (
+                    any(label.startswith(hist.LABEL_PREFIX) for label in have)
+                    or E.CAPTURE_HISTORY_UNAVAILABLE in noted
+                ):
+                    stored += await self._history(row, browser, planned[0], have)
+                if self._options.street_view and not (
+                    noted & {E.CAPTURE_STREET_NO_COVERAGE, E.CAPTURE_STREET_REFUSED}
+                ):
+                    stored += await self._street(row, browser, centre, have)
         except _Stop:
             raise
         except TimeoutError:
@@ -177,6 +275,13 @@ class CaptureRunner:
         )
         return Done(stored)
 
+    async def _current(self, row: CaptureRow) -> CaptureRow:
+        return await self._store.capture(row.id) or row
+
+    async def _progress(self, step: str) -> None:
+        await self._store.renew_lease(self._holder, LEASE_TTL, self._clock())
+        self._heartbeat(step)
+
     async def _locate(self, row: CaptureRow, pin: PinRow, browser: CaptureBrowser) -> Camera:
         """The first page load: a search for the pin's point (``lat,lon``) or its address.
         The camera the page lands on gives the ground altitude; the views are centred on the
@@ -188,10 +293,10 @@ class CaptureRunner:
         raised it, and the recorded range and pixel size were 28 % off."""
         if pin.has_point:
             assert pin.lat is not None and pin.lon is not None
-            url = search_address(f"{pin.lat:.7f},{pin.lon:.7f}")
+            url = search_address(f"{pin.lat:.7f},{pin.lon:.7f}", self._options.origin)
         else:
             assert pin.address is not None
-            url = search_address(pin.address)
+            url = search_address(pin.address, self._options.origin)
         await self._navigate(row, browser, "load", url)
         await browser.settle(self._settle_s)
         landed = await browser.current()
@@ -211,52 +316,341 @@ class CaptureRunner:
         return Camera(camera.lat, camera.lon, camera.alt_m, START_RANGE_M, camera.fov_deg)
 
     async def _take(self, row: CaptureRow, browser: CaptureBrowser, view: PlannedView) -> None:
-        await self._navigate(row, browser, "move", view.camera.address())
+        await self._navigate(row, browser, "move", view.camera.address(self._options.origin))
         await browser.settle(self._settle_s)
         png = await browser.screenshot()
-        frame, size = await asyncio.to_thread(_inspect, png)
-        if frame.blank:
+        shot = await self._shoot(png, browser, top_down=view.top_down)
+        if shot.frame.blank:
             await self._stop_failed(
                 row,
                 browser,
                 E.CAPTURE_BLANK_RENDER,
-                f"{view.label}: mean {frame.mean:.1f}, spread {frame.stddev:.1f}",
+                f"{view.label}: mean {shot.frame.mean:.1f}, spread {shot.frame.stddev:.1f}",
                 await browser.current(),
                 screenshot=png,
             )
-        width, height = size
+        await self._store_view(row, view, shot)
+
+    async def _shoot(self, png: bytes, browser: CaptureBrowser, *, top_down: bool) -> Shot:
+        """Crop (clean views), measure the frame, read the date (OCR on a thread, or what
+        the browser reports in EVAL_REPORT 98's capture), and measure the green share."""
+        options = self._options
+        latest = self._clock().year + 1
+        cropped = await asyncio.to_thread(crop_view, png, options.layout)
+        frame, _size = await asyncio.to_thread(_inspect, cropped.view, options.layout.margin == 0)
+        if options.read_dates:
+            reading = await asyncio.to_thread(
+                read_status_date, cropped.status_strip, options.tesseract, latest_year=latest
+            )
+        else:
+            reading = _browser_date(await browser.imagery_date(), latest)
+        green = await asyncio.to_thread(leafs.greenness, cropped.view) if top_down else None
+        return Shot(
+            cropped.view, cropped.width, cropped.height, frame, cropped.status_strip, reading, green
+        )
+
+    async def _store_view(
+        self,
+        row: CaptureRow,
+        view: PlannedView,
+        shot: Shot,
+        *,
+        label: str | None = None,
+        camera_at: street.Pano | None = None,
+    ) -> None:
+        label = label or view.label
         current = await self._store.capture(row.id)
         pin_version = current.pin_version if current is not None else row.pin_version
-        uri = f"{capture_prefix(self._bucket, row.study_id, row.id)}{view.label}.png"
-        await self._storage.put(uri, png, "image/png")
+        prefix = capture_prefix(self._bucket, row.study_id, row.id)
+        uri = f"{prefix}{label}.png"
+        await self._storage.put(uri, shot.view, "image/png")
+        if self._options.read_dates and shot.strip:
+            await self._storage.put(f"{prefix}{label}.status.png", shot.strip, "image/png")
         camera = view.camera
+        layout = self._options.layout
+        if not view.top_down or camera_at is not None:
+            size = None
+        elif layout.margin:
+            size = layout.pixel_size_m(camera.range_m, camera.fov_deg)
+        else:
+            size = pixel_size_m(camera.range_m, camera.fov_deg, shot.height)
+        reading = shot.date
+        leaf, _why = leafs.by_month(reading.on, camera.lat)
+        if reading.on is None and self._options.read_dates and view.kind != "street":
+            await self._undated(row, label, reading.note)
         await self._store.add_view(
             NewView(
                 study_id=row.study_id,
                 capture_id=row.id,
                 pin_version=pin_version,
                 kind=view.kind,
-                label=view.label,
+                label=label,
                 lat=camera.lat,
                 lon=camera.lon,
                 ground_alt_m=camera.alt_m,
                 range_m=camera.range_m,
                 fov_deg=camera.fov_deg,
                 heading_deg=camera.heading_deg,
-                tilt_deg=camera.tilt_deg,
-                pixel_size_m=(
-                    pixel_size_m(camera.range_m, camera.fov_deg, height) if view.top_down else None
-                ),
-                imagery_date=await browser.imagery_date(),
-                width=width,
-                height=height,
+                # A street-level camera looks at the horizon (90 from straight down).
+                tilt_deg=90.0 if view.kind == "street" else camera.tilt_deg,
+                pixel_size_m=size,
+                imagery_date=reading.text,
+                width=shot.width,
+                height=shot.height,
                 uri=uri,
-                sha256=hashlib.sha256(png).hexdigest(),
-                bytes=len(png),
+                sha256=hashlib.sha256(shot.view).hexdigest(),
+                bytes=len(shot.view),
                 source=self._source,
                 captured_at=self._clock(),
+                imagery_on=reading.on,
+                imagery_date_note=reading.note,
+                leaf=leaf if reading.on is not None else "unknown",
+                green_share=None if shot.green is None else shot.green.share,
+                camera_lat=None if camera_at is None else camera_at.lat,
+                camera_lon=None if camera_at is None else camera_at.lon,
+                pano_id=None if camera_at is None else camera_at.pano_id,
             )
         )
+
+    async def _undated(self, row: CaptureRow, label: str, why: str) -> None:
+        """One note and incident per capture for unread dates; a log line for each view."""
+        logger.warning(
+            "capture date unread",
+            extra={
+                "error_code": E.CAPTURE_DATE_UNREAD,
+                "capture_id": str(row.id),
+                "view": label,
+                "detail": why,
+            },
+        )
+        if self._undated_noted:
+            return
+        self._undated_noted = True
+        await self._part_failed(row, "date", E.CAPTURE_DATE_UNREAD, f"{label}: {why}")
+
+    async def _part_failed(
+        self,
+        row: CaptureRow,
+        part: str,
+        code: str,
+        detail: str,
+        *,
+        browser: CaptureBrowser | None = None,
+        page: PageRecord | None = None,
+        screenshot: bytes | None = None,
+    ) -> None:
+        evidence = None
+        if browser is not None and page is not None:
+            evidence = await self._evidence(row, browser, code, None, page, screenshot=screenshot)
+        incident = Incident(
+            code=code,
+            at=self._clock(),
+            study_id=row.study_id,
+            capture_id=row.id,
+            url=None if page is None else page.url,
+            http_status=None if page is None else page.status,
+            detail=detail[:500],
+            evidence=evidence,
+        )
+        await self._store.part_failed(row.id, Note(part, code, messages.part(code)), incident)
+        logger.warning(
+            "capture part failed",
+            extra={
+                "error_code": code,
+                "capture_id": str(row.id),
+                "study_id": str(row.study_id),
+                "part": part,
+                "detail": detail[:500],
+                "evidence": evidence,
+            },
+        )
+
+    # ------------------------------------------------------------------ history
+    async def _history(
+        self, row: CaptureRow, browser: CaptureBrowser, close: PlannedView, have: set[str]
+    ) -> int:
+        """Walk the dated history of ``aerial-close``'s camera and store the dates the plan
+        keeps (EVAL_REPORT 99); the number stored."""
+        options = self._options
+        await self._navigate(row, browser, "move", close.camera.address(options.origin))
+        await browser.settle(self._settle_s)
+        page = await self._press(row, browser, browser.history_on)
+        if page is None:
+            await self._part_failed(
+                row,
+                "history",
+                E.CAPTURE_HISTORY_UNAVAILABLE,
+                "the viewer showed no history control",
+                browser=browser,
+                page=await browser.current(),
+            )
+            return 0
+        await browser.settle(self._settle_s)
+        found: dict[date, Shot] = {}
+        unread = 0
+        repeats = 0
+        steps = 0
+        while True:
+            png = await browser.screenshot()
+            shot = await self._shoot(png, browser, top_down=True)
+            if self._options.read_dates:
+                checked = agreed(shot.date, address_date((await browser.current()).url))
+                shot = Shot(
+                    shot.view, shot.width, shot.height, shot.frame, shot.strip, checked, shot.green
+                )
+            when = shot.date.on
+            if when is None:
+                unread += 1
+                logger.info(
+                    "capture history date unread",
+                    extra={
+                        "error_code": E.CAPTURE_DATE_UNREAD,
+                        "capture_id": str(row.id),
+                        "step": steps,
+                        "detail": shot.date.note,
+                    },
+                )
+            elif when in found:
+                repeats += 1
+            else:
+                repeats = 0
+                if shot.frame.blank:
+                    logger.info(
+                        "capture history date skipped: blank frame",
+                        extra={"capture_id": str(row.id), "date": when.isoformat()},
+                    )
+                else:
+                    found[when] = shot
+            self._heartbeat(f"history {when}")
+            if steps >= options.history_max_steps or repeats >= 2:
+                break
+            page = await self._press(row, browser, browser.history_older)
+            if page is None:
+                break
+            steps += 1
+            await browser.settle(self._settle_s)
+        if not found:
+            await self._part_failed(
+                row,
+                "history",
+                E.CAPTURE_HISTORY_UNAVAILABLE,
+                f"stepping read no date ({steps} steps, {unread} unread)",
+                browser=browser,
+                page=await browser.current(),
+            )
+            return 0
+        reference = await self._store.reference_date(row.study_id)
+        candidates = [hist.Candidate(on, leafs.by_month(on, close.camera.lat)[0]) for on in found]
+        picks = hist.select(
+            candidates,
+            reference=None if reference is None else reference[0],
+            window_days=options.history_window_days,
+            max_views=options.history_max_views,
+        )
+        logger.info(
+            "capture history walked",
+            extra={
+                "capture_id": str(row.id),
+                "dates": sorted(d.isoformat() for d in found),
+                "kept": [p.label for p in picks],
+                "reference": None if reference is None else reference[0].isoformat(),
+                "steps": steps,
+                "unread": unread,
+            },
+        )
+        stored = 0
+        view = PlannedView(close.label, "history", close.camera)
+        for pick in picks:
+            if pick.label in have:
+                continue
+            await self._store_view(row, view, found[pick.on], label=pick.label)
+            stored += 1
+            await self._progress(pick.label)
+        return stored
+
+    async def _press(
+        self,
+        row: CaptureRow,
+        browser: CaptureBrowser,
+        control: Callable[[], Awaitable[PageRecord | None]],
+    ) -> PageRecord | None:
+        """A press of the viewer's history control: a camera move for the governor, the
+        spacing and the block check, like :meth:`_navigate`."""
+        await self._admit(row, "move")
+        page = await control()
+        if page is None:
+            return None
+        await self._store.navigated("move", row.id, self._clock())
+        await self._check(row, browser, page)
+        return page
+
+    # ------------------------------------------------------------------ street level
+    async def _street(
+        self, row: CaptureRow, browser: CaptureBrowser, centre: Camera, have: set[str]
+    ) -> int:
+        """One street-level picture of the front (:mod:`basis.capture.street`); 1 when
+        stored, 0 when there was none or it was refused (a note, no retry)."""
+        label = "street-front"
+        if label in have:
+            return 0
+        options = self._options
+        url = street.pano_lookup_address(centre.lat, centre.lon, options.street_origin)
+        await self._navigate(row, browser, "load", url)
+        await browser.settle(self._settle_s, dismiss=False)
+        landed = await browser.current()
+        pano = street.parse_pano(landed.url)
+        if pano is None:
+            why = street.refused(landed)
+            code = E.CAPTURE_STREET_REFUSED if why else E.CAPTURE_STREET_NO_COVERAGE
+            await self._part_failed(
+                row,
+                "street",
+                code,
+                why or "the page named no panorama near the property",
+                browser=browser,
+                page=landed,
+            )
+            return 0
+        if street.contributed(pano.pano_id):
+            await self._part_failed(
+                row,
+                "street",
+                E.CAPTURE_STREET_NO_COVERAGE,
+                "the nearest panorama is a visitor's photo, not street imagery",
+                browser=browser,
+                page=landed,
+            )
+            return 0
+        heading = street.heading_deg(pano.lat, pano.lon, centre.lat, centre.lon)
+        aim = street.pano_address(pano.pano_id, pano.lat, pano.lon, heading, options.street_origin)
+        page = await self._navigate(row, browser, "move", aim)
+        await browser.settle(self._settle_s, dismiss=False)
+        png = await browser.screenshot()
+        current = await browser.current()
+        refused = street.refused(page) or street.refused(current)
+        frame, _size = await asyncio.to_thread(_inspect, png, True)
+        if refused or frame.blank:
+            why = refused or f"black frame: mean {frame.mean:.1f}, spread {frame.stddev:.1f}"
+            await self._part_failed(
+                row,
+                "street",
+                E.CAPTURE_STREET_REFUSED,
+                why,
+                browser=browser,
+                page=current,
+                screenshot=png,
+            )
+            return 0
+        distance = street.distance_m(pano.lat, pano.lon, centre.lat, centre.lon)
+        camera = Camera(
+            centre.lat, centre.lon, centre.alt_m, max(distance, 0.1), street.STREET_FOV_DEG, heading
+        )
+        view_png, width, height = await asyncio.to_thread(street.crop_street, png)
+        shot = Shot(view_png, width, height, frame, b"", DateReading(None, None, "not read"), None)
+        view = PlannedView(label, "street", camera)
+        await self._store_view(row, view, shot, camera_at=pano)
+        await self._progress(label)
+        return 1
 
     # ------------------------------------------------------------------ navigation
     async def _admit(self, row: CaptureRow, kind: NavigationKind) -> None:
@@ -448,13 +842,27 @@ class CaptureRunner:
         return prefix
 
 
-def _inspect(png: bytes) -> tuple[Frame, tuple[int, int]]:
-    """The frame's statistics over the map area and the image's size (on a thread)."""
+def _inspect(png: bytes, full: bool = True) -> tuple[Frame, tuple[int, int]]:
+    """The frame's statistics and the image's size (on a thread): over the map area without
+    the toolbar and the status bar for a ``full`` (uncropped) screenshot, over the whole of
+    a view already cropped clean."""
     import io
 
     from PIL import Image
 
     with Image.open(io.BytesIO(png)) as image:
         width, height = image.size
+    if not full:
+        return frame_stats(png), (width, height)
     region = (0, min(TOOLBAR_PX, height - 1), width, max(TOOLBAR_PX + 1, height - STATUS_BAR_PX))
     return frame_stats(png, region=region), (width, height)
+
+
+def _browser_date(text: str | None, latest_year: int) -> DateReading:
+    """The date as the browser reported it (EVAL_REPORT 98's path)."""
+    if text is None:
+        return DateReading(None, None, "the page showed no date")
+    found = parse_status_text(text, latest_year=latest_year)
+    if found is None:
+        return DateReading(text, None, "page text, not a date")
+    return DateReading(found[0], found[1], "page text")

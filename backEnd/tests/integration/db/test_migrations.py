@@ -101,6 +101,10 @@
   one active per study, the never-updated views, the one-row capture state seeded with
   ``id = 1``, the navigation log, the incidents) and lets ``alerts.kind`` be
   ``capture_blocked``; it downgrades back to ``0035`` exactly;
+* ``0037_capture_history`` adds the capture's ``notes`` (default ``[]``) and the views'
+  imagery date, its note, the leaf label (three values), the green share (0 to 1) and the
+  street-level camera point (both or neither) and panorama id, nothing backfilled; it
+  downgrades back to ``0036`` exactly;
 * upgrading at head is a no-op; offline (``--sql``) rendering works.
 
 Each test that changes the schema gets its own throwaway database in the shared
@@ -144,8 +148,8 @@ pytestmark = pytest.mark.integration
 # 0025_invitation_email lands after 0022 (user activity), 0023 (rate-limit hits) and 0024
 # (review drafts); 0026 (retention and alerts) revises 0025, and 0027_signature_input_versions
 # revises 0026 (it was 0024, then 0026, until the branches before it landed).
-HEAD = "0036"
-HISTORY = [f"{n:04d}" for n in range(36, 0, -1)]  # "0036" .. "0001"
+HEAD = "0037"
+HISTORY = [f"{n:04d}" for n in range(37, 0, -1)]  # "0037" .. "0001"
 EXPECTED_TRIGGERS = (
     {(f"{table}_set_updated_at", table) for table in UPDATED_AT_TABLES}
     | {(f"{table}_append_only", table) for table in APPEND_ONLY_TABLES}
@@ -2036,3 +2040,63 @@ async def test_0036_property_capture_rules_and_an_exact_downgrade(
         await connection.close()
     await downgrade(url, "0035")
     assert await snapshot(url) == at_0035
+
+
+async def test_0037_capture_history_columns_and_an_exact_downgrade(
+    empty_database_url: str,
+) -> None:
+    url = empty_database_url
+    await upgrade(url, "0036")
+    at_0036 = await snapshot(url)
+    await upgrade(url, "0037")
+    connection = await asyncpg.connect(plain_dsn(url))
+    try:
+        org = await connection.fetchval("INSERT INTO orgs (name) VALUES ('Firm') RETURNING id")
+        user = await connection.fetchval(
+            "INSERT INTO users (firebase_uid, email) VALUES ('u1', 'u@x.example') RETURNING id"
+        )
+        study = await connection.fetchval(
+            "INSERT INTO studies (org_id, created_by, property_name) VALUES ($1, $2, 'P') "
+            "RETURNING id",
+            org,
+            user,
+        )
+        await connection.execute(
+            "INSERT INTO property_pins (study_id, address, source) "
+            "VALUES ($1, '1 Main', 'engineer')",
+            study,
+        )
+        capture = await connection.fetchval(
+            "INSERT INTO property_captures (study_id, pin_version, status) "
+            "VALUES ($1, 1, 'running') RETURNING id",
+            study,
+        )
+        assert (
+            await connection.fetchval("SELECT notes FROM property_captures WHERE id = $1", capture)
+            == "[]"
+        )
+        insert = (
+            "INSERT INTO capture_views (study_id, capture_id, pin_version, kind, label, lat, lon, "
+            "ground_alt_m, range_m, fov_deg, heading_deg, tilt_deg, width, height, uri, sha256, "
+            "bytes, source, captured_at, imagery_on, leaf, green_share, camera_lat, camera_lon) "
+            "VALUES ($1, $2, 1, 'history', $3, 41.6, -93.6, 250, 165, 35, 0, 0, 1440, 900, "
+            "'gs://b/x.png', $4, 10, 's', now(), '2021-03-12', $5, $6, $7, $8)"
+        )
+        await connection.execute(
+            insert, study, capture, "history-2021-03-12", "0" * 64, "leaf-off", 0.17, None, None
+        )
+        with pytest.raises(asyncpg.CheckViolationError, match="leaf_valid"):
+            await connection.execute(
+                insert, study, capture, "a", "0" * 64, "bare", None, None, None
+            )
+        with pytest.raises(asyncpg.CheckViolationError, match="green_share_range"):
+            await connection.execute(insert, study, capture, "b", "0" * 64, None, 1.5, None, None)
+        with pytest.raises(asyncpg.CheckViolationError, match="camera_point_whole"):
+            await connection.execute(insert, study, capture, "c", "0" * 64, None, None, 43.8, None)
+        for table in ("capture_views", "property_captures", "property_pins", "studies", "users"):
+            await connection.execute(f"DELETE FROM {table}")
+        await connection.execute("DELETE FROM orgs")
+    finally:
+        await connection.close()
+    await downgrade(url, "0036")
+    assert await snapshot(url) == at_0036
