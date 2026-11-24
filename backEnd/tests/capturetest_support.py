@@ -17,7 +17,7 @@ from basis.capture.camera import parse
 from basis.capture.signals import PageRecord, Response
 
 START = datetime(2026, 11, 23, 15, 0, tzinfo=UTC)
-PLACE = "https://earth.google.com/web/search/1+Main/@43.850952,-88.9637708,250.10a,589.16d,35y,0h,0t,0r/data=x"
+PLACE = "https://earth.google.com/web/search/1+Main/@41.600000,-93.6000000,250.10a,589.16d,35y,0h,0t,0r/data=x"
 
 
 def map_png(width: int = 1440, height: int = 900, seed: int = 1) -> bytes:
@@ -80,7 +80,7 @@ class FakeBrowser:
     html: str = "<html><body>map</body></html>"
     png: bytes = field(default_factory=map_png)
     date: str | None = "8/4/2026"
-    label: str | None = "1 Main St, Green Lake, WI"
+    label: str | None = "1 Main St, Anytown, IA"
     on_load: dict[int, PageRecord | BaseException] = field(default_factory=dict)
     on_move: dict[int, PageRecord | BaseException] = field(default_factory=dict)
     blank_moves: set[int] = field(default_factory=set)

@@ -56,7 +56,7 @@ async def seeded(
                 study_id=study.id,
                 address="1 Main St",
                 lat=lat,
-                lon=None if lat is None else -88.96,
+                lon=None if lat is None else -93.60,
                 source="engineer",
                 version=1,
             )
@@ -171,8 +171,8 @@ async def test_fail_complete_and_the_snapshot(
             pin_version=1,
             kind="aerial",
             label="aerial-close",
-            lat=43.85,
-            lon=-88.96,
+            lat=41.60,
+            lon=-93.60,
             ground_alt_m=250,
             range_m=120,
             fov_deg=35,
@@ -212,12 +212,12 @@ async def test_the_search_places_a_point_only_on_a_pin_without_one(
 ) -> None:
     store = PgCaptureStore(committed)
     study_id, capture_id = await seeded(committed)
-    assert await store.place_pin(capture_id, 43.85, -88.96, "1 Main St, WI", NOW) == 2
+    assert await store.place_pin(capture_id, 41.60, -93.60, "1 Main St, IA", NOW) == 2
     pin = await store.pin(study_id)
     assert pin is not None and (pin.source, pin.confirmed, pin.version) == ("search", False, 2)
     capture = await store.capture(capture_id)
     assert capture is not None and capture.pin_version == 2
     kept_study, kept_capture = await seeded(committed, lat=40.0)
-    assert await store.place_pin(kept_capture, 43.85, -88.96, None, NOW) == 1
+    assert await store.place_pin(kept_capture, 41.60, -93.60, None, NOW) == 1
     kept = await store.pin(kept_study)
     assert kept is not None and kept.lat == 40.0

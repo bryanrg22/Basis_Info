@@ -20,12 +20,12 @@ from basis.capture import camera
 from basis.capture.signals import PageRecord, Response, detect, frame_stats, watched
 from basis.errors.codes import E
 
-PROBE = "https://earth.google.com/web/search/x/@43.850952,-88.9637708,250.10037224a,589.16331713d,35y,0h,0t,0r/data=Cj0a"
+PROBE = "https://earth.google.com/web/search/x/@41.600000,-93.6000000,250.10037224a,589.16331713d,35y,0h,0t,0r/data=Cj0a"
 
 
 def test_an_address_round_trips() -> None:
     parsed = camera.parse(PROBE)
-    assert parsed == camera.Camera(43.850952, -88.9637708, 250.10037224, 589.16331713, 35, 0, 0, 0)
+    assert parsed == camera.Camera(41.600000, -93.6000000, 250.10037224, 589.16331713, 35, 0, 0, 0)
     again = camera.parse(parsed.address())
     assert again is not None
     assert again.lat == pytest.approx(parsed.lat) and again.range_m == pytest.approx(

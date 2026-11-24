@@ -349,7 +349,7 @@ def prepare_case(case: Any, study_ids: dict[str, str]) -> None:
                 or (case.body.get("address") is None and lat is None)
                 or (case.body.get("confirmed") and lat is None)
             ):
-                case.body = {"address": "1 Main St", "lat": 43.86, "lon": -88.96}
+                case.body = {"address": "1 Main St", "lat": 41.61, "lon": -93.60}
     if case.path.endswith("/assets/reprice") and case.method.upper() == "POST":
         # "At least one member" of the square-foot model is not in the schema.
         if isinstance(case.body, dict) and case.body.get("structure_model") is not None:

@@ -51,7 +51,7 @@ CONFIG = GovernorConfig()
 def address_pin(version: int = 1) -> PinRow:
     return PinRow(
         study_id=STUDY,
-        address="1 Main St, Green Lake, WI",
+        address="1 Main St, Anytown, IA",
         lat=None,
         lon=None,
         source="engineer",
@@ -63,8 +63,8 @@ def point_pin() -> PinRow:
     return PinRow(
         study_id=STUDY,
         address=None,
-        lat=43.85,
-        lon=-88.96,
+        lat=41.60,
+        lon=-93.60,
         source="engineer",
         version=3,
         confirmed=True,
@@ -127,20 +127,20 @@ async def test_a_search_takes_one_load_six_moves_and_stores_six_views() -> None:
     close = rig.store.views[0]
     assert close.tilt_deg == 0 and close.range_m == 120
     assert close.pixel_size_m == pytest.approx(2 * 120 * 0.31529878 / 900, rel=1e-6)
-    assert close.lat == pytest.approx(43.850952) and close.ground_alt_m == pytest.approx(250.10)
+    assert close.lat == pytest.approx(41.600000) and close.ground_alt_m == pytest.approx(250.10)
     assert close.imagery_date == "8/4/2026" and close.source == "Aerial imagery"
     assert all(v.pixel_size_m is None for v in rig.store.views if v.kind == "oblique")
     assert {v.heading_deg for v in rig.store.views if v.kind == "oblique"} == {0, 90, 180, 270}
     # The search placed the point on the pin, unconfirmed; the views carry that version.
     pin = rig.store.pins[STUDY]
     assert (pin.lat, pin.lon, pin.source, pin.confirmed, pin.version) == (
-        43.850952,
-        -88.9637708,
+        41.600000,
+        -93.6000000,
         "search",
         False,
         2,
     )
-    assert pin.place_label == "1 Main St, Green Lake, WI"
+    assert pin.place_label == "1 Main St, Anytown, IA"
     assert {v.pin_version for v in rig.store.views} == {2}
     # Stored under the study's prefix, so the retention purge takes them with its files.
     prefix = f"gs://{BUCKET}/studies/{STUDY}/captures/{rig.capture.id}/"
@@ -169,10 +169,10 @@ async def test_an_engineers_point_is_searched_for_its_ground_and_kept_exactly() 
     ground's altitude and a camera address needs it (run 3 of EVAL_REPORT 98)."""
     rig = Rig(pin=point_pin())
     assert await rig.run() == Done(6)
-    assert rig.browser.loads == ["https://earth.google.com/web/search/43.8500000%2C-88.9600000"]
+    assert rig.browser.loads == ["https://earth.google.com/web/search/41.6000000%2C-93.6000000"]
     assert rig.store.pins[STUDY] == point_pin()  # untouched: no search placement
     camera = parse(rig.browser.moves[0])
-    assert camera is not None and (camera.lat, camera.lon) == (43.85, -88.96)
+    assert camera is not None and (camera.lat, camera.lon) == (41.60, -93.60)
     assert camera.alt_m == pytest.approx(250.10)  # the ground the page landed on
     assert all(v.ground_alt_m == pytest.approx(250.10) for v in rig.store.views)
     assert {v.pin_version for v in rig.store.views} == {3}

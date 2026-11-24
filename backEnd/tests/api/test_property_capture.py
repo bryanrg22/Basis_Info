@@ -105,7 +105,7 @@ async def test_the_pin_is_versioned_and_whole(on: Api, seed: Seed) -> None:
     assert empty.status_code == 200 and empty.headers["ETag"] == '"0"'
     assert empty.json() == {"pin": None, "capture": None, "enabled": True}
     first = await put_pin(
-        on, "alice", sid, {"address": "1 Main St, Green Lake, WI"}, **{"If-Match": '"0"'}
+        on, "alice", sid, {"address": "1 Main St, Anytown, IA"}, **{"If-Match": '"0"'}
     )
     assert first.status_code == 200, first.text
     assert first.headers["ETag"] == '"1"' and first.json()["source"] == "engineer"
@@ -120,13 +120,13 @@ async def test_the_pin_is_versioned_and_whole(on: Api, seed: Seed) -> None:
         on,
         "alice",
         sid,
-        {"address": "1 Main St", "lat": 43.85, "lon": -88.96, "confirmed": True},
+        {"address": "1 Main St", "lat": 41.60, "lon": -93.60, "confirmed": True},
         **{"If-Match": '"1"'},
     )
     body = confirmed.json()
     assert (body["confirmed"], body["version"], body["source"]) == (True, 2, "engineer")
     same = await put_pin(
-        on, "alice", sid, {"address": "1 Main St", "lat": 43.85, "lon": -88.96, "confirmed": True}
+        on, "alice", sid, {"address": "1 Main St", "lat": 41.60, "lon": -93.60, "confirmed": True}
     )
     assert same.json()["version"] == 2  # nothing changed, nothing written
 
@@ -191,7 +191,7 @@ async def test_a_views_image_and_staleness(
     sessionmaker: async_sessionmaker[AsyncSession],
 ) -> None:
     sid = (await on.create_study("alice"))["id"]
-    await put_pin(on, "alice", sid, {"address": "1 Main St", "lat": 43.85, "lon": -88.96})
+    await put_pin(on, "alice", sid, {"address": "1 Main St", "lat": 41.60, "lon": -93.60})
     capture_id = (await on.post("alice", f"/v1/studies/{sid}/property/captures", {})).json()["id"]
     uri = f"gs://test-bucket/studies/{sid}/captures/{capture_id}/aerial-close.png"
     await storage.put(uri, PNG, "image/png")
@@ -202,8 +202,8 @@ async def test_a_views_image_and_staleness(
             pin_version=1,
             kind="aerial",
             label="aerial-close",
-            lat=43.85,
-            lon=-88.96,
+            lat=41.60,
+            lon=-93.60,
             ground_alt_m=250,
             range_m=120,
             fov_deg=35,
@@ -230,7 +230,7 @@ async def test_a_views_image_and_staleness(
         headers={**bearer("alice"), "If-None-Match": image.headers["ETag"]},
     )
     assert cached.status_code == 304
-    await put_pin(on, "alice", sid, {"address": "1 Main St", "lat": 43.86, "lon": -88.96})
+    await put_pin(on, "alice", sid, {"address": "1 Main St", "lat": 41.61, "lon": -93.60})
     views = (await on.get("alice", f"/v1/studies/{sid}/property")).json()["capture"]["views"]
     assert [v["stale"] for v in views] == [True]
     assert (

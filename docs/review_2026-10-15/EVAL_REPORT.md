@@ -14252,10 +14252,10 @@ and spread are measured over the map area.
 
 | Load | What | Result |
 |---|---|---|
-| 1 (probe 1) | Search by place name; then one camera move | Landed at `@43.850952,-88.9637708,250.1a,589.2d,35y`; the move needed no load; one survey 429 |
+| 1 (probe 1) | Search by place name; then one camera move | Landed at the property's camera (coordinates in the private report); the move needed no load; one survey 429 |
 | 2 (probe 2) | The real `PlaywrightBrowser`: switch on the accessibility tree, dismiss, two moves | The interface is Flutter web. Its buttons appear only after `flt-semantics-placeholder` is clicked. Both moved views were the viewer's projects page (mean 252, spread 8) |
 | 3 (probe 3) | The dismissal step by step, screenshot after each | An Escape closes the place panel; two moves before any extra Escape both stayed on the map; "Dismiss" closes one tip and shows the next |
-| 4 (run 1) | Full capture, address search | Place found; label read as "453 North St, Green Lake, WI 54941"; `aerial-close` stored. `aerial-wide` was the projects page again, refused as a white frame (BASIS-CAPTURE-005, evidence stored). **Cause: an Escape after a camera move.** Fixed: Escape only after a page load |
+| 4 (run 1) | Full capture, address search | Place found; label read as the property's street address (in the private report); `aerial-close` stored. `aerial-wide` was the projects page again, refused as a white frame (BASIS-CAPTURE-005, evidence stored). **Cause: an Escape after a camera move.** Fixed: Escape only after a page load |
 | 5 (run 2) | Full capture, address search, after the fix | 6 clean views in 109 s; pin placed (`search`, unconfirmed) |
 | 6 (run 3) | Full capture, engineer's point loaded as a camera address with `0a` | 6 views, but the scale bar read 0.1075 m/px against 0.0841 recorded. The camera sat below the ground and the viewer raised it, so the range and pixel size were 28 % off. **Fixed:** a point is searched as `lat,lon`, which yields the ground altitude |
 | 7 (run 4) | Full capture, engineer's point searched | 6 clean views in 95 s; the scale bars match run 2's exactly; the engineer's point kept unchanged |
