@@ -102,7 +102,11 @@ BODIES: Final[dict[str, Any]] = {
     "PUT /v1/studies/{study_id}/intake": COMPLETE_INTAKE,
     "GET /v1/studies/{study_id}/intake": None,
     "GET /v1/studies/{study_id}/property": None,
-    "PUT /v1/studies/{study_id}/property/pin": {"address": "1 Main St", "lat": 43.86, "lon": -88.96},
+    "PUT /v1/studies/{study_id}/property/pin": {
+        "address": "1 Main St",
+        "lat": 43.86,
+        "lon": -88.96,
+    },
     "POST /v1/studies/{study_id}/property/captures": None,
     "GET /v1/studies/{study_id}/property/captures": None,
     "GET /v1/studies/{study_id}/property/captures/{capture_id}": None,

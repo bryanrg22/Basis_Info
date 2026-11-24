@@ -283,6 +283,7 @@ async def start_capture(
 @reads.get(
     "/studies/{study_id}/property/captures",
     summary="The property's captures, newest first",
+    responses=problems(404),
 )
 async def list_captures(
     access: ViewerStudy,
