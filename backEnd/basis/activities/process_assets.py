@@ -119,6 +119,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from temporalio import activity
 
+from basis.activities import line_annotations
 from basis.activities._model_calls import call_origin, heartbeating, provider_failure
 from basis.activities._support import (
     budget_exceeded,
@@ -130,7 +131,9 @@ from basis.activities._support import (
 from basis.activities.apply_corrections import CARRIED_FROM
 from basis.activities.corrections import (
     check_asset,
+    check_component_age,
     check_quantity,
+    check_removal,
     parse_bucket,
     parse_recovery_period,
 )
@@ -172,7 +175,7 @@ from basis.db.repositories.room import RoomRepository
 from basis.db.repositories.study import StudyRepository
 from basis.db.repositories.study_event import StudyEventRepository
 from basis.db.session import session_scope
-from basis.domain import price_overrides
+from basis.domain import component_age, price_overrides, renovations
 from basis.domain.cost_table import CostTable, cost_table_for
 from basis.domain.cost_trail import (
     TrailContext,
@@ -269,6 +272,22 @@ PRICING_REASON_PREFIXES: Final = ("cross:", "cost:", "takeoff:", "structure:")
 CARRIED_CLASSIFICATION: Final = "carried_classification"
 # Written on the concealed rows' takeoff inputs when the engineer set the square-foot model.
 STRUCTURE_MODEL_INPUT: Final = "structure_model"
+
+
+# A room-level row of a room whose photographs mix the acquisition and a project
+# (the catalogue's CHECK_RENOVATION_ROOM_MIXED).
+ROOM_MIXED_REASON: Final = "renovation:ROOM_MIXED"
+
+
+def _renovation_inputs(prepared: _Prepared, project: str | None) -> dict[str, Any]:
+    """What a row's takeoff records of the renovations: the version read with them (every
+    row, only when the study has renovations) and the project it belongs to."""
+    out: dict[str, Any] = {}
+    if prepared.renovations_version is not None:
+        out[renovations.VERSION_INPUT] = prepared.renovations_version
+    if project is not None:
+        out[renovations.PROJECT_INPUT] = project
+    return out
 
 
 def structure_id(label: str) -> uuid.UUID:
@@ -386,6 +405,14 @@ class _Prepared:
     carried_citations: dict[uuid.UUID, list[Citation]] = field(default_factory=dict)
     # The engineer's square-foot model (a ``structure_model`` correction).
     model_override: ModelOverride | None = None
+    # EVAL_REPORT 102: the engineer's line annotations (ages, removals) carried and corrected
+    # (:mod:`basis.activities.line_annotations`), which project each component belongs to, and the
+    # renovations version read with the projects (None: the study has no renovations).
+    annotations: line_annotations.Annotations = field(default_factory=line_annotations.Annotations)
+    membership: renovations.Membership = field(
+        default_factory=lambda: renovations.Membership({}, frozenset())
+    )
+    renovations_version: int | None = None
 
 
 async def _ensure_cost_year(deps: Deps, prepared: _Prepared) -> None:
@@ -469,6 +496,21 @@ async def _prepare(
     overrides, structure_overrides = await _overrides(
         assets, study_id, components, input.corrections
     )
+    annotations = await line_annotations.load(
+        session, study_id, input.revision, components, input.corrections
+    )
+    membership = renovations.Membership({}, frozenset())
+    renovations_version: int | None = None
+    if study is not None and study.renovations is not None:
+        renovations_version = study.renovations_version
+        room_photos: dict[uuid.UUID, list[uuid.UUID]] = {}
+        for assignment in await rooms_repo.photo_rooms(study_id, input.revision):
+            room_photos.setdefault(assignment.room_id, []).append(assignment.document_id)
+        membership = renovations.membership(
+            [(c.id, c.document_id, c.room_id) for c in components],
+            room_photos,
+            study.renovations.photo_projects(),
+        )
     property_class, _ = property_class_for(intake, settings)
     carry, model_override = _rebuild(study_id, input.revision, input.corrections)
     carried: _Carried = _Carried()
@@ -566,6 +608,9 @@ async def _prepare(
         carried.structure,
         carried.citations,
         model_override,
+        annotations,
+        membership,
+        renovations_version,
     )
 
 
@@ -718,6 +763,10 @@ async def _write(
             extra_reasons.append(CONVERTED_REASON)
         if indexed and plan.index.location_mismatch is not None:
             extra_reasons.append(LOCATION_MISMATCH_REASON)
+        project = prepared.membership.projects.get(component.id)
+        if component.document_id is None and component.room_id in prepared.membership.mixed_rooms:
+            # A room mixing the acquisition's photographs and a project's (EVAL_REPORT 102).
+            extra_reasons.append(ROOM_MIXED_REASON)
         if takeoff.inputs.get("quantity_bound") == "upper":
             # A derived quantity that is an upper bound (landscaping = the whole unbuilt
             # lot): priced, but the engineer must confirm or measure it.
@@ -733,6 +782,8 @@ async def _write(
             "assumptions": list(takeoff.assumptions),
             **plan.study_inputs,
             **extra_inputs,
+            **prepared.annotations.for_component(component.id),
+            **_renovation_inputs(prepared, project),
         }
         await assets.add_takeoff(
             asset=asset,
@@ -779,6 +830,10 @@ async def _write(
             )
             row.verified_at = datetime.now(UTC)
         needs_review += asset.needs_review
+        if project is not None:
+            # A project's row is the renovation's, not the acquisition's: the structure model
+            # carves the building the taxpayer bought (EVAL_REPORT 102).
+            continue
         itemized.append(
             # An unknown count credits nothing found (the study is withheld for it anyway).
             ItemizedRow(
@@ -997,6 +1052,8 @@ async def _write_structure(
             "quantity_source": "structure_model",
             "structure_source": row.source,
             **plan.study_inputs,
+            **prepared.annotations.for_label(row.label),
+            **_renovation_inputs(prepared, None),
         }
         if prepared.model_override is not None:
             takeoff_inputs[STRUCTURE_MODEL_INPUT] = override_record(prepared.model_override)
@@ -1674,6 +1731,12 @@ async def _overrides(
         # 90): it is not a classification, and a correction carrying only a price leaves
         # the asset to the classifier.
         after, price = price_overrides.split(correction.after)
+        # The row's age and its removal by a renovation (EVAL_REPORT 102) are annotations, not
+        # a classification: ``basis.activities.line_annotations`` writes them on the new row.
+        check_component_age(correction.after, correction.reason)
+        check_removal(correction.after, correction.reason)
+        after, _ = component_age.split(after)
+        after, _ = renovations.split_removal(after)
         if price and old.component_id is None:
             raise validation_error(
                 f"asset {old.id} is a concealed row of the structure model; it has no unit "

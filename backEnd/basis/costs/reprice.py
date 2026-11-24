@@ -206,7 +206,15 @@ async def _result(
     structure, pricing = await load_result_inputs(
         session, study.id, revision, study.intake, study.intake_version, settings
     )
-    return compute_result(rows, study.intake, revision, structure, pricing)
+    return compute_result(
+        rows,
+        study.intake,
+        revision,
+        structure,
+        pricing,
+        study.renovations,
+        study.renovations_version,
+    )
 
 
 def corrections_for(

@@ -380,6 +380,42 @@ proposed routes from the sample once the backend has them.
   report profile (`PUT .../profile`), whose `name` is printed on reports. Renaming the firm itself
   is not on the page yet.
 
+## 20. Renovations: what the app needs from the API (EVAL_REPORT 102, November 2026)
+
+Numbered 20: open branches use up to 18 and a parallel branch may take 19. The backend offers
+these; the app shows none of them yet. No screen is designed here.
+
+* **A Renovations panel on the study** (engineer writes, viewer reads): `GET`/`PUT
+  /v1/studies/{id}/renovations` (docs/api/RENOVATIONS.md), one document with `If-Match` like the
+  intake. Per project: key, after or before service, scope, addition (and "it replaced
+  components" for an addition), contract, work-start and placed-in-service dates, invoice total,
+  the invoices (uploads of kind `other`, with amounts), the CPA's capitalized amount and who
+  confirmed it, QIP auto/off, the dated aerial views. For the study: the bonus the CPA says was
+  claimed on the acquisition. 409 `renovations-locked` once the revision is exported (offer the
+  reopen); 422 `BASIS-STUDY-040` names the member (a file not the study's, dates the intake
+  contradicts).
+* **Tagging photographs after a project**: a multi-select on the photographs adding their ids to
+  a project's `after_photos`. After a change the result says `renovations_changed`: the app offers
+  the reprice (`POST .../assets/reprice`), which moves the rows. A room mixing tags shows the
+  review reason `renovation:ROOM_MIXED` on its room-level rows: suggest moving the project's
+  photographs to a room of their own.
+* **A component's age at the assets review**: an `asset` correction's `effective_age` or
+  `year_installed`, `economic_life`, `age_source` and `age_source_detail` with a reason
+  (docs/api/OVERRIDES.md section 7); `{"effective_age": null}` clears. Show the row's rate and the
+  rate it replaced from `GET .../result` `component_ages`.
+* **Marking a line removed by a project** at the assets review: `removed_by_project` (a picker of
+  the after-service projects), `disposition_date`, optional `removed_share`, with a reason (what
+  shows the removal). The result's `renovations.dispositions` gives each line's basis,
+  depreciation allowed or allowable, adjusted basis and whether the partial disposition election
+  is needed; show them with the note that the election is the preparer's, on the timely original
+  return for that year.
+* **The renovation schedule**: `renovations.projects[].rows` (estimate and allocated, class,
+  QIP), `by_class`, the bonus default with its source, and the warnings in
+  `renovations.checks`. The blockers are the result's `blockers` (docs/api/RENOVATIONS.md
+  section 4), each with its fix.
+* **Not offered by the API yet**: an appraisal's room update status as a suggested age, a
+  photograph's EXIF date as a suggested tag (RENOVATIONS.md section 7).
+
 ## Testing
 
 `web/tests/firm-pages.test.cjs` renders the firm pages (Home, Library, Activity, Team,

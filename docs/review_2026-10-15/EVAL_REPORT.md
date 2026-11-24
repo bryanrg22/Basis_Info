@@ -14188,3 +14188,161 @@ request, so locally the per-address limit is one budget.
   other release steps.
 * A browser that autofills the hidden field loses that visitor's request; the log line
   `demo request trapped` is the only trace (by design it keeps nothing they typed).
+
+## 102. Renovations: a row's own age, a renovation's schedule and its dispositions (2026-11-23)
+
+**Answer first.** Basis now handles the three renovation cases the standard distinguishes
+(docs/review_2026-10-15/RENOVATIONS.md). (1) The seller's renovation: a row can be depreciated on
+its own age over its own life; on the two stored client exports, hypothetical new kitchen
+cabinets and countertops (age 2 of 20 years) move the reconciliation gap by about a third of a
+point and the 5-year share up by about 0.3 points. (2) The buyer's renovation after service: a
+second schedule priced from the invoices with its own factor and dates, QIP for nonresidential
+interiors, and a disposition table for the lines it removed; the arithmetic matches an answer key
+computed by hand and the IRS Practice Unit's own worked example. (3) Bought, renovated, then
+placed in service: one date, the capitalized cost as an intake line in the basis and in the
+reconciliation's target. A study without renovations produces the same bytes as main. No
+model is called, no paid call: cost $0, tokens none.
+
+**Question.** Does the renovation arithmetic give the answers the IRS's own examples and a hand
+computation give, does a study without renovations come out exactly as before, and how much does
+a seller's renovation move a real study?
+
+**Setup.** The renovations branch, uncommitted. Fixtures: the synthetic
+study of `tests/unit/evidence/test_result.py` (a 2,000 SF house, appraiser's physical
+depreciation 25 %, itemized rows plus four concealed rows; fabricated values) with three kitchen
+rows added; the report's synthetic export (`tests/unit/report/support.py`). The client property:
+the two stored exports sections 87 and 96 replay (run 3A revision 5, run 3B revision 1), replayed
+by `evals.structure_replay` at the production variant on the 2020 RSMeans unit-cost table, by a
+private script (`$BASIS_EVAL_DATA_DIR/work/renovations_102/ages_client.py`); its figures are in
+`$BASIS_EVAL_DATA_DIR/reports/RENOVATIONS_AGES_2026-11-23.json`. Only shares and counts are printed
+here.
+
+### 102.1 The depreciation engine against the IRS's examples
+
+How to read this table: each row is an example the IRS publishes with its answer; "Basis" is
+what `basis/report/macrs.py` computes from the Pub 946 (2025) tables. Equal is better.
+
+| Example | IRS answer | Basis | Note |
+|---|---|---|---|
+| Practice Unit DCE-P-002 p.23: a $150,000 elevator of a 39-year building, in service 7/1/2011, disposed of 6/30/2014 | allowed $11,220, adjusted basis $138,780 | allowed $11,220.25, adjusted $138,779.75 | the Practice Unit rounds to the dollar; 1.177 % + 2.564 % + 2.564 % + 2.564 % x 5.5/12 |
+| Pub 946 (2025) ch. 4: $100,000 of residential rental property, in service July 2, 2023, sold March 2, 2025 | 2025 deduction $757.50 | $757.50 | 3.636 % x 2.5/12 |
+| Every column of Tables A-1 (5, 7, 15-year), A-8 (15-year SL), A-6 (12 months), A-7a (12 months) | sums to 100 % | 100 % each | the tables are transcribed; the alternation of A-6 is a rule, checked cell by cell against the printed table |
+
+The tables, not the formula: Pub 946 warns that "Figuring MACRS deductions without using the
+tables will generally result in a slightly different amount than using the tables", and the
+Practice Unit's $11,220 is the table's figure (the formula gives $11,217.95).
+
+### 102.2 The buyer's kitchen remodel: the answer key
+
+The synthetic residential rental study, bought 2023-03-10 and placed in service 2023-04-01
+(statutory bonus default 80 %, the 2023 phase-down), price 205,000, land 20,000. Its acquisition
+priced the kitchen cabinets (estimate 12,000, 5-year), the countertops (4,000, 5-year) and a
+hardwood floor (6,000, 27.5-year). In 2025 a kitchen remodel (contract 2025-02-10, work from
+2025-03-03, in service 2025-05-30; invoices and capitalized amount 38,500) replaced them with new
+cabinets (estimate 15,000), countertops (6,000) and a tile floor (9,000), and the engineer marked
+the three original lines removed on 2025-03-03.
+
+How to read this table: the renovation's schedule. "Estimate" is the cost table's price, used
+only to split the actual cost; "Allocated" is its share of the capitalized amount.
+
+| Line | Estimate | Allocated (hand) | Allocated (Basis) |
+|---|---|---|---|
+| Kitchen cabinets (5-year) | 15,000.00 | 15,000 x 38,500 / 30,000 = 19,250.00 | 19,250.00 |
+| Countertops (5-year) | 6,000.00 | 7,700.00 | 7,700.00 |
+| Tile floor (27.5-year) | 9,000.00 | 11,550.00 | 11,550.00 |
+| Total | 30,000.00 | 38,500.00 (factor 1.283333333, the project's own) | 38,500.00 |
+
+The bonus default of the remodel is 100 % (contract after 2025-01-19, Notice 2026-11 section
+3.03); the acquisition's lines and totals are exactly those of the same study without the
+remodel's rows. The 22.1 % gap between the estimates and the invoices is a warning only.
+
+How to read this table: the dispositions. "Basis" is the line's allocated amount in the
+acquisition study; "Allowed or allowable" is its bonus plus each year's MACRS deduction to the
+removal; "Adjusted" is what is left, the loss on its abandonment. Every figure was computed by
+hand from Pub 946 Tables A-1 and A-6 and matches Basis to the cent.
+
+| Line | Basis | Bonus (80 %) | MACRS by year | Allowed or allowable | Adjusted | Treatment |
+|---|---|---|---|---|---|---|
+| Cabinets, 5-year | 9,173.55 | 7,338.84 | 2023: 1,834.71 x 20 % = 366.94; 2024: x 32 % = 587.11; 2025: x 19.20 % / 2 = 176.13 | 8,469.02 | 704.53 | whole asset |
+| Countertops, 5-year | 3,057.85 | 2,446.28 | 122.31; 195.70; 58.71 | 2,823.00 | 234.85 | whole asset |
+| Hardwood floor, 27.5-year | 4,586.78 | none (real property) | 2023: 2.576 % (April) = 118.16; 2024: 3.636 % = 166.78; 2025: 3.636 % x 2.5/12 = 34.74 | 319.68 | 4,267.10 | partial disposition election |
+| 2025 total (3 lines, 1 election) | 16,818.18 | | | 11,611.70 | 5,206.48 | |
+
+With the CPA's word that no bonus was claimed (`acquisition_bonus_rate` 0) the cabinets' allowed
+figure is 1,834.71 + 2,935.54 + 880.66 = 5,650.91. The treatment column is Basis's inference from
+Reg. 1.168(i)-8 (a portion of the building needs the election; a line that is its own asset does
+not), the CPA's to confirm. The report prints the renovation's schedule with its own dates and
+bonus, the disposition table with each method, the totals by year and the election note; the
+preparer's schedule's acquisition rows sum to the depreciable basis, the renovation's to 38,500,
+all to their sum (`tests/unit/report/test_renovations_report.py`).
+
+### 102.3 Bought, renovated, then placed in service
+
+The same study bought for 185,000 with a 20,000 renovation before it was placed in service (the
+intake line `improvements_before_service` and a before-service project): the depreciable basis is
+185,000 and the reconciliation compares the depreciated schedule (181,500) with price less land
+plus the improvement (185,000): gap 1.9 %, reconciled. Without the line in the target the same
+schedule would sit at -10.0 %, the edge of the tolerance: the photographs show the renovated
+building, so the target must include what was spent on it. No disposition, one date. The line is
+spread over the classes pro rata like the closing costs (a simplification: RENOVATIONS.md 4.5).
+
+### 102.4 A study without renovations is unchanged
+
+The result of five fixtures (no structure inputs, no intake, the structure path withheld, the
+structure path allocated, a residential variant) as JSON, the report's PDF and the schedule's CSV
+and XLSX, hashed with this branch and with `origin/main`'s code (extracted with `git archive`,
+imported first on the path): every sha256 is equal. The new result members are left out when
+empty (`exclude_if`), so the JSON keys are the same 13. The pinned vendor hashes of
+`tests/unit/report/test_vendors.py` pass unchanged.
+
+### 102.5 The seller's renovation on the client property
+
+What supports an age: the client's UAD 3.6 appraisal marks the kitchen and the seven bathrooms
+`PartiallyUpdated` and gives no time frame (`RoomUpdatedTimeframeType` absent); the photographs
+were not reviewed for this. Nothing dates the update, so **the ages below are hypothetical**: the
+kitchen cabinets and countertops (6 rows on run 3A, 7 on run 3B) at an effective age of 2, 5 and
+10 years of a 20-year life, against the appraiser's 21.4 % for the improvements. Both replayed
+exports are withheld in production by their own blockers (unpriced rows and the cost year's
+index, as in sections 87 and 96), so the class shares are the allocation the result would give
+(`allocate` on the depreciated rows), not one it printed.
+
+How to read this table: the reconciliation gap is (price less land - depreciated schedule) /
+(price less land), within 10 % reconciles; the shares are of the depreciable basis. A smaller
+gap is closer to the price.
+
+| Export | Ages | Gap | 5-year share | 39-year share |
+|---|---|---|---|---|
+| run 3A | the appraiser's rate (today) | 8.99 % | 11.42 % | 83.67 % |
+| run 3A | 2 of 20 (10 %) | 8.69 % | 11.69 % | 83.42 % |
+| run 3A | 5 of 20 (25 %) | 9.09 % | | |
+| run 3A | 10 of 20 (50 %) | 9.76 % | | |
+| run 3B | the appraiser's rate (today) | 8.57 % | 8.52 % | 86.53 % |
+| run 3B | 2 of 20 | 8.24 % | 8.85 % | 86.22 % |
+| run 3B | 5 of 20 | 8.68 % | | |
+| run 3B | 10 of 20 | 9.42 % | | |
+
+On the synthetic fixture (102.2's study), cabinets at age 2 of 20 move the gap from 1.89 % to
+0.92 %; that is the fixture, not the client. The effect is small on the client property because
+the kitchen rows are a small part of a large building; it grows with the share the renovated rows
+hold. An age above the appraiser's rate (10 of 20) moves the gap the other way.
+
+**Verdict.** The arithmetic agrees with the IRS's two worked examples and with the hand-computed
+answer key; a study without renovations is byte-identical to main; the seller's-renovation ages
+behave as the age-life method predicts and stay inside the reconciliation's tolerance on the client
+property. The defaults change nothing until an engineer enters an age, a project or a removal.
+
+Tests (counts at writing): `test_component_age.py` 25, `test_macrs.py` 25, `test_renovations.py`
+(domain) 32, `test_renovations.py` (result) 42, `test_renovations_report.py` 7,
+`tests/api/test_renovations.py` 19, `test_process_assets_renovations.py` 5; the contract test,
+the tenancy walk, the known routes and migration 0039's test pass (backEnd/tests/LEDGER.md).
+
+**Open.**
+
+* No live study, no reprice run on a real stack: the route, the decision route and
+  `process_assets` were exercised on Postgres in the tests, not end to end in the workflow.
+* Not built: the UAD 3.6 update-status fields in the extraction (the suggestion function has no
+  input yet), the EXIF date-taken suggestion, pricing a before-service renovation's components
+  from its invoices, the mid-quarter convention (the report says half-year and leaves the 40 %
+  test to the preparer), a later renovation removing an earlier renovation's row.
+* The treatment split (election required or whole asset) is an inference, the CPA's to confirm.
+* Migration 0039 revises 0035 on this branch and is re-pointed when 0036-0038 land.

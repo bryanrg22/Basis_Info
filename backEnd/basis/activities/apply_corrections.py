@@ -140,11 +140,13 @@ from basis.activities.corrections import (
     ROOM_FIELDS,
     check_asset,
     check_component,
+    check_component_age,
     check_component_remove,
     check_extraction_field,
     check_extraction_field_add,
     check_fields,
     check_photo_room,
+    check_removal,
     check_room_component,
     check_unit_cost,
 )
@@ -358,6 +360,8 @@ async def _validate(
     for correction in by_type.get("asset", []):
         check_asset(correction.after)
         check_unit_cost(correction.after, correction.reason)
+        check_component_age(correction.after, correction.reason)
+        check_removal(correction.after, correction.reason)
         asset = await assets.get(study_id, parse_uuid(correction.entity_id, "entity_id"))
         if asset is None or asset.revision != from_revision:
             raise validation_error(

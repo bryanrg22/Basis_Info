@@ -29,6 +29,7 @@ from basis.db.errors import (
     InvalidCursorError,
     NotVisibleError,
     PreconditionFailedError,
+    RenovationsLockedError,
     StaleStateError,
 )
 from basis.db.models import (
@@ -41,6 +42,7 @@ from basis.db.models import (
 )
 from basis.db.repositories.study_event import Actor, StudyEventRepository
 from basis.domain.intake import StudyIntake
+from basis.domain.renovations import StudyRenovations
 
 MAX_PAGE_SIZE: Final = 100
 
@@ -145,6 +147,20 @@ class Archived:
 
     study: Study
     archived: bool
+
+
+@dataclass(frozen=True, slots=True)
+class RenovationsWrite:
+    """A renovations write: the study after it, and the document and version it replaced."""
+
+    study: Study
+    before: StudyRenovations | None
+    version_before: int
+
+
+# The stages at which a study's renovations may change: until the assets review is approved
+# (the export reads them; docs/api/RENOVATIONS.md "When they can change").
+RENOVATIONS_LOCKED_STAGES: Final = frozenset({Stage.EXPORTING, Stage.COMPLETED})
 
 
 @dataclass(frozen=True, slots=True)
@@ -763,6 +779,54 @@ class StudyRepository:
                 f"the intake of study {study_id} changed while it was written", version=seen
             )
         return IntakeWrite(study=study, before=before, version_before=seen)
+
+    async def write_renovations(
+        self,
+        study_id: uuid.UUID,
+        renovations: StudyRenovations,
+        *,
+        precondition: IntakePrecondition | None = None,
+    ) -> RenovationsWrite:
+        """Set or replace the study's renovations and increment ``renovations_version``, as
+        :meth:`write_intake` does the intake (the row lock, then the stage, then the
+        precondition, then a compare-and-set on the version). Refused once the current
+        revision is being exported or is complete (``RenovationsLockedError``) and on an
+        archived study (``StaleStateError``)."""
+        locked = (
+            await self._session.scalars(
+                select(Study)
+                .where(Study.id == study_id)
+                .with_for_update()
+                .execution_options(populate_existing=True)
+            )
+        ).one_or_none()
+        if locked is None:
+            raise NotVisibleError(f"study {study_id} not found")
+        if locked.status is StudyStatus.ARCHIVED:
+            raise StaleStateError(f"study {study_id} is archived; its renovations cannot change")
+        if locked.current_stage in RENOVATIONS_LOCKED_STAGES:
+            raise RenovationsLockedError(
+                f"study {study_id} is at {locked.current_stage.value}; its renovations are "
+                "locked until it is reopened"
+            )
+        before, seen = locked.renovations, locked.renovations_version
+        if precondition is not None and not precondition(seen, before is not None):
+            raise PreconditionFailedError(
+                f"the renovations of study {study_id} are at version {seen}", version=seen
+            )
+        stmt = (
+            update(Study)
+            .where(Study.id == study_id, Study.renovations_version == seen)
+            .values(renovations=renovations, renovations_version=seen + 1)
+            .returning(Study)
+            .execution_options(synchronize_session=False, populate_existing=True)
+        )
+        study = (await self._session.scalars(stmt)).one_or_none()
+        if study is None:  # pragma: no cover - the row lock makes this unreachable
+            raise PreconditionFailedError(
+                f"the renovations of study {study_id} changed while written", version=seen
+            )
+        return RenovationsWrite(study=study, before=before, version_before=seen)
 
     async def subject_location(self, study_id: uuid.UUID) -> tuple[str | None, str | None]:
         """``(state, zip)`` as the appraisal's subject fields read them, from the newest

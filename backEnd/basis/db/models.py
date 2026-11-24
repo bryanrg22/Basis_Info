@@ -86,6 +86,7 @@ from basis.db.enums import (
     StudyStatus,
 )
 from basis.domain.intake import StudyIntake
+from basis.domain.renovations import StudyRenovations
 from basis.report.inputs import FirmProfile, SignerDetails, StudyAnswers
 
 EMBEDDING_DIM: Final = 384
@@ -200,6 +201,21 @@ class ReportAnswersDocument(TypeDecorator[StudyAnswers]):
 
     def process_result_value(self, value: Any, dialect: Dialect) -> StudyAnswers | None:
         return None if value is None else StudyAnswers.model_validate(value)
+
+
+class RenovationsDocument(TypeDecorator[StudyRenovations]):
+    """``studies.renovations`` (migration ``0039_study_renovations``): the study's renovation
+    projects as one JSONB document, read back as
+    :class:`basis.domain.renovations.StudyRenovations`. NULL is "none"."""
+
+    impl = JSON_DOC
+    cache_ok = True
+
+    def process_bind_param(self, value: StudyRenovations | None, dialect: Dialect) -> Any:
+        return None if value is None else value.model_dump(mode="json")
+
+    def process_result_value(self, value: Any, dialect: Dialect) -> StudyRenovations | None:
+        return None if value is None else StudyRenovations.model_validate(value)
 
 
 class FirmProfileDocument(TypeDecorator[FirmProfile]):
@@ -390,6 +406,11 @@ class Study(Base):
             name="report_answers_is_object",
         ),
         CheckConstraint("report_answers_version >= 0", name="report_answers_version_not_negative"),
+        CheckConstraint(
+            "renovations IS NULL OR jsonb_typeof(renovations) = 'object'",
+            name="renovations_is_object",
+        ),
+        CheckConstraint("renovations_version >= 0", name="renovations_version_not_negative"),
         Index("ix_studies_org_id_created_at", "org_id", text("created_at DESC")),
     )
 
@@ -429,6 +450,10 @@ class Study(Base):
         ReportAnswersDocument, nullable=True
     )
     report_answers_version: Mapped[int] = mapped_column(server_default=text("0"), default=0)
+    # The study's renovation projects (docs/api/RENOVATIONS.md; migration ``0039``) and their
+    # version, the entity tag of ``PUT /v1/studies/{id}/renovations``.
+    renovations: Mapped[StudyRenovations | None] = mapped_column(RenovationsDocument, nullable=True)
+    renovations_version: Mapped[int] = mapped_column(server_default=text("0"), default=0)
     # When the retention purge deleted the study's uploaded files from storage (migration
     # ``0026_retention_alerts``); NULL: never. The export, the signed report and every row
     # survive; ``study.purged`` on the timeline records what went.

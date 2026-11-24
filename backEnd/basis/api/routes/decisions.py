@@ -92,12 +92,12 @@ from basis.api.schemas.reviews import CorrectionIn, DecisionAccepted, DecisionIn
 from basis.api.users import CurrentUserDep, study_access
 from basis.config import Settings
 from basis.db.enums import OrgRole, Stage
-from basis.db.models import Asset
+from basis.db.models import Asset, Study
 from basis.db.repositories import CorrectionInput, ReviewRepository, VisibleStudy
 from basis.db.repositories.extraction import ExtractionRepository
 from basis.db.repositories.room import RoomRepository
 from basis.db.session import SessionDep
-from basis.domain import price_overrides, removals
+from basis.domain import component_age, price_overrides, removals, renovations
 from basis.domain.counts import count_problem, room_component_problems
 from basis.domain.rooms import room_field_problems
 from basis.errors.codes import E
@@ -211,6 +211,7 @@ def check_correction_values(
     errors = []
     for index, item in enumerate(corrections):
         errors += unit_cost_errors(index, item, enabled=unit_cost_override)
+        errors += annotation_errors(index, item)
         problems: list[str] = []
         if item.entity_type == "component" and "count" in item.after:
             problem = count_problem(item.after["count"])
@@ -258,6 +259,65 @@ def unit_cost_errors(index: int, item: CorrectionIn, *, enabled: bool) -> list[d
             )
         )
     return errors
+
+
+def annotation_errors(index: int, item: CorrectionIn) -> list[dict[str, Any]]:
+    """The 422 entries of an ``asset`` correction's age or removal (EVAL_REPORT 102; none when
+    it carries neither): the value problems at ``after``, a missing reason at ``reason``."""
+    if item.entity_type != "asset":
+        return []
+    found: list[str] = []
+    if component_age.has_age(item.after):
+        found += component_age.problems(item.after, "-")
+    if renovations.has_removal(item.after):
+        found += renovations.removal_problems(item.after, "-")
+    errors = [_correction_error(index, "after", p, CORRECTION_VALUE_ERROR) for p in found]
+    carries = component_age.has_age(item.after) or renovations.has_removal(item.after)
+    if carries and (item.reason is None or not item.reason.strip()):
+        errors.append(
+            _correction_error(
+                index,
+                "reason",
+                "a component age or a removal needs a reason (what it rests on)",
+                CORRECTION_REASON_ERROR,
+            )
+        )
+    return errors
+
+
+async def check_removal_projects(
+    session: AsyncSession, study_id: uuid.UUID, corrections: Sequence[CorrectionIn]
+) -> None:
+    """422 naming every removal whose project the study's renovations do not list (an
+    ``after_service`` project: a before-service one replaced nothing that was in service)."""
+    named = {
+        index: item.after.get(renovations.REMOVED_BY_PROJECT)
+        for index, item in enumerate(corrections)
+        if item.entity_type == "asset"
+        and isinstance(item.after.get(renovations.REMOVED_BY_PROJECT), str)
+    }
+    if not named:
+        return
+    study = await session.get(Study, study_id)
+    document = None if study is None else study.renovations
+    keys = (
+        set()
+        if document is None
+        else {p.key for p in document.projects if p.kind == "after_service"}
+    )
+    errors = [
+        _correction_error(
+            index,
+            "after",
+            f"removed_by_project {key!r} is not an after-service project of this study's "
+            "renovations (PUT /v1/studies/{id}/renovations)",
+            CORRECTION_VALUE_ERROR,
+        )
+        for index, key in named.items()
+        if key not in keys
+    ]
+    if errors:
+        raise RequestValidationError(errors)
 
 
 async def check_unit_cost_targets(
@@ -574,6 +634,7 @@ async def record_decision(
     await check_removal_targets(session, access.study.id, body.revision, body.corrections)
     await check_field_add_targets(session, access.study.id, body.corrections)
     await check_unit_cost_targets(session, access.study.id, body.corrections)
+    await check_removal_projects(session, access.study.id, body.corrections)
     return DecisionAccepted(
         review=ReviewOut.model_validate(record.review),
         current_stage=record.study.current_stage,

@@ -118,6 +118,8 @@ BODIES: Final[dict[str, Any]] = {
         "photographed_by": "A. Engineer",
         "photographed_on": "2025-05-01",
     },
+    "GET /v1/studies/{study_id}/renovations": None,
+    "PUT /v1/studies/{study_id}/renovations": {"projects": []},
     "GET /v1/studies/{study_id}/spend": None,
     "GET /v1/studies/{study_id}/calls": None,
     "GET /v1/studies/{study_id}/timeline": None,

@@ -57,6 +57,7 @@ from basis.api.routes.decisions import (
     check_correction_types,
     check_correction_values,
     check_field_add_targets,
+    check_removal_projects,
     check_removal_targets,
     check_removals_and_additions,
     check_unit_cost_targets,
@@ -273,6 +274,7 @@ async def put_draft(
     await check_removal_targets(session, study.id, body.revision, body.corrections)
     await check_field_add_targets(session, study.id, body.corrections)
     await check_unit_cost_targets(session, study.id, body.corrections)
+    await check_removal_projects(session, study.id, body.corrections)
     condition = parse_if_match(if_match)
     try:
         await drafts.write(

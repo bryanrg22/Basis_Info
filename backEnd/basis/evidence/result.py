@@ -38,6 +38,7 @@ from basis.db.enums import Bucket
 from basis.db.repositories.asset import AssetRepository
 from basis.db.repositories.extraction import ExtractionRepository
 from basis.db.repositories.room import RoomRepository
+from basis.domain import component_age, renovations
 from basis.domain.basis import (
     BUCKET_ORDER,
     CAPITALIZED,
@@ -61,6 +62,7 @@ from basis.domain.measurements import (
 )
 from basis.domain.money_inputs import Blocker, codes_in, row_blockers
 from basis.domain.money_inputs import missing as missing_input
+from basis.domain.renovations import StudyRenovations
 from basis.domain.structure import (
     CATEGORIES,
     COMPONENT_NAMES,
@@ -79,6 +81,7 @@ from basis.domain.structure import (
     carve_out,
     cost_approach_from_fields,
     depreciate,
+    depreciate_by_row,
     depreciation,
     inside_model,
     mapping_for,
@@ -95,6 +98,13 @@ from basis.evidence.pricing import (
     pricing_status,
     structure_inputs_as_priced,
 )
+from basis.evidence.renovations import (
+    AcquisitionLine,
+    ProjectRow,
+    RenovationsOut,
+    improvements_before_service,
+)
+from basis.evidence.renovations import compute as compute_renovations
 
 NOT_PRODUCED_REASON: Final = (
     "no concealed row of the structure model priced this system (STRUCTURE_MODEL.md 3.5-3.6)"
@@ -119,6 +129,24 @@ class ScheduleRow:
     # The asset's review reasons (``"; "``-joined): its ``input:<code>`` reasons name the
     # missing input that left it unpriced (EVAL_REPORT 78).
     review_reason: str | None = None
+    # EVAL_REPORT 102 (RENOVATIONS.md): the row's own age, its removal by a renovation
+    # project, the project it belongs to (None: the acquisition), and the renovations
+    # version the row was built with; all read from the takeoff (:func:`annotations_of`).
+    age: component_age.ComponentAge | None = None
+    removal: renovations.Removal | None = None
+    project: str | None = None
+    renovations_version: int | None = None
+
+
+def annotations_of(inputs: Any) -> dict[str, Any]:
+    """The :class:`ScheduleRow` fields a takeoff's inputs give (EVAL_REPORT 102)."""
+    version = inputs.get(renovations.VERSION_INPUT) if isinstance(inputs, dict) else None
+    return {
+        "age": component_age.from_inputs(inputs),
+        "removal": renovations.removal_from_inputs(inputs),
+        "project": renovations.project_from_inputs(inputs),
+        "renovations_version": version if isinstance(version, int) else None,
+    }
 
 
 # --------------------------------------------------------------------------- response models
@@ -351,6 +379,27 @@ class ReconciliationOut(BaseModel):
     checks: list[CheckOut]
 
 
+class ComponentAgeOut(BaseModel):
+    """A row depreciated on its own age (EVAL_REPORT 102, docs/api/OVERRIDES.md section 7)."""
+
+    asset_id: uuid.UUID
+    label: str | None
+    category: str
+    effective_age: Decimal | None = Field(
+        description="Years, as of the acquisition's placed-in-service year; null when a year "
+        "installed cannot be turned into an age (no intake) or lies after it."
+    )
+    year_installed: int | None
+    economic_life: Decimal
+    rate: Decimal | None = Field(description="effective_age / economic_life, to 6 places.")
+    replaced_rate: Decimal = Field(description="The appraiser's rate the row would have had.")
+    source: str
+    source_detail: str
+    reason: str
+    rcn: Decimal | None
+    rcnld: Decimal | None
+
+
 class CostIndexStatusOut(BaseModel):
     """The time index the revision's dollars rest on (COST_INDICES.md section 10): what the
     engineer must enter, when the cost year has no loaded index."""
@@ -418,6 +467,20 @@ class StudyResultOut(BaseModel):
     not_produced: list[NotProducedOut] = Field(
         description="Concealed systems with no priced row in this schedule, so the gap to the "
         "basis is explicit."
+    )
+    component_ages: list[ComponentAgeOut] | None = Field(
+        default=None,
+        exclude_if=lambda v: v is None,
+        description="The acquisition rows depreciated on their own age-life ratio instead of "
+        "the appraiser's rate (EVAL_REPORT 102); absent when no row carries an age.",
+    )
+    renovations: RenovationsOut | None = Field(
+        default=None,
+        exclude_if=lambda v: v is None,
+        description="The renovation projects: each after-service project's schedule (its own "
+        "dates, priced from its invoices), the dispositions of the acquisition lines they "
+        "removed, the before-service projects (docs/api/RENOVATIONS.md); absent when the study "
+        "has no renovations.",
     )
     pricing: PricingStatusOut | None = Field(
         default=None,
@@ -774,11 +837,17 @@ def compute_result(
     revision: int,
     structure: StructureInputs | None = None,
     pricing: PricingStatusOut | None = None,
+    renovations: StudyRenovations | None = None,
+    renovations_version: int = 0,
 ) -> StudyResultOut:
     """The result of one revision (pure). Rows are taken in asset id order. ``structure``
     is the revision's structure inputs as priced (:func:`load_result_inputs`); a stale
-    ``pricing`` withholds the allocation."""
-    ordered = sorted(rows, key=lambda r: r.asset_id)
+    ``pricing`` withholds the allocation. ``renovations`` (with its version) is the study's
+    renovations document (EVAL_REPORT 102): the rows a project holds leave the acquisition
+    and make its schedule (:mod:`basis.evidence.renovations`)."""
+    every = sorted(rows, key=lambda r: r.asset_id)
+    project_rows = [r for r in every if r.project is not None]
+    ordered = [r for r in every if r.project is None]
     by_id = {r.asset_id: r for r in ordered}
     land = [uuid.UUID(r.asset_id) for r in ordered if r.bucket == Bucket.LAND.value]
     schedule_rows = [r for r in ordered if r.bucket != Bucket.LAND.value]
@@ -827,10 +896,17 @@ def compute_result(
         if component is not None and r.rcn is not None:
             concealed_by_component[component] = concealed_by_component.get(component, zero) + r.rcn
 
-    # Depreciation on every priced row.
+    # Depreciation on every priced row: the appraiser's rate, or a row's own age-life ratio
+    # (EVAL_REPORT 102).
     rcnld_of: dict[str, Decimal] = {}
+    as_of = None if intake is None else intake.placed_in_service_date.year
+    ages = _ages(schedule_rows, as_of, depr)
     if depr is not None and priced:
-        values = depreciate([rcn_of[r.asset_id] for r in priced], depr.rate)
+        if not ages:
+            values = depreciate([rcn_of[r.asset_id] for r in priced], depr.rate)
+        else:
+            rates = [ages.get(r.asset_id) or depr.rate for r in priced]
+            values = depreciate_by_row([rcn_of[r.asset_id] for r in priced], rates)
         rcnld_of = {r.asset_id: v for r, v in zip(priced, values, strict=True)}
 
     by_bucket = [
@@ -874,7 +950,11 @@ def compute_result(
     alloc_out: AllocationOut | None = None
     reconciliation_out: ReconciliationOut | None = None
     index_out = None if structure is None else cost_index_status(structure)
-    blockers = report_blockers(schedule_rows, structure, building, depr, index_out)
+    project_schedule = [r for r in project_rows if r.bucket != Bucket.LAND.value]
+    blockers = report_blockers(
+        schedule_rows + project_schedule, structure, building, depr, index_out
+    )
+    blockers += _age_blockers(schedule_rows, as_of, depr)
     if index_out is not None and index_out.status == "missing":
         missing.append("cost_index")
     if structure is not None and building is None:
@@ -901,7 +981,8 @@ def compute_result(
         ]
         if structure is not None:
             reconciliation = reconcile(
-                building_basis=ws.building_basis,
+                # A before-service renovation is in what the photographs show (EVAL_REPORT 102).
+                building_basis=ws.building_basis + improvements_before_service(intake),
                 total_basis=ws.total_basis,
                 rcn_total=rcn_total,
                 rcnld_total=rcnld_total,
@@ -945,6 +1026,54 @@ def compute_result(
                 alloc_out = allocation_out(allocation, by_id)
         else:
             missing.append("allocation")
+    built_with = {r.renovations_version for r in every if r.renovations_version is not None}
+    allocated_of = (
+        {} if alloc_out is None else {str(a.asset_id): a.allocated for a in alloc_out.assets}
+    )
+    renovations_out, renovation_blockers = compute_renovations(
+        renovations,
+        renovations_version,
+        max(built_with) if built_with else None,
+        intake=intake,
+        acquisition=None
+        if alloc_out is None
+        else [
+            AcquisitionLine(
+                asset_id=r.asset_id,
+                label=r.label,
+                category=r.category,
+                bucket=r.bucket,
+                allocated=allocated_of.get(r.asset_id, Decimal("0.00")),
+                removal_project=None if r.removal is None else r.removal.project,
+                disposition_date=None if r.removal is None else r.removal.disposition_date,
+                removed_share=Decimal(1) if r.removal is None else r.removal.share,
+                removal_reason="" if r.removal is None else r.removal.reason,
+            )
+            for r in schedule_rows
+            if r.asset_id in allocated_of
+        ],
+        project_rows=[
+            ProjectRow(
+                asset_id=r.asset_id,
+                label=r.label,
+                category=r.category,
+                bucket=r.bucket,
+                rcn=r.rcn,
+                project=r.project or "",
+                removal_project=None if r.removal is None else r.removal.project,
+            )
+            for r in project_schedule
+        ],
+        ages=[(r.label or "", r.age) for r in schedule_rows if r.age is not None],
+    )
+    if renovation_blockers:
+        blockers += renovation_blockers
+        if intake is not None and "blockers" not in missing:
+            missing.append("blockers")
+        if alloc_out is not None:
+            # Withheld like any other blocker: no report while one remains.
+            alloc_out = None
+            missing.append("allocation")
     structure_out = (
         None
         if structure is None
@@ -969,8 +1098,86 @@ def compute_result(
         reconciliation=reconciliation_out,
         allocation=alloc_out,
         not_produced=not_produced,
+        component_ages=_ages_out(schedule_rows, ages, as_of, depr, rcn_of, rcnld_of),
+        renovations=renovations_out,
         pricing=pricing,
     )
+
+
+def _ages(
+    rows: Sequence[ScheduleRow], as_of: int | None, depr: Depreciation | None
+) -> dict[str, Decimal | None]:
+    """Each aged acquisition row's age-life rate (None when its age cannot be used: a year
+    installed with no intake, after the placed-in-service year, or an age at or past its
+    life; those are blockers, :func:`_age_blockers`)."""
+    out: dict[str, Decimal | None] = {}
+    for r in rows:
+        if r.age is None:
+            continue
+        age = r.age.age_at(as_of)
+        if age is None or age < 0 or age >= r.age.economic_life:
+            out[r.asset_id] = None
+        else:
+            out[r.asset_id] = component_age.age_life_rate(age, r.age.economic_life)
+    return out
+
+
+def _age_blockers(
+    rows: Sequence[ScheduleRow], as_of: int | None, depr: Depreciation | None
+) -> list[Blocker]:
+    bad = [
+        r
+        for r in rows
+        if r.age is not None
+        and ((age := r.age.age_at(as_of)) is None or age < 0 or age >= r.age.economic_life)
+    ]
+    if not bad:
+        return []
+    return [
+        Blocker(
+            "component_age",
+            "a row's age cannot be used: its year installed is after the acquisition's "
+            "placed-in-service year (that is a renovation of the buyer's, a project), the study "
+            "has no intake to date it against, or the age reaches its economic life",
+            len(bad),
+            "correct or clear the row's age at the assets review",
+        )
+    ]
+
+
+def _ages_out(
+    rows: Sequence[ScheduleRow],
+    ages: dict[str, Decimal | None],
+    as_of: int | None,
+    depr: Depreciation | None,
+    rcn_of: dict[str, Decimal],
+    rcnld_of: dict[str, Decimal],
+) -> list[ComponentAgeOut] | None:
+    if not ages:
+        return None
+    out: list[ComponentAgeOut] = []
+    for r in rows:
+        if r.age is None:
+            continue
+        age = r.age.age_at(as_of)
+        out.append(
+            ComponentAgeOut(
+                asset_id=uuid.UUID(r.asset_id),
+                label=r.label,
+                category=r.category,
+                effective_age=age if ages.get(r.asset_id) is not None else None,
+                year_installed=r.age.year_installed,
+                economic_life=r.age.economic_life,
+                rate=ages.get(r.asset_id),
+                replaced_rate=Decimal(0) if depr is None else depr.rate,
+                source=r.age.source,
+                source_detail=r.age.source_detail,
+                reason=r.age.reason,
+                rcn=rcn_of.get(r.asset_id),
+                rcnld=rcnld_of.get(r.asset_id),
+            )
+        )
+    return out
 
 
 # --------------------------------------------------------------------------- loading
@@ -1011,6 +1218,7 @@ async def load_schedule(
                 label=component.label if component is not None else label,
                 concealed=concealed,
                 review_reason=asset.review_reason,
+                **annotations_of(takeoff.inputs if takeoff else None),
             )
         )
     return rows
@@ -1131,6 +1339,7 @@ __all__ = [
     "StructureOut",
     "StudyResultOut",
     "WorksheetOut",
+    "annotations_of",
     "compute_result",
     "concealed_label",
     "load_schedule",

@@ -56,9 +56,10 @@ SPEC_TABLES = {
     # v0.12: components_gate (migration 0009_components_gate).
     # Basis and land allocation: intake (migration 0011_study_intake).
     # Error codes: failure_code (migration 0013_study_events).
+    # Renovations: renovations, renovations_version (migration 0039_study_renovations).
     "studies": "id org_id created_by property_name status current_stage workflow_id "
     "room_aliases failure_reason failure_code components_gate intake intake_version created_at "
-    "updated_at report_answers report_answers_version purged_at",
+    "updated_at report_answers report_answers_version purged_at renovations renovations_version",
     "documents": "id study_id kind filename content_type bytes sha256 gcs_uri uploaded_by "
     "uploaded_at",
     "document_pages": "document_id page_no gcs_uri",

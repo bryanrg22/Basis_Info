@@ -97,6 +97,9 @@
 * ``0035_demo_requests`` creates ``demo_requests`` (the public site's demo form: a role in
   the four the form offers, ``seq`` unique and generated), nothing backfilled; it downgrades
   back to ``0034`` exactly;
+* ``0039_study_renovations`` adds ``studies.renovations`` (an object or NULL) and
+  ``studies.renovations_version`` (0, never negative), nothing backfilled; it downgrades back
+  to ``0035`` exactly;
 * upgrading at head is a no-op; offline (``--sql``) rendering works.
 
 Each test that changes the schema gets its own throwaway database in the shared
@@ -140,8 +143,10 @@ pytestmark = pytest.mark.integration
 # 0025_invitation_email lands after 0022 (user activity), 0023 (rate-limit hits) and 0024
 # (review drafts); 0026 (retention and alerts) revises 0025, and 0027_signature_input_versions
 # revises 0026 (it was 0024, then 0026, until the branches before it landed).
-HEAD = "0035"
-HISTORY = [f"{n:04d}" for n in range(35, 0, -1)]  # "0035" .. "0001"
+# 0039_study_renovations revises 0035 on this branch; it is numbered after the 0036-0038 that
+# open branches claim, and re-pointed to whichever lands first (its module doc).
+HEAD = "0039"
+HISTORY = ["0039", *(f"{n:04d}" for n in range(35, 0, -1))]  # "0039", "0035" .. "0001"
 EXPECTED_TRIGGERS = (
     {(f"{table}_set_updated_at", table) for table in UPDATED_AT_TABLES}
     | {(f"{table}_append_only", table) for table in APPEND_ONLY_TABLES}
@@ -1951,3 +1956,48 @@ async def test_0035_demo_requests_role_check_and_an_exact_downgrade(
         await connection.close()
     await downgrade(url, "0034")
     assert await snapshot(url) == at_0034
+
+
+async def test_0039_study_renovations_checks_and_an_exact_downgrade(
+    empty_database_url: str,
+) -> None:
+    url = empty_database_url
+    await upgrade(url, "0035")
+    at_0035 = await snapshot(url)
+    connection = await asyncpg.connect(plain_dsn(url))
+    try:
+        await connection.execute(
+            "INSERT INTO orgs (name) VALUES ('Acme'); "
+            "INSERT INTO users (firebase_uid, email) VALUES ('u1', 'u1@example.test')"
+        )
+        org = await connection.fetchval("SELECT id FROM orgs LIMIT 1")
+        user = await connection.fetchval("SELECT id FROM users LIMIT 1")
+        study = await connection.fetchval(
+            "INSERT INTO studies (org_id, created_by, property_name) VALUES ($1, $2, 'x') "
+            "RETURNING id",
+            org,
+            user,
+        )
+    finally:
+        await connection.close()
+    await upgrade(url, "0039")
+    connection = await asyncpg.connect(plain_dsn(url))
+    try:
+        row = await connection.fetchrow(
+            "SELECT renovations, renovations_version FROM studies WHERE id = $1", study
+        )
+        assert (row["renovations"], row["renovations_version"]) == (None, 0)  # not backfilled
+        await connection.execute(
+            "UPDATE studies SET renovations = '{\"projects\": []}', renovations_version = 1"
+        )
+        with pytest.raises(asyncpg.CheckViolationError, match="renovations_is_object"):
+            await connection.execute("UPDATE studies SET renovations = '[]'")
+        with pytest.raises(asyncpg.CheckViolationError, match="renovations_version_not_negative"):
+            await connection.execute("UPDATE studies SET renovations_version = -1")
+        await connection.execute("DELETE FROM studies")
+        await connection.execute("DELETE FROM users")
+        await connection.execute("DELETE FROM orgs")
+    finally:
+        await connection.close()
+    await downgrade(url, "0035")
+    assert await snapshot(url) == at_0035

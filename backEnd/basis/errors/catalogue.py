@@ -1242,6 +1242,44 @@ ENTRIES: Final[tuple[Entry, ...]] = (
         problem="intake-locked",
     ),
     _e(
+        E.STUDY_RENOVATIONS_LOCKED,
+        "refusal",
+        "`PUT /v1/studies/{id}/renovations`",
+        "basis.db.repositories.study",
+        "The study's current revision has been exported (the assets review was approved): its "
+        "export, report and schedule were computed with the renovation projects as they were, "
+        "so replacing them in place would leave those out of date (docs/api/RENOVATIONS.md).",
+        "409 `renovations-locked`; nothing is written, no event.",
+        "Reopen the study at the assets review (docs/api/REVISIONS.md), change the projects, "
+        "reprice and approve again.",
+        "no",
+        problem="renovations-locked",
+    ),
+    _e(
+        E.STUDY_RENOVATIONS_PRECONDITION_FAILED,
+        "refusal",
+        "`PUT /v1/studies/{id}/renovations`",
+        "basis.db.repositories.study",
+        "`If-Match` does not name the renovations' current version (someone saved since).",
+        "412 `precondition-failed` with the current `ETag`; nothing written.",
+        "Read the renovations again, reapply the change, retry with the new tag.",
+        "after fix",
+    ),
+    _e(
+        E.STUDY_RENOVATIONS_DOCUMENT,
+        "refusal",
+        "`PUT /v1/studies/{id}/renovations`",
+        "basis.api.routes.renovations",
+        "The document names a file that is not one of the study's uploads, a photograph tagged "
+        "after a project that is not a photo, or an invoice that is not a document of kind "
+        "`other`; or a project's dates contradict the intake's (an after-service project placed "
+        "in service on or before the building, a before-service project started before the "
+        "acquisition).",
+        "422 `validation` naming the member (`errors[].loc`).",
+        "Upload the file first, or correct the document.",
+        "after fix",
+    ),
+    _e(
         E.STUDY_INPUT_MISSING,
         "outcome",
         "`process_assets`; `GET /v1/ops/client-errors` (kind `study_input`)",
@@ -2231,6 +2269,38 @@ ENTRIES: Final[tuple[Entry, ...]] = (
         "required (EVAL_REPORT 90). The decision route refuses the same with a 422.",
         "`ValidationError: ... [BASIS-CORRECT-044]`; the rejection's corrections are refused.",
         "Send the price, its source and a reason together.",
+        "no",
+        temporal_type="ValidationError",
+    ),
+    _e(
+        E.CORRECT_COMPONENT_AGE,
+        "error",
+        "corrections",
+        "basis.activities.corrections",
+        "A component age on an `asset` correction is invalid: exactly one of `effective_age` "
+        "(years from 0, below 200) and `year_installed` (a calendar year), an `economic_life` "
+        "above the age, an `age_source` from the list, an `age_source_detail` (1 to 300 "
+        "characters) and the correction's `reason`; or `effective_age: null` alone to clear "
+        "(EVAL_REPORT 102, docs/api/OVERRIDES.md section 7). The decision route refuses the "
+        "same with a 422.",
+        "`ValidationError: ... [BASIS-CORRECT-047]`; the rejection's corrections are refused.",
+        "Send the age, the life, the source and a reason together.",
+        "no",
+        temporal_type="ValidationError",
+    ),
+    _e(
+        E.CORRECT_REMOVAL,
+        "error",
+        "corrections",
+        "basis.activities.corrections",
+        "A removal on an `asset` correction is invalid: `removed_by_project` (a project key of "
+        "the study's renovations) with a `disposition_date` (ISO date) and an optional "
+        "`removed_share` (above 0, at most 1), and the correction's `reason`; or "
+        "`removed_by_project: null` alone to clear (EVAL_REPORT 102, docs/api/RENOVATIONS.md). "
+        "The decision route refuses the same, and a key the renovations do not list, with a "
+        "422.",
+        "`ValidationError: ... [BASIS-CORRECT-048]`; the rejection's corrections are refused.",
+        "Name a project of the study's renovations, the disposition date and a reason.",
         "no",
         temporal_type="ValidationError",
     ),
@@ -3272,6 +3342,21 @@ ENTRIES: Final[tuple[Entry, ...]] = (
         "Classify by hand.",
         "no",
         signal="no_answer",
+    ),
+    _e(
+        E.CHECK_RENOVATION_ROOM_MIXED,
+        "flag",
+        "process_assets",
+        "basis.domain.renovations",
+        "A room's photographs mix the acquisition and a renovation project (some tagged after a "
+        "project, some not, or two projects): its room-level rows (the reconciled inventory, an "
+        "engineer's added rows) cannot follow one tag, so they stay in the acquisition "
+        "(docs/api/RENOVATIONS.md).",
+        "`renovation:ROOM_MIXED` on each of the room's room-level rows.",
+        "Move the project's photographs to a room of their own at the rooms review, or tag "
+        "every photograph of the room alike.",
+        "after fix",
+        signal="renovation:ROOM_MIXED",
     ),
     # ------------------------------------------------------------------ COST
     _e(

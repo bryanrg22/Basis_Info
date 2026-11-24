@@ -203,3 +203,66 @@ the workflow then starts the next revision without any of the rejection's correc
 (`corrections.refused`). No Temporal patch: the workflow's code and command sequence are
 unchanged (the prices are read and written by the activities, whose results are recorded in
 history); the recorded histories replay (`tests/lifecycle/test_versioning.py`).
+
+## 7. A row's age and its removal by a renovation (EVAL_REPORT 102)
+
+Two more fields of an `asset` correction at the assets review (a `reject` on
+`POST /v1/studies/{id}/decisions`, or a gate draft, checked the same way). Neither is a
+classification: a correction carrying only these fields leaves the asset to the classifier, as a
+price-only one does. Design: docs/review_2026-10-15/RENOVATIONS.md sections 4.1, 4.4 and 4.6.
+
+**The row's age** (the seller's renovation before the sale):
+
+```json
+{"entity_type": "asset", "entity_id": "<asset>", "after": {
+   "effective_age": 2, "economic_life": 20, "age_source": "appraisal_update_status",
+   "age_source_detail": "Kitchen: Fully Updated, 1-5 years (appraisal p.10)"},
+ "reason": "The kitchen was redone before the sale; the photographs agree"}
+```
+
+* exactly one of `effective_age` (years, a JSON number from 0 to below 200, at most two decimals)
+  and `year_installed` (a whole year, 1800-2200; the age is then the years to the acquisition's
+  placed-in-service year);
+* `economic_life`: years, above 0 and at most 200, above the age (the age-life ratio below 1);
+* `age_source`: `engineer_inspection`, `appraisal_update_status`, `aerial_history`, `permit`,
+  `invoice` or `taxpayer_statement`; `age_source_detail`: 1 to 300 characters;
+* `{"effective_age": null}` alone clears it; the reason is required either way.
+
+The row's physical depreciation becomes `age / life` (six places) instead of the appraiser's
+rate; the result lists it in `component_ages` and the report in section 8 ("Components
+depreciated on their own age"). A year installed after the placed-in-service year, or an age that
+reaches the life, withholds the result (blocker `component_age`).
+
+**The row's removal by a renovation** (the buyer's renovation after service):
+
+```json
+{"entity_type": "asset", "entity_id": "<asset>", "after": {
+   "removed_by_project": "kitchen-2025", "disposition_date": "2025-03-03", "removed_share": 1},
+ "reason": "Demolition photographs of 2025-03-03 and the contractor's scope"}
+```
+
+* `removed_by_project`: a project key of an `after_service` project of the study's renovations
+  (docs/api/RENOVATIONS.md); `disposition_date`: an ISO date; `removed_share`: above 0 and at
+  most 1 (default 1, the whole line);
+* `{"removed_by_project": null}` alone clears it; the reason (what shows the removal: the
+  Practice Unit's "Relying on capitalization does not substantiate that a disposition occurred")
+  is required either way.
+
+The line stays in the acquisition; the result's `renovations.dispositions` takes it out at its
+date with its depreciation allowed or allowable (docs/api/STUDY_RESULT.md, "Renovations").
+
+| Status | `errors[].type` | Where | When |
+|---|---|---|---|
+| 422 | `correction_value` | `after` | a bad age or removal value, a key the renovations do not list as an after-service project |
+| 422 | `correction_reason` | `reason` | no reason |
+
+The workflow's activities check the same (`BASIS-CORRECT-047` for an age, `BASIS-CORRECT-048`
+for a removal). **Where they live:** on the new row's takeoff (`takeoffs.inputs["component_age"]`,
+`["removal"]`, each `{..., reason, from_asset_id, revision}`), carried into every later revision
+by `basis/activities/line_annotations.py`: from the latest earlier revision with assets, a
+component row by its component's `carried_from` chain, a concealed row of the structure model by
+its label (an age or a removal may be set on a concealed row, unlike a unit price).
+
+Deployment: no migration for these fields; the worker before the API (an older worker refuses the
+fields as unknown, and the workflow then starts the revision without the rejection's
+corrections).

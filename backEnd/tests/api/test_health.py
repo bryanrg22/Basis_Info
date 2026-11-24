@@ -181,6 +181,9 @@ def test_only_known_routes_exist(app: FastAPI) -> None:
         "PUT /v1/studies/{study_id}/report-answers",
         "GET /v1/orgs/{org_id}/profile",
         "PUT /v1/orgs/{org_id}/profile",
+        # renovation projects (tests/api/test_renovations.py)
+        "GET /v1/studies/{study_id}/renovations",
+        "PUT /v1/studies/{study_id}/renovations",
         # the paid-call ledger (tests/api/test_spend.py)
         "GET /v1/studies/{study_id}/spend",
         "GET /v1/studies/{study_id}/calls",
