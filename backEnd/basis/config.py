@@ -628,8 +628,11 @@ class Settings(BaseSettings):
     # every placed-in-service year tried, and a view is about 1.5 MB); CAPTURE_HISTORY_MAX_STEPS
     # (40) bounds the walk (the probe property has 13 dates). CAPTURE_STREET_VIEW (false):
     # try one street-level picture of the front (one more page load); section 99 found the
-    # service refuses a headless browser (lookup 500, tiles 403), so it stays off until that
-    # changes. CAPTURE_CLEAN_VIEWS (true): render the viewport CAPTURE_FRAME_MARGIN_PX (170)
+    # service refuses a headless browser (lookup 500, tiles 403) and 99.1 that it renders in
+    # a headed one, so it needs CAPTURE_HEADLESS=false. CAPTURE_HEADLESS (true): run the
+    # browser without a window; false opens a real window (on a server, under the virtual
+    # display the capture image starts with `xvfb-run`; 99.1).
+    # CAPTURE_CLEAN_VIEWS (true): render the viewport CAPTURE_FRAME_MARGIN_PX (170)
     # taller above and below and store the band between, free of the viewer's interface,
     # with every range lengthened so the stored view keeps section 98's ground pixel size
     # (false: section 98's uncropped 1440 x 900 views). CAPTURE_TESSERACT: the text reader
@@ -661,6 +664,7 @@ class Settings(BaseSettings):
     capture_history_max_views: int = Field(default=6, ge=0, le=60)
     capture_history_max_steps: int = Field(default=40, ge=1, le=200)
     capture_street_view: bool = False
+    capture_headless: bool = True
     capture_clean_views: bool = True
     capture_frame_margin_px: int = Field(default=170, ge=0, le=600)
     capture_tesseract: str | None = None

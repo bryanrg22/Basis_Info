@@ -4066,8 +4066,9 @@ ENTRIES: Final[tuple[Entry, ...]] = (
         "the capture worker (`python -m basis.capture`)",
         "basis.capture.street",
         "The street-level panorama was refused or rendered black: its imagery tiles answered "
-        "HTTP 403 or its lookup an error, or the frame was black (EVAL_REPORT 99: the case for "
-        "every headless attempt so far). Not a block signal, no retry; the capture still "
+        "HTTP 401/403 or its lookup a server error (5xx), or the frame was black (EVAL_REPORT "
+        "99: every headless attempt; 99.1: a headed browser renders it, so street level needs "
+        "CAPTURE_HEADLESS=false). Not a block signal, no retry; the capture still "
         "completes with its other views.",
         "A note on the capture (`notes`, part `street`); the `capture.part_failed` timeline "
         "event; the `capture_incidents` row; the worker's log line with `error_code`; the "

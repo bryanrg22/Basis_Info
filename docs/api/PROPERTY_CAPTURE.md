@@ -123,7 +123,7 @@ next to the capture's files: `evidence/<time>-<code>/page.png`, `page.html`, `pa
 | 011 | Waited longer than `CAPTURE_MAX_WAIT_HOURS` | Fails |
 | 018 | History could not be taken (no history control, or no date read while stepping) | No; a note, the capture goes on |
 | 019 | Street level: no panorama near the property | No; a note, no retry |
-| 020 | Street level: the panorama refused (tiles 403, lookup 4xx/5xx) or black | No; a note, no retry |
+| 020 | Street level: the panorama refused (tiles 401/403, lookup 5xx) or black | No; a note, no retry |
 | 021 | A view's imagery date could not be read | No; one note per capture, the view keeps `imagery_date` null |
 
 018 to 021 leave a `capture.part_failed` event (code, the engineer's sentence, `part`, and the
@@ -161,7 +161,9 @@ per consecutive trip up to a day, and closes on the next success. Every number i
   status bar's strip is kept beside the view (`<label>.status.png`) as the date's evidence.
 - **Street level** (`CAPTURE_STREET_VIEW`, **off**): one more page load of the panorama nearest
   the pin, the camera aimed at the house, stored as `street-front`. EVAL_REPORT 99 found the
-  service refuses a headless browser (lookup 500, tiles 403); it records 020 and goes on.
+  service refuses a headless browser (lookup 500, tiles 403); 99.1 found it renders in a headed
+  one, so street level needs `CAPTURE_HEADLESS=false` (a real window; on a server the capture
+  image runs the worker under a virtual display). Refused, it records 020 and goes on.
 - **The date reader** is tesseract, a system program (`CAPTURE_TESSERACT`, else `tesseract`
   on the path). The capture worker's image needs it installed; without it every date is null
   with the reason and the capture records 021 once.
