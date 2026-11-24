@@ -1031,7 +1031,9 @@ async def load_structure_inputs(
         fields.extend(await repo.fields(extraction.id))
     if not fields:
         return None
-    measurements: BuildingMeasurements | None = measurements_from_fields(fields)
+    measurements: BuildingMeasurements | None = measurements_from_fields(
+        fields, sketch_tolerance=settings.sketch_tolerance
+    )
     if measurements is not None and measurements.is_empty:
         measurements = None
     cost_approach = cost_approach_from_fields(fields)

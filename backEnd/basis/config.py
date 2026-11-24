@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import os
 import re
+from decimal import Decimal
 from email.utils import parseaddr
 from functools import lru_cache
 from pathlib import Path
@@ -430,6 +431,20 @@ class Settings(BaseSettings):
     # only where a field is missing; typical: the legacy typical area per room type for
     # every room and no property-level quantities (the behaviour before section 35).
     takeoff_areas: Literal["appraisal", "typical"] = "appraisal"
+    # Whether the appraisal's building sketch is read (basis.extraction.sketch;
+    # SKETCH_READER.md; EVAL_REPORT section 96). on: the extraction writes the sketch's
+    # area calculation table as `sketch` fields (living area, ground floor, garage, patio,
+    # each with its page), and the takeoff uses the ground floor as the footprint and the
+    # sketch's garage and patio when the sketch's living area is within
+    # TAKEOFF_SKETCH_GLA_TOLERANCE of the printed GLA; outside it the takeoff is today's,
+    # with the reason on the roof, siding, gutter and landscaping rows, and the appraisal is
+    # flagged at its gate (the gla_vs_sketch reason) so the engineer corrects the
+    # figure that is wrong. off (the default:
+    # section 96 measured one property, whose sketch and GLA disagree): no sketch field is
+    # written or read. The tolerance is a fraction of the GLA, default 0.01 (the three public
+    # sample reports of section 96 agree to the square foot; the client's differ by 12.5 %).
+    takeoff_sketch: Literal["off", "on"] = "off"
+    takeoff_sketch_gla_tolerance: float = Field(default=0.01, ge=0, le=1)
     # Where the cost year and location factor come from. study: the year of the intake's
     # placed_in_service_date and the factor (basis.domain.costs.REGIONAL_COST_FACTORS) of
     # the intake's state, else the appraisal's effective-date year and subject.state, each
@@ -671,6 +686,14 @@ class Settings(BaseSettings):
     capture_viewer_origin: str = Field(
         default="https://earth.google.com", pattern=r"^https?://[^/\s]+$"
     )
+
+    @property
+    def sketch_tolerance(self) -> Decimal | None:
+        """What ``measurements_from_fields`` takes: the GLA tolerance with
+        ``TAKEOFF_SKETCH=on``, None (the sketch fields are not read) with off."""
+        if self.takeoff_sketch != "on":
+            return None
+        return Decimal(str(self.takeoff_sketch_gla_tolerance))
 
     @property
     def vision_output_budget(self) -> int:
