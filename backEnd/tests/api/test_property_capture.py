@@ -30,7 +30,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from basis.capture.starter import CaptureStartError
-from basis.db.models import CaptureIncident, CaptureView, PropertyCapture, StudyEvent
+from basis.db.models import CaptureIncident, CaptureView, PropertyCapture, PropertyPin, StudyEvent
 from basis.db.session import session_scope
 from basis.errors.codes import E
 from basis.storage import LocalStorage
@@ -99,6 +99,32 @@ async def put_pin(api: Api, uid: str, sid: str, body: dict[str, Any], **headers:
     )
 
 
+def view_row(sid: str, capture_id: str, *, lat: float, lon: float) -> CaptureView:
+    """A stored top-down view of a capture, taken at ``lat``/``lon``."""
+    return CaptureView(
+        study_id=uuid.UUID(sid),
+        capture_id=uuid.UUID(capture_id),
+        pin_version=1,
+        kind="aerial",
+        label="aerial-close",
+        lat=lat,
+        lon=lon,
+        ground_alt_m=250,
+        range_m=120,
+        fov_deg=35,
+        heading_deg=0,
+        tilt_deg=0,
+        pixel_size_m=0.084,
+        width=1440,
+        height=900,
+        uri=f"gs://test-bucket/studies/{sid}/captures/{capture_id}/aerial-close.png",
+        sha256="b" * 64,
+        bytes=1,
+        source="Aerial imagery",
+        captured_at=datetime.now(UTC),
+    )
+
+
 async def test_the_pin_is_versioned_and_whole(on: Api, seed: Seed) -> None:
     sid = (await on.create_study("alice"))["id"]
     empty = await on.get("alice", f"/v1/studies/{sid}/property")
@@ -150,8 +176,20 @@ async def test_starting_a_capture(
         row = await session.get(PropertyCapture, uuid.UUID(capture["id"]))
         assert row is not None
         row.status, row.finished_at = "succeeded", datetime.now(UTC)
+        # As a real capture does: its address search places the pin's point, and the views
+        # are taken there.
+        pin = await session.get(PropertyPin, uuid.UUID(sid))
+        assert pin is not None
+        pin.lat, pin.lon, pin.source = 41.60, -93.60, "search"
+        session.add(view_row(sid, capture["id"], lat=41.60, lon=-93.60))
     recent = await on.post("alice", path, {})
     assert recent.status_code == 200 and recent.json()["id"] == capture["id"]
+    # Confirming the pin where it is does not spend a new capture either.
+    tag = (await on.get("alice", f"/v1/studies/{sid}/property")).headers["ETag"]
+    body = {"address": "1 Main St", "lat": 41.60, "lon": -93.60, "confirmed": True}
+    assert (await put_pin(on, "alice", sid, body, **{"If-Match": tag})).status_code == 200
+    again = await on.post("alice", path, {})
+    assert again.status_code == 200 and again.json()["id"] == capture["id"]
     forced = await on.post("alice", path, {"force": True})
     assert forced.status_code == 202 and len(starter.started) == 2
     async with session_scope(sessionmaker) as session:
@@ -230,6 +268,20 @@ async def test_a_views_image_and_staleness(
         headers={**bearer("alice"), "If-None-Match": image.headers["ETag"]},
     )
     assert cached.status_code == 304
+    # Confirming the pin where it is (the version goes up, the point does not move) keeps the
+    # views current: no new capture is called for.
+    tag = (await on.get("alice", f"/v1/studies/{sid}/property")).headers["ETag"]
+    confirm = await put_pin(
+        on,
+        "alice",
+        sid,
+        {"address": "1 Main St", "lat": 41.60, "lon": -93.60, "confirmed": True},
+        **{"If-Match": tag},
+    )
+    assert confirm.status_code == 200, confirm.text
+    views = (await on.get("alice", f"/v1/studies/{sid}/property")).json()["capture"]["views"]
+    assert [v["stale"] for v in views] == [False]
+    # Moving it about 1.1 km makes them stale.
     await put_pin(on, "alice", sid, {"address": "1 Main St", "lat": 41.61, "lon": -93.60})
     views = (await on.get("alice", f"/v1/studies/{sid}/property")).json()["capture"]["views"]
     assert [v["stale"] for v in views] == [True]
