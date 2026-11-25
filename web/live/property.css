@@ -333,3 +333,19 @@
 .mt-d-credit{fill:#4f6258;text-anchor:end}
 .mt-d-note{fill:#4f6258;text-anchor:start;font-style:italic;paint-order:stroke;stroke:#f7f8f5;stroke-width:3px}
 .mt-picture-toggle button{padding:4px 10px}
+.mt-d-building{fill:rgba(75,85,99,.16);stroke:#4b5563;stroke-width:2.5;vector-effect:non-scaling-stroke;stroke-linejoin:round}
+.mt-d-label.is-building{--c:#4b5563}.mt-d-total.is-building{--c:#4b5563}
+/* The diagram's furniture: fixed in the stage's corners over the zoomed picture. */
+.mt-stage-view{position:relative;min-height:0;min-width:0}
+.mt-stage .mt-stage-view{display:grid}
+.mt-furniture{position:absolute;inset:0;pointer-events:none;font:500 12px/1.35 Inter,system-ui,sans-serif;color:#1d3328}
+.mt-furniture>*{position:absolute;background:rgba(255,255,255,.92);border:1px solid #cfd8d2;border-radius:8px;box-shadow:0 1px 3px rgba(16,30,23,.12)}
+.mt-f-key{top:10px;left:10px;padding:6px 10px;max-width:min(320px,45%)}
+.mt-f-key strong{font-weight:700}.mt-f-key ul{list-style:none;margin:2px 0 0;padding:0;display:grid;gap:2px}
+.mt-f-key li{display:flex;align-items:center;gap:6px}.mt-f-key p{margin:4px 0 0;color:#4f6258;font-style:italic}
+.mt-f-swatch{width:11px;height:11px;border-radius:2px;flex:0 0 auto;background:color-mix(in srgb,var(--c) 30%,#fff);border:1.5px solid var(--c)}
+.mt-f-swatch.is-building{--c:#4b5563}
+.mt-f-north{top:10px;right:10px;padding:4px 6px}.mt-f-north path{fill:#1d3328}.mt-f-north text{fill:#1d3328;text-anchor:middle;font-weight:700}
+.mt-f-scale{left:10px;bottom:10px;padding:4px 10px 6px;display:grid;justify-items:start;gap:2px;font-weight:600}
+.mt-f-scale i{display:block;height:6px;border:2px solid #1d3328;border-top:0}
+.mt-f-credit{right:10px;bottom:10px;padding:3px 8px;color:#4f6258;font-size:11px;max-width:55%;text-align:right}

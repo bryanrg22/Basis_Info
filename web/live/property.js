@@ -134,10 +134,11 @@
   if(g&&u.candidate){const [x,y]=g.toPixel(...u.candidate);parts.push(marker(x,y,w,'pa-pin is-candidate'))}
   // The measure tool while measuring here; after saving, the saved shape with its labels.
   const tracing=u.mode==='measure'&&u.trace&&u.trace.viewId===v.id&&!(u.saved?.assetId===L.docId&&!u.trace.shapes.length&&!u.trace.draft.length);
-  if(tracing){scopes.property={s,t:u.trace,v,w,h,parcels:parcelPx,doc:null};parts.push(toolLayer(u.trace,v))}
+  const buildingPx=PM.buildingOnView(pub?.lidar,v)?.points||null;
+  if(tracing){scopes.property={s,t:u.trace,v,w,h,parcels:parcelPx,building:buildingPx,doc:null};parts.push(toolLayer(u.trace,v))}
   else if(u.saved?.viewId===v.id&&u.saved.assetId===L.docId)parts.push(toolLayer({shapes:u.saved.shapes,draft:[],tool:'area',unit:u.saved.unit,space:'lonlat',k:u.trace?.k||null},v,{readOnly:true}));
   const zoom=u.zoom||1,mode=u.mode==='pin'?'is-pin':u.mode==='measure'?'is-measure':'';
-  return `<div class="pa-stage ${mode}" data-zoom="${zoom}"><div class="pa-zoom" tabindex="0" aria-label="Picture; scroll to pan when zoomed"><div class="pa-canvas${diagram?' is-diagram':''}" style="width:${zoom*100}%;aspect-ratio:${w}/${h}">${diagram?diagramFor('property',s,v,{except:tracing?u.trace.assetId:null}):img(s,v,v.label||'Property picture','pa-photo')}<svg class="pa-overlay" viewBox="0 0 ${w} ${h}" preserveAspectRatio="none" data-pa-stage="${esc(v.id)}" data-mt-scope="property" role="img" aria-label="${esc(overlayLabel(prop,pub,u))}">${parts.join('')}</svg>${tracing?editBox(u.trace,v,w,h,'property'):''}</div></div><div class="pa-stage-tools"><div class="pa-zoom-tools" role="group" aria-label="Zoom"><button class="pa-icon-btn" data-live="pa-zoom" data-value="out" aria-label="Zoom out" ${zoom<=1?'disabled':''}>−</button><span>${zoom*100}%</span><button class="pa-icon-btn" data-live="pa-zoom" data-value="in" aria-label="Zoom in" ${zoom>=4?'disabled':''}>+</button></div>${pictureToggle(v)}${g?`<label class="pa-toggle"><input type="checkbox" data-pa-layer="pin" ${u.layers.pin?'checked':''}> Pin</label>${pub?.parcels?.length&&!diagram?`<label class="pa-toggle"><input type="checkbox" data-pa-layer="parcel" ${u.layers.parcel?'checked':''}> Parcel</label>`:''}`:''}</div>${caption(v)}</div>`;
+  return `<div class="pa-stage ${mode}" data-zoom="${zoom}"><div class="mt-stage-view"><div class="pa-zoom" tabindex="0" aria-label="Picture; scroll to pan when zoomed"><div class="pa-canvas${diagram?' is-diagram':''}" style="width:${zoom*100}%;aspect-ratio:${w}/${h}">${diagram?diagramFor('property',s,v,{except:tracing?u.trace.assetId:null}):img(s,v,v.label||'Property picture','pa-photo')}<svg class="pa-overlay" viewBox="0 0 ${w} ${h}" preserveAspectRatio="none" data-pa-stage="${esc(v.id)}" data-mt-scope="property" role="img" aria-label="${esc(overlayLabel(prop,pub,u))}">${parts.join('')}</svg>${tracing?editBox(u.trace,v,w,h,'property'):''}</div></div>${diagram?furnitureHtml('property'):''}</div><div class="pa-stage-tools"><div class="pa-zoom-tools" role="group" aria-label="Zoom"><button class="pa-icon-btn" data-live="pa-zoom" data-value="out" aria-label="Zoom out" ${zoom<=1?'disabled':''}>−</button><span>${zoom*100}%</span><button class="pa-icon-btn" data-live="pa-zoom" data-value="in" aria-label="Zoom in" ${zoom>=4?'disabled':''}>+</button></div>${pictureToggle(v)}${g?`<label class="pa-toggle"><input type="checkbox" data-pa-layer="pin" ${u.layers.pin?'checked':''}> Pin</label>${pub?.parcels?.length&&!diagram?`<label class="pa-toggle"><input type="checkbox" data-pa-layer="parcel" ${u.layers.parcel?'checked':''}> Parcel</label>`:''}`:''}</div>${caption(v)}</div>`;
  }
  const overlayLabel=(prop,pub,u)=>[u.mode==='pin'?'Click the house to move the pin.':u.mode==='measure'?'Click corners to trace.':'',prop.pin?'The pin marks the house.':'',pub?.parcels?.length?'The parcel outline is drawn.':''].filter(Boolean).join(' ');
  const marker=(x,y,w,cls)=>{const r=Math.max(7,w/110);return `<g class="${cls}" transform="translate(${x.toFixed(1)} ${y.toFixed(1)})"><g class="pa-pin-mark"><circle r="${r*1.9}" class="pa-pin-halo"/><circle r="${r}" class="pa-pin-dot"/></g></g>`};
@@ -460,15 +461,17 @@ ${toolPanel('property',s,a,t,v,{})}
  }
  const traceOf=scope=>ctxOf(scope)?.t||null;
  // Every corner the dragged one may snap to (the shape's own, the parcel's) and the parcel's edges.
- function snapTargets(c,except){
-  const corners=[],t=c.t;
-  t.shapes.forEach((sh,s)=>{for(const {r,pts} of ringsOf(sh))pts.forEach((p,i)=>{if(!except||except.s!==s||except.r!==r||except.i!==i)corners.push(p)})});
-  for(const ring of c.parcels||[])corners.push(...ring);
-  return {corners,segments:PM.ringSegments(c.parcels||[])};
+ // In order, the first within reach wins: the shape's own corners, the building outline's corners
+ // then its edges (EVAL_REPORT 104.2), the parcel's corners then its edges.
+ function snapTiers(c,except){
+  const own=[],t=c.t,b=c.building?[c.building]:[];
+  t.shapes.forEach((sh,s)=>{for(const {r,pts} of ringsOf(sh))pts.forEach((p,i)=>{if(!except||except.s!==s||except.r!==r||except.i!==i)own.push(p)})});
+  return [{corners:own},{corners:b.flat()},{segments:PM.ringSegments(b)},{corners:(c.parcels||[]).flat()},{segments:PM.ringSegments(c.parcels||[])}];
  }
  function snapped(c,p,except){
   const t=c.t;if(t.snap===false)return {point:rp(p),to:null};
-  const s=PM.snapPoint(p,{...snapTargets(c,except),radius:SNAP_PX*(t.k||1)});return {point:rp(s.point),to:s.to};
+  for(const tier of snapTiers(c,except)){const s=PM.snapPoint(p,{...tier,radius:SNAP_PX*(t.k||1)});if(s.to)return {point:rp(s.point),to:s.to}}
+  return {point:rp(p),to:null};
  }
  // The ring problems the server would give (traced.ring_problem through PM.problems), or null.
  function shapeProblem(c){
@@ -555,13 +558,13 @@ ${toolPanel('property',s,a,t,v,{})}
   }
   const t=D.trace,g=PM.georef(v),pub=pubEntry(s)?.data;
   const parcels=space==='lonlat'&&g&&pub?.parcels?.length?pub.parcels.flatMap(p=>PM.parcelRings(p,g)):[];
-  scopes.dialog={s,a,t,v,w,h,doc,parcels};
+  scopes.dialog={s,a,t,v,w,h,doc,parcels,building:space==='lonlat'?PM.buildingOnView(pub?.lidar,v)?.points||null:null};
   const extra=diagramOn(v)?'':parcels.map(r=>`<polygon class="pa-parcel" points="${r.map(p=>p.map(n=>n.toFixed(1)).join(',')).join(' ')}"/>`).join('');
   const on=pick.kind==='view'?(v.source_id?`${v.credit}, ${viewDate(v)}`:`Picture of ${PM.dateText(PM.dateOf(v))}`)+` · ${fmt(v.pixel_size_m*100,1)} cm a pixel`:`${doc.filename}${pick.evidence?' · where it was seen':''} · scaled by the known length you set`;
   // A small shape opens zoomed in on it (a patio on a 120 m wide aerial is a few dozen pixels).
   if(!D.zoom){const box=shapesBox(t);D.zoom=box&&box.w<w/8&&box.h<h/8?4:box&&box.w<w/4&&box.h<h/4?2:1;D.centre=D.zoom>1}
   const zoom=D.zoom;
-  return wrap(`<div class="mt-dialog-body"><div class="mt-dialog-main">${chips(views,pick)}<div class="pa-stage is-measure mt-stage"><div class="pa-zoom" tabindex="0" aria-label="Picture to measure on; scroll to pan when zoomed">${toolCanvas('dialog',t,v,{w,h,imgHtml,extraSvg:extra,label:`Measuring ${title} on ${on}`,zoom})}</div><div class="pa-stage-tools"><div class="pa-zoom-tools" role="group" aria-label="Zoom"><button class="pa-icon-btn" data-live="mt-zoom" data-value="out" aria-label="Zoom out" ${zoom<=1?'disabled':''}>−</button><span>${zoom*100}%</span><button class="pa-icon-btn" data-live="mt-zoom" data-value="in" aria-label="Zoom in" ${zoom>=8?'disabled':''}>+</button></div>${pictureToggle(v)}<p class="pa-caption">${esc(on)}</p></div></div></div><aside class="mt-dialog-side" data-mt-root="dialog">${toolPanel('dialog',s,a,t,v,{doc,w,h})}</aside></div>`);
+  return wrap(`<div class="mt-dialog-body"><div class="mt-dialog-main">${chips(views,pick)}<div class="pa-stage is-measure mt-stage"><div class="mt-stage-view"><div class="pa-zoom" tabindex="0" aria-label="Picture to measure on; scroll to pan when zoomed">${toolCanvas('dialog',t,v,{w,h,imgHtml,extraSvg:extra,label:`Measuring ${title} on ${on}`,zoom})}</div>${diagramOn(v)?furnitureHtml('dialog'):''}</div><div class="pa-stage-tools"><div class="pa-zoom-tools" role="group" aria-label="Zoom"><button class="pa-icon-btn" data-live="mt-zoom" data-value="out" aria-label="Zoom out" ${zoom<=1?'disabled':''}>−</button><span>${zoom*100}%</span><button class="pa-icon-btn" data-live="mt-zoom" data-value="in" aria-label="Zoom in" ${zoom>=8?'disabled':''}>+</button></div>${pictureToggle(v)}<p class="pa-caption">${esc(on)}</p></div></div></div><aside class="mt-dialog-side" data-mt-root="dialog">${toolPanel('dialog',s,a,t,v,{doc,w,h})}</aside></div>`);
  };
  // The picture picker: the top-down views as chips; the asset's own photos (where it was seen,
  // then its room's) as a few thumbnails; every other photo behind one "All photos" list.
@@ -597,7 +600,7 @@ ${toolPanel('property',s,a,t,v,{})}
  const diagrams={};// scope -> {model, frame, k} as last drawn
  function diagramFor(scope,s,v,{except=null}={}){
   const pub=pubEntry(s)?.data,items=assetsEntry(s).data?.items||[],pending=L.corrections?.assets_review||null;
-  const model=PM.diagramModel({view:v,parcels:pub?.parcels||[],measured:PM.measuredOnView(items,v,{pending,except}),editing:!!except});
+  const model=PM.diagramModel({view:v,parcels:pub?.parcels||[],measured:PM.measuredOnView(items,v,{pending,except}),editing:!!except,building:PM.buildingOnView(pub?.lidar,v)});
   diagrams[scope]={model,frame:PM.frameOf(v),k:diagrams[scope]?.model?.w===model.w?diagrams[scope].k:null};
   const m=model,what=[m.lots.length?`${m.lots.length} lot ${m.lots.length===1?'line':'lines'}`:'no lot line',m.legend.length?`measured: ${m.legend.map(x=>`${x.name} ${x.quantity}`).join(', ')}`:'nothing measured'].join('; ');
   return `<svg class="mt-diagram" viewBox="0 0 ${m.w} ${m.h}" preserveAspectRatio="none" data-mt-diagram="${scope}" role="img" aria-label="${esc(`Diagram of the property: ${what}. North is up; scale bar ${m.scale?.label||'unknown'}.`)}">${diagramBody(diagrams[scope])}</svg>`;
@@ -606,6 +609,10 @@ ${toolPanel('property',s,a,t,v,{})}
   k=k||m.w/900;const font=MT_FONT*k,P=pts=>pts.map(q=>q.map(n=>n.toFixed(1)).join(',')).join(' '),out=[],labels=[];
   out.push(`<rect class="mt-d-ground" x="0" y="0" width="${m.w}" height="${m.h}" fill="${m.ground}"/>`);
   for(const lot of m.lots)out.push(`<polygon class="mt-d-lot${lot.adjacent?' is-adjacent':''}" points="${P(lot.points)}"/>`);
+  // The building: the lidar's roof outline (overhangs included), grey, with its edge lengths.
+  if(m.building){const bp=m.building.points;out.push(`<polygon class="mt-d-building" points="${P(bp)}"/>`);
+   if(frame)for(const l of PM.edgeLabels(bp,true,PM.edgeLengths(bp,true,frame),{k,font:MT_FONT}))if(l.mode!=='hidden'){const b=labelBox(l.text,k);labels.push(`<g class="mt-d-label is-building" transform="translate(${f1(l.x)} ${f1(l.y)}) rotate(${f1(l.angle)})"><rect x="${f1(-b.w/2)}" y="${f1(-b.h/2)}" width="${f1(b.w)}" height="${f1(b.h)}" rx="${f1(4*k)}"/><text y="${f1(0.36*font)}" font-size="${f1(font)}">${esc(l.text)}</text></g>`)}
+   const at=PM.labelPoint(bp);labels.push(`<g class="mt-d-total is-building" transform="translate(${f1(at[0])} ${f1(at[1])})"><text font-size="${f1(font)}">Building</text><text y="${f1(font*1.25)}" font-size="${f1(font*0.85)}">roof outline</text></g>`)}
   for(const sh of m.shapes)for(const one of sh.shapes){
    const rings=one.kind==='line'?[{p:one.path,closed:false}]:[{p:one.ring,closed:true},...(one.cutouts||[]).map(c=>({p:c,closed:true,cut:true}))];
    for(const r of rings)out.push(r.closed?`<polygon class="mt-d-shape${r.cut?' is-cut':''}" points="${P(r.p)}" style="--c:${sh.colour}"/>`:`<polyline class="mt-d-shape is-line" points="${P(r.p)}" style="--c:${sh.colour}"/>`);
@@ -615,17 +622,21 @@ ${toolPanel('property',s,a,t,v,{})}
    if(frame){const sum=PM.shapeSummary(one,frame,{unit:sh.unit,heightFt:sh.heightFt}),line=one.kind==='line',end=line?one.path[one.path.length-1]:null,at=line?[end[0]+10*k,end[1]-10*k]:PM.labelPoint(one.ring);
     labels.push(`<g class="mt-d-total${line?' is-line':''}" transform="translate(${f1(at[0])} ${f1(at[1])})" style="--c:${sh.colour}"><text font-size="${f1(font*1.1)}">${esc(typeName(sh.label))}</text><text y="${f1(font*1.3)}" font-size="${f1(font*0.95)}">${esc(one.kind==='line'?sum.text:sum.area)}</text></g>`)}
   }
-  // The key, north, the scale bar and the picture's source, at the picture's corners.
-  const pad=12*k,row=18*k,lw=Math.max(150,...m.legend.map(x=>(x.name.length+x.quantity.length)*0.6*MT_FONT+60))*k;
-  if(m.legend.length)out.push(`<g class="mt-d-legend" transform="translate(${f1(pad)} ${f1(pad)})"><rect width="${f1(lw)}" height="${f1(row*(m.legend.length+1)+pad*0.6)}" rx="${f1(6*k)}"/><text x="${f1(pad*0.8)}" y="${f1(row*0.85)}" font-size="${f1(font)}" class="is-title">Measured</text>${m.legend.map((x,i)=>`<g transform="translate(${f1(pad*0.8)} ${f1(row*(i+1.2))})"><rect class="mt-d-swatch" width="${f1(12*k)}" height="${f1(12*k)}" rx="${f1(2*k)}" style="--c:${x.colour}"/><text x="${f1(18*k)}" y="${f1(10*k)}" font-size="${f1(font)}">${esc(x.name)}${x.count>1?` (${x.count})`:''} · ${esc(x.quantity)}</text></g>`).join('')}</g>`);
-  out.push(`<g class="mt-d-north" transform="translate(${f1(m.w-28*k)} ${f1(34*k)}) rotate(${f1(m.north.angle)})"><path d="M0 ${f1(-18*k)} L${f1(8*k)} ${f1(10*k)} L0 ${f1(4*k)} L${f1(-8*k)} ${f1(10*k)} Z"/><text y="${f1(-22*k)}" font-size="${f1(font)}">N</text></g>`);
-  if(m.scale){const x=pad,y=m.h-pad-8*k;out.push(`<g class="mt-d-scale" data-scale-px="${m.scale.px}" data-scale-ft="${m.scale.ft}"><rect x="${f1(x-4*k)}" y="${f1(y-22*k)}" width="${f1(m.scale.px+8*k)}" height="${f1(32*k)}" rx="${f1(4*k)}" class="mt-d-plate"/><line x1="${x}" y1="${f1(y)}" x2="${x+m.scale.px}" y2="${f1(y)}"/><line x1="${x}" y1="${f1(y-5*k)}" x2="${x}" y2="${f1(y+5*k)}"/><line x1="${x+m.scale.px}" y1="${f1(y-5*k)}" x2="${x+m.scale.px}" y2="${f1(y+5*k)}"/><text x="${f1(x+m.scale.px/2)}" y="${f1(y-8*k)}" font-size="${f1(font)}">${esc(m.scale.label)}</text></g>`)}
-  out.push(`<text class="mt-d-credit" x="${f1(m.w-pad)}" y="${f1(m.h-pad)}" font-size="${f1(font*0.9)}">Diagram · ${esc(m.credit)}</text>`);
-  // The note sits in the top-left corner under the key, clear of the pin at the middle.
-  if(m.note)out.push(`<text class="mt-d-note" x="${f1(pad)}" y="${f1(pad+(m.legend.length?row*(m.legend.length+1)+pad*1.6:0)+font)}" font-size="${f1(font)}">${esc(m.note)}</text>`);
   return out.join('')+labels.join('');
  }
  const typeName=l=>String(l||'').replace(/_/g,' ').replace(/^./,c=>c.toUpperCase());
+ // The diagram's key, north arrow, scale bar and source sit in the stage's corners (HTML over the
+ // zoomed picture), so they stay on screen when it is zoomed and panned. The scale bar is chosen
+ // for the screen: a round length no wider than SCALE_MAX_PX at the picture's pixel size times k
+ // (picture pixels per screen pixel), so it stays true at every zoom.
+ const SCALE_MAX_PX=140;
+ function furnitureHtml(scope){
+  const d=diagrams[scope];if(!d)return '';const m=d.model,k=d.k||m.w/900;
+  const bar=PM.scaleBar(m.pixelSizeM*k,{maxPx:SCALE_MAX_PX});
+  const rows=[...(m.building?[`<li><span class="mt-f-swatch is-building"></span>${esc(m.building.label)}${m.building.footprintSqft?` · ${fmt(m.building.footprintSqft)} SF`:''}</li>`]:[]),...m.legend.map(x=>`<li><span class="mt-f-swatch" style="--c:${x.colour}"></span>${esc(x.name)}${x.count>1?` (${x.count})`:''} · ${esc(x.quantity)}</li>`)];
+  return `<div class="mt-furniture" data-mt-furniture="${scope}">${rows.length||m.note?`<div class="mt-f-key">${rows.length?`<strong>Key</strong><ul>${rows.join('')}</ul>`:''}${m.note?`<p>${esc(m.note)}</p>`:''}</div>`:''}<div class="mt-f-north" aria-label="North is up" role="img"><svg viewBox="-12 -24 24 36" width="22" height="33" aria-hidden="true"><g transform="rotate(${m.north.angle})"><path d="M0 -18 L8 10 L0 4 L-8 10 Z"/></g><text y="-19" font-size="9">N</text></svg></div>${bar?`<div class="mt-f-scale" data-scale-px="${bar.px}" data-scale-ft="${bar.ft}" data-k="${k}"><span>${esc(bar.label)}</span><i style="width:${bar.px.toFixed(2)}px"></i></div>`:''}<div class="mt-f-credit">Diagram · ${esc(m.credit)}</div></div>`;
+ }
+ Live.diagramFurniture=furnitureHtml;
 
  /* ---------- the stored measurement, read-only, on the asset page ---------- */
  const cards=new Map();// asset id -> the read-only trace drawn on the asset page
@@ -910,7 +921,7 @@ ${noViews?'':`<section class="pa-history" aria-label="Dated views">${strips(s,ca
  // After a render: the screen's scale (picture pixels per screen pixel) for the labels, and focus.
  function measureLabels(){
   if(typeof document.querySelectorAll!=='function')return;
-  for(const svg of document.querySelectorAll('svg[data-mt-diagram]')){const d=diagrams[svg.dataset.mtDiagram],box=svg.getBoundingClientRect?.();if(!d||!box?.width)continue;const k=svg.viewBox.baseVal.width/box.width;if(!d.k||Math.abs(d.k-k)/k>0.03){d.k=k;svg.innerHTML=diagramBody(d)}}
+  for(const svg of document.querySelectorAll('svg[data-mt-diagram]')){const d=diagrams[svg.dataset.mtDiagram],box=svg.getBoundingClientRect?.();if(!d||!box?.width)continue;const k=svg.viewBox.baseVal.width/box.width;if(!d.k||Math.abs(d.k-k)/k>0.03){d.k=k;svg.innerHTML=diagramBody(d);const f=document.querySelector(`[data-mt-furniture="${svg.dataset.mtDiagram}"]`);if(f)f.outerHTML=furnitureHtml(svg.dataset.mtDiagram)}}
   for(const svg of document.querySelectorAll('svg[data-mt-scope],svg[data-mt-card]')){
    const box=svg.getBoundingClientRect?.();if(!box?.width)continue;const k=svg.viewBox.baseVal.width/box.width;
    const card=svg.dataset.mtCard?cards.get(svg.dataset.mtCard):null,t=card?card.t:traceOf(svg.dataset.mtScope);if(!t)continue;

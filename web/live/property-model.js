@@ -661,8 +661,16 @@
   return out;
  }
  const typeName=l=>String(l||'').replace(/_/g,' ').replace(/^./,c=>c.toUpperCase());
+ // The lidar's roof outline (GET .../property/public `lidar.building.outline`, EVAL_REPORT 104.2) in
+ // a view's pixels, or null (no outline: a gather made before it was kept, no building, no georef).
+ function buildingOnView(lidar,view){
+  const g=georef(view),o=lidar?.building?.outline;if(!g||!Array.isArray(o)||o.length<3)return null;
+  const points=o.filter(p=>Array.isArray(p)&&p.length===2&&p.every(Number.isFinite)).map(([lon,lat])=>g.toPixel(lon,lat));if(points.length<3)return null;
+  const sqft=lidar.building.footprint_sqft!=null?Number(lidar.building.footprint_sqft):Number(lidar.building.footprint_m2)*FT_PER_M*FT_PER_M;
+  return {points,year:lidar.year??null,footprintSqft:Number.isFinite(sqft)?sqft:null,label:`Building · roof outline from ${lidar.year?`${lidar.year} `:''}lidar`};
+ }
  // editing: the tool draws the shape being measured on top, so "nothing measured" is not said.
- function diagramModel({view,parcels=[],measured=[],editing=false}){
+ function diagramModel({view,parcels=[],measured=[],editing=false,building=null}){
   const g=georef(view);if(!g)return null;
   const w=Number(view.width),h=Number(view.height);
   const lots=(parcels||[]).flatMap(p=>parcelRings(p,g).map(points=>({points,adjacent:!p.under_pin})));
@@ -675,7 +683,7 @@
   const scale=scaleBar(view.pixel_size_m,{maxPx:w/4});
   const note=!lots.length&&!measured.length&&!editing?'No lot line and nothing measured on this picture yet. Trace a shape and it is drawn here.':!lots.length?'No lot line was found for this property.':!measured.length&&!editing?'Nothing measured on this picture yet.':null;
   const credit=[view.source_id?`${view.credit||'Public imagery'}, ${view.year_label||view.year||'year unknown'}`:`Picture of ${dateText(dateOf(view))}`,view.pixel_size_m?`${(Number(view.pixel_size_m)*100).toLocaleString('en-US',{maximumFractionDigits:1})} cm a pixel`:null,view.source_id?null:view.source].filter(Boolean).join(' · ');
-  return {w,h,ground:DIAGRAM_GROUND,lots,shapes:measured.map(m=>({...m,colour:colourOf(m.label)})),legend,scale,north:{angle:-(Number(view.heading_deg)||0)},note,credit};
+  return {w,h,ground:DIAGRAM_GROUND,lots,building,shapes:measured.map(m=>({...m,colour:colourOf(m.label)})),legend,scale,north:{angle:-(Number(view.heading_deg)||0)},note,credit,pixelSizeM:Number(view.pixel_size_m)};
  }
 
  /* ---------- parcels, site check, lidar ---------- */
@@ -726,7 +734,7 @@
  const anyProperty=c=>!!(c&&(c.propertyCapture||c.publicGeo));
 
  const api={FT_PER_M,radii,round2,measure,problems,formula,reviewFlags,expectedErrorPct,MeasurementError,georef,measurable,toMercator,fromMercator,
-  frameOf,scaleFeetPerPx,segmentFt,scaleBar,measuredOnView,diagramModel,DIAGRAM_COLOURS,DIAGRAM_GROUND,angleAt,isSquare,RIGHT_TOL_DEG,edgeLengths,ftIn,ftInWords,parseLength,areaText,lfText,edgeLabels,labelPoint,shapeSummary,movePoint,insertPoint,removePoint,minPoints,setEdgeLength,snapPoint,nearestOnSegment,ringSegments,onPicture,
+  frameOf,scaleFeetPerPx,segmentFt,buildingOnView,scaleBar,measuredOnView,diagramModel,DIAGRAM_COLOURS,DIAGRAM_GROUND,angleAt,isSquare,RIGHT_TOL_DEG,edgeLengths,ftIn,ftInWords,parseLength,areaText,lfText,edgeLabels,labelPoint,shapeSummary,movePoint,insertPoint,removePoint,minPoints,setEdgeLength,snapPoint,nearestOnSegment,ringSegments,onPicture,
   remember,undoTrace,redoTrace,snapshotOf,bodyOfRecord,pixelShapes,drawnByText,withProvenance,sameShapes,viewRef,imageBody,KNOWN_LENGTHS,edgeComparison,lonlatPathFt,shoelace,insideOrOn,
   needsMeasurement,measureOffer,measureUnit,captureStatus,gatherStatus,noteText,clock,viewsOf,historyStrip,defaultMeasureView,leafText,dateText,yearOnly,dateOf,SIDE_TEXT,LOOKING,compass,
   publicSeries,creditLine,measurementBody,imageOf,parcelRings,siteCheckText,lidarFacts,bracket,withBracket,caps,anyProperty,ringProblem,CAPTURE_FAILED,CAPTURE_PART};

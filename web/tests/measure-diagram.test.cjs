@@ -82,7 +82,8 @@ async function boot({storage}={}){
  g.globalThis=g;vm.createContext(g);vm.runInContext(fs.readFileSync(path.join(WEB,'live/property.js'),'utf8'),g);
  async function page(fn){for(let i=0;i<10;i++){fn();const open=[...cache.values()].filter(e=>!e.done);if(!open.length)break;await Promise.all(open.map(e=>e.promise))}return fn()}
  const items=(await api.assets(study.id,study.revision)).items;
- return {Live,page,items,study,setScreen:s=>{scr=s}};
+ const fire=(name,ev)=>{for(const fn of listeners[name]||[])fn(ev)};
+ return {Live,page,items,study,fire,setScreen:s=>{scr=s}};
 }
 const memory=()=>{const m=new Map();return {getItem:k=>m.has(k)?m.get(k):null,setItem:(k,v)=>m.set(k,String(v)),m}};
 const blocked={getItem(){throw new Error('SecurityError')},setItem(){throw new Error('SecurityError')}};
@@ -96,8 +97,15 @@ test('the Property page draws the diagram in place of the picture, under the sam
  assert.match(html,/<svg class="mt-diagram" viewBox="0 0 1440 900"/);assert.ok(vb.filter(v=>v==='0 0 1440 900').length>=2,'diagram and overlay share the box');
  assert.match(html,/<div class="pa-canvas is-diagram"[^>]*><svg class="mt-diagram"/,'the picture is replaced by the diagram');
  assert.match(html,/class="mt-d-lot"/);assert.match(html,/class="mt-d-lot is-adjacent"/);assert.doesNotMatch(html,/class="pa-parcel/,'the overlay leaves the lot lines to the diagram');
- assert.match(html,/class="mt-d-legend"[\s\S]*Patio · 845\.4 SF/);assert.match(html,/class="mt-d-north"/);
- const bar=/data-scale-px="([^"]+)" data-scale-ft="([^"]+)"/.exec(html);assert.equal(Number(bar[2]),50);assert.ok(Math.abs(Number(bar[1])*0.0841*PM.FT_PER_M-50)<1e-9);
+ // the key, north and the scale bar sit in the stage's corners, outside the zoomed picture
+ const furniture=/<div class="mt-furniture" data-mt-furniture="property">[\s\S]*?<\/div><\/div><\/div>/.exec(html)?.[0]||'';
+ assert.match(html,/<\/div><\/div><div class="mt-furniture" data-mt-furniture="property">/,'after the zoom pane, not inside it');
+ assert.match(furniture,/Building · roof outline from 2021 lidar · 2,210 SF/);assert.match(furniture,/Patio · 845\.4 SF/);assert.match(furniture,/mt-f-north/);
+ const bar=/data-scale-px="([^"]+)" data-scale-ft="([^"]+)" data-k="([^"]+)"/.exec(html);
+ assert.ok(Math.abs(Number(bar[1])*Number(bar[3])*0.0841*PM.FT_PER_M-Number(bar[2]))<1e-9,'screen pixels x picture pixels per screen pixel x pixel size = the length');
+ assert.ok(Number(bar[1])<=140);
+ // the building outline is drawn with its edge lengths
+ assert.match(html,/class="mt-d-building"/);assert.match(html,/mt-d-label is-building/);
  assert.match(html,/class="pa-pin"/,'the pin stays on the overlay');
 });
 test('in the Measure dialog the traced shape and its handles stay put in diagram mode; photos have no toggle',async()=>{
@@ -118,4 +126,28 @@ test('the choice is remembered in this browser, and still works for the session 
  y.Live.actions['mt-picture'](null,'diagram');assert.equal(y.Live.measurePicture.get(),'diagram');
  assert.match(await y.page(()=>y.Live.screens.property()),/mt-diagram/);
  const z=await boot();assert.equal(z.Live.measurePicture.get(),'photo','no storage at all');
+});
+
+test('the lidar roof outline is drawn in the view’s pixels and is optional',()=>{
+ const outline=[[-7.2,-5.2],[12.2,-5.2],[12.2,2.2],[5.2,2.2],[5.2,7.2],[-7.2,7.2]].map(([e,n])=>PS.toLonLat(e,n));
+ const lidar={year:2021,building:{footprint_m2:205.3,outline}};
+ const b=PM.buildingOnView(lidar,VIEW);
+ assert.equal(b.points.length,6);assert.deepEqual(b.points[0],PM.georef(VIEW).toPixel(...outline[0]));
+ assert.equal(b.label,'Building · roof outline from 2021 lidar');assert.ok(Math.abs(b.footprintSqft-205.3*PM.FT_PER_M**2)<1e-9);
+ for(const old of [null,{year:2019,building:null},{year:2019,building:{footprint_m2:100}},{year:2019,building:{outline:[[1,2]]}}])assert.equal(PM.buildingOnView(old,VIEW),null,'a gather without an outline');
+ assert.equal(PM.diagramModel({view:VIEW,building:b}).building,b);
+});
+test('a dragged corner snaps to the shape’s own corners first, then the building’s corners and edges, then the parcel',async()=>{
+ const x=await boot({storage:memory()});x.setScreen('assets');
+ const patio=x.items.find(a=>a.label==='patio');x.Live.openMeasure(patio,'assets');await x.page(()=>x.Live.measureDialog());
+ const t=x.Live.state.mtDialog.trace,svg={dataset:{mtScope:'dialog',paStage:t.viewId},getBoundingClientRect:()=>({left:0,top:0,width:1440,height:900}),viewBox:{baseVal:{width:1440,height:900}},setPointerCapture(){},releasePointerCapture(){},closest(){return this}};
+ const at=(p,vertex)=>({target:{closest:sel=>/data-mt-vertex/.test(sel)&&vertex?{dataset:{mtVertex:vertex}}:/svg\[/.test(sel)?svg:null},clientX:p[0],clientY:p[1],pointerId:1,preventDefault(){}});
+ const drag=(from,to)=>{x.fire('pointerdown',at(from,'0:o:0'));x.fire('pointermove',at(to));x.fire('pointerup',at(to))};
+ t.k=1;const building=PM.buildingOnView({year:2021,building:{outline:[[-7.2,-5.2],[12.2,-5.2],[12.2,2.2],[5.2,2.2],[5.2,7.2],[-7.2,7.2]].map(([e,n])=>PS.toLonLat(e,n))}},{id:t.viewId,width:1440,height:900,lat:43.5,lon:-87,pixel_size_m:0.0841}).points;
+ const corner=building[5],c0=t.shapes[0].ring[0];
+ drag(c0,[corner[0]+3,corner[1]-2]);
+ assert.deepEqual(JSON.parse(JSON.stringify(t.shapes[0].ring[0])),corner.map(n=>Math.round(n*1000)/1000),'onto the building’s corner');
+ const mid=[(building[0][0]+building[1][0])/2,building[0][1]];
+ drag(t.shapes[0].ring[0],[mid[0],mid[1]+4]);
+ assert.ok(Math.abs(t.shapes[0].ring[0][1]-mid[1])<0.01,'onto the building’s edge');
 });
