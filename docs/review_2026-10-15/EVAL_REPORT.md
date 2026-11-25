@@ -16024,7 +16024,11 @@ middle against the pane, not the picture). Both now keep the picture point at th
 live, 100 to 200 % kept (0.5, 0.5), and a view scrolled to the building kept (0.6798, 0.2877) through
 400 % and back, in diagram and photo mode. The pin covered the building's label; every diagram label
 is now placed clear of the pin (the building's below the outline when the pin is inside it). Web
-suite 561. No wheel or pinch zoom exists to fix.
+suite 561. No wheel or pinch zoom exists to fix. A second live check found the building's name, moved
+below the outline, sitting on the bottom edge's length label: names are now placed after every edge
+label, tested against each label already placed and the pin (inside the shape first, then below or
+above, then beside). Live, at 100 % and 200 %, no name meets an edge label or the pin's halo and no
+edge label meets the pin (measured on the rendered boxes). Web suite 564.
 
 **Open.** No lot line on the live study (no parcel); the outline is the roof, not the walls; the
 building is not drawn in photo mode (only snapped to); the outline is not checked against a surveyed

@@ -715,6 +715,29 @@
   for(let i=0;i<200&&boxMeetsCircle(p,box,pin.at,pin.r+gap);i++){t+=1;p=[pin.at[0]+dx/d*t,pin.at[1]+dy/d*t]}
   return p;
  }
+ // Two upright boxes {at, w, h} overlap (with a gap between them)?
+ const boxesMeet=(a,b,gap=0)=>Math.abs(a.at[0]-b.at[0])*2<a.w+b.w+2*gap&&Math.abs(a.at[1]-b.at[1])*2<a.h+b.h+2*gap;
+ // Where a shape's name goes, after its edge labels are placed (`boxes`: every label already on the
+ // diagram, as upright boxes): where it starts (the label point) when clear of them and of the pin;
+ // else the nearest place inside the shape where the whole box fits and is clear; else below the
+ // shape, then above it, sliding outwards past whatever is in the way; else left, then right. The
+ // returned point is the box's centre. `within: false` for a line (it has no inside).
+ function placeName(points,box,{pin=null,boxes=[],gap=4,start=null,within=true}={}){
+  const clear=at=>!(pin&&boxMeetsCircle(at,box,pin.at,pin.r+gap))&&!boxes.some(b=>boxesMeet({at,w:box.w,h:box.h},b,gap));
+  const fits=at=>[[-1,-1],[1,-1],[1,1],[-1,1]].every(([sx,sy])=>insideOrOn([at[0]+sx*box.w/2,at[1]+sy*box.h/2],points));
+  const first=start||labelPoint(points);
+  if(clear(first))return first;
+  const xs=points.map(q=>q[0]),ys=points.map(q=>q[1]),x0=Math.min(...xs),x1=Math.max(...xs),y0=Math.min(...ys),y1=Math.max(...ys),cx=(x0+x1)/2,cy=(y0+y1)/2;
+  if(within){
+   const inside=[];for(let i=0;i<=12;i++)for(let j=0;j<=12;j++){const q=[x0+(x1-x0)*i/12,y0+(y1-y0)*j/12];if(fits(q))inside.push(q)}
+   inside.sort((a,b)=>Math.hypot(a[0]-first[0],a[1]-first[1])-Math.hypot(b[0]-first[0],b[1]-first[1]));
+   for(const q of inside)if(clear(q))return q;
+  }
+  const step=Math.max(1,box.h/4),reach=80;
+  for(let i=0;i<reach;i++){const d=i*step;for(const q of [[cx,y1+gap+box.h/2+d],[cx,y0-gap-box.h/2-d]])if(clear(q))return q}
+  for(let i=0;i<reach;i++){const d=i*step;for(const q of [[x0-gap-box.w/2-d,cy],[x1+gap+box.w/2+d,cy]])if(clear(q))return q}
+  return first;
+ }
  const pointsBox=pts=>{const xs=pts.map(p=>p[0]),ys=pts.map(p=>p[1]);return {cx:(Math.min(...xs)+Math.max(...xs))/2,minY:Math.min(...ys),maxY:Math.max(...ys)}};
 
  /* ---------- parcels, site check, lidar ---------- */
@@ -765,7 +788,7 @@
  const anyProperty=c=>!!(c&&(c.propertyCapture||c.publicGeo));
 
  const api={FT_PER_M,radii,round2,measure,problems,formula,reviewFlags,expectedErrorPct,MeasurementError,georef,measurable,toMercator,fromMercator,
-  frameOf,scaleFeetPerPx,segmentFt,viewCentre,scrollToCentre,boxMeetsCircle,turnedBox,clearOfPin,pointsBox,buildingOnView,scaleBar,measuredOnView,diagramModel,DIAGRAM_COLOURS,DIAGRAM_GROUND,angleAt,isSquare,RIGHT_TOL_DEG,edgeLengths,ftIn,ftInWords,parseLength,areaText,lfText,edgeLabels,labelPoint,shapeSummary,movePoint,insertPoint,removePoint,minPoints,setEdgeLength,snapPoint,nearestOnSegment,ringSegments,onPicture,
+  frameOf,scaleFeetPerPx,segmentFt,viewCentre,scrollToCentre,boxMeetsCircle,boxesMeet,placeName,turnedBox,clearOfPin,pointsBox,buildingOnView,scaleBar,measuredOnView,diagramModel,DIAGRAM_COLOURS,DIAGRAM_GROUND,angleAt,isSquare,RIGHT_TOL_DEG,edgeLengths,ftIn,ftInWords,parseLength,areaText,lfText,edgeLabels,labelPoint,shapeSummary,movePoint,insertPoint,removePoint,minPoints,setEdgeLength,snapPoint,nearestOnSegment,ringSegments,onPicture,
   remember,undoTrace,redoTrace,snapshotOf,bodyOfRecord,pixelShapes,drawnByText,withProvenance,sameShapes,viewRef,imageBody,KNOWN_LENGTHS,edgeComparison,lonlatPathFt,shoelace,insideOrOn,
   needsMeasurement,measureOffer,measureUnit,captureStatus,gatherStatus,noteText,clock,viewsOf,historyStrip,defaultMeasureView,leafText,dateText,yearOnly,dateOf,SIDE_TEXT,LOOKING,compass,
   publicSeries,creditLine,measurementBody,imageOf,parcelRings,siteCheckText,lidarFacts,bracket,withBracket,caps,anyProperty,ringProblem,CAPTURE_FAILED,CAPTURE_PART};

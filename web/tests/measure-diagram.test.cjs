@@ -218,3 +218,51 @@ test('clearOfPin: clear labels stay; covered ones go below the shape, above it, 
  assert.deepEqual(PM.clearOfPin([100,100],box,null),[100,100]);
  assert.deepEqual(PM.turnedBox({w:60,h:20},90).w.toFixed(6),'20.000000');
 });
+
+/* ---------- a shape's name never overlaps an edge label or the pin ---------- */
+// The live case (2026-11-25): a roof outline 180 x 165 px on a 1440 x 900 close aerial, the pin
+// inside it, the bottom edge's length label present; at 100 % (k 1.6) the name was placed below
+// the outline, on that label.
+const ROOF=[[896.6,295.8],[1069.3,284],[1075.3,141.6],[1003.8,141.6],[980,129.8],[896.6,135.7]];
+const LIVE_VIEW={width:1440,height:900,lat:39.79715705,lon:-89.64513155,pixel_size_m:0.0840796770343956};
+function layout(k,pin){
+ const frame=PM.frameOf(LIVE_VIEW),font=12*k,taken=[];
+ for(const l of PM.edgeLabels(ROOF,true,PM.edgeLengths(ROOF,true,frame),{k,font:12}))if(l.mode!=='hidden'){
+  const b={w:(l.text.length*0.62*12+10)*k,h:18*k},tb=PM.turnedBox(b,l.angle);taken.push({at:PM.clearOfPin([l.x,l.y],tb,pin),w:tb.w,h:tb.h,text:l.text,i:l.i})}
+ const box={w:Math.max(8*0.62*font,12*0.62*font*0.85)+8*k,h:font*2.7},q=PM.labelPoint(ROOF);
+ return {taken,box,name:PM.placeName(ROOF,box,{pin,boxes:taken,start:[q[0],q[1]+font*0.35]})};
+}
+test('the building’s name is placed after the edge labels, clear of every one of them and of the pin (the live geometry)',()=>{
+ const pin={at:[980,195],r:Math.max(7,1440/110)*1.9};
+ assert.ok(PM.insideOrOn(pin.at,ROOF),'the pin is inside the outline');
+ for(const k of [1.6,0.8,0.4]){
+  const {taken,box,name}=layout(k,pin);
+  assert.ok(taken.some(t=>t.i===0),'the bottom edge’s label is there');
+  for(const t of taken)assert.ok(!PM.boxesMeet({at:name,...box},t),`k ${k}: the name meets the label ${t.text}`);
+  assert.ok(!PM.boxMeetsCircle(name,box,pin.at,pin.r),`k ${k}: the name is under the pin`);
+ }
+ // where it goes: inside the outline when the whole box fits there clear of the pin
+ const at04=layout(0.4,pin);const fits=[[-1,-1],[1,-1],[1,1],[-1,1]].every(([sx,sy])=>PM.insideOrOn([at04.name[0]+sx*at04.box.w/2,at04.name[1]+sy*at04.box.h/2],ROOF));
+ assert.ok(fits,'zoomed in, it fits inside the outline away from the pin');
+ // with no pin and nothing in the way it stays at the outline's label point
+ const free=PM.placeName(ROOF,{w:20,h:10},{boxes:[]});assert.deepEqual(free,PM.labelPoint(ROOF));
+});
+test('placeName tries inside, then below and above sliding past what is in the way, then beside',()=>{
+ const sq=[[0,0],[100,0],[100,100],[0,100]],big={w:150,h:20};
+ assert.deepEqual(PM.placeName(sq,big,{pin:{at:[50,50],r:10}}),[50,100+4+10],'too wide for the inside: below');
+ const below={at:[50,114],w:200,h:20};
+ const p=PM.placeName(sq,big,{pin:{at:[50,50],r:10},boxes:[below]});assert.ok(!PM.boxesMeet({at:p,...big},below,4)&&p[1]<0,'below is taken: above');
+ const p2=PM.placeName(sq,big,{pin:{at:[50,50],r:10},boxes:[{at:[50,40],w:400,h:400}]});assert.ok(!PM.boxesMeet({at:p2,...big},{at:[50,40],w:400,h:400},4));
+ const small={w:20,h:10},q=PM.placeName(sq,small,{pin:{at:[50,50],r:10}});
+ assert.ok(PM.insideOrOn(q,sq)&&!PM.boxMeetsCircle(q,small,[50,50],14),'small enough: inside, away from the pin');
+});
+test('on the rendered diagram no name box meets an edge label or the pin',async()=>{
+ const x=await boot({storage:memory()});x.Live.measurePicture.set('diagram');
+ const html=await x.page(()=>x.Live.screens.property());
+ const pinAt=/class="pa-pin" transform="translate\(([\d.]+) ([\d.]+)\)"/.exec(html).slice(1).map(Number),r=Math.max(7,1440/110)*1.9,font=12*1440/900;
+ const edges=[...html.matchAll(/class="mt-d-label[^"]*" transform="translate\(([\d.]+) ([\d.]+)\) rotate\(([-\d.]+)\)"[^>]*><rect x="[-\d.]+" y="[-\d.]+" width="([\d.]+)" height="([\d.]+)"/g)].map(m=>{const [x0,y0,a,w,h]=m.slice(1).map(Number);return {at:[x0,y0],...PM.turnedBox({w,h},a)}});
+ const names=[...html.matchAll(/class="mt-d-total([^"]*)" transform="translate\(([\d.]+) ([\d.]+)\)"[^>]*data-box="([\d.]+) ([\d.]+)"/g)].map(m=>{const [ax,ay,w,h]=m.slice(2).map(Number),line=/is-line/.test(m[1]);return {at:[line?ax+w/2:ax,ay+font*0.35],w,h}});
+ assert.ok(edges.length>=6&&names.length>=2,'the building’s and the patio’s');
+ for(const n of names){for(const e of edges)assert.ok(!PM.boxesMeet(n,e),'a name on an edge label');assert.ok(!PM.boxMeetsCircle(n.at,n,pinAt,r),'a name under the pin')}
+ for(let i=0;i<names.length;i++)for(let j=i+1;j<names.length;j++)assert.ok(!PM.boxesMeet(names[i],names[j]),'two names on each other');
+});

@@ -605,28 +605,38 @@ ${toolPanel('property',s,a,t,v,{})}
   const m=model,what=[m.lots.length?`${m.lots.length} lot ${m.lots.length===1?'line':'lines'}`:'no lot line',m.legend.length?`measured: ${m.legend.map(x=>`${x.name} ${x.quantity}`).join(', ')}`:'nothing measured'].join('; ');
   return `<svg class="mt-diagram" viewBox="0 0 ${m.w} ${m.h}" preserveAspectRatio="none" data-mt-diagram="${scope}" role="img" aria-label="${esc(`Diagram of the property: ${what}. North is up; scale bar ${m.scale?.label||'unknown'}.`)}">${diagramBody(diagrams[scope])}</svg>`;
  }
- // Every label is placed clear of the pin, which the overlay draws over the diagram.
+ // Labels never overlap each other or the pin, which the overlay draws over the diagram: the edge
+ // lengths are placed first (each pushed clear of the pin), then each shape's name, tested against
+ // every label already placed and the pin (PM.placeName: inside the shape first, then below or
+ // above it, then beside it).
  function diagramBody({model:m,frame,k,pin=null}){
-  k=k||m.w/900;const font=MT_FONT*k,P=pts=>pts.map(q=>q.map(n=>n.toFixed(1)).join(',')).join(' '),out=[],labels=[];
-  const edgeAt=(l,b)=>PM.clearOfPin([l.x,l.y],PM.turnedBox(b,l.angle),pin);
-  const totalBox=(lines,f1x)=>({w:Math.max(...lines.map(t=>t.length))*0.62*f1x+8*k,h:font*2.7});// two lines, the first at the anchor
-  const totalAt=(at,box,shape)=>{const c=[at[0],at[1]+font*0.35],p=PM.clearOfPin(c,box,pin,{shape});return [p[0],p[1]-font*0.35]};
+  k=k||m.w/900;const font=MT_FONT*k,P=pts=>pts.map(q=>q.map(n=>n.toFixed(1)).join(',')).join(' '),out=[],labels=[],taken=[],names=[];
+  const edgeLabel=(l,cls,colour)=>{const b=labelBox(l.text,k),tb=PM.turnedBox(b,l.angle),[lx,ly]=PM.clearOfPin([l.x,l.y],tb,pin);taken.push({at:[lx,ly],w:tb.w,h:tb.h});
+   labels.push(`<g class="mt-d-label${cls}" transform="translate(${f1(lx)} ${f1(ly)}) rotate(${f1(l.angle)})"${colour?` style="--c:${colour}"`:''}><rect x="${f1(-b.w/2)}" y="${f1(-b.h/2)}" width="${f1(b.w)}" height="${f1(b.h)}" rx="${f1(4*k)}"/><text y="${f1(0.36*font)}" font-size="${f1(font)}">${esc(l.text)}</text></g>`)};
+  // A name of two lines: the first's baseline at the anchor, the box's middle 0.35 em below it.
+  const nameBox=(a,b,fa,fb)=>({w:Math.max(a.length*0.62*fa,b.length*0.62*fb)+8*k,h:font*2.7});
   out.push(`<rect class="mt-d-ground" x="0" y="0" width="${m.w}" height="${m.h}" fill="${m.ground}"/>`);
   for(const lot of m.lots)out.push(`<polygon class="mt-d-lot${lot.adjacent?' is-adjacent':''}" points="${P(lot.points)}"/>`);
   // The building: the lidar's roof outline (overhangs included), grey, with its edge lengths.
   if(m.building){const bp=m.building.points;out.push(`<polygon class="mt-d-building" points="${P(bp)}"/>`);
-   if(frame)for(const l of PM.edgeLabels(bp,true,PM.edgeLengths(bp,true,frame),{k,font:MT_FONT}))if(l.mode!=='hidden'){const b=labelBox(l.text,k),[lx,ly]=edgeAt(l,b);labels.push(`<g class="mt-d-label is-building" transform="translate(${f1(lx)} ${f1(ly)}) rotate(${f1(l.angle)})"><rect x="${f1(-b.w/2)}" y="${f1(-b.h/2)}" width="${f1(b.w)}" height="${f1(b.h)}" rx="${f1(4*k)}"/><text y="${f1(0.36*font)}" font-size="${f1(font)}">${esc(l.text)}</text></g>`)}
-   const at=totalAt(PM.labelPoint(bp),totalBox(['roof outline'],font),PM.pointsBox(bp));labels.push(`<g class="mt-d-total is-building" transform="translate(${f1(at[0])} ${f1(at[1])})"><text font-size="${f1(font)}">Building</text><text y="${f1(font*1.25)}" font-size="${f1(font*0.85)}">roof outline</text></g>`)}
+   if(frame)for(const l of PM.edgeLabels(bp,true,PM.edgeLengths(bp,true,frame),{k,font:MT_FONT}))if(l.mode!=='hidden')edgeLabel(l,' is-building',null);
+   names.push({points:bp,within:true,start:null,lines:['Building','roof outline'],sizes:[font,font*0.85],cls:' is-building',colour:null,gap2:font*1.25})}
   for(const sh of m.shapes)for(const one of sh.shapes){
    const rings=one.kind==='line'?[{p:one.path,closed:false}]:[{p:one.ring,closed:true},...(one.cutouts||[]).map(c=>({p:c,closed:true,cut:true}))];
    for(const r of rings)out.push(r.closed?`<polygon class="mt-d-shape${r.cut?' is-cut':''}" points="${P(r.p)}" style="--c:${sh.colour}"/>`:`<polyline class="mt-d-shape is-line" points="${P(r.p)}" style="--c:${sh.colour}"/>`);
-   if(frame)for(const r of rings)for(const l of PM.edgeLabels(r.p,r.closed,PM.edgeLengths(r.p,r.closed,frame),{k,font:MT_FONT}))if(l.mode!=='hidden'){const b=labelBox(l.text,k),[lx,ly]=edgeAt(l,b);
-    labels.push(`<g class="mt-d-label" transform="translate(${f1(lx)} ${f1(ly)}) rotate(${f1(l.angle)})" style="--c:${sh.colour}"><rect x="${f1(-b.w/2)}" y="${f1(-b.h/2)}" width="${f1(b.w)}" height="${f1(b.h)}" rx="${f1(4*k)}"/><text y="${f1(0.36*font)}" font-size="${f1(font)}">${esc(l.text)}</text></g>`)}
-   // A line's name and length at its end (as the tool puts a line's total), an area's inside it.
-   if(frame){const sum=PM.shapeSummary(one,frame,{unit:sh.unit,heightFt:sh.heightFt}),line=one.kind==='line',end=line?one.path[one.path.length-1]:null,lines=[typeName(sh.label),line?sum.text:sum.area];
-    let at=line?[end[0]+10*k,end[1]-10*k]:PM.labelPoint(one.ring);const box=totalBox(lines,font*1.1);
-    at=line?(()=>{const c=[at[0]+box.w/2,at[1]+font*0.35],p=PM.clearOfPin(c,box,pin);return [p[0]-box.w/2,p[1]-font*0.35]})():totalAt(at,box,PM.pointsBox(one.ring));
-    labels.push(`<g class="mt-d-total${line?' is-line':''}" transform="translate(${f1(at[0])} ${f1(at[1])})" style="--c:${sh.colour}"><text font-size="${f1(font*1.1)}">${esc(typeName(sh.label))}</text><text y="${f1(font*1.3)}" font-size="${f1(font*0.95)}">${esc(one.kind==='line'?sum.text:sum.area)}</text></g>`)}
+   if(frame)for(const r of rings)for(const l of PM.edgeLabels(r.p,r.closed,PM.edgeLengths(r.p,r.closed,frame),{k,font:MT_FONT}))if(l.mode!=='hidden')edgeLabel(l,'',sh.colour);
+   if(frame){const sum=PM.shapeSummary(one,frame,{unit:sh.unit,heightFt:sh.heightFt}),line=one.kind==='line',lines=[typeName(sh.label),line?sum.text:sum.area];
+    // A line's name starts beside its end (as the tool puts a line's total), centred on the box.
+    const end=line?one.path[one.path.length-1]:null,box=nameBox(lines[0],lines[1],font*1.1,font*0.95);
+    names.push({points:line?one.path:one.ring,within:!line,start:line?[end[0]+10*k,end[1]-10*k+font*0.35]:null,lines,sizes:[font*1.1,font*0.95],cls:line?' is-line':'',colour:sh.colour,gap2:font*1.3,box,line})}
+  }
+  for(const n of names){
+   const box=n.box||nameBox(n.lines[0],n.lines[1],n.sizes[0],n.sizes[1]);
+   const start=n.start?[n.start[0]+box.w/2,n.start[1]]:(()=>{const q=PM.labelPoint(n.points);return [q[0],q[1]+font*0.35]})();
+   const c=PM.placeName(n.points,box,{pin,boxes:taken,start,within:n.within});taken.push({at:c,w:box.w,h:box.h});
+   // The anchor: the middle of the box for a centred name, its left edge for a line's (text-anchor start).
+   const ax=n.line?c[0]-box.w/2:c[0],ay=c[1]-font*0.35;
+   labels.push(`<g class="mt-d-total${n.cls}" transform="translate(${f1(ax)} ${f1(ay)})"${n.colour?` style="--c:${n.colour}"`:''} data-box="${f1(box.w)} ${f1(box.h)}"><text font-size="${f1(n.sizes[0])}">${esc(n.lines[0])}</text><text y="${f1(n.gap2)}" font-size="${f1(n.sizes[1])}">${esc(n.lines[1])}</text></g>`);
   }
   return out.join('')+labels.join('');
  }
