@@ -1884,7 +1884,7 @@
           "reviews"
         ],
         "summary": "Approve or reject the current review stage",
-        "description": "Records the decision and queues it for the workflow (202). A stage the study is not at, or a revision that is not its current one, is 409; so is a gate the workflow has not opened yet (`gate-not-open`: the study is at the stage but `processing` or `failed`). Each correction's `entity_type` must be one the stage accepts (appraisal_review: extraction_field, extraction_field_add; rooms_review: room, photo_room; components_review: component, component_remove, room_component, photo; assets_review: asset; a study whose `components_gate` is false has the single rooms_review: room, component, component_remove, room_component, photo) and its `entity_id` must exist in the study at the decided revision (a photo or photo_room: a photo document of the study; a room_component: the room it adds a component to); a `photo_room` `after` is exactly a `room_id` of that revision; a `component` `count` must be a whole number from 1, an `asset`'s measured quantity (EVAL_REPORT 78) is `quantity` (positive), `quantity_unit` (EA, SF, LF, SY) and `quantity_source` (where it was measured) together, and a `room_component` `after` a taxonomy `label` with a `count` (optional `material`, `attachment` from their vocabularies); an `asset` or `component` correction may carry the engineer's unit price, `unit_cost` (dollars per takeoff unit to the cent, above 0, at most 10,000,000; null clears it) with `unit_cost_source` (1 to 300 characters) and a required `reason`, refused for a concealed row of the structure model and while `GET /v1/capabilities` says `unit_cost_override: false` (docs/api/OVERRIDES.md); otherwise 422 with one `errors` entry per offending correction, located at `[\"body\", \"corrections\", <index>, \"entity_type\" | \"entity_id\" | \"after\" | \"reason\"]`. A `component_remove` (an erroneous room inventory component row: `entity_id` a component of the revision, `after` exactly `{}`, `reason` required) leaves the row out of the next revision; refused: the same row removed twice or also corrected (`correction_duplicate`), a row the rejection rebuilds anyway (an inventory row of a room whose photo the same decision flags for re-analysis, or of a merged room, or a flagged photo's row: `correction_rebuilt`), a room's last inventory row (`correction_last_inventory`). It never deletes a photo's detected object (that is `DELETE .../photos/{document_id}/objects/{object_id}`). An `extraction_field_add` (an appraisal field the extraction missed: `entity_id` the extraction, `after` `{key, value_text | value_num | value_date, page, evidence}`, `reason` required) is refused for an unknown key, a value of the wrong type, a page past the PDF (`correction_value`), a key the extraction has (`correction_field_exists`: correct it with `extraction_field`) or a key added twice (`correction_duplicate`); a missing reason is `correction_reason` at `reason`.",
+        "description": "Records the decision and queues it for the workflow (202). A stage the study is not at, or a revision that is not its current one, is 409; so is a gate the workflow has not opened yet (`gate-not-open`: the study is at the stage but `processing` or `failed`). Each correction's `entity_type` must be one the stage accepts (appraisal_review: extraction_field, extraction_field_add; rooms_review: room, photo_room; components_review: component, component_remove, room_component, photo; assets_review: asset; a study whose `components_gate` is false has the single rooms_review: room, component, component_remove, room_component, photo) and its `entity_id` must exist in the study at the decided revision (a photo or photo_room: a photo document of the study; a room_component: the room it adds a component to); a `photo_room` `after` is exactly a `room_id` of that revision; a `component` `count` must be a whole number from 1, an `asset`'s measured quantity (EVAL_REPORT 78) is `quantity` (positive), `quantity_unit` (EA, SF, LF, SY) and `quantity_source` (where it was measured) together, or a traced `measurement` (EVAL_REPORT 97: the shape the engineer traced on an image, in lon/lat or in pixels with a scale; the server computes the quantity; never with the three, refused for a shape that breaks a rule of docs/api/OVERRIDES.md section 4, for an `image.document_id` that is not a document of the study and while `GET /v1/capabilities` says `traced_measurement: false`), and a `room_component` `after` a taxonomy `label` with a `count` (optional `material`, `attachment` from their vocabularies); an `asset` or `component` correction may carry the engineer's unit price, `unit_cost` (dollars per takeoff unit to the cent, above 0, at most 10,000,000; null clears it) with `unit_cost_source` (1 to 300 characters) and a required `reason`, refused for a concealed row of the structure model and while `GET /v1/capabilities` says `unit_cost_override: false` (docs/api/OVERRIDES.md); otherwise 422 with one `errors` entry per offending correction, located at `[\"body\", \"corrections\", <index>, \"entity_type\" | \"entity_id\" | \"after\" | \"reason\"]`. A `component_remove` (an erroneous room inventory component row: `entity_id` a component of the revision, `after` exactly `{}`, `reason` required) leaves the row out of the next revision; refused: the same row removed twice or also corrected (`correction_duplicate`), a row the rejection rebuilds anyway (an inventory row of a room whose photo the same decision flags for re-analysis, or of a merged room, or a flagged photo's row: `correction_rebuilt`), a room's last inventory row (`correction_last_inventory`). It never deletes a photo's detected object (that is `DELETE .../photos/{document_id}/objects/{object_id}`). An `extraction_field_add` (an appraisal field the extraction missed: `entity_id` the extraction, `after` `{key, value_text | value_num | value_date, page, evidence}`, `reason` required) is refused for an unknown key, a value of the wrong type, a page past the PDF (`correction_value`), a key the extraction has (`correction_field_exists`: correct it with `extraction_field`) or a key added twice (`correction_duplicate`); a missing reason is `correction_reason` at `reason`.",
         "operationId": "record_decision_v1_studies__study_id__decisions_post",
         "security": [
           {
@@ -3689,6 +3689,264 @@
           },
           "404": {
             "description": "Not found, or not visible to you (the two are indistinguishable).",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/studies/{study_id}/renovations": {
+      "get": {
+        "tags": [
+          "renovations"
+        ],
+        "summary": "The study's renovation projects and their version (ETag)",
+        "description": "Viewer role. `renovations` is null until an engineer saves them; the `ETag` is `\"0\"` then.",
+        "operationId": "get_renovations_v1_studies__study_id__renovations_get",
+        "security": [
+          {
+            "FirebaseIdToken": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "study_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "description": "Study id.",
+              "title": "Study Id"
+            },
+            "description": "Study id."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/basis__api__schemas__renovations__RenovationsOut"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing, malformed, expired or revoked bearer token.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation failed (`errors` lists each field), or an `Idempotency-Key` was reused with a different request.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Rate limit exceeded; see `Retry-After`.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "A dependency (the database) is unavailable; see `Retry-After`.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found, or not visible to you (the two are indistinguishable).",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "renovations"
+        ],
+        "summary": "Set or replace the study's renovation projects (engineer)",
+        "description": "The projects (after or before the building was placed in service), their dates, invoices, the CPA's capitalized amount and the photographs tagged after each, the bonus the CPA says was claimed on the acquisition, and exterior components' dated views. `If-Match` as on the intake (412 `BASIS-STUDY-039`). 409 `renovations-locked` (`BASIS-STUDY-038`) once the current revision is exported; 409 `stale-state` on an archived study; 422 `BASIS-STUDY-040` for a file that is not the study's or dates that contradict the intake.",
+        "operationId": "put_renovations_v1_studies__study_id__renovations_put",
+        "security": [
+          {
+            "FirebaseIdToken": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "study_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "description": "Study id.",
+              "title": "Study Id"
+            },
+            "description": "Study id."
+          },
+          {
+            "name": "If-Match",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "The entity tag from `GET .../renovations` (`\"3\"`), or `*` (any existing document). Optional.",
+              "title": "If-Match"
+            },
+            "description": "The entity tag from `GET .../renovations` (`\"3\"`), or `*` (any existing document). Optional."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/StudyRenovationsIn"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/basis__api__schemas__renovations__RenovationsOut"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Missing or malformed `Idempotency-Key`.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing, malformed, expired or revoked bearer token.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflicts with the current state (stale stage or revision, duplicate, archived, upload mismatch, or the same `Idempotency-Key` still in flight).",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "The request body is larger than 1 MiB.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation failed (`errors` lists each field), or an `Idempotency-Key` was reused with a different request.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Rate limit exceeded; see `Retry-After`.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "A dependency (the database) is unavailable; see `Retry-After`.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Your role is too low for this action (the study or firm is visible to you); `no-firm`: you are not a member of any firm; `email-unverified`: your sign-in does not verify the invited email.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found, or not visible to you (the two are indistinguishable).",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "412": {
+            "description": "`precondition-failed`: the `If-Match` entity tag is not the current one (the resource changed since you read it); nothing was written. Read it again and retry with the new `ETag`.",
             "content": {
               "application/problem+json": {
                 "schema": {
@@ -9471,7 +9729,7 @@
           "me"
         ],
         "summary": "The engineer overrides this deployment accepts",
-        "description": "Any signed-in user, with or without a firm. `object_exclusion` (`OBJECT_EXCLUSION`) and `unit_cost_override` (`UNIT_COST_OVERRIDE`) follow their settings; `room_create` is always false. A client that gets anything but a 200 should offer none of them.",
+        "description": "Any signed-in user, with or without a firm. `object_exclusion` (`OBJECT_EXCLUSION`), `unit_cost_override` (`UNIT_COST_OVERRIDE`), `traced_measurement` (`TRACED_MEASUREMENT`), `property_capture` (`PROPERTY_CAPTURE`) and `public_geo` (`PUBLIC_GEO`) follow their settings; `room_create` is always false. A client that gets anything but a 200 should offer none of them.",
         "operationId": "get_capabilities_v1_capabilities_get",
         "responses": {
           "200": {
@@ -11436,6 +11694,1270 @@
         }
       }
     },
+    "/v1/studies/{study_id}/property": {
+      "get": {
+        "tags": [
+          "property"
+        ],
+        "summary": "The property's pin and its newest pictures",
+        "description": "The pin (`ETag` its version; `\"0\"` and `pin: null` while none), the newest capture with its views, and whether this deployment takes captures.",
+        "operationId": "get_property_v1_studies__study_id__property_get",
+        "security": [
+          {
+            "FirebaseIdToken": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "study_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "description": "Study id.",
+              "title": "Study Id"
+            },
+            "description": "Study id."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PropertyOut"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing, malformed, expired or revoked bearer token.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation failed (`errors` lists each field), or an `Idempotency-Key` was reused with a different request.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Rate limit exceeded; see `Retry-After`.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "A dependency (the database) is unavailable; see `Retry-After`.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/studies/{study_id}/property/captures": {
+      "get": {
+        "tags": [
+          "property"
+        ],
+        "summary": "The property's captures, newest first",
+        "operationId": "list_captures_v1_studies__study_id__property_captures_get",
+        "security": [
+          {
+            "FirebaseIdToken": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "study_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "description": "Study id.",
+              "title": "Study Id"
+            },
+            "description": "Study id."
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 50,
+              "minimum": 1,
+              "default": 20,
+              "title": "Limit"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CaptureListOut"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing, malformed, expired or revoked bearer token.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation failed (`errors` lists each field), or an `Idempotency-Key` was reused with a different request.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Rate limit exceeded; see `Retry-After`.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "A dependency (the database) is unavailable; see `Retry-After`.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found, or not visible to you (the two are indistinguishable).",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "property"
+        ],
+        "summary": "Take pictures of the property (in the background)",
+        "description": "202 with the queued capture. It runs on the capture worker and may pause (`status: waiting`, `resume_at`) and resume on its own; poll `GET .../property`. 200 with the recent capture when the same pin was captured within `CAPTURE_RECENT_HOURS` (send `force: true` to take them again). 409 `capture-off`, 409 `capture-in-progress`, 422 `capture-no-address`, 503 when the workflow cannot start.",
+        "operationId": "start_capture_v1_studies__study_id__property_captures_post",
+        "security": [
+          {
+            "FirebaseIdToken": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "study_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "description": "Study id.",
+              "title": "Study Id"
+            },
+            "description": "Study id."
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 130,
+              "pattern": "^(\"[!#-~]{1,128}\"|[!#-~]{1,128})$",
+              "title": "Idempotency-Key"
+            },
+            "description": "Required on POST and DELETE. 1 to 128 visible ASCII characters; a UUID is recommended. Retries with the same key and body replay the response."
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "anyOf": [
+                  {
+                    "$ref": "#/components/schemas/CaptureIn"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Body"
+              }
+            }
+          }
+        },
+        "responses": {
+          "202": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CaptureOut"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Missing or malformed `Idempotency-Key`.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing, malformed, expired or revoked bearer token.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflicts with the current state (stale stage or revision, duplicate, archived, upload mismatch, or the same `Idempotency-Key` still in flight).",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "The request body is larger than 1 MiB.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation failed (`errors` lists each field), or an `Idempotency-Key` was reused with a different request.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Rate limit exceeded; see `Retry-After`.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "A dependency (the database) is unavailable; see `Retry-After`.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CaptureOut"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "403": {
+            "description": "Your role is too low for this action (the study or firm is visible to you); `no-firm`: you are not a member of any firm; `email-unverified`: your sign-in does not verify the invited email.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found, or not visible to you (the two are indistinguishable).",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/studies/{study_id}/property/captures/{capture_id}": {
+      "get": {
+        "tags": [
+          "property"
+        ],
+        "summary": "One capture with its views",
+        "operationId": "get_capture_v1_studies__study_id__property_captures__capture_id__get",
+        "security": [
+          {
+            "FirebaseIdToken": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "capture_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "description": "Capture id.",
+              "title": "Capture Id"
+            },
+            "description": "Capture id."
+          },
+          {
+            "name": "study_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "description": "Study id.",
+              "title": "Study Id"
+            },
+            "description": "Study id."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CaptureOut"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing, malformed, expired or revoked bearer token.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation failed (`errors` lists each field), or an `Idempotency-Key` was reused with a different request.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Rate limit exceeded; see `Retry-After`.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "A dependency (the database) is unavailable; see `Retry-After`.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found, or not visible to you (the two are indistinguishable).",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/studies/{study_id}/property/views/{view_id}/image": {
+      "get": {
+        "tags": [
+          "property"
+        ],
+        "summary": "One view's image (PNG)",
+        "description": "`ETag` is the image's sha256; `If-None-Match` with it answers 304.",
+        "operationId": "get_view_image_v1_studies__study_id__property_views__view_id__image_get",
+        "security": [
+          {
+            "FirebaseIdToken": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "view_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "description": "View id.",
+              "title": "View Id"
+            },
+            "description": "View id."
+          },
+          {
+            "name": "study_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "description": "Study id.",
+              "title": "Study Id"
+            },
+            "description": "Study id."
+          },
+          {
+            "name": "if-none-match",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "If-None-Match"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "image/png": {}
+            }
+          },
+          "401": {
+            "description": "Missing, malformed, expired or revoked bearer token.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation failed (`errors` lists each field), or an `Idempotency-Key` was reused with a different request.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Rate limit exceeded; see `Retry-After`.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "A dependency (the database) is unavailable; see `Retry-After`.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "304": {
+            "description": "Not modified."
+          },
+          "404": {
+            "description": "Not found, or not visible to you (the two are indistinguishable).",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/studies/{study_id}/property/pin": {
+      "put": {
+        "tags": [
+          "property"
+        ],
+        "summary": "Set the property's address, point and confirmation",
+        "description": "The whole pin. A point you send that differs from the stored one is yours (`source: engineer`); no point clears it, and the next capture searches the address. `confirmed` needs a point; moving the point withdraws an earlier confirmation unless this request confirms it. Views taken at another point than the pin's current one are marked `stale`; confirming or editing the address without moving the point keeps them current. `If-Match` with the `ETag` of the `GET` (412 BASIS-CAPTURE-016 with the current `ETag` otherwise; `*` only over a saved pin).",
+        "operationId": "put_pin_v1_studies__study_id__property_pin_put",
+        "security": [
+          {
+            "FirebaseIdToken": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "study_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "description": "Study id.",
+              "title": "Study Id"
+            },
+            "description": "Study id."
+          },
+          {
+            "name": "If-Match",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "The entity tag from the matching `GET` (`\"3\"`), or `*` (any existing document). Optional.",
+              "title": "If-Match"
+            },
+            "description": "The entity tag from the matching `GET` (`\"3\"`), or `*` (any existing document). Optional."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PinIn"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PinOut"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Missing or malformed `Idempotency-Key`.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing, malformed, expired or revoked bearer token.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflicts with the current state (stale stage or revision, duplicate, archived, upload mismatch, or the same `Idempotency-Key` still in flight).",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "The request body is larger than 1 MiB.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation failed (`errors` lists each field), or an `Idempotency-Key` was reused with a different request.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Rate limit exceeded; see `Retry-After`.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "A dependency (the database) is unavailable; see `Retry-After`.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Your role is too low for this action (the study or firm is visible to you); `no-firm`: you are not a member of any firm; `email-unverified`: your sign-in does not verify the invited email.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found, or not visible to you (the two are indistinguishable).",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "412": {
+            "description": "`precondition-failed`: the `If-Match` entity tag is not the current one (the resource changed since you read it); nothing was written. Read it again and retry with the new `ETag`.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/ops/capture-incidents": {
+      "get": {
+        "tags": [
+          "ops"
+        ],
+        "summary": "Property-capture failures, grouped by code (operators)",
+        "description": "One row per `BASIS-CAPTURE-<nnn>` seen: count, first and last seen, and the newest occurrence's study, capture, page, HTTP status and evidence prefix. Platform operators only (`OPS_OPERATOR_UIDS`).",
+        "operationId": "list_capture_incidents_v1_ops_capture_incidents_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IncidentListOut"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing, malformed, expired or revoked bearer token.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation failed (`errors` lists each field), or an `Idempotency-Key` was reused with a different request.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Rate limit exceeded; see `Retry-After`.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "A dependency (the database) is unavailable; see `Retry-After`.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Your role is too low for this action (the study or firm is visible to you); `no-firm`: you are not a member of any firm; `email-unverified`: your sign-in does not verify the invited email.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "FirebaseIdToken": []
+          }
+        ]
+      }
+    },
+    "/v1/studies/{study_id}/property/public": {
+      "get": {
+        "tags": [
+          "property"
+        ],
+        "summary": "The property's public records: images, parcels, lidar",
+        "description": "The newest gather of the public sources: the current public top-down view, one view per year, the parcel under the pin (and the owner's adjacent ones), the check of the parcel's area against the appraisal's site area, and the lidar heights and footprint, each with its source, credit and terms.",
+        "operationId": "get_public_v1_studies__study_id__property_public_get",
+        "security": [
+          {
+            "FirebaseIdToken": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "study_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "description": "Study id.",
+              "title": "Study Id"
+            },
+            "description": "Study id."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicPropertyOut"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing, malformed, expired or revoked bearer token.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation failed (`errors` lists each field), or an `Idempotency-Key` was reused with a different request.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Rate limit exceeded; see `Retry-After`.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "A dependency (the database) is unavailable; see `Retry-After`.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "property"
+        ],
+        "summary": "Gather the property's public records (in the background)",
+        "description": "202 with the queued gather; poll `GET .../property/public`. 200 with the recent gather when the same pin was gathered within `GEO_RECENT_HOURS` (send `force: true` to gather again). 409 `geo-off`, 409 `geo-in-progress`, 422 `geo-no-point`, 503 when the workflow cannot start.",
+        "operationId": "start_gather_v1_studies__study_id__property_public_post",
+        "security": [
+          {
+            "FirebaseIdToken": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "study_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "description": "Study id.",
+              "title": "Study Id"
+            },
+            "description": "Study id."
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 130,
+              "pattern": "^(\"[!#-~]{1,128}\"|[!#-~]{1,128})$",
+              "title": "Idempotency-Key"
+            },
+            "description": "Required on POST and DELETE. 1 to 128 visible ASCII characters; a UUID is recommended. Retries with the same key and body replay the response."
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "anyOf": [
+                  {
+                    "$ref": "#/components/schemas/GatherIn"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Body"
+              }
+            }
+          }
+        },
+        "responses": {
+          "202": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GatherOut"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Missing or malformed `Idempotency-Key`.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing, malformed, expired or revoked bearer token.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflicts with the current state (stale stage or revision, duplicate, archived, upload mismatch, or the same `Idempotency-Key` still in flight).",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "The request body is larger than 1 MiB.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation failed (`errors` lists each field), or an `Idempotency-Key` was reused with a different request.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Rate limit exceeded; see `Retry-After`.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "A dependency (the database) is unavailable; see `Retry-After`.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GatherOut"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "403": {
+            "description": "Your role is too low for this action (the study or firm is visible to you); `no-firm`: you are not a member of any firm; `email-unverified`: your sign-in does not verify the invited email.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found, or not visible to you (the two are indistinguishable).",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/studies/{study_id}/property/public/views/{view_id}/image": {
+      "get": {
+        "tags": [
+          "property"
+        ],
+        "summary": "One public view's image",
+        "description": "`ETag` is the image's sha256; `If-None-Match` with it answers 304.",
+        "operationId": "get_public_image_v1_studies__study_id__property_public_views__view_id__image_get",
+        "security": [
+          {
+            "FirebaseIdToken": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "view_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "description": "Public view id.",
+              "title": "View Id"
+            },
+            "description": "Public view id."
+          },
+          {
+            "name": "study_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "description": "Study id.",
+              "title": "Study Id"
+            },
+            "description": "Study id."
+          },
+          {
+            "name": "if-none-match",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "If-None-Match"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "image/jpeg": {},
+              "image/png": {}
+            }
+          },
+          "401": {
+            "description": "Missing, malformed, expired or revoked bearer token.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation failed (`errors` lists each field), or an `Idempotency-Key` was reused with a different request.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Rate limit exceeded; see `Retry-After`.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "A dependency (the database) is unavailable; see `Retry-After`.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "304": {
+            "description": "Not modified."
+          },
+          "404": {
+            "description": "Not found, or not visible to you (the two are indistinguishable).",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/ops/geo-incidents": {
+      "get": {
+        "tags": [
+          "ops"
+        ],
+        "summary": "Public-source failures, grouped by code and source (operators)",
+        "description": "One row per `BASIS-GEO-<nnn>` and source: count, first and last seen, and the newest occurrence's study, gather, request and HTTP status. Platform operators only.",
+        "operationId": "list_geo_incidents_v1_ops_geo_incidents_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GeoIncidentListOut"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing, malformed, expired or revoked bearer token.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation failed (`errors` lists each field), or an `Idempotency-Key` was reused with a different request.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Rate limit exceeded; see `Retry-After`.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "A dependency (the database) is unavailable; see `Retry-After`.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Your role is too low for this action (the study or firm is visible to you); `no-firm`: you are not a member of any firm; `email-unverified`: your sign-in does not verify the invited email.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "FirebaseIdToken": []
+          }
+        ]
+      }
+    },
     "/v1/ops/health": {
       "get": {
         "tags": [
@@ -11997,7 +13519,7 @@
         "properties": {
           "category": {
             "$ref": "#/components/schemas/CostCategory",
-            "description": "A settlement-statement line. Capitalized categories add to basis (Reg. 1.263(a)-2(f); Pub. 551): abstract_fees, title_search, title_insurance_owner, legal_fees, recording_fees, survey, transfer_taxes, broker_commission, appraisal_buyer, inspection, utility_connection, seller_obligations_paid, other_facilitative. The loan and occupancy categories (points, loan_origination, mortgage_insurance, loan_assumption_fee, credit_report, appraisal_lender, prepaid_interest, escrow_taxes, escrow_insurance, casualty_insurance, property_tax_proration, prepaid_rent, utilities_before_closing, refinancing_fees) are refused with the reason."
+            "description": "A settlement-statement line. Capitalized categories add to basis (Reg. 1.263(a)-2(f); Pub. 551): abstract_fees, title_search, title_insurance_owner, legal_fees, recording_fees, survey, transfer_taxes, broker_commission, appraisal_buyer, inspection, utility_connection, seller_obligations_paid, other_facilitative, improvements_before_service (a renovation made after the purchase and before the property was placed in service, docs/api/RENOVATIONS.md). The loan and occupancy categories (points, loan_origination, mortgage_insurance, loan_assumption_fee, credit_report, appraisal_lender, prepaid_interest, escrow_taxes, escrow_insurance, casualty_insurance, property_tax_proration, prepaid_rent, utilities_before_closing, refinancing_fees) are refused with the reason."
           },
           "amount": {
             "anyOf": [
@@ -12040,7 +13562,7 @@
         "properties": {
           "category": {
             "$ref": "#/components/schemas/CostCategory",
-            "description": "A settlement-statement line. Capitalized categories add to basis (Reg. 1.263(a)-2(f); Pub. 551): abstract_fees, title_search, title_insurance_owner, legal_fees, recording_fees, survey, transfer_taxes, broker_commission, appraisal_buyer, inspection, utility_connection, seller_obligations_paid, other_facilitative. The loan and occupancy categories (points, loan_origination, mortgage_insurance, loan_assumption_fee, credit_report, appraisal_lender, prepaid_interest, escrow_taxes, escrow_insurance, casualty_insurance, property_tax_proration, prepaid_rent, utilities_before_closing, refinancing_fees) are refused with the reason."
+            "description": "A settlement-statement line. Capitalized categories add to basis (Reg. 1.263(a)-2(f); Pub. 551): abstract_fees, title_search, title_insurance_owner, legal_fees, recording_fees, survey, transfer_taxes, broker_commission, appraisal_buyer, inspection, utility_connection, seller_obligations_paid, other_facilitative, improvements_before_service (a renovation made after the purchase and before the property was placed in service, docs/api/RENOVATIONS.md). The loan and occupancy categories (points, loan_origination, mortgage_insurance, loan_assumption_fee, credit_report, appraisal_lender, prepaid_interest, escrow_taxes, escrow_insurance, casualty_insurance, property_tax_proration, prepaid_rent, utilities_before_closing, refinancing_fees) are refused with the reason."
           },
           "amount": {
             "type": "string",
@@ -12413,6 +13935,24 @@
           "next_cursor"
         ],
         "title": "ActivityOut"
+      },
+      "AerialBracket": {
+        "properties": {
+          "last_without": {
+            "$ref": "#/components/schemas/ViewRef"
+          },
+          "first_with": {
+            "$ref": "#/components/schemas/ViewRef"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "last_without",
+          "first_with"
+        ],
+        "title": "AerialBracket",
+        "description": "The last dated view without the work and the first with it: corroboration, never a\ndate, a cost or a disposition by itself."
       },
       "AllocatedAssetOut": {
         "properties": {
@@ -13360,6 +14900,36 @@
         ],
         "title": "BlockerOut",
         "description": "One reason the allocation (and so the report) is withheld (EVAL_REPORT 78)."
+      },
+      "BonusOut": {
+        "properties": {
+          "rate": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rate"
+          },
+          "reason": {
+            "type": "string",
+            "title": "Reason"
+          },
+          "source": {
+            "type": "string",
+            "title": "Source"
+          }
+        },
+        "type": "object",
+        "required": [
+          "rate",
+          "reason",
+          "source"
+        ],
+        "title": "BonusOut"
       },
       "BoxIn": {
         "properties": {
@@ -14311,6 +15881,23 @@
             "title": "Unit Cost Override",
             "description": "`asset` and `component` corrections accept `unit_cost` and `unit_cost_source`, the engineer's unit price (setting `UNIT_COST_OVERRIDE`)."
           },
+          "traced_measurement": {
+            "type": "boolean",
+            "title": "Traced Measurement",
+            "description": "`asset` corrections accept `measurement`, a shape the engineer traced on an image whose quantity the server computes (docs/api/OVERRIDES.md section 4; setting `TRACED_MEASUREMENT`)."
+          },
+          "property_capture": {
+            "type": "boolean",
+            "title": "Property Capture",
+            "description": "`POST .../property/captures` takes pictures of the property in the background (setting `PROPERTY_CAPTURE`; docs/api/PROPERTY_CAPTURE.md).",
+            "default": false
+          },
+          "public_geo": {
+            "type": "boolean",
+            "title": "Public Geo",
+            "description": "`POST .../property/public` gathers the property's public records: government imagery, parcels and lidar (setting `PUBLIC_GEO`; docs/api/PUBLIC_GEO.md).",
+            "default": false
+          },
           "room_create": {
             "type": "boolean",
             "title": "Room Create",
@@ -14321,9 +15908,282 @@
         "required": [
           "object_exclusion",
           "unit_cost_override",
+          "traced_measurement",
           "room_create"
         ],
         "title": "CapabilitiesOut"
+      },
+      "CaptureHealthOut": {
+        "properties": {
+          "enabled": {
+            "type": "boolean",
+            "title": "Enabled"
+          },
+          "worker": {
+            "additionalProperties": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "type": "object",
+            "title": "Worker",
+            "description": "`status`: `up`, `down` (no sign for 90 s) or `never`; `seen_at`."
+          },
+          "breaker": {
+            "additionalProperties": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "type": "object",
+            "title": "Breaker",
+            "description": "`state` (`closed`, `open`, `half_open`: lapsed, the next capture is the trial), `open_until`, `opened_at`, `code`, `reason`, `trips` (consecutive)."
+          },
+          "used": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "type": "object",
+            "title": "Used",
+            "description": "Navigations in their windows and the caps: `loads_hour`, `loads_hour_cap`, `loads_day`, `loads_day_cap`, `moves_hour`, `moves_hour_cap`."
+          },
+          "last_success_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Success At"
+          },
+          "last_navigation_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Navigation At"
+          },
+          "capturing": {
+            "type": "boolean",
+            "title": "Capturing",
+            "description": "A worker holds the capture lease now."
+          }
+        },
+        "type": "object",
+        "required": [
+          "enabled",
+          "worker",
+          "breaker",
+          "used",
+          "last_success_at",
+          "last_navigation_at",
+          "capturing"
+        ],
+        "title": "CaptureHealthOut",
+        "description": "`GET /v1/ops/health`'s `property_capture` member."
+      },
+      "CaptureIn": {
+        "properties": {
+          "force": {
+            "type": "boolean",
+            "title": "Force",
+            "description": "Capture again even when a capture of the same pin succeeded within `CAPTURE_RECENT_HOURS`.",
+            "default": false
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "title": "CaptureIn"
+      },
+      "CaptureListOut": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/CaptureOut"
+            },
+            "type": "array",
+            "title": "Items"
+          }
+        },
+        "type": "object",
+        "required": [
+          "items"
+        ],
+        "title": "CaptureListOut"
+      },
+      "CaptureNoteOut": {
+        "properties": {
+          "part": {
+            "type": "string",
+            "enum": [
+              "history",
+              "street",
+              "date"
+            ],
+            "title": "Part"
+          },
+          "code": {
+            "type": "string",
+            "title": "Code",
+            "description": "The `BASIS-CAPTURE-<nnn>` (docs/ERROR_CODES.md)."
+          },
+          "message": {
+            "type": "string",
+            "title": "Message",
+            "description": "What to tell the engineer; never names the provider."
+          }
+        },
+        "type": "object",
+        "required": [
+          "part",
+          "code",
+          "message"
+        ],
+        "title": "CaptureNoteOut"
+      },
+      "CaptureOut": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "queued",
+              "waiting",
+              "running",
+              "succeeded",
+              "failed"
+            ],
+            "title": "Status"
+          },
+          "code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Code",
+            "description": "The `BASIS-CAPTURE-<nnn>` of the last pause or failure."
+          },
+          "message": {
+            "type": "string",
+            "title": "Message",
+            "description": "What to tell the engineer, in plain words; never names the imagery provider. A pause's end is `resume_at` (show it in the engineer's time)."
+          },
+          "resume_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Resume At"
+          },
+          "requested_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Requested At"
+          },
+          "started_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Started At"
+          },
+          "finished_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Finished At"
+          },
+          "pin_version": {
+            "type": "integer",
+            "title": "Pin Version"
+          },
+          "views": {
+            "items": {
+              "$ref": "#/components/schemas/ViewOut"
+            },
+            "type": "array",
+            "title": "Views"
+          },
+          "notes": {
+            "items": {
+              "$ref": "#/components/schemas/CaptureNoteOut"
+            },
+            "type": "array",
+            "title": "Notes",
+            "description": "Parts that did not work while the capture went on (EVAL_REPORT 99): history, street level, an unread date. The capture still succeeded."
+          },
+          "measure_on": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Measure On",
+            "description": "The view suggested for measuring paved areas: the newest leaf-off top-down view, else the newest dated top-down view. The engineer may pick another (a date before a renovation, for example)."
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "status",
+          "code",
+          "message",
+          "resume_at",
+          "requested_at",
+          "started_at",
+          "finished_at",
+          "pin_version"
+        ],
+        "title": "CaptureOut"
       },
       "CauseOut": {
         "properties": {
@@ -15693,6 +17553,149 @@
         "type": "object",
         "title": "ClientIn"
       },
+      "ComponentAgeOut": {
+        "properties": {
+          "asset_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Asset Id"
+          },
+          "label": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Label"
+          },
+          "category": {
+            "type": "string",
+            "title": "Category"
+          },
+          "effective_age": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Effective Age",
+            "description": "Years, as of the acquisition's placed-in-service year; null when a year installed cannot be turned into an age (no intake) or lies after it."
+          },
+          "year_installed": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Year Installed"
+          },
+          "economic_life": {
+            "type": "string",
+            "title": "Economic Life"
+          },
+          "rate": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rate",
+            "description": "effective_age / economic_life, to 6 places."
+          },
+          "replaced_rate": {
+            "type": "string",
+            "title": "Replaced Rate",
+            "description": "The appraiser's rate the row would have had."
+          },
+          "source": {
+            "type": "string",
+            "title": "Source"
+          },
+          "source_detail": {
+            "type": "string",
+            "title": "Source Detail"
+          },
+          "reason": {
+            "type": "string",
+            "title": "Reason"
+          },
+          "rcn": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rcn"
+          },
+          "rcnld": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rcnld"
+          }
+        },
+        "type": "object",
+        "required": [
+          "asset_id",
+          "label",
+          "category",
+          "effective_age",
+          "year_installed",
+          "economic_life",
+          "rate",
+          "replaced_rate",
+          "source",
+          "source_detail",
+          "reason",
+          "rcn",
+          "rcnld"
+        ],
+        "title": "ComponentAgeOut",
+        "description": "A row depreciated on its own age (EVAL_REPORT 102, docs/api/OVERRIDES.md section 7)."
+      },
+      "ComponentBracket": {
+        "properties": {
+          "label": {
+            "type": "string",
+            "maxLength": 200,
+            "minLength": 1,
+            "pattern": "^[^\\x00-\\x1f\\x7f-\\x9f]*[^\\x00-\\x1f\\x7f-\\x9f\\s][^\\x00-\\x1f\\x7f-\\x9f]*$",
+            "title": "Label",
+            "description": "The component's label (e.g. `roof`, `deck`)."
+          },
+          "bracket": {
+            "$ref": "#/components/schemas/AerialBracket"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "label",
+          "bracket"
+        ],
+        "title": "ComponentBracket",
+        "description": "An exterior component's dated views (the roof, siding, a deck), by its label."
+      },
       "ComponentLabel": {
         "type": "string",
         "enum": [
@@ -16087,6 +18090,11 @@
                       "maxItems": 100
                     },
                     {
+                      "additionalProperties": true,
+                      "type": "object",
+                      "description": "Only `measurement` (an asset correction's traced measurement, docs/api/OVERRIDES.md section 4) takes an object."
+                    },
+                    {
                       "type": "null"
                     }
                   ]
@@ -16147,6 +18155,11 @@
                   "maxItems": 100
                 },
                 {
+                  "additionalProperties": true,
+                  "type": "object",
+                  "description": "Only `measurement` (an asset correction's traced measurement, docs/api/OVERRIDES.md section 4) takes an object."
+                },
+                {
                   "type": "null"
                 }
               ]
@@ -16199,6 +18212,7 @@
           "utility_connection",
           "seller_obligations_paid",
           "other_facilitative",
+          "improvements_before_service",
           "points",
           "loan_origination",
           "mortgage_insurance",
@@ -18550,6 +20564,184 @@
         ],
         "title": "DiffRowOut"
       },
+      "DispositionOut": {
+        "properties": {
+          "asset_id": {
+            "type": "string",
+            "title": "Asset Id",
+            "description": "The acquisition line removed."
+          },
+          "label": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Label"
+          },
+          "category": {
+            "type": "string",
+            "title": "Category"
+          },
+          "project": {
+            "type": "string",
+            "title": "Project"
+          },
+          "bucket": {
+            "$ref": "#/components/schemas/Bucket"
+          },
+          "parent": {
+            "type": "string",
+            "title": "Parent",
+            "description": "`building` (the line is a structural component of the building, its asset) or `own_asset` (5, 7 or 15-year: an asset of its own)."
+          },
+          "parent_placed_in_service": {
+            "type": "string",
+            "format": "date",
+            "title": "Parent Placed In Service"
+          },
+          "disposition_date": {
+            "type": "string",
+            "format": "date",
+            "title": "Disposition Date"
+          },
+          "tax_year": {
+            "type": "integer",
+            "title": "Tax Year"
+          },
+          "share": {
+            "type": "string",
+            "title": "Share",
+            "description": "The share of the line removed (1: all of it)."
+          },
+          "unadjusted_basis": {
+            "type": "string",
+            "title": "Unadjusted Basis",
+            "description": "The line's allocated amount in the acquisition study times the share (Reg. 1.168(i)-8(f)(3): a study allocating the cost to the components)."
+          },
+          "bonus": {
+            "type": "string",
+            "title": "Bonus",
+            "description": "Its share of the bonus taken when placed in service."
+          },
+          "depreciation_by_year": {
+            "items": {
+              "$ref": "#/components/schemas/DispositionYearOut"
+            },
+            "type": "array",
+            "title": "Depreciation By Year"
+          },
+          "allowed_or_allowable": {
+            "type": "string",
+            "title": "Allowed Or Allowable",
+            "description": "Bonus plus every year's deduction."
+          },
+          "adjusted_basis": {
+            "type": "string",
+            "title": "Adjusted Basis",
+            "description": "unadjusted basis - allowed or allowable: the loss on an abandonment."
+          },
+          "treatment": {
+            "type": "string",
+            "enum": [
+              "election_required",
+              "whole_asset"
+            ],
+            "title": "Treatment",
+            "description": "`election_required`: a portion of the building, recognized only with the partial disposition election on the timely filed original return for the year; `whole_asset`: a line that is its own asset. An inference from Reg. 1.168(i)-8, the CPA's to confirm."
+          },
+          "method": {
+            "type": "string",
+            "title": "Method"
+          },
+          "reason": {
+            "type": "string",
+            "title": "Reason"
+          }
+        },
+        "type": "object",
+        "required": [
+          "asset_id",
+          "label",
+          "category",
+          "project",
+          "bucket",
+          "parent",
+          "parent_placed_in_service",
+          "disposition_date",
+          "tax_year",
+          "share",
+          "unadjusted_basis",
+          "bonus",
+          "depreciation_by_year",
+          "allowed_or_allowable",
+          "adjusted_basis",
+          "treatment",
+          "method",
+          "reason"
+        ],
+        "title": "DispositionOut"
+      },
+      "DispositionTaxYearOut": {
+        "properties": {
+          "year": {
+            "type": "integer",
+            "title": "Year"
+          },
+          "lines": {
+            "type": "integer",
+            "title": "Lines"
+          },
+          "unadjusted_basis": {
+            "type": "string",
+            "title": "Unadjusted Basis"
+          },
+          "allowed_or_allowable": {
+            "type": "string",
+            "title": "Allowed Or Allowable"
+          },
+          "adjusted_basis": {
+            "type": "string",
+            "title": "Adjusted Basis"
+          },
+          "election_lines": {
+            "type": "integer",
+            "title": "Election Lines",
+            "description": "Lines needing the election in this year's return."
+          }
+        },
+        "type": "object",
+        "required": [
+          "year",
+          "lines",
+          "unadjusted_basis",
+          "allowed_or_allowable",
+          "adjusted_basis",
+          "election_lines"
+        ],
+        "title": "DispositionTaxYearOut"
+      },
+      "DispositionYearOut": {
+        "properties": {
+          "year": {
+            "type": "integer",
+            "title": "Year"
+          },
+          "amount": {
+            "type": "string",
+            "title": "Amount"
+          }
+        },
+        "type": "object",
+        "required": [
+          "year",
+          "amount"
+        ],
+        "title": "DispositionYearOut"
+      },
       "DocumentKind": {
         "type": "string",
         "enum": [
@@ -20001,7 +22193,7 @@
           "source": {
             "type": "string",
             "title": "Source",
-            "description": "`azure`, `regex`, `table`, `llm`, `mismo_xml` (a UAD 3.6 XML) or `manual`."
+            "description": "`azure`, `regex`, `table`, `llm`, `mismo_xml` (a UAD 3.6 XML), `drawing` (read from the PDF's own line work: the sketch outline) or `manual`."
           },
           "page": {
             "anyOf": [
@@ -20591,6 +22783,233 @@
           }
         ]
       },
+      "GatherIn": {
+        "properties": {
+          "force": {
+            "type": "boolean",
+            "title": "Force",
+            "description": "Gather again even when the same pin was gathered within `GEO_RECENT_HOURS`.",
+            "default": false
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "title": "GatherIn"
+      },
+      "GatherOut": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "queued",
+              "running",
+              "succeeded",
+              "failed"
+            ],
+            "title": "Status"
+          },
+          "code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Code"
+          },
+          "message": {
+            "type": "string",
+            "title": "Message"
+          },
+          "requested_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Requested At"
+          },
+          "started_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Started At"
+          },
+          "finished_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Finished At"
+          },
+          "pin_version": {
+            "type": "integer",
+            "title": "Pin Version"
+          },
+          "stale": {
+            "type": "boolean",
+            "title": "Stale",
+            "description": "Gathered at another point than the pin's current one (more than 1 m away)."
+          },
+          "sources": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "type": "array",
+            "title": "Sources",
+            "description": "Each source asked: `source`, `kind`, `status` (`ok`, `blank`: outside its coverage, `none`: nothing there, `failed`), `code`, `seconds`, `year`."
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "status",
+          "code",
+          "message",
+          "requested_at",
+          "started_at",
+          "finished_at",
+          "pin_version",
+          "stale",
+          "sources"
+        ],
+        "title": "GatherOut"
+      },
+      "GeoIncidentListOut": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/GeoIncidentOut"
+            },
+            "type": "array",
+            "title": "Items"
+          }
+        },
+        "type": "object",
+        "required": [
+          "items"
+        ],
+        "title": "GeoIncidentListOut"
+      },
+      "GeoIncidentOut": {
+        "properties": {
+          "code": {
+            "type": "string",
+            "title": "Code"
+          },
+          "source_id": {
+            "type": "string",
+            "title": "Source Id"
+          },
+          "what": {
+            "type": "string",
+            "title": "What",
+            "description": "The catalogue's meaning of the code."
+          },
+          "occurrences": {
+            "type": "integer",
+            "title": "Occurrences"
+          },
+          "first_seen_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "First Seen At"
+          },
+          "last_seen_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Last Seen At"
+          },
+          "last_study_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Study Id"
+          },
+          "last_gather_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Gather Id"
+          },
+          "last_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Url"
+          },
+          "last_http_status": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Http Status"
+          },
+          "last_detail": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Detail"
+          }
+        },
+        "type": "object",
+        "required": [
+          "code",
+          "source_id",
+          "what",
+          "occurrences",
+          "first_seen_at",
+          "last_seen_at",
+          "last_study_id",
+          "last_gather_id",
+          "last_url",
+          "last_http_status",
+          "last_detail"
+        ],
+        "title": "GeoIncidentOut"
+      },
       "GitOut": {
         "properties": {
           "sha": {
@@ -20912,6 +23331,133 @@
         "type": "object",
         "title": "HttpIn",
         "description": "The `/v1` request that failed, or the last one before the error."
+      },
+      "IncidentListOut": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/IncidentOut"
+            },
+            "type": "array",
+            "title": "Items"
+          }
+        },
+        "type": "object",
+        "required": [
+          "items"
+        ],
+        "title": "IncidentListOut"
+      },
+      "IncidentOut": {
+        "properties": {
+          "code": {
+            "type": "string",
+            "title": "Code"
+          },
+          "what": {
+            "type": "string",
+            "title": "What",
+            "description": "The catalogue's meaning of the code."
+          },
+          "occurrences": {
+            "type": "integer",
+            "title": "Occurrences"
+          },
+          "first_seen_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "First Seen At"
+          },
+          "last_seen_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Last Seen At"
+          },
+          "last_study_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Study Id"
+          },
+          "last_capture_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Capture Id"
+          },
+          "last_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Url"
+          },
+          "last_http_status": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Http Status"
+          },
+          "last_detail": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Detail"
+          },
+          "last_evidence": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Evidence",
+            "description": "Storage prefix holding the screenshot, HTML and page record."
+          }
+        },
+        "type": "object",
+        "required": [
+          "code",
+          "what",
+          "occurrences",
+          "first_seen_at",
+          "last_seen_at",
+          "last_study_id",
+          "last_capture_id",
+          "last_url",
+          "last_http_status",
+          "last_detail",
+          "last_evidence"
+        ],
+        "title": "IncidentOut"
       },
       "Interview": {
         "properties": {
@@ -21420,6 +23966,113 @@
         "title": "InviteeInvitationOut",
         "description": "An invitation as its invitee sees it."
       },
+      "Invoice-Input": {
+        "properties": {
+          "document_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Document Id",
+            "description": "The uploaded file (kind `other`)."
+          },
+          "amount": {
+            "anyOf": [
+              {
+                "type": "number",
+                "maximum": 1000000000000.0,
+                "exclusiveMinimum": 0.0
+              },
+              {
+                "type": "string"
+              }
+            ],
+            "title": "Amount",
+            "description": "Dollars."
+          },
+          "invoice_date": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Invoice Date"
+          },
+          "description": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 200,
+                "minLength": 1,
+                "pattern": "^[^\\x00-\\x1f\\x7f-\\x9f]*[^\\x00-\\x1f\\x7f-\\x9f\\s][^\\x00-\\x1f\\x7f-\\x9f]*$"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Description"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "document_id",
+          "amount"
+        ],
+        "title": "Invoice",
+        "description": "One invoice, pay application or contract (ATG p.28: actual cost records), uploaded to\nthe study as a document."
+      },
+      "Invoice-Output": {
+        "properties": {
+          "document_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Document Id",
+            "description": "The uploaded file (kind `other`)."
+          },
+          "amount": {
+            "type": "string",
+            "title": "Amount",
+            "description": "Dollars."
+          },
+          "invoice_date": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Invoice Date"
+          },
+          "description": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 200,
+                "minLength": 1,
+                "pattern": "^[^\\x00-\\x1f\\x7f-\\x9f]*[^\\x00-\\x1f\\x7f-\\x9f\\s][^\\x00-\\x1f\\x7f-\\x9f]*$"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Description"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "document_id",
+          "amount"
+        ],
+        "title": "Invoice",
+        "description": "One invoice, pay application or contract (ATG p.28: actual cost records), uploaded to\nthe study as a document."
+      },
       "IssueStatusIn": {
         "properties": {
           "status": {
@@ -21604,6 +24257,158 @@
           "logo_sha256"
         ],
         "title": "Letterhead"
+      },
+      "LidarBuildingOut": {
+        "properties": {
+          "footprint_m2": {
+            "type": "number",
+            "title": "Footprint M2",
+            "description": "The roof's outline as flown (overhangs included)."
+          },
+          "footprint_sqft": {
+            "type": "number",
+            "title": "Footprint Sqft"
+          },
+          "peak_m": {
+            "type": "number",
+            "title": "Peak M",
+            "description": "Roof peak above the ground around it (99th percentile)."
+          },
+          "max_m": {
+            "type": "number",
+            "title": "Max M",
+            "description": "The highest building point (a chimney reads here)."
+          },
+          "eave_m": {
+            "type": "number",
+            "title": "Eave M",
+            "description": "The roof's lowest points above the ground (5th percentile): the eaves."
+          },
+          "ground_elevation_m": {
+            "type": "number",
+            "title": "Ground Elevation M"
+          },
+          "points": {
+            "type": "integer",
+            "title": "Points"
+          },
+          "distance_m": {
+            "type": "number",
+            "title": "Distance M",
+            "description": "0 when the pin is on the building."
+          },
+          "reaches_box_edge": {
+            "type": "boolean",
+            "title": "Reaches Box Edge",
+            "description": "The building comes within 1 m of the edge of the area read: the footprint may be cut, or be a block of attached roofs. Merges well inside the area are not flagged.",
+            "default": false
+          },
+          "outline": {
+            "items": {
+              "items": {
+                "type": "number"
+              },
+              "type": "array"
+            },
+            "type": "array",
+            "title": "Outline",
+            "description": "The roof outline from the lidar, including the overhangs; not the walls. `[longitude, latitude]` corners counter-clockwise, the first not repeated at the end, simplified to about one 0.5 m cell's diagonal (EVAL_REPORT 104.2). Empty for a gather made before the outline was kept."
+          }
+        },
+        "type": "object",
+        "required": [
+          "footprint_m2",
+          "footprint_sqft",
+          "peak_m",
+          "max_m",
+          "eave_m",
+          "ground_elevation_m",
+          "points",
+          "distance_m"
+        ],
+        "title": "LidarBuildingOut"
+      },
+      "LidarOut": {
+        "properties": {
+          "project": {
+            "type": "string",
+            "title": "Project"
+          },
+          "year": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Year"
+          },
+          "points": {
+            "type": "integer",
+            "title": "Points"
+          },
+          "density_per_m2": {
+            "type": "number",
+            "title": "Density Per M2"
+          },
+          "building": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/LidarBuildingOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Code",
+            "description": "`BASIS-GEO-016` when no building points are near the pin; `BASIS-GEO-017` when the building reaches the edge of the area read."
+          },
+          "skipped": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Skipped",
+            "description": "Newer projects over the point that had no point around it, passed over."
+          },
+          "credit": {
+            "type": "string",
+            "title": "Credit"
+          },
+          "terms_class": {
+            "type": "string",
+            "title": "Terms Class"
+          },
+          "terms_url": {
+            "type": "string",
+            "title": "Terms Url"
+          }
+        },
+        "type": "object",
+        "required": [
+          "project",
+          "year",
+          "points",
+          "density_per_m2",
+          "building",
+          "code",
+          "credit",
+          "terms_class",
+          "terms_url"
+        ],
+        "title": "LidarOut"
       },
       "LocalizationOut": {
         "properties": {
@@ -22161,6 +24966,17 @@
             },
             "type": "array",
             "title": "Services"
+          },
+          "property_capture": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/CaptureHealthOut"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Property pictures (docs/api/OPS_HEALTH.md section 7): on or off, the capture worker, the breaker, the navigations against the caps, the last success. Null when the database could not be read."
           }
         },
         "type": "object",
@@ -22580,6 +25396,174 @@
         "type": "object",
         "title": "PageIn"
       },
+      "ParcelOut": {
+        "properties": {
+          "parcel_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Parcel Id"
+          },
+          "source_id": {
+            "type": "string",
+            "title": "Source Id"
+          },
+          "under_pin": {
+            "type": "boolean",
+            "title": "Under Pin",
+            "description": "False: one of the same owner's adjacent parcels."
+          },
+          "owner": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Owner"
+          },
+          "address": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Address"
+          },
+          "area_sqft": {
+            "type": "number",
+            "title": "Area Sqft",
+            "description": "The polygon's area on the WGS84 ellipsoid."
+          },
+          "area_acres": {
+            "type": "number",
+            "title": "Area Acres"
+          },
+          "layer_acres": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Layer Acres",
+            "description": "The layer's own acres (assessor or deed)."
+          },
+          "land_value": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Land Value"
+          },
+          "improvement_value": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Improvement Value"
+          },
+          "total_value": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Total Value"
+          },
+          "year_built": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Year Built"
+          },
+          "building_area_sqft": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Building Area Sqft"
+          },
+          "stories": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Stories"
+          },
+          "geometry": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Geometry",
+            "description": "GeoJSON polygon, lon/lat."
+          },
+          "credit": {
+            "type": "string",
+            "title": "Credit"
+          },
+          "terms_class": {
+            "type": "string",
+            "title": "Terms Class"
+          }
+        },
+        "type": "object",
+        "required": [
+          "parcel_id",
+          "source_id",
+          "under_pin",
+          "owner",
+          "address",
+          "area_sqft",
+          "area_acres",
+          "layer_acres",
+          "land_value",
+          "improvement_value",
+          "total_value",
+          "year_built",
+          "building_area_sqft",
+          "stories",
+          "geometry",
+          "credit",
+          "terms_class"
+        ],
+        "title": "ParcelOut"
+      },
       "PhotoObjectOut": {
         "properties": {
           "id": {
@@ -22871,6 +25855,156 @@
           "content_type"
         ],
         "title": "PhotoUpload"
+      },
+      "PinIn": {
+        "properties": {
+          "address": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 300,
+                "minLength": 1
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Address"
+          },
+          "lat": {
+            "anyOf": [
+              {
+                "type": "number",
+                "maximum": 90.0,
+                "minimum": -90.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Lat"
+          },
+          "lon": {
+            "anyOf": [
+              {
+                "type": "number",
+                "maximum": 180.0,
+                "minimum": -180.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Lon"
+          },
+          "confirmed": {
+            "type": "boolean",
+            "title": "Confirmed",
+            "description": "The point is on the right house. Needs `lat` and `lon`. Nothing should be measured on the views until it is true.",
+            "default": false
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "title": "PinIn",
+        "description": "The whole pin: the address, the point (both or neither) and the engineer's\nconfirmation that the point is on the right house."
+      },
+      "PinOut": {
+        "properties": {
+          "address": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Address"
+          },
+          "lat": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Lat"
+          },
+          "lon": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Lon"
+          },
+          "source": {
+            "type": "string",
+            "enum": [
+              "engineer",
+              "search"
+            ],
+            "title": "Source",
+            "description": "`search`: the capture's address search placed the point; `engineer`: placed or moved by hand."
+          },
+          "place_label": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Place Label",
+            "description": "What the search matched, as shown."
+          },
+          "confirmed": {
+            "type": "boolean",
+            "title": "Confirmed"
+          },
+          "confirmed_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Confirmed At"
+          },
+          "version": {
+            "type": "integer",
+            "title": "Version",
+            "description": "Also the `ETag`."
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Updated At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "address",
+          "lat",
+          "lon",
+          "source",
+          "place_label",
+          "confirmed",
+          "confirmed_at",
+          "version",
+          "updated_at"
+        ],
+        "title": "PinOut"
       },
       "PointIn": {
         "properties": {
@@ -23232,6 +26366,211 @@
         "title": "PriorDepreciation",
         "description": "A look-back study: what was claimed on the property before (Form 3115, DCN 7)."
       },
+      "ProjectScheduleOut": {
+        "properties": {
+          "key": {
+            "type": "string",
+            "title": "Key"
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "after_service",
+              "before_service"
+            ],
+            "title": "Kind"
+          },
+          "scope": {
+            "type": "string",
+            "title": "Scope"
+          },
+          "addition": {
+            "type": "boolean",
+            "title": "Addition"
+          },
+          "contract_date": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Contract Date"
+          },
+          "work_start_date": {
+            "type": "string",
+            "format": "date",
+            "title": "Work Start Date"
+          },
+          "placed_in_service_date": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Placed In Service Date"
+          },
+          "invoice_total": {
+            "type": "string",
+            "title": "Invoice Total"
+          },
+          "invoices": {
+            "type": "integer",
+            "title": "Invoices"
+          },
+          "invoice_documents": {
+            "items": {
+              "$ref": "#/components/schemas/Invoice-Output"
+            },
+            "type": "array",
+            "title": "Invoice Documents",
+            "description": "The invoices, as the document lists them."
+          },
+          "after_photos": {
+            "type": "integer",
+            "title": "After Photos",
+            "description": "Photographs tagged after the project."
+          },
+          "aerial": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AerialBracket"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The dated views bracketing the work."
+          },
+          "capitalized_amount": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Capitalized Amount"
+          },
+          "capitalized_confirmed_by": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Capitalized Confirmed By"
+          },
+          "bonus": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/BonusOut"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The project's statutory bonus default."
+          },
+          "estimate_total": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Estimate Total",
+            "description": "The sum of the rows' estimates."
+          },
+          "factor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Factor",
+            "description": "capitalized / estimates, to 9 places."
+          },
+          "estimate_gap_share": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Estimate Gap Share",
+            "description": "(capitalized - estimates) / capitalized, to 6 places: how far the estimates were from the actual cost (they only apportion it)."
+          },
+          "rows": {
+            "items": {
+              "$ref": "#/components/schemas/RenovationRowOut"
+            },
+            "type": "array",
+            "title": "Rows"
+          },
+          "by_class": {
+            "items": {
+              "$ref": "#/components/schemas/RenovationClassOut"
+            },
+            "type": "array",
+            "title": "By Class"
+          },
+          "rows_sum": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rows Sum",
+            "description": "Equals `capitalized_amount` by construction."
+          }
+        },
+        "type": "object",
+        "required": [
+          "key",
+          "kind",
+          "scope",
+          "addition",
+          "contract_date",
+          "work_start_date",
+          "placed_in_service_date",
+          "invoice_total",
+          "invoices",
+          "invoice_documents",
+          "after_photos",
+          "aerial",
+          "capitalized_amount",
+          "capitalized_confirmed_by",
+          "bonus",
+          "estimate_total",
+          "factor",
+          "estimate_gap_share",
+          "rows",
+          "by_class",
+          "rows_sum"
+        ],
+        "title": "ProjectScheduleOut"
+      },
       "PromptUseOut": {
         "properties": {
           "name": {
@@ -23283,6 +26622,43 @@
         ],
         "title": "PromptUseOut",
         "description": "A prompt the run called, as its manifest records it."
+      },
+      "PropertyOut": {
+        "properties": {
+          "pin": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/PinOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "capture": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/CaptureOut"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The newest capture, with its views."
+          },
+          "enabled": {
+            "type": "boolean",
+            "title": "Enabled",
+            "description": "Whether this deployment takes captures."
+          }
+        },
+        "type": "object",
+        "required": [
+          "pin",
+          "capture",
+          "enabled"
+        ],
+        "title": "PropertyOut"
       },
       "PropertyUse": {
         "type": "string",
@@ -23438,6 +26814,265 @@
         ],
         "title": "ProvenanceOut",
         "description": "Who produced a row and from what (``basis.db.repositories.provenance``)."
+      },
+      "PublicPropertyOut": {
+        "properties": {
+          "enabled": {
+            "type": "boolean",
+            "title": "Enabled",
+            "description": "Whether this deployment gathers public sources (`PUBLIC_GEO`)."
+          },
+          "gather": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/GatherOut"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The newest gather."
+          },
+          "current": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/PublicViewOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "history": {
+            "items": {
+              "$ref": "#/components/schemas/PublicViewOut"
+            },
+            "type": "array",
+            "title": "History",
+            "description": "Newest year first."
+          },
+          "parcels": {
+            "items": {
+              "$ref": "#/components/schemas/ParcelOut"
+            },
+            "type": "array",
+            "title": "Parcels"
+          },
+          "site_check": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SiteCheckOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "lidar": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/LidarOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "type": "object",
+        "required": [
+          "enabled",
+          "gather",
+          "current",
+          "history",
+          "parcels",
+          "site_check",
+          "lidar"
+        ],
+        "title": "PublicPropertyOut"
+      },
+      "PublicViewOut": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id"
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "current",
+              "history"
+            ],
+            "title": "Kind",
+            "description": "`current`: the best public image at the point (pixel size, then leaf-off, then recency); `history`: one per year."
+          },
+          "label": {
+            "type": "string",
+            "title": "Label"
+          },
+          "source_id": {
+            "type": "string",
+            "title": "Source Id",
+            "description": "The registry entry (basis/geo/sources.json)."
+          },
+          "year": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Year",
+            "description": "The imagery's year (read at the point for mosaics)."
+          },
+          "year_label": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Year Label",
+            "description": "When the source mixes years, e.g. `2018-2024 by county`."
+          },
+          "leaf_off": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Leaf Off",
+            "description": "As the source states it; null when not stated."
+          },
+          "lat": {
+            "type": "number",
+            "title": "Lat",
+            "description": "The view's centre (the pin it was taken around)."
+          },
+          "lon": {
+            "type": "number",
+            "title": "Lon"
+          },
+          "pixel_size_m": {
+            "type": "number",
+            "title": "Pixel Size M",
+            "description": "Ground metres per pixel at the centre, north up (Web Mercator is conformal: square on the ground). Convert a traced pixel like a property view: east = (x - width / 2) * s, north = (height / 2 - y) * s."
+          },
+          "native_pixel_m": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Native Pixel M",
+            "description": "The source's own pixel size."
+          },
+          "crs": {
+            "type": "string",
+            "title": "Crs",
+            "description": "`EPSG:3857`."
+          },
+          "bbox": {
+            "items": {
+              "type": "number"
+            },
+            "type": "array",
+            "title": "Bbox",
+            "description": "`[xmin, ymin, xmax, ymax]` in EPSG:3857 metres: the exact georeference."
+          },
+          "bbox_lonlat": {
+            "items": {
+              "type": "number"
+            },
+            "type": "array",
+            "title": "Bbox Lonlat",
+            "description": "`[west, south, east, north]`."
+          },
+          "width": {
+            "type": "integer",
+            "title": "Width"
+          },
+          "height": {
+            "type": "integer",
+            "title": "Height"
+          },
+          "content_type": {
+            "type": "string",
+            "title": "Content Type"
+          },
+          "sha256": {
+            "type": "string",
+            "title": "Sha256"
+          },
+          "credit": {
+            "type": "string",
+            "title": "Credit",
+            "description": "The credit line to show and print with the image."
+          },
+          "terms_class": {
+            "type": "string",
+            "enum": [
+              "public-domain",
+              "open-with-credit",
+              "no-terms-stated",
+              "restricted"
+            ],
+            "title": "Terms Class"
+          },
+          "terms_url": {
+            "type": "string",
+            "title": "Terms Url",
+            "description": "Where the terms were read."
+          },
+          "captured_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Captured At"
+          },
+          "stale": {
+            "type": "boolean",
+            "title": "Stale",
+            "description": "Taken around another point than the pin's current one (more than 1 m away); confirming the pin or editing its address does not make a view stale."
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "kind",
+          "label",
+          "source_id",
+          "year",
+          "year_label",
+          "leaf_off",
+          "lat",
+          "lon",
+          "pixel_size_m",
+          "native_pixel_m",
+          "crs",
+          "bbox",
+          "bbox_lonlat",
+          "width",
+          "height",
+          "content_type",
+          "sha256",
+          "credit",
+          "terms_class",
+          "terms_url",
+          "captured_at",
+          "stale"
+        ],
+        "title": "PublicViewOut"
       },
       "ReconciliationOut": {
         "properties": {
@@ -23693,6 +27328,450 @@
         ],
         "title": "RecordOut",
         "description": "How the record came to be."
+      },
+      "RenovationCheckOut": {
+        "properties": {
+          "code": {
+            "type": "string",
+            "title": "Code"
+          },
+          "severity": {
+            "type": "string",
+            "enum": [
+              "ok",
+              "warning",
+              "error"
+            ],
+            "title": "Severity"
+          },
+          "message": {
+            "type": "string",
+            "title": "Message"
+          }
+        },
+        "type": "object",
+        "required": [
+          "code",
+          "severity",
+          "message"
+        ],
+        "title": "RenovationCheckOut"
+      },
+      "RenovationClassOut": {
+        "properties": {
+          "schedule_class": {
+            "type": "string",
+            "title": "Schedule Class"
+          },
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "rows": {
+            "type": "integer",
+            "title": "Rows"
+          },
+          "allocated": {
+            "type": "string",
+            "title": "Allocated"
+          }
+        },
+        "type": "object",
+        "required": [
+          "schedule_class",
+          "name",
+          "rows",
+          "allocated"
+        ],
+        "title": "RenovationClassOut"
+      },
+      "RenovationProject-Input": {
+        "properties": {
+          "key": {
+            "type": "string",
+            "pattern": "^[a-z0-9][a-z0-9-]{0,39}$",
+            "title": "Key",
+            "description": "A short key the engineer chooses (lower-case letters, digits, '-'; at most 40), stable across revisions: removal corrections name it."
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "after_service",
+              "before_service"
+            ],
+            "title": "Kind",
+            "description": "`after_service`: made after the building was placed in service, a separate schedule with its own date and the dispositions of what it removed; `before_service`: bought, renovated, then placed in service: part of the acquisition (one date, no dispositions), its capitalized cost an intake line `improvements_before_service`."
+          },
+          "scope": {
+            "type": "string",
+            "maxLength": 500,
+            "minLength": 1,
+            "pattern": "^[^\\x00-\\x1f\\x7f-\\x9f]*[^\\x00-\\x1f\\x7f-\\x9f\\s][^\\x00-\\x1f\\x7f-\\x9f]*$",
+            "title": "Scope",
+            "description": "What was done, in the engineer's words."
+          },
+          "addition": {
+            "type": "boolean",
+            "title": "Addition",
+            "description": "The project enlarged the building (an addition): no qualified improvement property, and no dispositions unless `removals_stated`.",
+            "default": false
+          },
+          "removals_stated": {
+            "type": "boolean",
+            "title": "Removals Stated",
+            "description": "For an addition: the engineer states that it replaced components (the Practice Unit's example: an HVAC system replaced to serve the addition).",
+            "default": false
+          },
+          "contract_date": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Contract Date",
+            "description": "The written binding contract's date: the acquisition date for bonus depreciation (Notice 2026-11 section 3.03, Reg. 1.168(k)-2(b)(5))."
+          },
+          "work_start_date": {
+            "type": "string",
+            "format": "date",
+            "title": "Work Start Date",
+            "description": "When physical work of a significant nature began (the self-constructed property's acquisition date when there is no binding contract; Reg. 1.168(k)-2(b)(5)(iv)(B))."
+          },
+          "placed_in_service_date": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Placed In Service Date",
+            "description": "When the work was ready and available for use. Required for `after_service`; absent for `before_service` (the building's date applies)."
+          },
+          "invoice_total": {
+            "anyOf": [
+              {
+                "type": "number",
+                "maximum": 1000000000000.0,
+                "exclusiveMinimum": 0.0
+              },
+              {
+                "type": "string"
+              }
+            ],
+            "title": "Invoice Total",
+            "description": "The invoices' total."
+          },
+          "invoices": {
+            "items": {
+              "$ref": "#/components/schemas/Invoice-Input"
+            },
+            "type": "array",
+            "maxItems": 200,
+            "title": "Invoices",
+            "description": "The invoices; when given they must sum to `invoice_total`."
+          },
+          "capitalized_amount": {
+            "anyOf": [
+              {
+                "anyOf": [
+                  {
+                    "type": "number",
+                    "maximum": 1000000000000.0,
+                    "exclusiveMinimum": 0.0
+                  },
+                  {
+                    "type": "string"
+                  }
+                ],
+                "description": "Dollars."
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Capitalized Amount",
+            "description": "The amount the CPA confirms is capitalized (Reg. 1.263(a)-3): the renovation schedule is reconciled to it. Null until confirmed: the result withholds the project's schedule (blocker `renovation_capitalized`)."
+          },
+          "capitalized_confirmed_by": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 200,
+                "minLength": 1,
+                "pattern": "^[^\\x00-\\x1f\\x7f-\\x9f]*[^\\x00-\\x1f\\x7f-\\x9f\\s][^\\x00-\\x1f\\x7f-\\x9f]*$"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Capitalized Confirmed By",
+            "description": "Who confirmed it (the CPA's name and firm)."
+          },
+          "after_photos": {
+            "items": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "type": "array",
+            "maxItems": 2000,
+            "title": "After Photos",
+            "description": "Photographs of the work as finished (the engineer's tag). The acquisition is built from the other photographs; this project's schedule from these."
+          },
+          "qip": {
+            "type": "string",
+            "enum": [
+              "auto",
+              "off"
+            ],
+            "title": "Qip",
+            "description": "`auto`: interior 39-year rows of a nonresidential building become qualified improvement property (15-year straight line) unless excluded; `off`: never (the CPA's call).",
+            "default": "auto"
+          },
+          "aerial": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AerialBracket"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "For exterior work: the last dated view without it and the first with it."
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "key",
+          "kind",
+          "scope",
+          "work_start_date",
+          "invoice_total"
+        ],
+        "title": "RenovationProject"
+      },
+      "RenovationProject-Output": {
+        "properties": {
+          "key": {
+            "type": "string",
+            "pattern": "^[a-z0-9][a-z0-9-]{0,39}$",
+            "title": "Key",
+            "description": "A short key the engineer chooses (lower-case letters, digits, '-'; at most 40), stable across revisions: removal corrections name it."
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "after_service",
+              "before_service"
+            ],
+            "title": "Kind",
+            "description": "`after_service`: made after the building was placed in service, a separate schedule with its own date and the dispositions of what it removed; `before_service`: bought, renovated, then placed in service: part of the acquisition (one date, no dispositions), its capitalized cost an intake line `improvements_before_service`."
+          },
+          "scope": {
+            "type": "string",
+            "maxLength": 500,
+            "minLength": 1,
+            "pattern": "^[^\\x00-\\x1f\\x7f-\\x9f]*[^\\x00-\\x1f\\x7f-\\x9f\\s][^\\x00-\\x1f\\x7f-\\x9f]*$",
+            "title": "Scope",
+            "description": "What was done, in the engineer's words."
+          },
+          "addition": {
+            "type": "boolean",
+            "title": "Addition",
+            "description": "The project enlarged the building (an addition): no qualified improvement property, and no dispositions unless `removals_stated`.",
+            "default": false
+          },
+          "removals_stated": {
+            "type": "boolean",
+            "title": "Removals Stated",
+            "description": "For an addition: the engineer states that it replaced components (the Practice Unit's example: an HVAC system replaced to serve the addition).",
+            "default": false
+          },
+          "contract_date": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Contract Date",
+            "description": "The written binding contract's date: the acquisition date for bonus depreciation (Notice 2026-11 section 3.03, Reg. 1.168(k)-2(b)(5))."
+          },
+          "work_start_date": {
+            "type": "string",
+            "format": "date",
+            "title": "Work Start Date",
+            "description": "When physical work of a significant nature began (the self-constructed property's acquisition date when there is no binding contract; Reg. 1.168(k)-2(b)(5)(iv)(B))."
+          },
+          "placed_in_service_date": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Placed In Service Date",
+            "description": "When the work was ready and available for use. Required for `after_service`; absent for `before_service` (the building's date applies)."
+          },
+          "invoice_total": {
+            "type": "string",
+            "title": "Invoice Total",
+            "description": "The invoices' total."
+          },
+          "invoices": {
+            "items": {
+              "$ref": "#/components/schemas/Invoice-Output"
+            },
+            "type": "array",
+            "maxItems": 200,
+            "title": "Invoices",
+            "description": "The invoices; when given they must sum to `invoice_total`."
+          },
+          "capitalized_amount": {
+            "anyOf": [
+              {
+                "type": "string",
+                "description": "Dollars."
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Capitalized Amount",
+            "description": "The amount the CPA confirms is capitalized (Reg. 1.263(a)-3): the renovation schedule is reconciled to it. Null until confirmed: the result withholds the project's schedule (blocker `renovation_capitalized`)."
+          },
+          "capitalized_confirmed_by": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 200,
+                "minLength": 1,
+                "pattern": "^[^\\x00-\\x1f\\x7f-\\x9f]*[^\\x00-\\x1f\\x7f-\\x9f\\s][^\\x00-\\x1f\\x7f-\\x9f]*$"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Capitalized Confirmed By",
+            "description": "Who confirmed it (the CPA's name and firm)."
+          },
+          "after_photos": {
+            "items": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "type": "array",
+            "maxItems": 2000,
+            "title": "After Photos",
+            "description": "Photographs of the work as finished (the engineer's tag). The acquisition is built from the other photographs; this project's schedule from these."
+          },
+          "qip": {
+            "type": "string",
+            "enum": [
+              "auto",
+              "off"
+            ],
+            "title": "Qip",
+            "description": "`auto`: interior 39-year rows of a nonresidential building become qualified improvement property (15-year straight line) unless excluded; `off`: never (the CPA's call).",
+            "default": "auto"
+          },
+          "aerial": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AerialBracket"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "For exterior work: the last dated view without it and the first with it."
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "key",
+          "kind",
+          "scope",
+          "work_start_date",
+          "invoice_total"
+        ],
+        "title": "RenovationProject"
+      },
+      "RenovationRowOut": {
+        "properties": {
+          "asset_id": {
+            "type": "string",
+            "title": "Asset Id"
+          },
+          "label": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Label"
+          },
+          "category": {
+            "type": "string",
+            "title": "Category"
+          },
+          "bucket": {
+            "$ref": "#/components/schemas/Bucket"
+          },
+          "schedule_class": {
+            "type": "string",
+            "title": "Schedule Class",
+            "description": "The class the schedule prints: the bucket, or `qip` (15-year straight line)."
+          },
+          "estimate": {
+            "type": "string",
+            "title": "Estimate",
+            "description": "The cost table's (or the engineer's) estimate."
+          },
+          "allocated": {
+            "type": "string",
+            "title": "Allocated",
+            "description": "Its share of the capitalized amount."
+          },
+          "rounding_cents": {
+            "type": "integer",
+            "title": "Rounding Cents"
+          },
+          "qip_reason": {
+            "type": "string",
+            "title": "Qip Reason"
+          }
+        },
+        "type": "object",
+        "required": [
+          "asset_id",
+          "label",
+          "category",
+          "bucket",
+          "schedule_class",
+          "estimate",
+          "allocated",
+          "rounding_cents",
+          "qip_reason"
+        ],
+        "title": "RenovationRowOut"
       },
       "ReopenIn": {
         "properties": {
@@ -25844,6 +29923,146 @@
         "title": "SignerDetailsOut",
         "description": "Your signer details and their version (also the ``ETag``; 0 while none are saved)."
       },
+      "SiteCheckOut": {
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": [
+              "agree",
+              "adjacent_match",
+              "disagree",
+              "no_appraisal",
+              "no_parcel"
+            ],
+            "title": "Status"
+          },
+          "flag": {
+            "type": "boolean",
+            "title": "Flag",
+            "description": "True only for `disagree`: show it as a review flag."
+          },
+          "code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Code",
+            "description": "`BASIS-GEO-012` (disagree) or `BASIS-GEO-013` (adjacent)."
+          },
+          "message": {
+            "type": "string",
+            "title": "Message"
+          },
+          "appraisal_sqft": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Appraisal Sqft",
+            "description": "The appraisal's `site.area_sqft`."
+          },
+          "parcel_sqft": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Parcel Sqft",
+            "description": "The pin's parcel figure compared."
+          },
+          "layer_sqft": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Layer Sqft"
+          },
+          "polygon_sqft": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Polygon Sqft"
+          },
+          "difference_pct": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Difference Pct",
+            "description": "(parcel - appraisal) / appraisal."
+          },
+          "parcels": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "type": "array",
+            "title": "Parcels",
+            "description": "The parcel ids in the set that was compared."
+          },
+          "combined_sqft": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Combined Sqft"
+          },
+          "tolerance_pct": {
+            "type": "number",
+            "title": "Tolerance Pct"
+          }
+        },
+        "type": "object",
+        "required": [
+          "status",
+          "flag",
+          "code",
+          "message",
+          "appraisal_sqft",
+          "parcel_sqft",
+          "layer_sqft",
+          "polygon_sqft",
+          "difference_pct",
+          "parcels",
+          "combined_sqft",
+          "tolerance_pct"
+        ],
+        "title": "SiteCheckOut"
+      },
       "SourceIn": {
         "properties": {
           "file": {
@@ -27635,6 +31854,115 @@
           }
         ]
       },
+      "StudyRenovations": {
+        "properties": {
+          "projects": {
+            "items": {
+              "$ref": "#/components/schemas/RenovationProject-Output"
+            },
+            "type": "array",
+            "maxItems": 20,
+            "title": "Projects"
+          },
+          "acquisition_bonus_rate": {
+            "anyOf": [
+              {
+                "type": "string",
+                "description": "A share, 0..1."
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Acquisition Bonus Rate",
+            "description": "The bonus depreciation actually claimed on the acquisition's 5, 7 and 15-year property (0..1; the CPA's, from the return). Null: the statutory default for the acquisition's dates. The dispositions' depreciation allowed or allowable includes the removed line's share of it."
+          },
+          "exterior_brackets": {
+            "items": {
+              "$ref": "#/components/schemas/ComponentBracket"
+            },
+            "type": "array",
+            "maxItems": 20,
+            "title": "Exterior Brackets",
+            "description": "Exterior components' dated views (a component's year installed is checked against them)."
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "projects"
+        ],
+        "title": "StudyRenovations",
+        "description": "The stored document: the request (no field is added on write)."
+      },
+      "StudyRenovationsIn": {
+        "properties": {
+          "projects": {
+            "items": {
+              "$ref": "#/components/schemas/RenovationProject-Input"
+            },
+            "type": "array",
+            "maxItems": 20,
+            "title": "Projects"
+          },
+          "acquisition_bonus_rate": {
+            "anyOf": [
+              {
+                "anyOf": [
+                  {
+                    "type": "number",
+                    "maximum": 1.0,
+                    "minimum": 0.0
+                  },
+                  {
+                    "type": "string"
+                  }
+                ],
+                "description": "A share, 0..1."
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Acquisition Bonus Rate",
+            "description": "The bonus depreciation actually claimed on the acquisition's 5, 7 and 15-year property (0..1; the CPA's, from the return). Null: the statutory default for the acquisition's dates. The dispositions' depreciation allowed or allowable includes the removed line's share of it."
+          },
+          "exterior_brackets": {
+            "items": {
+              "$ref": "#/components/schemas/ComponentBracket"
+            },
+            "type": "array",
+            "maxItems": 20,
+            "title": "Exterior Brackets",
+            "description": "Exterior components' dated views (a component's year installed is checked against them)."
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "projects"
+        ],
+        "title": "StudyRenovationsIn",
+        "description": "The renovations document as the client sends it.",
+        "examples": [
+          {
+            "projects": [
+              {
+                "after_photos": [],
+                "capitalized_amount": "38500.00",
+                "capitalized_confirmed_by": "A. Preparer, CPA",
+                "contract_date": "2025-02-10",
+                "invoice_total": "38500.00",
+                "key": "kitchen-2025",
+                "kind": "after_service",
+                "placed_in_service_date": "2025-05-30",
+                "scope": "Kitchen remodel: cabinets, countertops and flooring replaced",
+                "work_start_date": "2025-03-03"
+              }
+            ]
+          }
+        ]
+      },
       "StudyResultOut": {
         "properties": {
           "revision": {
@@ -27733,6 +32061,32 @@
             "type": "array",
             "title": "Not Produced",
             "description": "Concealed systems with no priced row in this schedule, so the gap to the basis is explicit."
+          },
+          "component_ages": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/ComponentAgeOut"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Component Ages",
+            "description": "The acquisition rows depreciated on their own age-life ratio instead of the appraiser's rate (EVAL_REPORT 102); absent when no row carries an age."
+          },
+          "renovations": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/basis__evidence__renovations__RenovationsOut"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The renovation projects: each after-service project's schedule (its own dates, priced from its invoices), the dispositions of the acquisition lines they removed, the before-service projects (docs/api/RENOVATIONS.md); absent when the study has no renovations."
           },
           "pricing": {
             "anyOf": [
@@ -28237,6 +32591,244 @@
         "type": "object",
         "title": "UserIn"
       },
+      "ViewOut": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id"
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "aerial",
+              "oblique",
+              "history",
+              "street"
+            ],
+            "title": "Kind"
+          },
+          "label": {
+            "type": "string",
+            "title": "Label",
+            "description": "`aerial-close`, `aerial-wide`, `side-south` ..., `history-YYYY-MM-DD` (a dated top-down view with `aerial-close`'s camera), `street-front`."
+          },
+          "lat": {
+            "type": "number",
+            "title": "Lat",
+            "description": "The point the camera looks at (the view's centre)."
+          },
+          "lon": {
+            "type": "number",
+            "title": "Lon"
+          },
+          "ground_alt_m": {
+            "type": "number",
+            "title": "Ground Alt M"
+          },
+          "range_m": {
+            "type": "number",
+            "title": "Range M",
+            "description": "Camera to the point, metres."
+          },
+          "fov_deg": {
+            "type": "number",
+            "title": "Fov Deg",
+            "description": "Vertical field of view."
+          },
+          "heading_deg": {
+            "type": "number",
+            "title": "Heading Deg"
+          },
+          "tilt_deg": {
+            "type": "number",
+            "title": "Tilt Deg",
+            "description": "0 looks straight down."
+          },
+          "pixel_size_m": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Pixel Size M",
+            "description": "Metres per pixel at the centre, top-down views only (`2 * range * tan(fov / 2) / height`; EVAL_REPORT 98: within 2.0 to 2.6 % of the imagery's own scale bar, not checked against a measured length). Null for tilted views, which must not be measured on."
+          },
+          "imagery_date": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Imagery Date",
+            "description": "As the imagery showed it (`M/D/YYYY`, read off the viewer's status bar; EVAL_REPORT 99); null when it could not be read (`imagery_date_note` says why)."
+          },
+          "imagery_on": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Imagery On",
+            "description": "`imagery_date` as a date (what a measurement's `captured_on` takes)."
+          },
+          "imagery_date_note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Imagery Date Note",
+            "description": "How the date was read (`status-bar`, `..., matches the address`), or why it was not. Null on views taken before EVAL_REPORT 99."
+          },
+          "leaf": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "leaf-off",
+                  "leaf-on",
+                  "unknown"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Leaf",
+            "description": "Trees bare or in leaf on the imagery date, by the month and the latitude (EVAL_REPORT 99); `unknown` between seasons, for a date known only to the year, or undated. Null on views taken before EVAL_REPORT 99."
+          },
+          "green_share": {
+            "anyOf": [
+              {
+                "type": "number",
+                "maximum": 1.0,
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Green Share",
+            "description": "Share of green vegetation pixels in a top-down view: supporting evidence for `leaf`, not the label itself (lawns and evergreens are green in every season)."
+          },
+          "camera_lat": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Camera Lat",
+            "description": "Street-level views: where the camera stood (the panorama); `lat`, `lon` are the house it looks at, `heading_deg` from the one to the other."
+          },
+          "camera_lon": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Camera Lon"
+          },
+          "width": {
+            "type": "integer",
+            "title": "Width"
+          },
+          "height": {
+            "type": "integer",
+            "title": "Height"
+          },
+          "sha256": {
+            "type": "string",
+            "title": "Sha256"
+          },
+          "source": {
+            "type": "string",
+            "title": "Source",
+            "description": "The provenance line to show with the view."
+          },
+          "captured_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Captured At"
+          },
+          "pin_version": {
+            "type": "integer",
+            "title": "Pin Version"
+          },
+          "stale": {
+            "type": "boolean",
+            "title": "Stale",
+            "description": "Taken at another point than the pin's current one (more than 1 m away); confirming the pin or editing its address does not make a view stale."
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "kind",
+          "label",
+          "lat",
+          "lon",
+          "ground_alt_m",
+          "range_m",
+          "fov_deg",
+          "heading_deg",
+          "tilt_deg",
+          "pixel_size_m",
+          "imagery_date",
+          "width",
+          "height",
+          "sha256",
+          "source",
+          "captured_at",
+          "pin_version",
+          "stale"
+        ],
+        "title": "ViewOut"
+      },
+      "ViewRef": {
+        "properties": {
+          "date": {
+            "type": "string",
+            "format": "date",
+            "title": "Date"
+          },
+          "reference": {
+            "type": "string",
+            "maxLength": 200,
+            "minLength": 1,
+            "pattern": "^[^\\x00-\\x1f\\x7f-\\x9f]*[^\\x00-\\x1f\\x7f-\\x9f\\s][^\\x00-\\x1f\\x7f-\\x9f]*$",
+            "title": "Reference",
+            "description": "Which view: the property view's id, or the source and its image id."
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "date",
+          "reference"
+        ],
+        "title": "ViewRef",
+        "description": "A dated aerial or street view (corroboration only; RENOVATIONS.md section 5)."
+      },
       "ViewportIn": {
         "properties": {
           "width": {
@@ -28614,6 +33206,125 @@
         ],
         "title": "WorksheetOut",
         "description": "``price + capitalized acquisition costs − land`` with every check."
+      },
+      "basis__api__schemas__renovations__RenovationsOut": {
+        "properties": {
+          "study_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Study Id"
+          },
+          "renovations": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/StudyRenovations"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "renovations_version": {
+            "type": "integer",
+            "title": "Renovations Version"
+          }
+        },
+        "type": "object",
+        "required": [
+          "study_id",
+          "renovations",
+          "renovations_version"
+        ],
+        "title": "RenovationsOut",
+        "description": "The study's renovations (``null`` until saved) and their version (also the ``ETag``;\n0 while there are none)."
+      },
+      "basis__evidence__renovations__RenovationsOut": {
+        "properties": {
+          "version": {
+            "type": "integer",
+            "title": "Version",
+            "description": "`studies.renovations_version` read with the document."
+          },
+          "built_with_version": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Built With Version",
+            "description": "The version the revision's assets were built with (their takeoffs); another value than `version` withholds the allocation until a reprice."
+          },
+          "projects": {
+            "items": {
+              "$ref": "#/components/schemas/ProjectScheduleOut"
+            },
+            "type": "array",
+            "title": "Projects"
+          },
+          "dispositions": {
+            "items": {
+              "$ref": "#/components/schemas/DispositionOut"
+            },
+            "type": "array",
+            "title": "Dispositions"
+          },
+          "dispositions_by_year": {
+            "items": {
+              "$ref": "#/components/schemas/DispositionTaxYearOut"
+            },
+            "type": "array",
+            "title": "Dispositions By Year"
+          },
+          "exterior_brackets": {
+            "items": {
+              "$ref": "#/components/schemas/ComponentBracket"
+            },
+            "type": "array",
+            "title": "Exterior Brackets",
+            "description": "Exterior components' dated views (corroboration only)."
+          },
+          "acquisition_bonus_rate": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Acquisition Bonus Rate",
+            "description": "The bonus the CPA says was claimed on the acquisition (null: the statutory default)."
+          },
+          "renovations_basis": {
+            "type": "string",
+            "title": "Renovations Basis",
+            "description": "The after-service projects' capitalized amounts (their schedules' total)."
+          },
+          "checks": {
+            "items": {
+              "$ref": "#/components/schemas/RenovationCheckOut"
+            },
+            "type": "array",
+            "title": "Checks"
+          }
+        },
+        "type": "object",
+        "required": [
+          "version",
+          "built_with_version",
+          "projects",
+          "dispositions",
+          "dispositions_by_year",
+          "exterior_brackets",
+          "acquisition_bonus_rate",
+          "renovations_basis",
+          "checks"
+        ],
+        "title": "RenovationsOut",
+        "description": "The renovation projects of the result (RENOVATIONS.md)."
       },
       "FieldError": {
         "description": "One validation failure.",

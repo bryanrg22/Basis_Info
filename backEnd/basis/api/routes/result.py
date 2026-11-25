@@ -44,4 +44,12 @@ async def get_result(
             access.study.intake_version,
             settings,
         )
-    return compute_result(rows, access.study.intake, at, structure, pricing)
+    return compute_result(
+        rows,
+        access.study.intake,
+        at,
+        structure,
+        pricing,
+        access.study.renovations,
+        access.study.renovations_version,
+    )

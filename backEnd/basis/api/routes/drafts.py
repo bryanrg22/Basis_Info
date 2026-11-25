@@ -10,7 +10,8 @@ lost them. A draft is one document per ``(study, stage, user)`` (``review_drafts
 * **Validated as a decision would be.** The body is the decision route's own
   ``CorrectionIn``, and the ``PUT`` runs the decision route's checks
   (:mod:`basis.api.routes.decisions`: the type for the stage in the study's flow, the target
-  in the named revision, count and room values, removals and added fields), so a draft that
+  in the named revision, count and room values, removals and added fields, unit prices and
+  traced measurements with the document they name), so a draft that
   would be refused at submit time is refused at save time with the same 422 ``errors``. The
   one decision-only rule, "an approval cannot carry corrections", does not apply: the
   decision is chosen at submit time (a draft with corrections is sent as a rejection).
@@ -55,11 +56,13 @@ from basis.api.routes.common import problems, read_router, write_router
 from basis.api.routes.decisions import (
     check_correction_targets,
     check_correction_types,
-    check_correction_values,
     check_field_add_targets,
+    check_measurement_targets,
+    check_removal_projects,
     check_removal_targets,
     check_removals_and_additions,
     check_unit_cost_targets,
+    check_values,
 )
 from basis.api.schemas.drafts import DraftIn, DraftOut, DraftsOut, OtherDraftOut, StaleReason
 from basis.api.schemas.reviews import CorrectionIn, ReviewStage
@@ -248,7 +251,7 @@ async def put_draft(
     # The checks that need no database, in the decision route's order.
     check_correction_types(stage, body.corrections, components_gate=study.components_gate is True)
     settings: Settings = request.app.state.settings
-    check_correction_values(body.corrections, unit_cost_override=settings.unit_cost_override)
+    await check_values(body.corrections, settings)
     check_removals_and_additions(body.corrections)
     drafts = ReviewDraftRepository(session)
     if body.revision != study.revision:
@@ -273,6 +276,8 @@ async def put_draft(
     await check_removal_targets(session, study.id, body.revision, body.corrections)
     await check_field_add_targets(session, study.id, body.corrections)
     await check_unit_cost_targets(session, study.id, body.corrections)
+    await check_measurement_targets(session, study.id, body.corrections)
+    await check_removal_projects(session, study.id, body.corrections)
     condition = parse_if_match(if_match)
     try:
         await drafts.write(

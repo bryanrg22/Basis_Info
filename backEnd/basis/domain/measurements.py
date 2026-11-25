@@ -20,6 +20,14 @@ this module turns those fields into:
   date and the factor of the intake's state, else the appraisal's effective-date year and
   the appraisal's state, else the settings (3.9).
 
+With ``TAKEOFF_SKETCH=on`` the appraisal's building sketch is read too (SKETCH_READER.md,
+EVAL_REPORT 96): :func:`measurements_from_fields` takes the ``sketch`` fields the extraction
+wrote (:mod:`basis.extraction.sketch`) and checks the sketch's living area against the
+printed GLA (:func:`check_sketch`). An accepted sketch's ground floor replaces
+``GLA / stories`` as the footprint, its garage replaces the cost approach's line, a
+perimeter read from its outline replaces the rectangle's, and a dimensioned patio sizes the
+patio; a refused sketch changes nothing but the reason, which is written on the takeoff.
+
 Every number is a :class:`Derived` carrying its formula, its named inputs (value, field
 and extraction source) and the assumptions it rests on, so ``process_assets`` can write
 them on the takeoff and the export can show "GLA 1,850 x 150 / 1,390". The constants are
@@ -29,7 +37,7 @@ the assumption table of TAKEOFF_RESEARCH section 4. Pure functions: no I/O.
 from __future__ import annotations
 
 from collections.abc import Iterable, Mapping, Sequence
-from dataclasses import dataclass, field, fields
+from dataclasses import dataclass, field, fields, replace
 from datetime import date
 from decimal import ROUND_HALF_UP, Decimal
 from typing import Final, Literal, Protocol
@@ -88,6 +96,20 @@ TEXT_KEYS: Final[dict[str, tuple[str, ...]]] = {
 DATE_KEYS: Final[dict[str, tuple[str, ...]]] = {
     "effective_date": ("reconciliation.effective_date_of_appraisal", "appraiser.effective_date"),
 }
+# The appraisal sketch's fields: ``basis.extraction.sketch`` writes the four areas from the
+# area calculation table, and ``basis.extraction.sketch_outline`` the two perimeters from the
+# PDF's line work when TAKEOFF_SKETCH_OUTLINE is on and the drawing can be read
+# (SKETCH_READER.md section 6). Read only with a tolerance (TAKEOFF_SKETCH).
+SKETCH_KEYS: Final[dict[str, str]] = {
+    "living_sf": "sketch.living_area_sqft",
+    "ground_floor_sf": "sketch.ground_floor_area_sqft",
+    "garage_sf": "sketch.garage_area_sqft",
+    "patio_sf": "sketch.patio_area_sqft",
+    # The ground story's exterior perimeter (dwelling and attached garage as one outline),
+    # and the exterior perimeter of the floors above it, summed over those floors.
+    "ground_perimeter_ft": "sketch.ground_perimeter_ft",
+    "upper_perimeter_ft": "sketch.upper_perimeter_ft",
+}
 
 # Labels the cost table prices per SF/LF that the appraisal cannot size (section 3.8):
 # the measurement a reviewer must supply, named on the takeoff.
@@ -135,13 +157,17 @@ class RoomView(Protocol):
 
 @dataclass(frozen=True, slots=True)
 class Reading:
-    """One numeric input and where it was read."""
+    """One numeric input and where it was read. ``page`` is kept for the sketch's readings
+    (the page of the area calculation table); the form's readings carry none."""
 
     value: Decimal
     field: str
     source: str
+    page: int | None = None
 
     def describe(self) -> str:
+        if self.page is not None:
+            return f"{self.field} ({self.source}, page {self.page})"
         return f"{self.field} ({self.source})"
 
 
@@ -166,6 +192,22 @@ class DateReading:
 
 
 @dataclass(frozen=True, slots=True)
+class SketchAreas:
+    """The appraisal sketch's readings and whether the takeoff may use them. ``check`` is
+    the cross-check against the printed GLA as a sentence, written on every takeoff the
+    sketch could have sized, used or not."""
+
+    living_sf: Reading | None = None
+    ground_floor_sf: Reading | None = None
+    garage_sf: Reading | None = None
+    patio_sf: Reading | None = None
+    ground_perimeter_ft: Reading | None = None
+    upper_perimeter_ft: Reading | None = None
+    accepted: bool = False
+    check: str = ""
+
+
+@dataclass(frozen=True, slots=True)
 class BuildingMeasurements:
     """The appraisal's measurements; every field ``None`` when it was not read."""
 
@@ -183,6 +225,9 @@ class BuildingMeasurements:
     state: TextReading | None = None
     zip: TextReading | None = None
     effective_date: DateReading | None = None
+    # The sketch's areas and their cross-check; None with TAKEOFF_SKETCH=off and when the
+    # extraction read no sketch table.
+    sketch: SketchAreas | None = None
 
     @property
     def is_empty(self) -> bool:
@@ -259,11 +304,45 @@ def _positive(value: Decimal | None) -> bool:
     return value is not None and value.is_finite() and value > 0
 
 
-def measurements_from_fields(rows: Iterable[FieldRow]) -> BuildingMeasurements:
+def check_sketch(areas: SketchAreas, gla: Reading | None, tolerance: Decimal) -> SketchAreas:
+    """``areas`` with the cross-check decided: the sketch is used when its living area is
+    within ``tolerance`` (a fraction) of the printed GLA. The appraiser's sketch is where
+    the GLA is calculated, so the two agree when both are right (three public sample reports
+    agree to the square foot, EVAL_REPORT 96); when they do not, one of them is wrong and
+    this module cannot tell which, so the sketch is not used and the reason says why."""
+    limit = f"{_fmt(_q(tolerance * 100))} %"
+    if areas.living_sf is None:
+        reason = "the sketch's living area could not be read, so it cannot be checked"
+        return replace(areas, accepted=False, check=f"appraisal sketch not used: {reason}")
+    living = areas.living_sf
+    if gla is None:
+        return replace(
+            areas,
+            accepted=False,
+            check="appraisal sketch not used: no printed GLA to check its living area against",
+        )
+    apart = abs(living.value - gla.value) / gla.value
+    compared = (
+        f"its living area is {_fmt(living.value)} SF ({living.describe()}) against "
+        f"{_fmt(gla.value)} SF GLA ({gla.describe()}), {_fmt(_q(apart * 100))} % apart "
+        f"(tolerance {limit})"
+    )
+    if apart > tolerance:
+        return replace(areas, accepted=False, check=f"appraisal sketch not used: {compared}")
+    return replace(areas, accepted=True, check=f"appraisal sketch used: {compared}")
+
+
+def measurements_from_fields(
+    rows: Iterable[FieldRow], *, sketch_tolerance: Decimal | None = None
+) -> BuildingMeasurements:
     """The measurements in the stored extraction fields. A numeric field is used when it
     is a finite positive number (stories and counts at least 1); the first key of
     :data:`FIELD_KEYS` that has one wins. A site area printed in acres only is converted
-    (43,560 SF per acre)."""
+    (43,560 SF per acre).
+
+    ``sketch_tolerance``: None (``TAKEOFF_SKETCH=off``) leaves the ``sketch`` fields
+    unread; a fraction reads them (:data:`SKETCH_KEYS`) and decides whether the sketch is
+    used (:func:`check_sketch`)."""
     by_key: dict[str, FieldRow] = {}
     for row in rows:
         by_key.setdefault(f"{row.section}.{row.field}", row)
@@ -315,8 +394,29 @@ def measurements_from_fields(rows: Iterable[FieldRow]) -> BuildingMeasurements:
         acres = number("site_acres")
         if acres is not None:
             site = Reading(_q(acres.value * SF_PER_ACRE), acres.field, acres.source)
+    gla = number("gla_sf")
+    sketch: SketchAreas | None = None
+    if sketch_tolerance is not None:
+        read: dict[str, Reading] = {}
+        for name, key in SKETCH_KEYS.items():
+            found = by_key.get(key)
+            if found is None or found.value_num is None or isinstance(found.value_num, bool):
+                continue
+            value = Decimal(str(found.value_num))
+            if _positive(value):
+                read[name] = Reading(value, key, found.source, getattr(found, "page", None))
+        if read:
+            areas = SketchAreas(
+                living_sf=read.get("living_sf"),
+                ground_floor_sf=read.get("ground_floor_sf"),
+                garage_sf=read.get("garage_sf"),
+                patio_sf=read.get("patio_sf"),
+                ground_perimeter_ft=read.get("ground_perimeter_ft"),
+                upper_perimeter_ft=read.get("upper_perimeter_ft"),
+            )
+            sketch = check_sketch(areas, gla, sketch_tolerance)
     return BuildingMeasurements(
-        gla_sf=number("gla_sf"),
+        gla_sf=gla,
         stories=number("stories"),
         basement_sf=number("basement_sf"),
         basement_finish_pct=number("basement_finish_pct"),
@@ -330,6 +430,7 @@ def measurements_from_fields(rows: Iterable[FieldRow]) -> BuildingMeasurements:
         state=text("state"),
         zip=text("zip"),
         effective_date=when("effective_date"),
+        sketch=sketch,
     )
 
 
@@ -358,6 +459,11 @@ def long_side_ft(area_sf: Decimal) -> Decimal:
     return (area_sf / FOOTPRINT_ASPECT_RATIO).sqrt() * FOOTPRINT_ASPECT_RATIO
 
 
+def _accepted(m: BuildingMeasurements) -> SketchAreas | None:
+    """The sketch when the cross-check accepted it; None otherwise."""
+    return m.sketch if m.sketch is not None and m.sketch.accepted else None
+
+
 def _stories(m: BuildingMeasurements) -> tuple[Decimal, dict[str, str], tuple[str, ...]]:
     """The printed stories; only called once :func:`footprint` has found them (a missing
     count is no longer taken as 1 story: EVAL_REPORT 78)."""
@@ -367,7 +473,21 @@ def _stories(m: BuildingMeasurements) -> tuple[Decimal, dict[str, str], tuple[st
 
 
 def garage_area(m: BuildingMeasurements) -> Derived | None:
-    """The garage area: the cost approach's garage line, else cars x 240 SF (section 3.6)."""
+    """The garage area: an accepted sketch's garage, else the cost approach's garage line,
+    else cars x 240 SF (section 3.6)."""
+    sketch = _accepted(m)
+    if sketch is not None and sketch.garage_sf is not None:
+        garage = sketch.garage_sf
+        return Derived(
+            _q(garage.value),
+            "SF",
+            f"{_fmt(garage.value)} SF garage on the appraisal sketch",
+            {
+                "garage_sf": _fmt(garage.value),
+                "garage_sf_field": garage.describe(),
+                "sketch_check": sketch.check,
+            },
+        )
     if m.garage_sf is not None:
         return Derived(
             _q(m.garage_sf.value),
@@ -395,11 +515,30 @@ def garage_area(m: BuildingMeasurements) -> Derived | None:
 
 
 def footprint(m: BuildingMeasurements) -> Derived | None:
-    """The dwelling's footprint, GLA / stories (section 3.2); None without either."""
+    """The dwelling's footprint: an accepted sketch's ground floor, else GLA / stories
+    (section 3.2); None without a GLA and a story count either way (the sketch is checked
+    against the one and the upper walls need the other). A sketch that was read and not
+    used leaves the reason in ``inputs["sketch_check"]``."""
     if m.gla_sf is None or m.stories is None:
         return None
+    sketch = _accepted(m)
+    if sketch is not None and sketch.ground_floor_sf is not None:
+        ground = sketch.ground_floor_sf
+        return Derived(
+            _q(ground.value),
+            "SF",
+            f"{_fmt(ground.value)} SF ground floor on the appraisal sketch",
+            {
+                "footprint_source": "sketch",
+                "sketch_ground_floor_sf": _fmt(ground.value),
+                "sketch_ground_floor_field": ground.describe(),
+                "sketch_check": sketch.check,
+            },
+        )
     stories, inputs, assumptions = _stories(m)
     area = m.gla_sf.value / stories
+    if m.sketch is not None:
+        inputs = {**inputs, "sketch_check": m.sketch.check}
     return Derived(
         _q(area),
         "SF",
@@ -407,6 +546,47 @@ def footprint(m: BuildingMeasurements) -> Derived | None:
         {"gla_sf": _fmt(m.gla_sf.value), "gla_field": m.gla_sf.describe(), **inputs},
         assumptions,
     )
+
+
+def _from_sketch(m: BuildingMeasurements) -> SketchAreas | None:
+    """The sketch when the footprint is its ground floor (what a sketch perimeter and the
+    upper floors' area go with); None otherwise."""
+    sketch = _accepted(m)
+    return sketch if sketch is not None and sketch.ground_floor_sf is not None else None
+
+
+OUTLINE: Final = "perimeter read from the appraisal sketch's outline"
+# The source of a perimeter read from the sketch's line work
+# (``basis.extraction.sketch_outline.SOURCE``; a test holds the two equal).
+OUTLINE_SOURCE: Final = "drawing"
+UPPER_OUTLINES: Final = (
+    "upper-floor outlines summed as drawn: parts of a floor drawn on separate pages are "
+    "counted as separate masses (a wall they share would be counted twice)"
+)
+GARAGE_NOT_DRAWN: Final = (
+    "sketch outline not used: the takeoff's garage is not the sketch's, so the outline "
+    "read from the drawing does not include its walls"
+)
+
+
+def _ground_outline(m: BuildingMeasurements) -> tuple[Reading | None, str | None]:
+    """``(the ground story's perimeter read from the sketch, why one that was read is not
+    used)``. A perimeter the outline reader wrote covers the dwelling and the garage the
+    sketch draws. When the takeoff's garage comes from somewhere else (the cost approach's
+    line, the car count), its walls are not in that outline, so the rectangle stays and the
+    row says why. A perimeter from any other source is the writer's statement of the whole
+    ground story and is used as it is."""
+    sketch = _from_sketch(m)
+    if sketch is None or sketch.ground_perimeter_ft is None:
+        return None, None
+    read = sketch.ground_perimeter_ft
+    if read.source == OUTLINE_SOURCE and sketch.garage_sf is None and garage_area(m) is not None:
+        return None, GARAGE_NOT_DRAWN
+    return read, None
+
+
+def _rectangle() -> str:
+    return f"rectangular footprint, {_fmt(FOOTPRINT_ASPECT_RATIO)}:1"
 
 
 def ground_footprint(m: BuildingMeasurements) -> Derived | None:
@@ -438,9 +618,17 @@ def roof_area(m: BuildingMeasurements) -> Derived | None:
     ground = ground_footprint(m)
     if ground is None:
         return None
-    perimeter = perimeter_ft(ground.quantity)
+    outline, unused = _ground_outline(m)
+    perimeter = perimeter_ft(ground.quantity) if outline is None else outline.value
     plan = ground.quantity + perimeter * EAVE_OVERHANG_FT
     area = plan * ROOF_PITCH_FACTOR
+    shape = (
+        {"aspect_ratio": _fmt(FOOTPRINT_ASPECT_RATIO)}
+        if outline is None
+        else {"perimeter_field": outline.describe()}
+    )
+    if unused is not None:
+        shape["sketch_outline"] = unused
     return Derived(
         _q(area),
         "SF",
@@ -450,13 +638,13 @@ def roof_area(m: BuildingMeasurements) -> Derived | None:
             **ground.inputs,
             "ground_footprint_sf": _fmt(ground.quantity),
             "perimeter_ft": _fmt(_q(perimeter)),
-            "aspect_ratio": _fmt(FOOTPRINT_ASPECT_RATIO),
+            **shape,
             "overhang_ft": _fmt(EAVE_OVERHANG_FT),
             "pitch_factor": str(ROOF_PITCH_FACTOR),
         },
         (
             *ground.assumptions,
-            f"rectangular footprint, {_fmt(FOOTPRINT_ASPECT_RATIO)}:1",
+            _rectangle() if outline is None else OUTLINE,
             "6/12 pitch (factor 1.118); 1 ft eave overhang; no waste",
         ),
     )
@@ -464,12 +652,76 @@ def roof_area(m: BuildingMeasurements) -> Derived | None:
 
 def siding_area(m: BuildingMeasurements) -> Derived | None:
     """Ground perimeter x 9 ft, plus the dwelling perimeter x 9 ft per upper story, less 15%
-    openings (section 3.4)."""
+    openings (section 3.4). With the sketch's footprint the upper stories are sized on the
+    sketch's own upper-floor area (its living area less its ground floor), not on the ground
+    floor's; with the sketch's outline both perimeters are the ones read."""
     ground = ground_footprint(m)
     dwelling = footprint(m)
     if ground is None or dwelling is None:
         return None
     stories, _, _ = _stories(m)
+    sketch = _from_sketch(m)
+    if sketch is None:
+        return _siding_from_rectangles(ground, dwelling, stories)
+    assert sketch.ground_floor_sf is not None and sketch.living_sf is not None
+    outline, unused = _ground_outline(m)
+    ground_perimeter = perimeter_ft(ground.quantity) if outline is None else outline.value
+    upper_stories = stories - 1
+    upper_area = max(sketch.living_sf.value - sketch.ground_floor_sf.value, Decimal(0))
+    formula = f"{_fmt(_q(ground_perimeter))} ft ground perimeter x {_fmt(STORY_WALL_HEIGHT_FT)} ft"
+    inputs = {
+        **ground.inputs,
+        "ground_perimeter_ft": _fmt(_q(ground_perimeter)),
+        "sketch_living_sf": _fmt(sketch.living_sf.value),
+        "sketch_living_field": sketch.living_sf.describe(),
+        "upper_floors_sf": _fmt(_q(upper_area)),
+    }
+    assumptions = [*ground.assumptions]
+    upper_run = Decimal(0)  # exterior wall length of the floors above the ground floor
+    read_upper = sketch.upper_perimeter_ft if outline is not None else None
+    if upper_stories > 0 and upper_area > 0 and read_upper is not None:
+        upper_run = read_upper.value
+        formula += (
+            f" + {_fmt(_q(upper_run))} ft of upper-floor perimeter x "
+            f"{_fmt(STORY_WALL_HEIGHT_FT)} ft"
+        )
+        inputs["upper_perimeter_ft"] = _fmt(_q(upper_run))
+        inputs["upper_perimeter_field"] = read_upper.describe()
+        if read_upper.source == OUTLINE_SOURCE:
+            assumptions.append(UPPER_OUTLINES)
+    elif upper_stories > 0 and upper_area > 0:
+        per_story = perimeter_ft(upper_area / upper_stories)
+        upper_run = per_story * upper_stories
+        formula += (
+            f" + {_fmt(_q(per_story))} ft x {_fmt(STORY_WALL_HEIGHT_FT)} ft x "
+            f"{_fmt(upper_stories)} upper stories"
+        )
+        inputs["dwelling_perimeter_ft"] = _fmt(_q(per_story))
+        assumptions.append(
+            "upper floors sized on the sketch's living area less its ground floor, as a "
+            f"{_fmt(FOOTPRINT_ASPECT_RATIO)}:1 rectangle per story"
+        )
+    elif upper_stories > 0:
+        assumptions.append("the sketch shows no living area above the ground floor")
+    if outline is None:
+        inputs["aspect_ratio"] = _fmt(FOOTPRINT_ASPECT_RATIO)
+        assumptions.append(_rectangle())
+        if unused is not None:
+            inputs["sketch_outline"] = unused
+    else:
+        inputs["ground_perimeter_field"] = outline.describe()
+        assumptions.append(OUTLINE)
+    gross = (ground_perimeter + upper_run) * STORY_WALL_HEIGHT_FT
+    net = gross * (1 - WALL_OPENINGS_SHARE)
+    formula += f", less {_fmt(WALL_OPENINGS_SHARE * 100)}% openings"
+    inputs["wall_height_ft"] = _fmt(STORY_WALL_HEIGHT_FT)
+    inputs["openings_share"] = str(WALL_OPENINGS_SHARE)
+    assumptions.append("9 ft of exterior wall per story; 15% openings; gable ends not added")
+    return Derived(_q(net), "SF", formula, inputs, tuple(assumptions))
+
+
+def _siding_from_rectangles(ground: Derived, dwelling: Derived, stories: Decimal) -> Derived:
+    """Section 3.4 as it was before the sketch: both perimeters from 1.5:1 rectangles."""
     ground_perimeter = perimeter_ft(ground.quantity)
     upper_perimeter = perimeter_ft(dwelling.quantity)
     gross = ground_perimeter * STORY_WALL_HEIGHT_FT + upper_perimeter * STORY_WALL_HEIGHT_FT * (
@@ -575,6 +827,26 @@ def property_missing(m: BuildingMeasurements) -> dict[str, str]:
     return out
 
 
+def patio_area(m: BuildingMeasurements) -> Derived | None:
+    """The patio an accepted sketch dimensions (its rows labelled as a patio); None
+    otherwise, and the patio stays a measurement the reviewer supplies
+    (:data:`NEEDS_MEASUREMENT`)."""
+    sketch = _accepted(m)
+    if sketch is None or sketch.patio_sf is None:
+        return None
+    patio = sketch.patio_sf
+    return Derived(
+        _q(patio.value),
+        "SF",
+        f"{_fmt(patio.value)} SF patio on the appraisal sketch",
+        {
+            "patio_sf": _fmt(patio.value),
+            "patio_sf_field": patio.describe(),
+            "sketch_check": sketch.check,
+        },
+    )
+
+
 def property_quantities(m: BuildingMeasurements) -> dict[str, Derived]:
     """The property-level takeoffs the appraisal can size, by takeoff label."""
     derived = {
@@ -582,6 +854,7 @@ def property_quantities(m: BuildingMeasurements) -> dict[str, Derived]:
         "siding": siding_area(m),
         "gutter": gutter_length(m),
         "landscaping": landscaping_area(m),
+        "patio": patio_area(m),
     }
     return {label: d for label, d in derived.items() if d is not None}
 
@@ -930,11 +1203,17 @@ __all__ = [
     "BuildingMeasurements",
     "CostIndex",
     "DateReading",
+    "GARAGE_NOT_DRAWN",
+    "OUTLINE_SOURCE",
+    "UPPER_OUTLINES",
     "Derived",
     "Reading",
     "RoomArea",
+    "SKETCH_KEYS",
+    "SketchAreas",
     "TextReading",
     "bath_counts",
+    "check_sketch",
     "footprint",
     "garage_area",
     "ground_footprint",
@@ -942,6 +1221,7 @@ __all__ = [
     "landscaping_area",
     "long_side_ft",
     "measurements_from_fields",
+    "patio_area",
     "perimeter_ft",
     "program_weight",
     "property_quantities",

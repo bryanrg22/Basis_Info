@@ -49,6 +49,12 @@ class IntakeLockedError(ConflictError):
     ``intake-locked``; docs/api/STUDY_RESULT.md)."""
 
 
+class RenovationsLockedError(ConflictError):
+    """The study's current revision was exported: its export, report and schedule were
+    computed with the renovation projects as they are (``PUT /v1/studies/{id}/renovations``
+    answers 409 ``renovations-locked``; docs/api/RENOVATIONS.md)."""
+
+
 class DuplicateKeyError(ConflictError):
     """An idempotency key was already used for a different write."""
 

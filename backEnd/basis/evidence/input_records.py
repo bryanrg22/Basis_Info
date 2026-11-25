@@ -152,7 +152,15 @@ async def _record(
     structure, pricing = await load_result_inputs(
         session, study_id, revision, study.intake, study.intake_version, settings
     )
-    result = compute_result(rows, study.intake, revision, structure, pricing)
+    result = compute_result(
+        rows,
+        study.intake,
+        revision,
+        structure,
+        pricing,
+        study.renovations,
+        study.renovations_version,
+    )
     if not result.blockers:
         return 0
     user_id, why = await responsible(session, study)

@@ -1,0 +1,848 @@
+{
+ "two_story_with_garage": {
+  "garage": {
+   "quantity": "484.00",
+   "unit": "SF",
+   "formula": "484 SF garage",
+   "inputs": {
+    "garage_sf": "484",
+    "garage_sf_field": "cost_approach.garage_sqft (azure)"
+   },
+   "assumptions": []
+  },
+  "property": {
+   "roof": {
+    "quantity": "2070.01",
+    "unit": "SF",
+    "formula": "((2400 SF GLA / 2 stories) + 484 SF garage + 167.53 ft perimeter x 1 ft overhang) x 1.118 pitch",
+    "inputs": {
+     "gla_sf": "2400",
+     "gla_field": "improvements.gla_sqft (llm)",
+     "stories": "2",
+     "stories_field": "improvements.stories (llm)",
+     "garage_sf": "484",
+     "garage_sf_field": "cost_approach.garage_sqft (azure)",
+     "ground_footprint_sf": "1684",
+     "perimeter_ft": "167.53",
+     "aspect_ratio": "1.50",
+     "overhang_ft": "1",
+     "pitch_factor": "1.118"
+    },
+    "assumptions": [
+     "the garage is attached and shares the roof",
+     "rectangular footprint, 1.50:1",
+     "6/12 pitch (factor 1.118); 1 ft eave overhang; no waste"
+    ]
+   },
+   "siding": {
+    "quantity": "2363.49",
+    "unit": "SF",
+    "formula": "167.53 ft ground perimeter x 9 ft + 141.42 ft x 9 ft x 1 upper stories, less 15% openings",
+    "inputs": {
+     "gla_sf": "2400",
+     "gla_field": "improvements.gla_sqft (llm)",
+     "stories": "2",
+     "stories_field": "improvements.stories (llm)",
+     "garage_sf": "484",
+     "garage_sf_field": "cost_approach.garage_sqft (azure)",
+     "ground_perimeter_ft": "167.53",
+     "dwelling_perimeter_ft": "141.42",
+     "aspect_ratio": "1.50",
+     "wall_height_ft": "9",
+     "openings_share": "0.15"
+    },
+    "assumptions": [
+     "the garage is attached and shares the roof",
+     "rectangular footprint, 1.50:1",
+     "9 ft of exterior wall per story; 15% openings; gable ends not added"
+    ]
+   },
+   "gutter": {
+    "quantity": "104.52",
+    "unit": "LF",
+    "formula": "2 eaves x (50.26 ft long side + 2 x 1 ft overhang)",
+    "inputs": {
+     "gla_sf": "2400",
+     "gla_field": "improvements.gla_sqft (llm)",
+     "stories": "2",
+     "stories_field": "improvements.stories (llm)",
+     "garage_sf": "484",
+     "garage_sf_field": "cost_approach.garage_sqft (azure)",
+     "ground_footprint_sf": "1684",
+     "long_side_ft": "50.26",
+     "aspect_ratio": "1.50",
+     "eaves": "2",
+     "overhang_ft": "1"
+    },
+    "assumptions": [
+     "the garage is attached and shares the roof",
+     "rectangular footprint, 1.50:1",
+     "gable roof: gutters on the two long eaves (a hip roof takes the whole perimeter)"
+    ]
+   },
+   "landscaping": {
+    "quantity": "7316.00",
+    "unit": "SF",
+    "formula": "9000 SF site - ((2400 SF GLA / 2 stories) + 484 SF garage)",
+    "inputs": {
+     "site_sf": "9000",
+     "site_field": "site.area_sqft (azure)",
+     "gla_sf": "2400",
+     "gla_field": "improvements.gla_sqft (llm)",
+     "stories": "2",
+     "stories_field": "improvements.stories (llm)",
+     "garage_sf": "484",
+     "garage_sf_field": "cost_approach.garage_sqft (azure)",
+     "ground_footprint_sf": "1684",
+     "quantity_bound": "upper"
+    },
+    "assumptions": [
+     "the garage is attached and shares the roof",
+     "hardscape (driveway, walks, patio) not deducted: an upper bound"
+    ]
+   }
+  },
+  "property_missing": {},
+  "rooms": {
+   "garage": {
+    "area_sf": "484.00",
+    "source": "garage_area",
+    "formula": "484 SF garage",
+    "inputs": {
+     "garage_sf": "484",
+     "garage_sf_field": "cost_approach.garage_sqft (azure)"
+    },
+    "assumptions": [],
+    "missing": null
+   },
+   "kitchen": {
+    "area_sf": "233.77",
+    "source": "gla_share",
+    "formula": "2400 SF GLA x 150 / 1540 (kitchen weight / program weight)",
+    "inputs": {
+     "gla_sf": "2400",
+     "gla_field": "improvements.gla_sqft (llm)",
+     "weight_total_sf": "1540",
+     "weight_total_from": "program weight",
+     "study_weight_sf": "375",
+     "scale": "1.5584",
+     "program_rooms": "8",
+     "program_rooms_field": "improvements.total_rooms (azure)",
+     "program_bedrooms": "4",
+     "program_full_baths": "2",
+     "program_half_baths": "1",
+     "program_other_rooms": "3",
+     "program_bedrooms_field": "improvements.bedrooms (azure)",
+     "program_baths_field": "improvements.bathrooms (azure)",
+     "program_weight_sf": "1540",
+     "program_formula": "kitchen 150 + 4 bedrooms x 150 + 2 full baths x 75 + 1 half baths x 40 + 3 other rooms x 200",
+     "room_weight_sf": "150"
+    },
+    "assumptions": [
+     "room area = GLA x typical area of the room type / the house's total typical area (program weight)"
+    ],
+    "missing": null
+   },
+   "bed-1": {
+    "area_sf": "233.77",
+    "source": "gla_share",
+    "formula": "2400 SF GLA x 150 / 1540 (bedroom weight / program weight)",
+    "inputs": {
+     "gla_sf": "2400",
+     "gla_field": "improvements.gla_sqft (llm)",
+     "weight_total_sf": "1540",
+     "weight_total_from": "program weight",
+     "study_weight_sf": "375",
+     "scale": "1.5584",
+     "program_rooms": "8",
+     "program_rooms_field": "improvements.total_rooms (azure)",
+     "program_bedrooms": "4",
+     "program_full_baths": "2",
+     "program_half_baths": "1",
+     "program_other_rooms": "3",
+     "program_bedrooms_field": "improvements.bedrooms (azure)",
+     "program_baths_field": "improvements.bathrooms (azure)",
+     "program_weight_sf": "1540",
+     "program_formula": "kitchen 150 + 4 bedrooms x 150 + 2 full baths x 75 + 1 half baths x 40 + 3 other rooms x 200",
+     "room_weight_sf": "150"
+    },
+    "assumptions": [
+     "room area = GLA x typical area of the room type / the house's total typical area (program weight)"
+    ],
+    "missing": null
+   },
+   "bath-1": {
+    "area_sf": "116.88",
+    "source": "gla_share",
+    "formula": "2400 SF GLA x 75 / 1540 (bathroom weight / program weight)",
+    "inputs": {
+     "gla_sf": "2400",
+     "gla_field": "improvements.gla_sqft (llm)",
+     "weight_total_sf": "1540",
+     "weight_total_from": "program weight",
+     "study_weight_sf": "375",
+     "scale": "1.5584",
+     "program_rooms": "8",
+     "program_rooms_field": "improvements.total_rooms (azure)",
+     "program_bedrooms": "4",
+     "program_full_baths": "2",
+     "program_half_baths": "1",
+     "program_other_rooms": "3",
+     "program_bedrooms_field": "improvements.bedrooms (azure)",
+     "program_baths_field": "improvements.bathrooms (azure)",
+     "program_weight_sf": "1540",
+     "program_formula": "kitchen 150 + 4 bedrooms x 150 + 2 full baths x 75 + 1 half baths x 40 + 3 other rooms x 200",
+     "room_weight_sf": "75"
+    },
+    "assumptions": [
+     "room area = GLA x typical area of the room type / the house's total typical area (program weight)"
+    ],
+    "missing": null
+   },
+   "basement": {
+    "area_sf": "233.77",
+    "source": "basement_share",
+    "formula": "150 SF typical x 1.5584 house scale (2400 SF GLA / 1540)",
+    "inputs": {
+     "gla_sf": "2400",
+     "gla_field": "improvements.gla_sqft (llm)",
+     "weight_total_sf": "1540",
+     "weight_total_from": "program weight",
+     "study_weight_sf": "375",
+     "scale": "1.5584",
+     "program_rooms": "8",
+     "program_rooms_field": "improvements.total_rooms (azure)",
+     "program_bedrooms": "4",
+     "program_full_baths": "2",
+     "program_half_baths": "1",
+     "program_other_rooms": "3",
+     "program_bedrooms_field": "improvements.bedrooms (azure)",
+     "program_baths_field": "improvements.bathrooms (azure)",
+     "program_weight_sf": "1540",
+     "program_formula": "kitchen 150 + 4 bedrooms x 150 + 2 full baths x 75 + 1 half baths x 40 + 3 other rooms x 200",
+     "basement_finish_pct": "50",
+     "basement_finish_field": "improvements.basement_finish_percent (azure)",
+     "basement_sf": "1200",
+     "basement_field": "improvements.basement_area_sqft (azure)",
+     "finished_basement_sf": "600",
+     "room_weight_sf": "150"
+    },
+    "assumptions": [
+     "room area = GLA x typical area of the room type / the house's total typical area (program weight)",
+     "basement rooms are sized at the house scale, capped by the finished basement area"
+    ],
+    "missing": null
+   },
+   "yard": {
+    "area_sf": "150",
+    "source": "default_150_sf",
+    "formula": "150 SF typical for exterior",
+    "inputs": {},
+    "assumptions": [],
+    "missing": "exterior_area"
+   },
+   "patio": {
+    "area_sf": "150",
+    "source": "default_150_sf",
+    "formula": "150 SF typical for exterior",
+    "inputs": {},
+    "assumptions": [],
+    "missing": "exterior_area"
+   }
+  }
+ },
+ "one_story_no_garage": {
+  "garage": null,
+  "property": {
+   "roof": {
+    "quantity": "1853.77",
+    "unit": "SF",
+    "formula": "(1500 SF GLA / 1 stories + 158.11 ft perimeter x 1 ft overhang) x 1.118 pitch",
+    "inputs": {
+     "gla_sf": "1500",
+     "gla_field": "improvements.gla_sqft (azure)",
+     "stories": "1",
+     "stories_field": "improvements.stories (azure)",
+     "ground_footprint_sf": "1500",
+     "perimeter_ft": "158.11",
+     "aspect_ratio": "1.50",
+     "overhang_ft": "1",
+     "pitch_factor": "1.118"
+    },
+    "assumptions": [
+     "no garage area: the footprint is the dwelling alone",
+     "rectangular footprint, 1.50:1",
+     "6/12 pitch (factor 1.118); 1 ft eave overhang; no waste"
+    ]
+   },
+   "siding": {
+    "quantity": "1209.57",
+    "unit": "SF",
+    "formula": "158.11 ft ground perimeter x 9 ft, less 15% openings",
+    "inputs": {
+     "gla_sf": "1500",
+     "gla_field": "improvements.gla_sqft (azure)",
+     "stories": "1",
+     "stories_field": "improvements.stories (azure)",
+     "ground_perimeter_ft": "158.11",
+     "dwelling_perimeter_ft": "158.11",
+     "aspect_ratio": "1.50",
+     "wall_height_ft": "9",
+     "openings_share": "0.15"
+    },
+    "assumptions": [
+     "no garage area: the footprint is the dwelling alone",
+     "rectangular footprint, 1.50:1",
+     "9 ft of exterior wall per story; 15% openings; gable ends not added"
+    ]
+   },
+   "gutter": {
+    "quantity": "98.87",
+    "unit": "LF",
+    "formula": "2 eaves x (47.43 ft long side + 2 x 1 ft overhang)",
+    "inputs": {
+     "gla_sf": "1500",
+     "gla_field": "improvements.gla_sqft (azure)",
+     "stories": "1",
+     "stories_field": "improvements.stories (azure)",
+     "ground_footprint_sf": "1500",
+     "long_side_ft": "47.43",
+     "aspect_ratio": "1.50",
+     "eaves": "2",
+     "overhang_ft": "1"
+    },
+    "assumptions": [
+     "no garage area: the footprint is the dwelling alone",
+     "rectangular footprint, 1.50:1",
+     "gable roof: gutters on the two long eaves (a hip roof takes the whole perimeter)"
+    ]
+   },
+   "landscaping": {
+    "quantity": "9390.00",
+    "unit": "SF",
+    "formula": "10890 SF site - (1500 SF GLA / 1 stories)",
+    "inputs": {
+     "site_sf": "10890",
+     "site_field": "site.area_acres (azure)",
+     "gla_sf": "1500",
+     "gla_field": "improvements.gla_sqft (azure)",
+     "stories": "1",
+     "stories_field": "improvements.stories (azure)",
+     "ground_footprint_sf": "1500",
+     "quantity_bound": "upper"
+    },
+    "assumptions": [
+     "no garage area: the footprint is the dwelling alone",
+     "hardscape (driveway, walks, patio) not deducted: an upper bound"
+    ]
+   }
+  },
+  "property_missing": {},
+  "rooms": {
+   "garage": {
+    "area_sf": "150",
+    "source": "default_150_sf",
+    "formula": "150 SF typical for garage",
+    "inputs": {},
+    "assumptions": [],
+    "missing": "garage_area"
+   },
+   "kitchen": {
+    "area_sf": "195.65",
+    "source": "gla_share",
+    "formula": "1500 SF GLA x 150 / 1150 (kitchen weight / program weight)",
+    "inputs": {
+     "gla_sf": "1500",
+     "gla_field": "improvements.gla_sqft (azure)",
+     "weight_total_sf": "1150",
+     "weight_total_from": "program weight",
+     "study_weight_sf": "375",
+     "scale": "1.3043",
+     "program_rooms": "6",
+     "program_rooms_field": "improvements.total_rooms (azure)",
+     "program_bedrooms": "3",
+     "program_full_baths": "2",
+     "program_half_baths": "0",
+     "program_other_rooms": "2",
+     "program_bedrooms_field": "improvements.bedrooms (azure)",
+     "program_baths_field": "improvements.bathrooms (azure)",
+     "program_weight_sf": "1150",
+     "program_formula": "kitchen 150 + 3 bedrooms x 150 + 2 full baths x 75 + 0 half baths x 40 + 2 other rooms x 200",
+     "room_weight_sf": "150"
+    },
+    "assumptions": [
+     "room area = GLA x typical area of the room type / the house's total typical area (program weight)"
+    ],
+    "missing": null
+   },
+   "bed-1": {
+    "area_sf": "195.65",
+    "source": "gla_share",
+    "formula": "1500 SF GLA x 150 / 1150 (bedroom weight / program weight)",
+    "inputs": {
+     "gla_sf": "1500",
+     "gla_field": "improvements.gla_sqft (azure)",
+     "weight_total_sf": "1150",
+     "weight_total_from": "program weight",
+     "study_weight_sf": "375",
+     "scale": "1.3043",
+     "program_rooms": "6",
+     "program_rooms_field": "improvements.total_rooms (azure)",
+     "program_bedrooms": "3",
+     "program_full_baths": "2",
+     "program_half_baths": "0",
+     "program_other_rooms": "2",
+     "program_bedrooms_field": "improvements.bedrooms (azure)",
+     "program_baths_field": "improvements.bathrooms (azure)",
+     "program_weight_sf": "1150",
+     "program_formula": "kitchen 150 + 3 bedrooms x 150 + 2 full baths x 75 + 0 half baths x 40 + 2 other rooms x 200",
+     "room_weight_sf": "150"
+    },
+    "assumptions": [
+     "room area = GLA x typical area of the room type / the house's total typical area (program weight)"
+    ],
+    "missing": null
+   },
+   "bath-1": {
+    "area_sf": "97.83",
+    "source": "gla_share",
+    "formula": "1500 SF GLA x 75 / 1150 (bathroom weight / program weight)",
+    "inputs": {
+     "gla_sf": "1500",
+     "gla_field": "improvements.gla_sqft (azure)",
+     "weight_total_sf": "1150",
+     "weight_total_from": "program weight",
+     "study_weight_sf": "375",
+     "scale": "1.3043",
+     "program_rooms": "6",
+     "program_rooms_field": "improvements.total_rooms (azure)",
+     "program_bedrooms": "3",
+     "program_full_baths": "2",
+     "program_half_baths": "0",
+     "program_other_rooms": "2",
+     "program_bedrooms_field": "improvements.bedrooms (azure)",
+     "program_baths_field": "improvements.bathrooms (azure)",
+     "program_weight_sf": "1150",
+     "program_formula": "kitchen 150 + 3 bedrooms x 150 + 2 full baths x 75 + 0 half baths x 40 + 2 other rooms x 200",
+     "room_weight_sf": "75"
+    },
+    "assumptions": [
+     "room area = GLA x typical area of the room type / the house's total typical area (program weight)"
+    ],
+    "missing": null
+   },
+   "basement": {
+    "area_sf": "150",
+    "source": "default_150_sf",
+    "formula": "150 SF typical for basement",
+    "inputs": {},
+    "assumptions": [],
+    "missing": "basement_area"
+   },
+   "yard": {
+    "area_sf": "150",
+    "source": "default_150_sf",
+    "formula": "150 SF typical for exterior",
+    "inputs": {},
+    "assumptions": [],
+    "missing": "exterior_area"
+   },
+   "patio": {
+    "area_sf": "150",
+    "source": "default_150_sf",
+    "formula": "150 SF typical for exterior",
+    "inputs": {},
+    "assumptions": [],
+    "missing": "exterior_area"
+   }
+  }
+ },
+ "half_story_garage_by_cars": {
+  "garage": {
+   "quantity": "240.00",
+   "unit": "SF",
+   "formula": "1 cars x 240 SF",
+   "inputs": {
+    "garage_cars": "1",
+    "garage_cars_field": "improvements.garage_cars (azure)",
+    "sf_per_car": "240"
+   },
+   "assumptions": [
+    "240 SF per car (a one-car garage; two-car garages run larger)"
+   ]
+  },
+  "property": {
+   "roof": {
+    "quantity": "1783.12",
+    "unit": "SF",
+    "formula": "((1800 SF GLA / 1.50 stories) + 1 cars x 240 SF + 154.92 ft perimeter x 1 ft overhang) x 1.118 pitch",
+    "inputs": {
+     "gla_sf": "1800",
+     "gla_field": "improvements.gla_sqft (azure)",
+     "stories": "1.50",
+     "stories_field": "improvements.stories (azure)",
+     "garage_cars": "1",
+     "garage_cars_field": "improvements.garage_cars (azure)",
+     "sf_per_car": "240",
+     "ground_footprint_sf": "1440",
+     "perimeter_ft": "154.92",
+     "aspect_ratio": "1.50",
+     "overhang_ft": "1",
+     "pitch_factor": "1.118"
+    },
+    "assumptions": [
+     "240 SF per car (a one-car garage; two-car garages run larger)",
+     "the garage is attached and shares the roof",
+     "rectangular footprint, 1.50:1",
+     "6/12 pitch (factor 1.118); 1 ft eave overhang; no waste"
+    ]
+   },
+   "siding": {
+    "quantity": "1726.07",
+    "unit": "SF",
+    "formula": "154.92 ft ground perimeter x 9 ft + 141.42 ft x 9 ft x 0.50 upper stories, less 15% openings",
+    "inputs": {
+     "gla_sf": "1800",
+     "gla_field": "improvements.gla_sqft (azure)",
+     "stories": "1.50",
+     "stories_field": "improvements.stories (azure)",
+     "garage_cars": "1",
+     "garage_cars_field": "improvements.garage_cars (azure)",
+     "sf_per_car": "240",
+     "ground_perimeter_ft": "154.92",
+     "dwelling_perimeter_ft": "141.42",
+     "aspect_ratio": "1.50",
+     "wall_height_ft": "9",
+     "openings_share": "0.15"
+    },
+    "assumptions": [
+     "240 SF per car (a one-car garage; two-car garages run larger)",
+     "the garage is attached and shares the roof",
+     "rectangular footprint, 1.50:1",
+     "9 ft of exterior wall per story; 15% openings; gable ends not added"
+    ]
+   },
+   "gutter": {
+    "quantity": "96.95",
+    "unit": "LF",
+    "formula": "2 eaves x (46.48 ft long side + 2 x 1 ft overhang)",
+    "inputs": {
+     "gla_sf": "1800",
+     "gla_field": "improvements.gla_sqft (azure)",
+     "stories": "1.50",
+     "stories_field": "improvements.stories (azure)",
+     "garage_cars": "1",
+     "garage_cars_field": "improvements.garage_cars (azure)",
+     "sf_per_car": "240",
+     "ground_footprint_sf": "1440",
+     "long_side_ft": "46.48",
+     "aspect_ratio": "1.50",
+     "eaves": "2",
+     "overhang_ft": "1"
+    },
+    "assumptions": [
+     "240 SF per car (a one-car garage; two-car garages run larger)",
+     "the garage is attached and shares the roof",
+     "rectangular footprint, 1.50:1",
+     "gable roof: gutters on the two long eaves (a hip roof takes the whole perimeter)"
+    ]
+   },
+   "landscaping": {
+    "quantity": "5560.00",
+    "unit": "SF",
+    "formula": "7000 SF site - ((1800 SF GLA / 1.50 stories) + 1 cars x 240 SF)",
+    "inputs": {
+     "site_sf": "7000",
+     "site_field": "site.area_sqft (azure)",
+     "gla_sf": "1800",
+     "gla_field": "improvements.gla_sqft (azure)",
+     "stories": "1.50",
+     "stories_field": "improvements.stories (azure)",
+     "garage_cars": "1",
+     "garage_cars_field": "improvements.garage_cars (azure)",
+     "sf_per_car": "240",
+     "ground_footprint_sf": "1440",
+     "quantity_bound": "upper"
+    },
+    "assumptions": [
+     "240 SF per car (a one-car garage; two-car garages run larger)",
+     "the garage is attached and shares the roof",
+     "hardscape (driveway, walks, patio) not deducted: an upper bound"
+    ]
+   }
+  },
+  "property_missing": {},
+  "rooms": {
+   "garage": {
+    "area_sf": "240.00",
+    "source": "garage_area",
+    "formula": "1 cars x 240 SF",
+    "inputs": {
+     "garage_cars": "1",
+     "garage_cars_field": "improvements.garage_cars (azure)",
+     "sf_per_car": "240"
+    },
+    "assumptions": [
+     "240 SF per car (a one-car garage; two-car garages run larger)"
+    ],
+    "missing": null
+   },
+   "kitchen": {
+    "area_sf": "720.00",
+    "source": "gla_share",
+    "formula": "1800 SF GLA x 150 / 375 (kitchen weight / study rooms' weight)",
+    "inputs": {
+     "gla_sf": "1800",
+     "gla_field": "improvements.gla_sqft (azure)",
+     "weight_total_sf": "375",
+     "weight_total_from": "study rooms' weight",
+     "study_weight_sf": "375",
+     "scale": "4.8000",
+     "room_weight_sf": "150"
+    },
+    "assumptions": [
+     "room area = GLA x typical area of the room type / the house's total typical area (study rooms' weight)"
+    ],
+    "missing": null
+   },
+   "bed-1": {
+    "area_sf": "720.00",
+    "source": "gla_share",
+    "formula": "1800 SF GLA x 150 / 375 (bedroom weight / study rooms' weight)",
+    "inputs": {
+     "gla_sf": "1800",
+     "gla_field": "improvements.gla_sqft (azure)",
+     "weight_total_sf": "375",
+     "weight_total_from": "study rooms' weight",
+     "study_weight_sf": "375",
+     "scale": "4.8000",
+     "room_weight_sf": "150"
+    },
+    "assumptions": [
+     "room area = GLA x typical area of the room type / the house's total typical area (study rooms' weight)"
+    ],
+    "missing": null
+   },
+   "bath-1": {
+    "area_sf": "360.00",
+    "source": "gla_share",
+    "formula": "1800 SF GLA x 75 / 375 (bathroom weight / study rooms' weight)",
+    "inputs": {
+     "gla_sf": "1800",
+     "gla_field": "improvements.gla_sqft (azure)",
+     "weight_total_sf": "375",
+     "weight_total_from": "study rooms' weight",
+     "study_weight_sf": "375",
+     "scale": "4.8000",
+     "room_weight_sf": "75"
+    },
+    "assumptions": [
+     "room area = GLA x typical area of the room type / the house's total typical area (study rooms' weight)"
+    ],
+    "missing": null
+   },
+   "basement": {
+    "area_sf": "150",
+    "source": "default_150_sf",
+    "formula": "150 SF typical for basement",
+    "inputs": {},
+    "assumptions": [],
+    "missing": "basement_area"
+   },
+   "yard": {
+    "area_sf": "150",
+    "source": "default_150_sf",
+    "formula": "150 SF typical for exterior",
+    "inputs": {},
+    "assumptions": [],
+    "missing": "exterior_area"
+   },
+   "patio": {
+    "area_sf": "150",
+    "source": "default_150_sf",
+    "formula": "150 SF typical for exterior",
+    "inputs": {},
+    "assumptions": [],
+    "missing": "exterior_area"
+   }
+  }
+ },
+ "no_stories": {
+  "garage": null,
+  "property": {},
+  "property_missing": {
+   "roof": "stories",
+   "siding": "stories",
+   "gutter": "stories",
+   "landscaping": "stories"
+  },
+  "rooms": {
+   "garage": {
+    "area_sf": "150",
+    "source": "default_150_sf",
+    "formula": "150 SF typical for garage",
+    "inputs": {},
+    "assumptions": [],
+    "missing": "garage_area"
+   },
+   "kitchen": {
+    "area_sf": "800.00",
+    "source": "gla_share",
+    "formula": "2000 SF GLA x 150 / 375 (kitchen weight / study rooms' weight)",
+    "inputs": {
+     "gla_sf": "2000",
+     "gla_field": "improvements.gla_sqft (azure)",
+     "weight_total_sf": "375",
+     "weight_total_from": "study rooms' weight",
+     "study_weight_sf": "375",
+     "scale": "5.3333",
+     "room_weight_sf": "150"
+    },
+    "assumptions": [
+     "room area = GLA x typical area of the room type / the house's total typical area (study rooms' weight)"
+    ],
+    "missing": null
+   },
+   "bed-1": {
+    "area_sf": "800.00",
+    "source": "gla_share",
+    "formula": "2000 SF GLA x 150 / 375 (bedroom weight / study rooms' weight)",
+    "inputs": {
+     "gla_sf": "2000",
+     "gla_field": "improvements.gla_sqft (azure)",
+     "weight_total_sf": "375",
+     "weight_total_from": "study rooms' weight",
+     "study_weight_sf": "375",
+     "scale": "5.3333",
+     "room_weight_sf": "150"
+    },
+    "assumptions": [
+     "room area = GLA x typical area of the room type / the house's total typical area (study rooms' weight)"
+    ],
+    "missing": null
+   },
+   "bath-1": {
+    "area_sf": "400.00",
+    "source": "gla_share",
+    "formula": "2000 SF GLA x 75 / 375 (bathroom weight / study rooms' weight)",
+    "inputs": {
+     "gla_sf": "2000",
+     "gla_field": "improvements.gla_sqft (azure)",
+     "weight_total_sf": "375",
+     "weight_total_from": "study rooms' weight",
+     "study_weight_sf": "375",
+     "scale": "5.3333",
+     "room_weight_sf": "75"
+    },
+    "assumptions": [
+     "room area = GLA x typical area of the room type / the house's total typical area (study rooms' weight)"
+    ],
+    "missing": null
+   },
+   "basement": {
+    "area_sf": "150",
+    "source": "default_150_sf",
+    "formula": "150 SF typical for basement",
+    "inputs": {},
+    "assumptions": [],
+    "missing": "basement_area"
+   },
+   "yard": {
+    "area_sf": "150",
+    "source": "default_150_sf",
+    "formula": "150 SF typical for exterior",
+    "inputs": {},
+    "assumptions": [],
+    "missing": "exterior_area"
+   },
+   "patio": {
+    "area_sf": "150",
+    "source": "default_150_sf",
+    "formula": "150 SF typical for exterior",
+    "inputs": {},
+    "assumptions": [],
+    "missing": "exterior_area"
+   }
+  }
+ },
+ "no_gla": {
+  "garage": {
+   "quantity": "400.00",
+   "unit": "SF",
+   "formula": "400 SF garage",
+   "inputs": {
+    "garage_sf": "400",
+    "garage_sf_field": "cost_approach.garage_sqft (azure)"
+   },
+   "assumptions": []
+  },
+  "property": {},
+  "property_missing": {
+   "roof": "gla",
+   "siding": "gla",
+   "gutter": "gla",
+   "landscaping": "gla"
+  },
+  "rooms": {
+   "garage": {
+    "area_sf": "400.00",
+    "source": "garage_area",
+    "formula": "400 SF garage",
+    "inputs": {
+     "garage_sf": "400",
+     "garage_sf_field": "cost_approach.garage_sqft (azure)"
+    },
+    "assumptions": [],
+    "missing": null
+   },
+   "kitchen": {
+    "area_sf": "150",
+    "source": "typical_for_room_type",
+    "formula": "150 SF typical for kitchen",
+    "inputs": {},
+    "assumptions": [],
+    "missing": "gla"
+   },
+   "bed-1": {
+    "area_sf": "150",
+    "source": "typical_for_room_type",
+    "formula": "150 SF typical for bedroom",
+    "inputs": {},
+    "assumptions": [],
+    "missing": "gla"
+   },
+   "bath-1": {
+    "area_sf": "75",
+    "source": "typical_for_room_type",
+    "formula": "75 SF typical for bathroom",
+    "inputs": {},
+    "assumptions": [],
+    "missing": "gla"
+   },
+   "basement": {
+    "area_sf": "150",
+    "source": "default_150_sf",
+    "formula": "150 SF typical for basement",
+    "inputs": {},
+    "assumptions": [],
+    "missing": "gla"
+   },
+   "yard": {
+    "area_sf": "150",
+    "source": "default_150_sf",
+    "formula": "150 SF typical for exterior",
+    "inputs": {},
+    "assumptions": [],
+    "missing": "gla"
+   },
+   "patio": {
+    "area_sf": "150",
+    "source": "default_150_sf",
+    "formula": "150 SF typical for exterior",
+    "inputs": {},
+    "assumptions": [],
+    "missing": "gla"
+   }
+  }
+ }
+}
