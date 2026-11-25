@@ -16018,6 +16018,14 @@ area within 0.5 % of its footprint, the regression against main's values, an old
 `outline`); `measure-diagram.test.cjs` 10; the backend unit suite 6,325, the geo tests 64, the web
 suite 557.
 
+**Found in the lead's live check, fixed the same day.** Zoom on the Property page kept the scroll in
+pixels, so 200 % slid the view to the top left and the building left it (the dialog measured the
+middle against the pane, not the picture). Both now keep the picture point at the middle of the view:
+live, 100 to 200 % kept (0.5, 0.5), and a view scrolled to the building kept (0.6798, 0.2877) through
+400 % and back, in diagram and photo mode. The pin covered the building's label; every diagram label
+is now placed clear of the pin (the building's below the outline when the pin is inside it). Web
+suite 561. No wheel or pinch zoom exists to fix.
+
 **Open.** No lot line on the live study (no parcel); the outline is the roof, not the walls; the
 building is not drawn in photo mode (only snapped to); the outline is not checked against a surveyed
 footprint.
