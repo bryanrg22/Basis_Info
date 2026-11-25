@@ -472,6 +472,21 @@ first document's result to a hand-checked measurement. Writes `outline.json` and
 (dimensions, private) and `outline_public.md` (statuses and counts only). No model call; cost
 $0. Component `sketch_outline`, version `v1`.
 
+### `measure_eval` (measuring methods against measured houses)
+
+`python -m evals.measure_eval --out <run dir> [--geo <gathers>] [--pixels <pixel result>]
+[--methods M0] [--dry-run]` (EVAL_REPORT 103). The truth is `evals/fixtures/measure_truth/`,
+ten houses transcribed twice from HABS measured drawings (public domain; schema and checks in
+`evals.measure_truth`). Every method in `METHODS` runs on every house and is scored per
+quantity (signed and absolute percent error, bias, spread across houses, worst) with its cost,
+tokens and seconds; only M0 (today's formulas, `basis.domain.measurements` fed GLA and stories)
+exists yet. `--geo` adds the raw 3DEP lidar look from `evals.measure_gather` (the production
+public gather per house, in memory); `--pixels` adds `evals.measure_pixels` (known lengths
+measured on the Google straight-down view and the public ortho against the recorded pixel
+size). `evals.measure_capture` takes the Google views through the production capture runner
+with its own page-load ledger. Writes `measure_eval.md` and `measure_eval.json`. No model
+call; cost $0. Component `measure_eval`, version `v1`.
+
 ### `structure_replay` (the structure model over a stored export)
 
 `python -m evals.structure_replay export/rev-5.json --out export/rev-5.structure.json
