@@ -15956,3 +15956,69 @@ scrolls them out of sight; the building outline is not drawn (no outline polygon
 live study the public records were gathered around an earlier pin, so there is no lot line there;
 the diagram is not in the report.
 
+### 104.2 The lidar roof outline as a polygon, drawn in the diagram (2026-11-25)
+
+**Question.** The diagram (104.1) on a study with no parcel and nothing measured was an empty sheet:
+the lidar gave the building's footprint area but no polygon. Can the outline the lidar already
+finds be kept as a polygon, with corners an engineer would recognise and an area true to the cells?
+
+**Method.** `basis/geo/lidar.py` traces the building's cells (0.5 m, closed and hole-filled, one
+component, as before) along their edges into one ring (counter-clockwise, the first corner not
+repeated), merges straight runs to their corners, simplifies by Douglas-Peucker and maps back to
+lon/lat through the exact inverse of the cell mapping. The tolerance was chosen on buildings of
+known shape rasterized at the lidar grid (`uv run python -m evals.lidar_outline_tolerance`), then
+checked on the real lidar at the Lincoln Home (USGS_LPC_IL_WestCentral_2017_LAS_2019, read again from
+the public tiles):
+
+| Shape | 0 m (cell corners) | 0.25 m | 0.5 m | **0.71 m (chosen)** | 1 m |
+|---|---|---|---|---|---|
+| rectangle 12 x 8 m at 0 deg (4) | 4 · 0.0 % | 4 · 0.0 % | 4 · 0.0 % | **4 · 0.0 %** | 4 · 0.0 % |
+| rectangle at 10 deg (4) | 30 · 0.0 % | 30 · 0.0 % | 4 · +0.3 % | **4 · +0.3 %** | 4 · +0.3 % |
+| rectangle at 22.5 deg (4) | 62 · 0.0 % | 58 · 0.0 % | 7 · +3.3 % | **4 · +0.5 %** | 4 · +0.5 % |
+| rectangle at 30 deg (4) | 78 · 0.0 % | 42 · 0.0 % | 8 · +1.0 % | **4 · +0.3 %** | 4 · +0.3 % |
+| rectangle at 45 deg (4) | 110 · 0.0 % | 102 · 0.0 % | 6 · +3.3 % | **4 · -3.3 %** | 4 · -3.3 % |
+| L 10 x 10 m less 5 x 5 at 0 deg (6) | 6 · 0.0 % | 6 · 0.0 % | 6 · 0.0 % | **6 · 0.0 %** | 6 · 0.0 % |
+| L at 30 deg (6) | 78 · 0.0 % | 46 · 0.0 % | 8 · -0.5 % | **7 · +1.0 %** | 6 · -2.0 % |
+| T (8) | 8 · 0.0 % | 8 · 0.0 % | 8 · 0.0 % | **8 · 0.0 %** | 8 · 0.0 % |
+| house 14 x 9 m with a 1 m jog (6) | 6 · 0.0 % | 6 · 0.0 % | 4 · 0.0 % | **4 · 0.0 %** | 4 · 0.0 % |
+| **Lincoln Home, real lidar** | 36 · 0.0 % | 34 · 0.0 % | 6 · -5.0 % | **6 · -5.0 %** | 4 · -6.2 % |
+
+Each cell: corners kept · the outline's area against the cells' area (the reported footprint). The
+true corner count in parentheses. Every ring stayed simple.
+
+**Verdict.** One cell's diagonal (0.71 m) gives every turned rectangle its 4 corners and an L or a T
+its own, within 1 % of the cells' area on the synthetic shapes except the 45 degree rectangle
+(-3.3 % against the cells, -1.6 % against the true area). On the real roof the outline keeps 6
+corners and reads 5.0 % under the cells (190.3 against 200.5 m²): the real edge is ragged by a cell,
+and Douglas-Peucker keeps the inner stair corners as often as the outer ones, so the line sits about
+a third of a cell inside. The footprint figure is unchanged (the cells' area); the polygon is for
+seeing and snapping, never a quantity. A jog of 1 m or less is smoothed away from 0.5 m up. The
+summary's heights, footprint, counts and flags are byte-identical to main's on the synthetic tests;
+a gather stored before the outline reads with `outline: []`. No migration: the summary is stored as
+JSON.
+
+**The diagram.** The outline is drawn grey with its edge lengths and in the key ("Building · roof
+outline from 2019 lidar · 2,158 SF"); the measure tool snaps to it after the shape's own corners and
+before the parcel, in photo mode too. The key, north arrow, scale bar and source now sit in the
+stage's corners over the zoomed picture, and the scale bar is chosen for the screen (a round length,
+at most 140 px, from the pixel size times the picture pixels per screen pixel), so it stays true
+when zoomed.
+
+**Live check** (API, worker and geo worker restarted on this branch): the pin moved from the capture
+centre (a street intersection) to a point inside the Lincoln Home's roof and confirmed; Gather them
+again (public sources only) found the lidar building under the pin (distance 0, 6 outline corners)
+and no parcel (`BASIS-GEO-009`, as before: no parcel layer answered for the county). The captured
+views now read as taken around an earlier pin and are still offered for measuring. A gutter traced
+on the close aerial in diagram mode with clicks 3 px off three outline corners landed exactly on
+them; the trace was removed (draft deleted, no decision sent).
+
+Tests: `test_lidar_outline.py` 8 (rectangle 4 corners with the cells' area, L 6, T 8, a stair-stepped
+wall within tolerance, a pinch, the lon/lat round trip within 1 cm, the synthetic building's outline
+area within 0.5 % of its footprint, the regression against main's values, an old body without
+`outline`); `measure-diagram.test.cjs` 10; the backend unit suite 6,325, the geo tests 64, the web
+suite 557.
+
+**Open.** No lot line on the live study (no parcel); the outline is the roof, not the walls; the
+building is not drawn in photo mode (only snapped to); the outline is not checked against a surveyed
+footprint.
+

@@ -54,7 +54,11 @@ to redirect.
   dashed), each measured item in its type's colour with its lengths and total, a key, north, a scale
   bar in round feet and the picture's date and source. The overlay is the same in both, so a shape
   can be traced on the photo and checked on the plan. Photo by default; the choice is kept in this
-  browser. Captures 40 to 44 (sample) and 50 to 53 (live).
+  browser. The lidar's roof outline is drawn grey with its edge lengths and in the key, and the
+  tool snaps to it (in photo mode too): the shape's own corners first, then the building's corners
+  and edges, then the parcel's. The key, north arrow, scale bar and source sit in the stage's
+  corners over the picture, so they stay on screen when zoomed; the scale bar is a round length
+  chosen for the current zoom. Captures 40 to 47 (sample) and 50 to 59 (live).
 
 Headless captures at 1440 x 900 on the sample (`?mode=live&api=sample&sample=assets&property=confirmed&measure=draft`),
 kept with the private work files (`$BASIS_EVAL_DATA_DIR/work/measure_tool/`): 01 to 27 on the
