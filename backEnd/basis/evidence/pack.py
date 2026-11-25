@@ -56,10 +56,12 @@ from basis.db.repositories.asset import AssetRepository
 from basis.db.repositories.room import RoomRepository
 from basis.db.repositories.study import StudyRepository
 from basis.domain.intake import StudyIntake
+from basis.domain.renovations import StudyRenovations
 from basis.domain.structure import StructureInputs
 from basis.evidence.pricing import PricingStatusOut
 from basis.evidence.result import (
     ScheduleRow,
+    annotations_of,
     compute_result,
     concealed_label,
     load_result_inputs,
@@ -184,6 +186,8 @@ def assemble_pack(
     structure: StructureInputs | None = None,
     pricing: PricingStatusOut | None = None,
     intake_version: int | None = None,
+    renovations: StudyRenovations | None = None,
+    renovations_version: int = 0,
 ) -> EvidencePack:
     """The pack for one revision from its rows (pure; no I/O)."""
     by_asset: dict[uuid.UUID, list[Citation]] = {}
@@ -279,7 +283,15 @@ def assemble_pack(
         by_component=dict(sorted(by_component.items())),
         by_document=dict(sorted(by_document.items())),
         summary=summarize(
-            asset_rows, all_entries, intake, revision, structure, pricing, intake_version
+            asset_rows,
+            all_entries,
+            intake,
+            revision,
+            structure,
+            pricing,
+            intake_version,
+            renovations,
+            renovations_version,
         ),
     )
 
@@ -292,6 +304,8 @@ def summarize(
     structure: StructureInputs | None = None,
     pricing: PricingStatusOut | None = None,
     intake_version: int | None = None,
+    renovations: StudyRenovations | None = None,
+    renovations_version: int = 0,
 ) -> dict[str, Any]:
     totals: dict[str, Decimal] = {}
     counts: dict[str, int] = {}
@@ -340,6 +354,7 @@ def summarize(
                     concealed=concealed_label(a.takeoff_inputs)[1],
                     # The missing inputs that hold a row are blockers by name (EVAL_REPORT 78).
                     review_reason=a.review_reason,
+                    **annotations_of(a.takeoff_inputs),
                 )
                 for a in assets
             ),
@@ -347,6 +362,8 @@ def summarize(
             revision,
             structure,
             pricing,
+            renovations,
+            renovations_version,
         ).model_dump(mode="json"),
         # The intake version the summary was computed with: an export whose version is not
         # the study's current ``intake_version`` is out of date (docs/api/STUDY_RESULT.md).
@@ -449,4 +466,6 @@ async def load_pack(
         structure=structure,
         pricing=pricing,
         intake_version=intake_version,
+        renovations=None if study is None else study.renovations,
+        renovations_version=0 if study is None else study.renovations_version,
     )

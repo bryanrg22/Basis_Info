@@ -34,6 +34,27 @@ each) and `draft`, or `skipped` (`code`, `message`) when there is nothing to rep
 Systems with no priced line (`summary.basis.not_produced`) are disclosed in the limiting
 conditions, not refused.
 
+## Renovations (EVAL_REPORT 102)
+
+A study whose result has `renovations` or `component_ages` (docs/api/RENOVATIONS.md) adds, in
+section 8 of the report: "Components depreciated on their own age" (line, age, year installed,
+life, rate and the rate it replaced, source); "Renovations placed in service after the building"
+(each project's dates, invoices, capitalized amount and who confirmed it, the estimates that
+apportion it, the bonus default and its source, and its lines, numbered after the
+acquisition's); "Dispositions of replaced components" (each removed line with its basis,
+depreciation allowed or allowable and adjusted basis, the totals by tax year, the method of each,
+and the note that a portion of the building is disposed of only with the partial disposition
+election, made on the timely filed original return for that year and not later by Form 3115);
+and "Renovation evidence" (invoices, after photographs, dated views as corroboration only). The
+preparer's schedule (CSV, XLSX and every vendor profile) lists the acquisition's lines, then
+each renovation's with its own acquisition and placed-in-service dates and bonus default (a QIP
+line as 15-year straight line); the acquisition's rows sum to the depreciable basis, each
+renovation's to its capitalized amount, all of them to the two together (`BASIS-REPORT-003`
+otherwise). Dispositions are not schedule rows: they are the preparer's entries for the year
+(Form 4797 and the asset's removal), listed in the report and the result. The convention for 5,
+7 and 15-year lines is half-year as printed; mid-quarter is the preparer's 40 % test, not
+applied to the dispositions either. A study without them renders the same bytes as before.
+
 ## Draft and final
 
 The report is a DRAFT (watermark, placeholders) until it has the firm's profile, the study's

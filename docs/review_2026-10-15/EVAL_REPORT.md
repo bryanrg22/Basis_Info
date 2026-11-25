@@ -14188,3 +14188,2270 @@ request, so locally the per-address limit is one budget.
   other release steps.
 * A browser that autofills the hidden field loses that visitor's request; the log line
   `demo request trapped` is the only trace (by design it keeps nothing they typed).
+
+## 96. Reading the appraisal's sketch for the takeoff (2026-11-23)
+
+**Question.** The takeoff measures nothing: the footprint is GLA / stories plus the cost
+approach's garage line, and the perimeter is a 1.5:1 rectangle of it (section 35). Sections
+35.3 and 87.8 named the appraisal's sketch page as the first thing to read instead. Can it be
+read without a model call, what does it give, and what does using it change on the one
+property we have?
+
+**Setup.** The research and the design are in `SKETCH_READER.md`. The reader is
+`basis/extraction/sketch.py` (the sketch's "Area Calculations Summary" table, from Azure
+Document Intelligence's page lines or the PDF's text layer); the takeoff's side is the
+`sketch` readings of `basis/domain/measurements.py`; both sit behind `TAKEOFF_SKETCH`
+(default `off`) with `TAKEOFF_SKETCH_GLA_TOLERANCE` (default 0.01). Data: the 42 stored Azure
+analyses under `$BASIS_EVAL_DATA_DIR/appraisal/recordings/` (the client appraisal, its two
+UAD 3.6 rebuilds, the GSE's public sample reports, the synthetic forms) and the two stored
+client exports section 87 replayed (run 3A revision 5, 314 assets; run 3B revision 1, 381).
+No model call, no Azure call, no dollars: every number below is a replay. The client's
+figures are in the private report `reports/SKETCH_TAKEOFF_2026-11-23.md`; this section prints
+changes and shares only.
+
+**Method.** `python -m evals.sketch_takeoff` (component `sketch_takeoff`, version `v1`, run
+`sketch_takeoff_2026-11-23`): it reads the sketch from the appraisal's stored analysis, writes
+the `sketch` fields into each export as the extraction would have, and replays the takeoff
+under six setups through the production functions, then prices, carves and scores each as
+section 87 did (`evals.takeoff_constants.retakeoff`, `evals.reprice_export`,
+`evals.structure_replay` at the production variant, `evals.e2e_report`). Two private scripts
+complete it: one measures the outline from the client PDF's line work (96.4), one replays the
+same exports on unmodified main (96.5).
+
+**A correction to the hand check of 2026-11-22.** That check read one sketch page and
+concluded the second-floor page was missing. The appraisal has four sketch pages: the first
+floor with the garage and porch, two second-floor pages, and the basement. All four are in
+the stored analysis and in the text dump; the reader finds all six rows on them.
+
+### 96.1 What the reader reads
+
+**How to read this table.** One row per stored document that carries the table. *Rows* is the
+table rows found; *verified* is how many have rectangles whose printed results sum to the
+printed area (higher is better; an unverified row is never used). *Fields* is which of the
+four `sketch` fields the reading supports. Models: none. Tokens: 0. Cost: $0.
+
+| document | layout | sketch pages | rows | verified | fields written |
+|---|---|---|---|---|---|
+| client appraisal (1004) | TOTAL Sketch | 4 | 6 | 6 | living area, ground floor, garage |
+| client appraisal rebuilt as UAD 3.6 (two versions) | TOTAL Sketch | 4 each | 6 each | 6 each | living area, ground floor, garage |
+| public sample MH1 (manufactured home) | UAD 3.6 sample | 1 | 5 | 4 | living area, ground floor, garage |
+| public sample SF3 | UAD 3.6 sample | 1 | 6 | 6 | living area, ground floor, garage |
+| public sample SF4 | UAD 3.6 sample, no sub-headings | 1 | 6 | 6 | living area, ground floor, garage |
+| public sample TwoToFour2 (four units) | UAD 3.6 sample | 1 | 10 | 9 | living area, ground floor, patio |
+
+The other 35 analyses carry no table (the synthetic forms have no sketch; ten public sample
+pages show a sketch with no area table) and yield nothing. On the client appraisal the PDF's
+text layer gives the same six rows as Azure's lines. The two unverified rows are a summary
+line with no calculation (MH1) and a sample row whose own printed arithmetic does not add up
+(TwoToFour2); neither is a living, garage or patio row. The client's porch is under TOTAL's
+"Non-Calculated" label, which names nothing, and its deck is drawn but not in the table, so
+neither becomes a quantity; no client row is a patio.
+
+### 96.2 The cross-check, and which rows count as living area
+
+**How to read this table.** The sketch's living area against the GLA the same report prints
+(0 % is agreement). Two ways of deciding which rows are living area are compared: every row
+under a living heading, or only the rows whose label names a floor (the rule that shipped).
+*Accepted* is at the 1 % default.
+
+| report | every row under a living heading | rows that name a floor (shipped) | accepted at 1 % |
+|---|---|---|---|
+| public sample MH1 | +12.8 % (counts a rec room in the garage building) | 0.0 % | yes |
+| public sample SF3 | +14.0 % (counts the accessory unit) | 0.0 % | yes |
+| public sample SF4 | 0.0 % | 0.0 % | yes |
+| public sample TwoToFour2 | -9.9 % | -9.9 % (the form's figure includes common areas; ANSI does not cover 2-4 units) | no |
+| client appraisal | +12.5 % | +12.5 % | no |
+
+Naming a floor agrees to the square foot on all three single-family samples; counting every
+row agrees on one. The tolerance default rests on this table: agreement is exact where the
+report is consistent, the two disagreements are 10 % and 12.5 %, and 1 % leaves room for
+per-level rounding. It is a judgment on five reports, not a calibrated threshold, and no
+published tolerance exists (`SKETCH_READER.md` section 1).
+
+**The client's sketch and its GLA disagree by 12.5 %.** The sketch's three living rows sum
+to more than the form's GLA box. The appraisal truth notes of October
+(`appraisal/truth/client_notes.md`, item 5) reached the same finding from the form's side:
+the cost approach's total and the sales grid's arithmetic were computed with the sketch's
+figure, and the sketch's bedroom and bath counts match page 1, so the GLA box looks like the
+appraiser's error. The sketch's garage and basement equal the form's lines exactly. Basis
+sizes every room and the square-foot model on the GLA box today.
+
+### 96.3 What the sketch changes
+
+**How to read these tables.** Each setup is one way of running the takeoff on the same two
+exports. *today*: the setting off. *sketch on*: the setting on at 1 %; the sketch is refused.
+*check widened*: the setting on with the cross-check admitting any sketch, the GLA as printed
+(what the sketch's areas alone change). *GLA corrected*: the printed GLA replaced by the
+sketch's living area, as an engineer who agreed with the sketch would correct it at the
+appraisal gate, with the setting off and on. *outline*: the last, plus the perimeters measured
+from the drawing (96.4), which the reader does not produce. Geometry is identical on the two
+exports (one appraisal). Models: none; cost $0; 40 to 110 ms per cell.
+
+Geometry, change against today (0 % is no change):
+
+| quantity | sketch on (refused) | check widened | GLA corrected, sketch off | GLA corrected, sketch on | GLA corrected, sketch on, outline |
+|---|---|---|---|---|---|
+| dwelling footprint | 0 % | +8.8 % | +12.5 % | +8.8 % | +8.8 % |
+| ground footprint with the garage | 0 % | +5.6 % | +8.0 % | +5.6 % | +5.6 % |
+| ground perimeter | 0 % | +2.8 % | +3.9 % | +2.8 % | +45.5 % |
+| roof | 0 % | +5.4 % | +7.7 % | +5.4 % | +8.6 % |
+| siding | 0 % | +5.0 % | +4.9 % | +5.0 % | +57.0 % |
+| gutters | 0 % | +2.7 % | +3.8 % | +2.7 % | +2.7 % |
+| landscaping (upper bound) | 0 % | -0.2 % | -0.3 % | -0.2 % | -0.2 % |
+
+The same geometry against the drawing (the outline setup; 0 % is the drawing's own value,
+closer to 0 is better):
+
+| quantity | today | check widened or GLA corrected, sketch on | GLA corrected, sketch off |
+|---|---|---|---|
+| dwelling footprint | -8.0 % | 0 % | +3.4 % |
+| ground footprint with the garage | -5.3 % | 0 % | +2.3 % |
+| ground perimeter | -31.3 % | -29.4 % | -28.6 % |
+| roof | -7.9 % | -3.0 % | -0.8 % |
+| siding | -36.3 % | -33.1 % | -33.2 % |
+| gutters | -2.6 % | 0 % | +1.1 % |
+
+The schedule (run 3A / run 3B). *Rows moved*: assets whose quantity differs from today's.
+*Waiting*: site items still needing a reviewer's measurement (lower is better). *Priced
+total*: against today's. *Itemized class error*: mean absolute difference in points between
+the priced rows' class shares and the engineer's, before the structure model. *Scored class
+error*: the same after it (what the report shows; lower is better). *Gap*: the share of the
+price the schedule's cost is short of (positive) or over (negative).
+
+| setup | sketch | rows moved | waiting | priced total | itemized class error | scored class error | gap |
+|---|---|---|---|---|---|---|---|
+| today | not read | 0 / 0 | 8 / 13 | 1.000 / 1.000 | 12.50 / 9.19 | 1.62 / 3.04 | 2.0 % / 1.6 % |
+| sketch on | refused | 0 / 0 | 8 / 13 | 1.000 / 1.000 | 12.50 / 9.19 | 1.62 / 3.04 | 2.0 % / 1.6 % |
+| check widened | used | 4 / 4 | 8 / 13 | 1.004 / 1.004 | 12.40 / 9.10 | 1.62 / 3.04 | 2.0 % / 1.6 % |
+| GLA corrected, sketch off | not read | 71 / 70 | 8 / 13 | 1.035 / 1.028 | 12.70 / 9.27 | 1.82 / 3.28 | -5.2 % / -5.6 % |
+| GLA corrected, sketch on | used | 71 / 70 | 8 / 13 | 1.034 / 1.027 | 12.72 / 9.29 | 1.82 / 3.28 | -5.2 % / -5.6 % |
+| GLA corrected, sketch on, outline | used | 71 / 70 | 8 / 13 | 1.059 / 1.052 | 12.19 / 8.83 | 1.82 / 3.28 | -5.2 % / -5.6 % |
+
+Every cell reconciles. What the tables say:
+
+1. **At the default, nothing changes on this property.** The sketch is refused, no quantity
+   moves, and the roof, siding, gutter and landscaping rows carry the reason.
+2. **The sketch's areas fix the footprint and most of the roof, and almost none of the
+   wall.** The ground footprint goes from 5 % low to the drawing's own figure and the roof
+   from 8 % low to 3 % low. The perimeter goes from 31 % low to 29 % low and the siding from
+   36 % low to 33 % low: a better area under the same 1.5:1 rectangle is still a rectangle.
+3. **The outline is where the remaining error is.** With the drawing's perimeters the siding
+   is 57 % above today's and the priced total 5 to 6 % above; without them it is 5 % and 0.4 %.
+4. **The report's class shares do not move with the sketch.** Roof, siding and gutters are
+   39-year rows carved from the square-foot model, so sizing them moves dollars between rows of
+   the building and none between classes (section 87 found the same for every geometry
+   constant). The itemized error moves by a tenth of a point with the areas and by three to
+   five tenths with the outline.
+5. **Correcting the GLA is the larger change, and not in the report's favour on this score.**
+   It moves 70 rows (room areas scale with the GLA), raises the square-foot model, turns the
+   gap from 2 % short to 5 % over, and the scored class error rises by 0.2 points on both
+   exports. One property and one engineer's report cannot say whether that is the model or
+   the answer key.
+6. **No site item is answered here.** The sketch labels no patio, so the 8 and 13 items still
+   wait.
+
+### 96.4 The perimeter cannot come from the text; it can come from the drawing
+
+The first-floor page's edge labels sum to 7 % more than the ground outline and 53 % more than
+the dwelling's: Azure's lines carry 20 of the page's 22 labels (rotated ones are read as
+noise), the text layer prints the rotated ones reversed, the dwelling's, garage's and porch's
+labels are one list, and one wall has no label (`SKETCH_READER.md` section 2). The reader
+therefore stops at areas and the perimeter stays derived, which the takeoff records as before.
+
+The client PDF's sketch pages are vector drawings. A private script
+(`work/sketch_reader/outline_from_pdf.py`) traces the heavy strokes into closed loops: four
+loops on three pages, 41 walls, each loop's area equal to the table's printed area to a
+tenth of a square foot at one scale per page, every wall within 0.02 ft of a half foot, and
+the garage's loop sharing one wall with the dwelling's. Those are the perimeters of the
+outline setup. One caveat is carried in it: the two second-floor pages do not show whether
+the two upper blocks share a wall, so the upper perimeter is the sum of both outlines; if
+they share the wall the ground floor shares, the siding figure is 6 % lower.
+
+### 96.5 The unchanged path
+
+* Unit: the takeoff of five fabricated field sets is compared string for string to a snapshot
+  taken from main before the change (`tests/fixtures/sketch/measurements_before_sketch.json`),
+  with the setting off, with it on and no sketch, and with sketch fields present and it off.
+* The stored exports: `retakeoff` on unmodified main (a `git archive` of e885ca1) and on the
+  branch with the setting off give byte-identical assets on both exports, also with the
+  sketch fields written into the export. With the setting on and the sketch refused, four rows
+  per export differ from main, each only by the `sketch_check` input.
+* Four wainscoting rows per export differ from the quantities stored in October, on main and
+  on the branch alike (section 89 changed that formula after the runs); the harness reports
+  them as stored drift.
+* The extraction with the setting off is field for field the extraction before, with or
+  without a sketch in the document; on, the sketch fields are added after the review gate and
+  the gate's result is unchanged.
+
+### 96.6 The disagreement is flagged at the appraisal gate (decided 2026-11-23)
+
+Asked what Basis should do when the sketch and the GLA disagree, Bryan chose the flag
+("Yes, flag it"). With the setting on, a sketch whose living area is further from the GLA box
+than the tolerance now flags the appraisal with `gla_vs_sketch` (a warning naming both
+fields, catalogue code BASIS-CHECK-031, `docs/api/REVIEW_RULES.md` section 4.1). It is raised
+exactly when the takeoff refuses the sketch (one test runs both on the same pairs, including
+the boundary). The engineer corrects whichever figure is wrong; the flag is judged again on
+the corrected fields at the tolerance the extraction recorded, and once the two agree the
+next revision's takeoff uses the sketch with no further step. Approving without correcting
+stays possible: the takeoff then ignores the sketch and says so.
+
+Verified on fabricated data only: the rule case by case; the pipeline (an agreeing sketch
+leaves the gate exactly as it was, a disagreeing one adds one reason and one issue and
+changes nothing else); and the activity against Postgres, three revisions of one study
+(flagged; still flagged after a correction to another field; cleared after the GLA is
+corrected to the sketch's, at which point `measurements_from_fields` accepts the sketch).
+On the client appraisal this flag would be raised (96.2); no live extraction was run to see
+it there.
+
+**Verdict.** The area table can be read from text already paid for, with no model, and the
+rows check themselves. It gives the footprint and the garage exactly and a better roof; it
+does not give the wall length, which is the larger error and needs the outline. On the one
+client property the sketch disagrees with the printed GLA by 12.5 %, so at the default it is
+refused and nothing changes. `TAKEOFF_SKETCH` ships `off`: one property, whose sketch is
+refused, is not a measurement of the accepted path on real data. Everything said about the
+accepted path here is from the widened and corrected setups and from fabricated fixtures.
+
+**Open.**
+
+* **The disagreement flag is not in the web app.** The API raises it (96.6); the app has no
+  wording for `gla_vs_sketch`, does not show the sketch fields, and its copy of the error
+  catalogue (`web/live/error-catalogue.js`) is seven codes behind the backend (the six demo
+  request codes of section 95 and this one): `web/FRONTEND_BACKLOG.md` section 16.
+* **Trusting the sketch over the form without the engineer** was not built and is not
+  proposed: on this property the evidence favours the sketch, and it is still the engineer's
+  call.
+* **The outline reader** (96.4): feasible on a born-digital TOTAL sketch, seen on one
+  document, not built.
+* **One property, two layouts.** No accepted sketch has been run on client data; the Apex
+  layout and tables without a calculation column yield nothing; a scanned sketch depends on
+  OCR of small rotated text.
+* **The sketch fields are outside the field catalogue**: they have no highlight regions, and
+  an engineer cannot add or correct one through the appraisal gate's field corrections.
+* **Gutters** still run on the rectangle's long side with an outline; an outline does not say
+  which edges are eaves. **A detached garage** on the sketch is not used, and the cost
+  approach's garage line is still assumed attached, as before.
+* Nothing was run live: no extraction with the setting on has run against the stack, and no
+  study was priced with it.
+
+## 97. The engineer's traced measurement: the shape behind the quantity (2026-11-23)
+
+**Question.** An engineer who measures a driveway in Google Earth or on a site plan sends Basis
+three typed fields (`quantity`, `quantity_unit`, `quantity_source`, section 78): a number and a
+sentence. Can the measurement be the traced shape itself, with the quantity computed by the
+server and the image, its date and pixel size, the scale and an expected error kept for an
+audit? And which formula turns lon/lat corners into square feet without being the classic
+web-map bug? Design: `docs/review_2026-10-15/REMOTE_INSPECTION_AND_MEASUREMENT.md` section 7.2
+(on branch `claude/remote-inspection-measurement`); its sections 2, 5, 6 and 11 are the
+research on the standard. API contract: `docs/api/OVERRIDES.md` section 4.
+
+**Setup.** Code: `backEnd/basis/domain/traced.py` (pure: checks and geometry),
+`basis/activities/corrections.py` (`check_measurement`), `basis/activities/process_assets.py`
+(`traced_by_engineer`, the flags), `basis/api/routes/decisions.py` (`measurement_errors`,
+`check_measurement_targets`), `basis/api/schemas/reviews.py` (only `measurement` takes an
+object). Settings `TRACED_MEASUREMENT` (true), `MEASURE_IMAGE_AFTER_SERVICE_DAYS` (365),
+`MEASURE_ERROR_FLAG_PCT` (10). Codes `BASIS-CORRECT-046` and `BASIS-ASSETS-021` to `024`.
+Harness `backEnd/evals/trace_geometry.py` (record component `traced_measurement` v1), test
+`backEnd/tests/unit/evals/test_trace_geometry.py`. Run directories
+`$BASIS_EVAL_DATA_DIR/predictions/trace_geometry_2026-11-23/` and, re-run on the final code,
+`trace_geometry_2026-11-23_final/` (every error figure identical; times within 15 %), both
+linked under `$BASIS_EVAL_DATA_DIR/verification/traced_measurement/v1/` (`evals.registry` lists
+them: 4 cases passed each, $0.00). No model call, no paid call, no client data: every shape is synthetic.
+
+### 97.1 Answer first
+
+* **The shape is now a measurement.** An `asset` correction may carry `measurement`: area or
+  line shapes in lon/lat degrees or in pixels of an uploaded image with a clicked scale. The
+  server computes the SF, SY or LF, replaces the takeoff exactly as a typed quantity does (the
+  missing-input blocker goes, the computed quantity is kept), and keeps the shape, the image's
+  source, date and pixel size, the scale, the method and the expected error in
+  `takeoff_inputs.measurement`. A typed number works exactly as before (byte for byte, checked
+  against values read from `main`).
+* **Lon/lat: a local tangent plane on the WGS84 ellipsoid ships.** On 65 boxes with an exact
+  answer (25 to 49 N, 100 SF to 10 acres) it is within 0.0000002 % of the ellipsoid's area,
+  and within 0.0000005 % on 195 lines up to a mile. A mean-radius sphere (what Turf.js and
+  OpenLayers do) is 0.01 to 0.38 % off; counting web-map pixels with no latitude correction is
+  22 to 132 % too large. All three cost $0 and about a microsecond a shape, so the most
+  accurate one is also the cheapest within the noise of the best.
+* **Every measurement says how far off it may be.** One pixel on every edge (section 5 of the
+  note: area error behaves like perimeter times edge uncertainty), plus the scale's own error
+  on an image. A 20 x 50 ft driveway traced on 6-inch imagery is "up to 7 %"; a 20 x 40 ft one
+  on a plan at 0.25 ft per pixel with a 34 ft reference, "up to 6.69 %".
+* **Four review flags, never refusals:** an undated image, an image more than a year after
+  the placed-in-service date, lon/lat with no pixel size, an expected error above 10 %.
+* **Two things the contract assumed were not so** (97.6): a quantity-only correction is
+  already a manual classification that becomes a firm convention (the measurement now behaves
+  identically, as asked); and an engineer's quantity, typed or traced, does not survive a
+  later assets rejection that does not send it again.
+
+### 97.2 The standard
+
+* **What the IRS asks.** No measuring method or tolerance (Publication 5653, ch. 3 D(1)); a
+  quality study's take-offs "are carefully documented" (ch. 4 C.8) and a study may not rest on
+  estimates "that have no supporting records" (CCA 199921045). So the bar is the record behind
+  the number: method, source, date, and how good it is.
+* **How established tools measure.** Turf.js (`@turf/area`: the ring area of Chamberlain and
+  Duquette, "Some Algorithms for Polygons on a Sphere", JPL Publication 07-03, 2007, with
+  `earthRadius = 6371008.8`, the WGS84 mean radius) and OpenLayers (`ol/sphere` `getArea` and
+  `getLength`: the same formula and a haversine length on `DEFAULT_RADIUS = 6371008.8`), read in
+  their source on 2026-11-23. Property-measuring and plan-takeoff tools set the scale from the
+  georeferenced image or one known length the user clicks (note section 6). GeographicLib's
+  ellipsoidal polygon area would be a fourth candidate; neither `geographiclib` nor `pyproj` is
+  in `uv.lock`, and none was added for it.
+* **How good hand tracing is** (note section 5, independent studies): about 4 % on a
+  driveway-sized rectangle in Google Earth, worst 10.3 %; 2.4 % (worst 5.0 %) on 3-inch aerial
+  imagery. `MEASURE_ERROR_FLAG_PCT = 10` is that worst case.
+
+### 97.3 The comparison: lon/lat area
+
+**How to read this table.** Each row is one way of turning a traced lon/lat ring into square
+feet, run on the same 65 boxes: quadrilaterals bounded by two meridians and two parallels at
+latitudes 25, 27, ... 49 N, sized about 100 SF, 1,000 SF (a driveway), 10,000 SF, 1 acre and 10
+acres, with the south-west corner at 88.9 W. A box's edges along parallels are exactly what a
+web map draws as straight horizontal lines, so it is the shape as traced. The answer is the
+box's area on the WGS84 ellipsoid in closed form: `A = (a^2 dlambda / 2)(q(phi2) - q(phi1))`
+with Snyder's authalic function `q` (USGS Professional Paper 1395, 1987, ch. 3), the integral
+of the area element `M N cos phi dphi dlambda`. **Error** is |computed - exact| / exact, in
+percent, **lower is better**; mean and worst over the 13 latitudes. **Time** is microseconds
+per shape on a laptop (one CPU, Python 3.12), **lower is better**. Models: no AI model.
+Tokens: none. Cost: $0.
+
+| Setup | Models | Tokens | 100 SF mean / worst % | 1,000 SF mean / worst % | 10,000 SF mean / worst % | 1 acre mean / worst % | 10 acres mean / worst % | Time per shape |
+|---|---|---|---|---|---|---|---|---|
+| a. Screen pixels of a web map (Web Mercator, no latitude correction) | No AI model | none | 64.7 / 132.1 | 64.7 / 132.1 | 64.7 / 132.1 | 64.7 / 132.1 | 64.7 / 132.1 | 1.0 µs |
+| b. Sphere of mean radius 6,371,008.8 m, Chamberlain-Duquette (Turf.js, OpenLayers) | No AI model | none | 0.146 / 0.316 | 0.146 / 0.316 | 0.146 / 0.316 | 0.146 / 0.316 | 0.146 / 0.316 | 0.5 µs |
+| c. Local tangent plane on the WGS84 ellipsoid, radii of curvature at the mean latitude (**shipped**) | No AI model | none | 8e-8 / 2e-7 | 1e-8 / 4e-8 | 7e-9 / 2e-8 | 3e-9 / 9e-9 | 4e-9 / 6e-9 | 1.1 µs |
+| d. Ellipsoidal geodesic polygon (GeographicLib) | not run | | | | | | | not in `uv.lock` |
+
+By latitude, the web map is 22.3 % too large at 25 N, 57.1 % at 37 N and 132.1 % at 49 N (it is
+off by sec^2 of the latitude); the sphere is 0.21 % over at 25 N, 0.04 % under at 37 N and 0.32 % under
+at 49 N (the sphere's radius against the ellipsoid's curvature; the sign changes between 35 and
+36 N).
+
+### 97.4 The comparison: lon/lat length
+
+**How to read this table.** The same three setups on 195 lines: along a meridian (exact
+length: the 20-point Gauss-Legendre integral of the meridional radius M), along a parallel
+(exact: `N cos phi dlambda`) and on a 45-degree diagonal (exact: the endpoint placed by
+Vincenty's direct geodesic, T. Vincenty, *Survey Review* 23(176), 1975, at the distance asked),
+10, 50, 150, 500 and 5,280 ft long at the 13 latitudes. **Error** in percent, mean and worst,
+**lower is better**. Models: no AI model. Tokens: none. Cost: $0.
+
+| Setup | Models | Tokens | Meridian mean / worst % | Parallel mean / worst % | Diagonal mean / worst % | Time per line |
+|---|---|---|---|---|---|---|
+| a. Screen pixels of a web map | No AI model | none | 27.9 / 52.6 | 27.4 / 52.1 | 27.7 / 52.4 | 0.7 µs |
+| b. Haversine on the mean sphere (Turf.js, OpenLayers) | No AI model | none | 0.193 / 0.381 | 0.234 / 0.302 | 0.073 / 0.158 | 0.6 µs |
+| c. Tangent plane per segment at its middle latitude (**shipped**) | No AI model | none | 2e-9 / 2e-8 | 2e-9 / 2e-8 | 5e-8 / 4e-7 | 0.7 µs |
+
+Where the plane stops being exact: a single 10 km segment is 1.6e-5 % off at worst and a 100 km
+one 0.0017 % (the sphere stays near 0.38 %). A typed or traced quantity is capped at 10,000,000,
+and a driveway, fence or lot is under a mile, so no traced item comes near either.
+
+### 97.5 The answer key's own limit, rotation, and the image scale
+
+**The key checks itself.** The closed form against a 20-point Gauss-Legendre integration of the
+same area element: worst disagreement 1.8e-7 % over the 65 boxes. The meridian integral against
+Helmert's series in the third flattening: 3.8e-8 %. A degree of latitude centred at 45 N comes
+out at 111,131.78 m, the standard series' value (`tests/unit/evals/test_trace_geometry.py`).
+
+**The closing edge is a parallel, not a geodesic.** A method whose polygon edges are geodesics
+sees a slightly different shape: on the mean sphere the lens between a parallel and the great
+circle through its ends is at most 0.0003 % of a box (the 10-acre one at 49 N), and the two
+edges' lenses nearly cancel (net 4.7e-8 %). So the key's own approximation is ten thousand times
+smaller than the sphere's error and far below the 0.01 SF a quantity is rounded to.
+
+**Rotation.** A 20 x 50 ft and a 660 x 660 ft rectangle, turned in 15-degree steps through 180
+degrees, corners placed by Vincenty's direct geodesic from the centre, at the 13 latitudes. How
+to read: **spread** is (largest - smallest area) / drawn area over the 12 turns, **against drawn**
+the worst |area - drawn| / drawn, in percent, lower is better.
+
+| Setup | Driveway spread / against drawn % | 10 acres spread / against drawn % |
+|---|---|---|
+| a. Web map pixels | 1.9e-7 / 132.1 | 3.3e-9 / 132.1 |
+| b. Mean sphere | 5.6e-8 / 0.316 | 5.2e-8 / 0.316 |
+| c. Tangent plane (**shipped**) | 3.3e-8 / 2.3e-8 | 4.8e-8 / 2.6e-8 |
+
+All three keep a shape's area as it turns; only the shipped method also keeps the area drawn.
+
+**Image space: how a scale clicked wrong carries into the quantity** (closed form, no data). How
+to read: a 34 ft reference spans 136, 68 or 34 pixels at 0.25, 0.5 or 1 ft per pixel; clicked k
+pixels wrong, the scale is off by k / pixels, an area by (1 + k / pixels)^2 - 1, a length by k /
+pixels. **Stated** is the expected error Basis writes for that trace (one pixel on every edge
+plus 2 pixels on the scale, twice for an area); lower is better everywhere.
+
+| ft per px | Reference px | Off by px | Scale % | Driveway 20 x 40 ft % (SF) | Fence 150 ft % (ft) | Stated, driveway % | Stated, fence % |
+|---|---|---|---|---|---|---|---|
+| 0.25 | 136 | 1 | 0.74 | 1.48 (11.8) | 0.74 (1.1) | 6.69 | 1.80 |
+| 0.25 | 136 | 2 | 1.47 | 2.96 (23.7) | 1.47 (2.2) | 6.69 | 1.80 |
+| 0.25 | 136 | 5 | 3.68 | 7.49 (59.9) | 3.68 (5.5) | 6.69 | 1.80 |
+| 0.5 | 68 | 1 | 1.47 | 2.96 (23.7) | 1.47 (2.2) | 13.38 | 3.61 |
+| 0.5 | 68 | 2 | 2.94 | 5.97 (47.8) | 2.94 (4.4) | 13.38 | 3.61 |
+| 0.5 | 68 | 5 | 7.35 | 15.25 (122.0) | 7.35 (11.0) | 13.38 | 3.61 |
+| 1 | 34 | 1 | 2.94 | 5.97 (47.8) | 2.94 (4.4) | 26.76 | 7.22 |
+| 1 | 34 | 2 | 5.88 | 12.11 (96.9) | 5.88 (8.8) | 26.76 | 7.22 |
+| 1 | 34 | 5 | 14.71 | 31.57 (252.6) | 14.71 (22.1) | 26.76 | 7.22 |
+
+So a 34 ft reference on a coarse image is a weak scale: at 1 ft per pixel the stated error of a
+driveway is 27 % and the flag (`measure:COARSE`, above 10 %) tells the reviewer. A longer
+reference (the plan's own scale bar, a lot line) shrinks the scale term in proportion.
+
+**Time of the checks.** A driveway (4 corners) is checked and measured in 0.05 ms; the largest
+measurement allowed (5,000 points: ten 500-corner rings, every pair of edges compared for
+crossings) in 22 ms. Without a total cap the contract's limits allow 50 rings with 20 cutouts of
+500 points each (525,000 points), which no request should make the API or the worker compute, so
+`MAX_POINTS = 5000` is added (97.6).
+
+### 97.6 Verdict, deviations and surprises
+
+**Verdict.** Ship the local tangent plane (c) for lon/lat, planar pixels times the clicked scale
+for images, and the one-pixel expected error; record the shape with the quantity.
+
+**Deviations from the contract, and why.**
+
+* **A total of 5,000 points per measurement** (not in the contract's limits): the simplicity
+  check compares every pair of a ring's edges; 97.5 has the time.
+* **`pixel_size_m` at most 100 m**: the contract asked only for finite; a pixel above 100 m
+  (coarser than Landsat's 30 m) cannot measure a property.
+* **The request schema** (`CorrectionFields`) accepted only flat scalars; it now lets the one
+  field `measurement` hold an object (refusing any other object, NUL in a string or key, a
+  non-finite number, nesting beyond 8 levels), so PostgreSQL can store whatever passes.
+* **`takeoffs.inputs`** stores the nested record as an object, not a JSON string: the column is
+  JSON and already held nested objects (`asset_correction`, `assumptions`); only the domain
+  `Takeoff.inputs` is flat, so the record is added where the row is written.
+* **A measurement on another entity type** is refused by the API (the contract asked for it);
+  today an unknown field on a `component` reaches the worker, which refuses the whole
+  rejection.
+* **Two corrections of the same asset**: the later one's quantity wins, typed or traced, so the
+  two never stand together in the merged correction (otherwise the worker would refuse it).
+* **No reason is required** for a measurement alone, as for a typed quantity ("follow the
+  existing rule"); the note's 7.2 proposes one.
+
+**Surprises, re-run before recording.**
+
+1. **A quantity-only correction is a manual classification and becomes a firm convention.**
+   The contract assumed it was not (as a price-only one is not). `process_assets._overrides`
+   strips only the price fields, so `{quantity, quantity_unit, quantity_source}` makes the asset
+   `manual` with the old classification, and `promote_conventions` promotes every manual asset
+   as the engineer's ruling (REVIEW_RULES 7.4). Seen in the code, then on `main` e885ca1 (the
+   regression run: `method: manual`), then in
+   `test_a_measurement_only_correction_is_handled_as_a_quantity_only_one` (both `manual`, both
+   candidates). The measurement does the same, as the contract asked ("behave identically").
+   Whether measuring an item should make its classification a ruling is the maintainer's call.
+2. **An engineer's quantity does not survive a later rejection.** A typed or traced quantity
+   applies to the revision its rejection builds; on the next assets rejection that does not
+   send it again (or a reprice), the takeoff is recomputed and the patio is back to its count
+   with `cross:COST_NEEDS_QUANTITY`. Run twice, once typed and once traced: revision 2 812.50 SF
+   and 800.00 SF, revision 3 1.00 EA for both. A unit price is kept on the component row; a
+   quantity is not. Not fixed here (it needs a decision on where a quantity lives); recorded in
+   OVERRIDES.md 4 and FRONTEND_BACKLOG 17.
+3. **The browser's error catalogue was stale on `main`**: `web/live/error-catalogue.js` had 304
+   codes against 310 in the catalogue (the six `BASIS-DEMO` codes of #165 not regenerated), and
+   `web/tests/result-workspace.test.cjs` pinned 304. Regenerated with
+   `web/scripts/sync-error-catalogue.py`: 315 codes; the test now pins 315.
+4. A typed quantity on a concealed row of the structure model is accepted and ignored (the row
+   keeps the model's quantity); a measurement there behaves the same.
+
+### 97.7 Verified and not verified
+
+Verified (numbers in `backEnd/tests/LEDGER.md`): the domain checks and geometry (97 tests,
+mutation-checked); the activity checks, the route's value check, the schema (24); `process_assets`
+on Postgres (14: the replaced takeoff, each flag at its boundary, the regression line against
+`main`'s values, the convention candidacy, the merge rule, the refusals; mutation-checked); the
+decision and draft routes on Postgres (19: each refusal, the document check, the setting, the
+roles, the stale revision); the settings (13); the harness (9) and its full run (4 cases
+passed). The OpenAPI document, the error catalogue and the browser catalogue are regenerated.
+
+Not verified:
+
+* No live study and no workflow run end to end with a measurement (no lifecycle test added: the
+  workflow is unchanged, the activities' results are recorded in history, and the corrections
+  travel through the same `CorrectionInput`); the Schemathesis contract test is the one in the
+  gates below, which empties corrections in positive cases.
+* The lon/lat method was measured against a mathematical key, not against ground truth: how
+  well an engineer traces is the note's section 5 (other people's studies), not measured here.
+* The expected-error formula is a bound by assumption (one pixel per edge), not measured on
+  traces; a typed wall height's error is not counted.
+* In image space the expected error counts one pixel of the image as displayed. An image
+  enlarged beyond its native pixel size (a 6-inch aerial shown at 3 inches a pixel) therefore
+  understates it: on one such hand trace of a driveway the stated bound was 2.4 % where the
+  native pixel gives about twice that. The image's native pixel size is not asked for in
+  image space.
+* No screen: nothing in the app sends a measurement yet (FRONTEND_BACKLOG 17).
+* Overlapping areas, overlapping cutouts and a traced total larger than the lot are not
+  detected; no exhibit image is stored; the report does not print the source.
+
+**Open (the maintainer's).** Whether a measurement alone should need a reason (the note says
+yes, the typed quantity does not); whether a quantity-only correction, typed or traced, should
+stay a ruling (surprise 1); where a quantity should live so it survives later revisions
+(surprise 2); the 365-day and 10 % thresholds (365 is not measured; 10 % is the studies' worst
+case); the 5,000-point and 100 m caps.
+
+## 98. Property pictures: capturing views of the property, gently, with every failure tracked (2026-11-23)
+
+**Question.** Can Basis take dated views of a study's property (top-down to measure on, side
+views to read the building) in the background? It must do this without being mistaken for
+abuse, stop at the first sign of a block, and track every failure the way user errors are
+tracked (code, log, timeline, grouped record, alert, ops health). Design:
+`PROPERTY_CAPTURE.md`. API: `docs/api/PROPERTY_CAPTURE.md`. Decisions are Bryan's
+(PROPERTY_CAPTURE.md section 6), including the MVP-only acceptance of Google's terms.
+
+**The standard, and what was taken from it.**
+
+* *Driving a browser.* Playwright is the maintained headless-browser library with a first-class
+  Python async API.
+  - Pinned to `playwright==1.64.1`: its `browsers.json` names Chromium build 1248, the build
+    already installed. The latest release (1.65.2) wants 1255, which would mean a browser
+    download.
+  - The Node driver was compared on the same local WebGL page, three runs each. Warm launch to
+    page ready: 0.25 s (Python) against 0.10 to 0.13 s (Node). Screenshot: 0.018 against
+    0.017 s. Memory: about 148 against 145 MB.
+  - Both are within noise of an 8 to 20 s spacing. The Python package avoids a second runtime
+    and a hand-written protocol between the two.
+  - It is a `capture` dependency group that `dev` includes. The Docker image (`--no-dev`) does
+    not carry it.
+* *Stopping when blocked.* The circuit breaker of Hystrix and Resilience4j: open, half-open,
+  closed. The open time grows exponentially: 60 min, doubling per consecutive trip, up to 24 h
+  (`CAPTURE_BREAKER_*`). A signal while open is the same episode: no second alert, no doubling.
+* *Gentleness.* The cap numbers are not measured against the site; nothing published states its
+  limits. They are chosen to stay far below a person's own use:
+  - one capture at a time across workers (a Postgres lease);
+  - a random 8 to 20 s since the last navigation of any worker;
+  - 6 page loads an hour and 30 a day;
+  - 120 camera moves an hour.
+
+  A property costs one page load: the camera moves with `history.pushState` and a `popstate`
+  event, which the viewer follows without reloading (probe 1).
+* *Tracking.* The existing systems, reused (PROPERTY_CAPTURE.md section 4):
+  - the catalogue area `CAPTURE` (001 to 017) and `BASIS-ALERT-005`;
+  - `error_code` on the log lines;
+  - `study_events` rows;
+  - the client-error issue grouping in its own `capture_incidents` table, because a capture
+    failure has no user, and `client_errors.user_id` is required and its kinds are browser
+    events;
+  - `AlertRepository.raise_once` with one key per trip;
+  - a `property_capture` member on `GET /v1/ops/health`.
+
+**What counts as a block signal** (`basis.capture.signals`):
+- the unusual-traffic page (`/sorry/` or its text);
+- a reCAPTCHA;
+- a consent or sign-in wall (`consent.` or `accounts.` host, the sign-in paths, "Before you
+  continue");
+- HTTP 429 on the main document or on a viewer, imagery or data host.
+
+What does not count: a 429 from `feedback-pa.clients6.google.com/.../survey/trigger/...`. It came
+on loads 1, 2 and 3 alike: that quota is shared by every anonymous visitor and says nothing
+about ours. Logging and analytics hosts do not count either.
+
+A blank, black or white frame is not a block signal but a failure of the view: the frame's mean
+and spread are measured over the map area.
+
+**Page loads (budget 30, ledger `work/earth_capture/loads.jsonl`): 7 used, no block signal seen.**
+
+| Load | What | Result |
+|---|---|---|
+| 1 (probe 1) | Search by place name; then one camera move | Landed at the property's camera (coordinates in the private report); the move needed no load; one survey 429 |
+| 2 (probe 2) | The real `PlaywrightBrowser`: switch on the accessibility tree, dismiss, two moves | The interface is Flutter web. Its buttons appear only after `flt-semantics-placeholder` is clicked. Both moved views were the viewer's projects page (mean 252, spread 8) |
+| 3 (probe 3) | The dismissal step by step, screenshot after each | An Escape closes the place panel; two moves before any extra Escape both stayed on the map; "Dismiss" closes one tip and shows the next |
+| 4 (run 1) | Full capture, address search | Place found; label read as the property's street address (in the private report); `aerial-close` stored. `aerial-wide` was the projects page again, refused as a white frame (BASIS-CAPTURE-005, evidence stored). **Cause: an Escape after a camera move.** Fixed: Escape only after a page load |
+| 5 (run 2) | Full capture, address search, after the fix | 6 clean views in 109 s; pin placed (`search`, unconfirmed) |
+| 6 (run 3) | Full capture, engineer's point loaded as a camera address with `0a` | 6 views, but the scale bar read 0.1075 m/px against 0.0841 recorded. The camera sat below the ground and the viewer raised it, so the range and pixel size were 28 % off. **Fixed:** a point is searched as `lat,lon`, which yields the ground altitude |
+| 7 (run 4) | Full capture, engineer's point searched | 6 clean views in 95 s; the scale bars match run 2's exactly; the engineer's point kept unchanged |
+
+**Scale: the pixel size against the viewer's own scale bar** (pixel scan of the bar's end ticks,
+no page load for the first two rows):
+
+| View | Range `d` | `2·d·tan(17.5°)/900` m/px | Bar | Bar m/px | Formula vs bar |
+|---|---|---|---|---|---|
+| probe 1, `b_pushstate` | 214 | 0.1499 | 20 m over 130 px | 0.1538 | -2.6 % |
+| probe 1, `a_search` | 589.2 | 0.4128 | 80 m over 190 px | 0.4211 | -2.0 % |
+| run 2 and run 4, `aerial-close` | 120 | 0.0841 | 10 m over 116 px | 0.0862 | -2.5 % |
+| run 2 and run 4, `aerial-wide` | 350 | 0.2452 | 40 m over 160 px | 0.2500 | -1.9 % |
+
+- `d` is the camera's distance to the point: the status bar's "Camera: 464 m" is 250 + 214.
+- `y` is the vertical field of view; reading it as the horizontal gives 0.094 m/px, far off.
+- The formula reads 1.9 to 2.6 % finer than the bar. That is recorded and not corrected: the bar
+  is itself the viewer's estimate.
+- Neither the formula nor the bar has been checked against a length measured on the ground. The
+  traced quantity stays the engineer's (EVAL_REPORT 78).
+
+**Imagery date.** The status bar (date, camera, coordinates) is drawn on the canvas with no
+accessible text, so `imagery_date` is null on every view. A person can read the date in the view
+itself ("8/4/2026" on the probe property). A traced measurement on such a view carries
+`measure:IMAGE_UNDATED` (#178) until the date is read.
+
+**Tests.** All with a fake browser and the in-memory store:
+- `tests/unit/capture`: 54 tests over every code's path. Each block signal writes exactly one
+  incident, one timeline event, the evidence (screenshot, HTML, page record), one log line with
+  the code and one alert per trip; a second trip doubles the wait and raises a second alert;
+  pauses keep the views; ops health after a trip, a lapse and a success.
+- The Postgres store (`tests/integration/db/test_capture_store.py`: racing trips raise one
+  alert, the lease is taken once), the routes (`tests/api/test_property_capture.py`) and
+  migration 0036 (`test_migrations.py`) are written and **not run**: Docker was unavailable this
+  session. `alembic check` was not run either.
+
+**Run records:**
+- `$BASIS_EVAL_DATA_DIR/verification/property_capture/v1/live_runs_2026-11-23` (manifest,
+  results, report; `evals.registry --component property_capture` lists it);
+- the runs' images and results in `work/earth_capture/runs/run1..run4`;
+- the probes in `work/earth_capture/probe/p1..p3`.
+
+**Not verified.**
+- A block signal from the real site: none occurred. The breaker is tested only with scripted
+  pages.
+- The first-visit notice on a fresh profile. It was closed in probe 2, but which control closed
+  it was not isolated. The production worker keeps a profile (`CAPTURE_PROFILE_DIR`) so it
+  appears once.
+- Earth rendering on Linux (needs Docker).
+- History and leaf-off dates, and Street View (not built).
+- Concurrency across two real capture workers (the lease is tested in memory, and written for
+  Postgres but not run).
+
+### 98.1 A search that finds nothing is not a place (2026-11-24)
+
+In the live run of 2026-11-24 (a study's pin set from an appraisal address whose ZIP code was
+misread), the address search matched nothing, but the page's address still carried a camera:
+latitude 0.0000, longitude -0.2049, altitude 0. The runner took that for the house, placed the
+pin there (`property.pin_placed`) and photographed open ocean; only the blank-frame check
+(`BASIS-CAPTURE-005`) stopped it. A failed geocode landing at 0, 0 is the well-known "Null
+Island" pattern. `camera.found_nothing` now treats a searched camera within 0.5 degrees of
+latitude 0 and 1 degree of longitude 0 (open ocean; the nearest land, Sao Tome, is 6.5 degrees
+east) as no place: the capture fails with `BASIS-CAPTURE-006` (no place), nothing is placed,
+and the engineer is told to correct the address or drop the pin. The engineer's own point is
+never tested this way. Unit tests: the box's edges, Sao Tome and the run's landing address.
+Not verified live (another page load on a misread address was not spent).
+
+## 99. Property pictures: history, imagery dates, leaf-off, street level and clean views (2026-11-23)
+
+**Question.** Section 98's capture takes today's views only, leaves `imagery_date` null, keeps
+the viewer's toolbar and status bar in every picture, and has no street-level picture. Can the
+same capture, within the same gentleness, also take (1) the dated history of the straight-down
+view, (2) the imagery date of every view, (3) a leaf-off label and the view to measure on, (4)
+a ground-level picture of the front, and (5) pictures free of the viewer's interface? Design:
+`PROPERTY_CAPTURE.md` sections 7 to 9. API: `docs/api/PROPERTY_CAPTURE.md` sections 3, 4 and 6.
+Bryan's decision of section 98 stands: Google views, signed out and headless, for the MVP demo
+only; no customer-facing text names Google.
+
+**Answer first.**
+
+- **History works, for no extra page load.** The viewer's own "Older images" arrow steps
+  through every date, one camera move each. On the probe property it listed all 12 dates found
+  by hand and a 13th (1985-12-31, a featureless blur). A full capture with history took 1 page
+  load and 20 camera moves, in 5.5 minutes, and kept 3 dated views.
+- **The imagery date is read off the status bar by tesseract**: 56 of 56 saved views right; in
+  the first two live walks 12 of 13 dates each, the miss a space read inside "9/14/2006". With
+  spaces inside a date closed before parsing, run 3 read the same "9/1 4/2006" on the live page
+  and kept 2006-09-14: 13 of 13. History dates must also agree with the page address, so a misread digit
+  cannot become a wrong date. The accessibility tree carries no date; the page address carries
+  the date asked for, not the one shown.
+- **Leaf-off by month and latitude** agreed with the hand check on 6 of 6 dates (written knowing
+  the key, so not an independent test); a green-pixel share alone on 4 of 6. One property is a
+  small key.
+- **Clean views.** The viewer cannot hide all its interface. A viewport 170 px taller above and
+  below, cropped back to 1440 x 900, keeps every pixel of the stored view free of it with the
+  same centre and the same metres per pixel (checked by hovering: the status bar names the
+  point under the pointer).
+- **Street level does not work headless.** The service refuses the browser: its panorama lookup
+  answers HTTP 500 and its tiles HTTP 403, in both of Chromium's headless modes and in the
+  viewer's own street-level mode, while WebGL renders the top-down viewer fine. It is built,
+  off by default, and records `BASIS-CAPTURE-020` with evidence when tried.
+- **SwiftShader** (the software renderer a GPU-less Linux worker uses) rendered every view of a
+  full capture with history, pixel for pixel within 0.2 grey levels of Metal's, at the same
+  pace.
+- **Block signals are now tested against a real browser**: five pages served locally
+  (unusual-traffic, reCAPTCHA, consent wall, HTTP 429, a black page) through the capture's own
+  code path. No block signal came from the real site in this section.
+- **No AI model.** Tokens: none. Paid calls: none.
+
+**The standard, and what was taken from it.**
+
+- *Historical imagery.* Google Earth web's historical imagery mode (its timeline of dated dots,
+  the older and newer arrows, 3D buildings switched off while it is on) is the only source the
+  decision allows; the dates are the provider's. Public-domain alternatives (NAIP, state
+  orthoimagery) stay the fallback of section 98.
+- *Reading text drawn on a canvas.* Tesseract 5.5.1 (the open-source OCR engine), one text line
+  (`--psm 7`) on the strip scaled up 4x with Lanczos, the usual preparation for small UI text.
+  It is a system program, installed in the capture image (`Dockerfile.capture`), not a Python
+  dependency.
+- *Leaf-off.* Aerial programs fly "leaf-off" in spring between snowmelt and leaf-out (the
+  Wisconsin Regional Orthoimagery Consortium flies every cycle that way). The USA National
+  Phenology Network's 30-year First Leaf Index puts Wisconsin's first leaf in late April or early
+  May. The latitude shift is Richardson et al. 2019 ("Testing Hopkins' Bioclimatic Law with
+  PhenoCam data", Applied Plant Sciences): deciduous green-up 2.65 days later and green-down 2.0
+  days earlier per degree north (Hopkins' own rule: 4 days). The picture measure is the
+  excess-green-minus-excess-red index (Meyer and Neto 2008) with its published zero threshold.
+- *Street level.* The documented panorama address (`/maps/@?api=1&map_action=pano&viewpoint=`)
+  opens the panorama nearest a point; the heading to the house is the initial great-circle
+  bearing.
+- *Clean pictures.* A crop is the standard way to remove an overlay one cannot switch off; a
+  symmetric crop leaves the optical centre where the camera looks.
+
+**Page loads (budget: 15 for this section; ledger `work/earth_capture/loads.jsonl`).** Every
+navigation went through the capture's governor (caps, 8 to 20 s spacing) and the ledger; the
+exploration scripts used `basis.capture.governor.admit` and `spacing_s` on the same ledger. The
+governor paused one run before it started (`BASIS-CAPTURE-010`, the hourly cap; a double count
+in the exploration script's log, fixed) and no load was spent.
+
+How to read this table: one row per page load of this section, in order; "Moves" are camera
+moves and control presses (no page load), each spaced like a load.
+
+| Load | What | Moves | Result |
+|---|---|---|---|
+| 8 (probe E1) | The viewer: history, stepping, address dates, layout, its street level | 26 | 13 dates by the arrow; address dates 2 of 3; the interface cannot be hidden; the georeference measured by hovering; street level: lookup 500 three times |
+| 9 (probe S1) | Street level in the maps page, Chromium's new headless mode | 1 | Black: lookup 500, then tiles 403 on the panorama |
+| 10 (probe S2) | Street level, the headless shell (section 98's mode), the panorama by its id | 0 | Black: lookup 500, tiles 403 |
+| 11, 12 (run 1) | Full capture, Metal, clean views, dates, history, street level on | 20 | 9 views; street level recorded as `BASIS-CAPTURE-020` with evidence |
+| 13 (run 2) | Full capture, SwiftShader, street level off | 20 | 9 views, no blank frame |
+| 14 (run 3) | Full capture of the finished code, Metal, street level off | 20 | 9 views; all 13 dates read |
+
+Total for this section: 7 loads (14 of 30 on the ledger). No block signal.
+
+**1. History: stepping through the dates.**
+
+How to read this table: each way of moving between dates, what it costs and whether it can
+list the dates; "Right" is the imagery shown against the date asked for.
+
+| Way | Page loads | Moves per date | Lists the dates | Right |
+|---|---|---|---|---|
+| The viewer's "Older images" arrow (shipped) | 0 | 1 | Yes: disabled at the oldest | 12 of 12 steps (status bar = address = header) |
+| The date set in the page address (`pushState` + `popstate`) | 0 | 1 | No | 2 of 3: an absent date (2019-01-01) shows the newest imagery before it (2017-04-22) while the address and header say 2019-01-01 |
+
+Dates found against the 12 known (hand check of 2026-11-22):
+
+| Run | Dates listed | Of the 12 known | Extra | Dates read |
+|---|---|---|---|---|
+| Probe E1 (900 px) | 13 | 12 | 1985-12-31 (a blur) | 13 of 13 |
+| Run 1 (1240 px, Metal) | 13 | 12 | 1985-12-31 | 12 of 13 (9/14/2006 read as "9/1 4/2006") |
+| Run 2 (1240 px, SwiftShader) | 13 | 12 | 1985-12-31 | 12 of 13 (the same) |
+| Run 3 (1240 px, Metal, the space fix) | 13 | 12 | 1985-12-31 | 13 of 13 ("9/1 4/2006" read again, kept as 2006-09-14) |
+
+The plan (`CAPTURE_HISTORY_WINDOW_DAYS` 730, `CAPTURE_HISTORY_MAX_VIEWS` 6) with a hypothetical
+placed-in-service date of 2017-06-30 kept 2026-08-04 (newest), 2017-04-22 (69 days from it) and
+2021-03-12 (leaf-off). Uncapped, the plan keeps 3 to 7 dates for any placed-in-service year from
+1990 to 2026 (median 4; 7 only for 2007): the cap of 6 keeps every planned date for 36 of 37
+years and costs about 1.5 MB a view. The window: the property's dates came 0.3 to 3.5 years
+apart after 1992 (median 2.3), so two years either side catches about one date each side.
+
+**2. The imagery date.**
+
+How to read this table: each way of reading the date, on how many views, how many right
+(against the hand-checked dates, or for history the date the viewer shows), and its limits.
+
+| Way | Views | Right | Wrong | Limit |
+|---|---|---|---|---|
+| Accessibility tree (switched on) | Today's and history views of probe E1 | 0 | 0 | Carries no date at all |
+| Page address, `data=` (history only) | 16 history views (13 by the arrow, 3 by address) | 15 | 1 | The date asked for, not shown; read 2022-01-01 for a moment after history was switched on |
+| History header by OCR (history only) | 17 | 16 | 1 | The same: shows the date asked for |
+| Status bar by OCR (shipped) | 56 saved views (19 of section 98's runs, 28 of the probes, 9 of run 1) | 56 | 0 | About 0.06 s a view; live walks 24 of 26 before the space fix, 13 of 13 after (run 3) |
+
+A history date is kept only when the status bar and the page address agree (every date read in
+runs 1 to 3 agreed: 12, 12 and 13). A misread that is not a date ("2/31/1985") is refused, not guessed.
+
+**3. Leaf-off.**
+
+How to read this table: each method's label on the six dates of the hand check (Mar 12 2021 and
+Apr 22 2017 leaf-off; Aug 4 2026, Jun 20 2023, Oct 8 2013 leaf-on; May 3 2020 partly leafed,
+expected "unknown"). "Wrong" is a confident wrong label; "abstained" is unknown where the key
+has a label.
+
+| Method | Agree | Wrong | Abstained |
+|---|---|---|---|
+| Month and latitude (shipped) | 6 of 6 | 0 | 0 |
+| Green share alone (on ≥ 0.50, off ≤ 0.30) | 4 of 6 | 2 (Apr 22 2017 "on", May 3 2020 "on") | 0 |
+| Both must agree | 5 of 6 | 0 | 1 (Apr 22 2017) |
+
+The green share is high in a leaf-off April (lawn and evergreens): 0.58 against 0.23 for the
+March picture. On the dates outside the key the month rule abstains on both 31 December dates
+(the 2005 one is in full leaf). The view to measure on (`measure_on`) is the newest leaf-off
+top-down view: 2021-03-12, which the hand check also called leaf-off and sharp. **Not
+independent:** the autumn edges (leaf-on to 15 October, leaf-off from 10 November at 44° N) were
+set knowing the key's 8 October leaf-on picture.
+
+**4. Street level.**
+
+How to read this table: each way tried, within the page loads above; "Lookup" is the panorama
+lookup's answer, "Tiles" the imagery tiles'.
+
+| Way | Lookup | Tiles | Picture |
+|---|---|---|---|
+| The viewer's own street-level mode (click, click again, drag the figure) | 500 (three times) | not asked | Never entered |
+| Maps, documented panorama address, Chromium new headless, Metal | 500, then 400 for an empty id | not asked | Black (mean 3.6) |
+| Maps, the panorama by its id (moved to, no load), new headless | not asked | 403 | Black (mean 7.7) |
+| Maps, the panorama by its id, headless shell, Metal | 500 | 403 | Black (mean 7.9) |
+| The capture's own path (run 1) | 400 and 500 | not asked | `BASIS-CAPTURE-020` recorded with screenshot, HTML and record |
+| Waiting longer (5, 12, 25 s) | | | Black at every wait |
+
+WebGL2 worked in the same browser (the top-down viewer rendered; renderer "ANGLE Metal"). A
+GL flag, a viewport or a wait cannot fix a refused request, so none was tried beyond these.
+The browser announces itself as "HeadlessChrome" with `navigator.webdriver` true; presenting it
+otherwise is a way around the refusal, which is Bryan's decision and was not tried. A headed
+window rendered the panorama in the hand check (not acceptable for the product).
+
+**5. Clean views.**
+
+How to read this table: each way of removing the viewer's interface, and what is left of a
+1440 x 900 frame.
+
+| Way | Interface left | Image kept | Georeference |
+|---|---|---|---|
+| Hide it (the viewer's "Hide the menu bar"; its settings have no other switch) | Search box, history date, corner buttons, status bar | 900 rows with overlays | Unchanged |
+| Crop a 900 px viewport to the clean band | None | 636 rows (history mode) to 708 | The centre moves 12 to 24 px off the camera's point |
+| A taller viewport (1240 px) cropped symmetrically (shipped) | None | 900 rows | Unchanged: same centre, same m/px |
+
+The georeference was measured, not assumed: the status bar names the point under the pointer.
+On a 9-point grid the viewport's centre read the camera's own point at 900 and at 1130 px tall,
+and the fitted metres per pixel were 0.0842 to 0.0846 and 0.0671 to 0.0676 (across and down) against 0.0841 and 0.0670 from
+`2·range·tan(fov/2)/height` (the offsets of points off the centre vary by up to 2 % with the
+ground's height under them). Every range is lengthened by 1240 / 900, so `aerial-close` is taken
+at 165.3 m and keeps 0.0841 m a pixel. Run 1's stored views have no interface pixel in them
+(checked by eye on all nine).
+
+**6. Software rendering (SwiftShader).** Run 2 used `--use-angle=swiftshader,
+--enable-unsafe-swiftshader` (renderer "ANGLE (Google, Vulkan 1.3.0 (SwiftShader Device))" by
+`python -m basis.capture.smoke` with the same flags).
+
+How to read this table: the same capture on the GPU and on the software renderer; seconds are
+dominated by the 8 to 20 s random spacing and the 12 s wait for imagery, not by rendering.
+
+| Run | Renderer | Today's 6 views | History walk (14 presses, 3 kept) | Blank frames | Difference from Metal |
+|---|---|---|---|---|---|
+| Run 1 | Metal (GPU) | 105 s | 222 s | 0 | — |
+| Run 2 | SwiftShader (CPU) | 106 s | 229 s | 0 | 0.05 to 0.21 grey levels mean absolute, under 0.01 % of pixels off by more than 16 |
+| Run 3 | Metal (GPU), the finished code | 103 s | 222 s | 0 | — |
+
+Section 98's run 4 (6 views, no history) took 95 s.
+
+**Tests** (all without the real site):
+
+- `tests/unit/capture/test_history_street_runner.py`: the walk, the plan and its cap, no
+  history control, no readable date, a black date, a block signal on a history press, a resume,
+  street success, no panorama, a refused lookup, refused tiles, a black panorama, clean views,
+  no text reader, and the regression that the default options take section 98's capture
+  exactly.
+- `tests/unit/capture/test_history_modules.py`: the layout's geometry and a known point before
+  and after the crop, the date formats, the address date and its check, generated status strips
+  read by tesseract, every leaf window edge, the hand-checked key, the green share, the view to
+  measure on, the plan's priorities and window edges, the street addresses and refusals.
+- `tests/unit/capture/test_block_pages_browser.py`: the real headless Chromium against five
+  locally served pages through the capture's code path: each block page's code, evidence
+  (screenshot, HTML, page record), one alert, the `capture.paused` event and the breaker open in
+  ops health; the black page fails with `BASIS-CAPTURE-005` and no breaker. Skipped where
+  Chromium is not installed.
+- Migration 0037, the Postgres store and the API, run on a local Postgres 18 (no Docker).
+
+**Run records:** `$BASIS_EVAL_DATA_DIR/verification/property_capture/v2/history_2026-11-23`
+(manifest, results, report; `evals.registry --component property_capture` lists it), and
+`$BASIS_EVAL_DATA_DIR/work/earth_capture/probe2/` (probes `e1`, `s1`, `s2`; runs `runs/r1` to
+`runs/r3`; `eval/measure.json` with every reading). The views stay there; none is in the
+repository.
+
+**Verified and not verified.**
+
+- Verified: history stepping, the date reading, the leaf labels on one property, clean views
+  and their georeference, Street level's refusal, SwiftShader rendering on this Mac, the block
+  pages against a real browser served locally.
+- Not verified: another property (one property's key is small); Linux (SwiftShader on macOS is
+  the proxy); a real block signal from the site (none came); street level headed or with
+  another identity (not tried, Bryan's decision); the date reading on a viewer redesign.
+
+### 99.1 Street level in a headed browser (2026-11-24)
+
+**Question.** Section 99 found the street-level service refuses a headless browser (lookup 500,
+tiles 403, a black panorama). Does it render in a headed one, a real Chromium window?
+
+**Method.** Chromium build 1248 through Playwright 1.64.1, `headless=False` (a window on the
+Mac), a fresh profile, signed out, 1440 x 900, `en-US`. One page load of the documented
+panorama address (`street.pano_lookup_address`) at a street beside the Wisconsin State Capitol
+(a public place, not a client property), then 15 s for the panorama to stream; every response
+from the lookup path (`/maps/photometa/`) and the tile host recorded; a screenshot. Run twice,
+20 s apart. The page-load ledger of the integration run no longer existed (its database was
+gone), so the loads were counted by hand: 16 and 17 of the day's 30.
+
+| Run | Lookup responses | Tile responses | Panorama | Seconds |
+|---|---|---|---|---|
+| Headless (section 99, three probes) | 500 | 403 | black | |
+| Headed 1 | 400, then 200 | 13 x 200 | renders (2 E Mifflin St, captured June 2025) | 16.2 |
+| Headed 2 | 400, then 200 | 13 x 200 | renders, same panorama | 16.0 |
+
+**Findings.**
+- The service serves a headed browser. Nothing about the browser was disguised: it is the same
+  Chromium with a window.
+- The page's address names the panorama as before (`!1s<id>!2e0`), but gives the camera height
+  as `278a` where section 99 saw `3a`, so `street.parse_pano` read no panorama. Fixed: any
+  number before `a`.
+- The first lookup answers 400 before the 200. `street.refused` called any lookup 4xx a refusal
+  and would have discarded a rendered panorama. Fixed: a lookup 5xx (what headless gets), a
+  401/403 on the tiles, or a black frame is a refusal; a lookup 4xx alone is not.
+
+**What changed.** `CAPTURE_HEADLESS` (true, the default: nothing changes until it is set false);
+street level needs it false. The capture image installs Xvfb and starts the worker under
+`xvfb-run` (a virtual display; harmless headless). `CAPTURE_STREET_VIEW` stays off by default.
+
+**The whole capture, headed (same day).** One capture through the real `CaptureRunner`, the
+real `PgCaptureStore` (a fresh database at head, its ledger and governor) and the Playwright
+factory, `CAPTURE_STREET_VIEW=true` and `CAPTURE_HEADLESS=false`, the pin at the Wisconsin State
+Capitol (a public place), the caps lowered by the day's earlier loads. It succeeded: 2 page loads
+and 39 camera moves, 13 views (2 aerial, 4 oblique, 6 history from 2020 to 2026, `street-front`
+with its panorama, where the camera stood and its heading to the pin). The dates of 4 of the 6
+first views were not read (`BASIS-CAPTURE-021`); the headless runs of section 99 read them all,
+so the headed window's rendering of the status bar is the suspect, not verified.
+
+The street picture showed two defects, fixed the same day:
+- *A visitor's photo, not street imagery.* The panorama nearest the pin was a visitor's 2019
+  photo sphere inside the rotunda (the pin is inside the building). Its id starts `CIHM0og`;
+  the service's own panorama on the street beside it (the probes above) has a plain
+  22-character id. `street.contributed` now refuses ids starting `CIHM0og` or `AF1Qip` with
+  `BASIS-CAPTURE-019` and the reason. Observed on these two panoramas, not documented.
+- *The page's interface in the picture,* the place card, the search box, the service's name,
+  the mini map and the footer. `street.crop_street` now stores the band from 230 px below the
+  top to 180 px above the bottom (the card ends 195 to 215 px down; the controls start 165 px
+  above the bottom on both 900 and 1,240 px screenshots): 1,440 x 830 at the clean views'
+  viewport.
+
+**Not verified.** The crop and the visitor-photo rule in a second live capture (they are
+unit-tested on synthetic screenshots and on the two ids seen); a headed run inside the capture
+image under Xvfb; a headed browser's standing over many captures; why 4 of 6 dates were unread
+headed.
+
+## 100. Reading the sketch's outline from the appraisal PDF's line work (2026-11-23)
+
+**Question.** Section 96 read the sketch's area table and left the perimeter a 1.5:1
+rectangle: 31 % low on the one client property, which left the siding 33 % low even with the
+sketch's areas (96.3). Section 96.4 found the client PDF's sketch pages are vector drawings.
+Can a reader recover the outline from that line work with no model call, how does it know a
+loop is a floor and not something else, what does it do with every other stored PDF, and what
+does the takeoff look like with its perimeters?
+
+**Setup.** The research and the design are `SKETCH_READER.md` section 6. The reader is
+`basis/extraction/sketch_outline.py`; it writes `sketch.ground_perimeter_ft` and
+`sketch.upper_perimeter_ft` (source `drawing`), which `basis/domain/measurements.py` already
+read. Setting: `TAKEOFF_SKETCH_OUTLINE` (default `off`), effective only with
+`TAKEOFF_SKETCH=on`. Data: the 42 stored appraisal PDFs under `$BASIS_EVAL_DATA_DIR`
+(the client's 1004, its two UAD 3.6 rebuilds, 12 GSE sample reports, 27 synthetic forms),
+each with its stored Azure Document Intelligence analysis; the private outline section 96.4
+measured from the client PDF by a hand-checked script (`work/sketch_reader/outline.json`);
+and the two stored client exports of section 96. No model call, no Azure call, $0, 0 tokens.
+The client's figures are in the private report `reports/SKETCH_OUTLINE_2026-11-23.md`; this
+section prints counts, statuses and percentages only.
+
+**Method.** `python -m evals.sketch_outline` (component `sketch_outline`, version `v1`, run
+`sketch_outline_2026-11-23`): for each PDF, the table from the stored analysis, the line work
+of each sketch page, the reader's result, and the comparison to the private outline.
+`python -m evals.sketch_takeoff --read-outline` (component `sketch_takeoff`, version `v2`,
+run `sketch_takeoff_outline_2026-11-23`): section 96's replay with the reader's perimeters in
+place of the private file's, and two more setups for the one choice the reader makes. Both
+were run from `work/sketch_reader/run_outline.sh`.
+
+### 100.1 Which stored sketches are line work
+
+**How to read this table.** One row per kind of stored document. *Table read from*: where
+section 96's reader found the area table. *In the text layer*: whether the PDF's own text has
+it (an image sketch has it only through OCR). *Read / image*: sketch pages whose line work the
+reader believed, and sketch pages that are a picture. *Fields*: which perimeter fields were
+written. Seconds are the outline reader alone, per document.
+
+| documents | with an area table | table in the PDF's text layer | sketch pages | read | image | perimeter fields written | seconds |
+|---|---|---|---|---|---|---|---|
+| client appraisal (1004, printed by the forms software) | 1 of 1 | yes | 4 | 4 | 0 | ground and upper | 0.20 |
+| client appraisal rebuilt as UAD 3.6 (two versions) | 2 of 2 | no | 4 each | 0 | 4 each | none | 0.03 each |
+| GSE sample reports (UAD 3.6) | 4 of 12 | no | 1 each | 0 | 1 each | none | 0.03 each |
+| synthetic forms | 0 of 27 | - | 0 | - | - | none | 0 |
+
+One document of the seven with a table carries its sketch as line work. The other six carry a
+picture: the reader reports `raster` on every one of their twelve sketch pages, writes nothing,
+and the takeoff's perimeter stays derived. That matches the research: the redesigned URAR
+delivers its sketch as an image file (`SKETCH_READER.md` 6.1). The client's four pages take
+0.10 s to parse and 0.10 s of geometry; the extraction's text pass over the same 20-page PDF
+takes 0.9 s.
+
+### 100.2 The reader against the hand-checked outline
+
+**How to read this table.** One row per sketch page of the client PDF. *Strokes*: straight
+solid strokes above the table. *Loops*: closed loops found, over all stroke styles. *Rows*:
+verified table rows on the page. *Reproduced*: rows for which one loop has the printed area
+and shows the printed dimensions. Higher *reproduced* is better; every loop that is not a
+row's is rightly left alone.
+
+| page | strokes | stroke styles | loops | verified rows | rows reproduced | status |
+|---|---|---|---|---|---|---|
+| first floor, garage, porch | 491 | 7 | 143 | 3 | 2 (first floor, garage) | read |
+| second floor, block A | 13 | 4 | 2 | 1 | 1 | read |
+| second floor, block B | 23 | 4 | 2 | 1 | 1 | read |
+| basement | 27 | 4 | 2 | 1 | 1 | read |
+
+The third verified row of the first page is the porch, which is drawn dashed (as 89 short
+filled bars, each a loop of its own) and is rightly not reproduced by any loop. Against the private
+outline: the ground perimeter, the upper perimeter, the wall the garage shares with the
+house, and the area and perimeter of each of its four loops are **equal**. The reader counts
+40 walls on those four loops where the script counted 41 (the script counted a wall another
+outline's corner sits on as two); it also reads the basement's outline, which the script did
+not trace. All 58 walls of the five loops are within 0.012 ft of a half foot (0.03 to 0.06 pt
+at the four pages' scales, which is why lengths are compared in points), and
+every loop's area is within 0.02 % of the printed one. The private script relied on drawing
+order and a fixed width threshold; the reader uses neither, and the tests draw the same house
+in shuffled orders.
+
+### 100.3 Which check tells a floor from any other loop
+
+On a page every `(row, loop)` pair can be made to agree on area by choosing the scale, so
+area needs a second check. Three were compared on the same pairs of the client PDF, with the
+pairs the hand-checked outline confirms as the reference.
+
+**How to read this table.** *Pairs*: verified rows times loops on the page. Each column is
+one way of believing a pair, and its cell is how many pairs it accepts (fewer is better down
+to the real ones; anything above them is a wrong loop believed). The last column is the rule
+that shipped. Models: none.
+
+| page | pairs | real pairs | scales at which area alone reproduces two or more rows | pairs with every wall on the printed precision | pairs showing the row's printed dimensions (shipped) |
+|---|---|---|---|---|---|
+| first floor, garage, porch | 429 | 2 | 2 (the real scale and one from two small loops) | 18 (16 wrong) | 2 (0 wrong) |
+| second floor, block A | 2 | 1 | 0 | 1 | 1 |
+| second floor, block B | 2 | 1 | 0 | 1 | 1 |
+| basement | 2 | 1 | 0 | 1 | 1 |
+
+1. **Area at one scale is not enough.** The first version of the reader accepted a page
+   when two rows were reproduced by area at one scale; on the first page it found a second
+   such scale, from two small loops whose areas happen to be in the ratio of two rows, and
+   could not choose. With 143 loops, such coincidences are expected, not unlucky.
+2. **Walls on the printed precision is not enough either.** A loop has to be large on the
+   page for its wall lengths to mean anything; a small one lands "on the half foot" at the
+   scale its area implies. With lengths compared within 0.1 pt, capped at 0.05 ft, 16 wrong
+   pairs pass; with a flat 0.01 ft, 1 wrong pair passes of 3; with no cap, 407 of 409.
+3. **The printed dimensions hold only for the walls.** A row's calculation prints the
+   rectangles its area was summed from; requiring each of them to span the loop's corners
+   accepts the two real pairs and none of the other 427. This is the same idea as section
+   96's row check (the arithmetic is printed twice): the drawing has to contain the numbers
+   the table prints. It is a necessary condition, not a proof (`SKETCH_READER.md` 6.3).
+
+On the three one-loop pages all three checks agree, because there is nothing to confuse.
+
+### 100.4 The takeoff with the reader's perimeters
+
+The replay of section 96.3 with the perimeters written by the reader. The first six setups
+are section 96's, and every one of their cells (geometry, rows moved, priced total, class
+shares, class error, gap) equals the stored run of section 96, including the outline setup,
+whose perimeters then came from the private file and now come from the reader. The harness
+also compared the two sets of perimeters directly: equal.
+
+**How to read this table.** Geometry against today's takeoff (0 % is no change). *Outline
+(shipped)*: `TAKEOFF_SKETCH=on` and `TAKEOFF_SKETCH_OUTLINE=on` with the GLA corrected to the
+sketch's, the reader's two perimeters. The two columns after it change only how the second
+floor's two blocks, drawn on separate pages, are combined: *upper withheld* writes no upper
+perimeter (the upper floors stay a 1.5:1 rectangle of their area); *blocks adjoining* takes
+the blocks to share the wall the ground story shares. Models: none; cost $0; 40 to 140 ms per
+cell.
+
+| quantity | GLA corrected, sketch on (section 96, no outline) | outline (shipped: blocks summed) | outline, upper withheld | outline, blocks adjoining |
+|---|---|---|---|---|
+| ground perimeter | +2.8 % | +45.5 % | +45.5 % | +45.5 % |
+| roof | +5.4 % | +8.6 % | +8.6 % | +8.6 % |
+| siding | +5.0 % | +57.0 % | +28.7 % | +48.3 % |
+| siding against the shipped column | -33.1 % | 0 % | -18.0 % | -5.5 % |
+| gutters | +2.7 % | +2.7 % | +2.7 % | +2.7 % |
+
+The schedule (run 3A / run 3B; columns as in 96.3):
+
+| setup | rows moved | waiting | priced total | itemized class error | scored class error | gap |
+|---|---|---|---|---|---|---|
+| today | 0 / 0 | 8 / 13 | 1.000 / 1.000 | 12.50 / 9.19 | 1.62 / 3.04 | 2.0 % / 1.6 % |
+| GLA corrected, sketch on (no outline) | 71 / 70 | 8 / 13 | 1.034 / 1.027 | 12.72 / 9.29 | 1.82 / 3.28 | -5.2 % / -5.6 % |
+| outline (shipped) | 71 / 70 | 8 / 13 | 1.059 / 1.052 | 12.19 / 8.83 | 1.82 / 3.28 | -5.2 % / -5.6 % |
+| outline, upper withheld | 71 / 70 | 8 / 13 | 1.046 / 1.039 | 12.46 / 9.07 | 1.82 / 3.28 | -5.2 % / -5.6 % |
+| outline, blocks adjoining | 71 / 70 | 8 / 13 | 1.055 / 1.048 | 12.27 / 8.90 | 1.82 / 3.28 | -5.2 % / -5.6 % |
+
+1. **The reader closes the wall-length error section 96 left.** The ground perimeter is the
+   drawing's (it was 29 % short of it with the sketch's areas alone) and the siding moves
+   from 33 % under the drawing's figure to it.
+2. **How the upper blocks combine is worth 5 to 18 % of the siding and no class share.**
+   Summing is exact if the two blocks are separate masses and 5.5 % over if they adjoin along
+   the wall the ground story shares; withholding is 18 % under the sum and 13 % under the
+   adjoining figure, so it is the furthest from the truth whichever is true. The sum ships,
+   and the siding row says the blocks were counted as separate masses. The scored class error
+   and the gap do not move across the three (siding is a 39-year row carved from the
+   square-foot model, 96.3 point 4).
+3. **At the default nothing changes on this property**, as in section 96: the sketch
+   disagrees with the printed GLA by 12.5 %, the takeoff refuses it, the appraisal is flagged
+   (96.6), and a perimeter that was read is not used until the engineer corrects the GLA.
+
+### 100.5 The unchanged path
+
+* The extraction (three PDFs: the client's, a fabricated two-level sketch, the sample URAR;
+  each with the sketch off and with `TAKEOFF_SKETCH` on) and the takeoff (both stored
+  exports under five configurations: plain, sketch fields present with the setting off,
+  refused, accepted, accepted with perimeters a person supplied) were run on PR #177's head
+  (a `git archive` of ab25951) and on this branch with the outline setting off: 16 of 16
+  results are byte-identical (`work/sketch_reader/pr177_equality_2026-11-23.txt`).
+* Unit: with the outline off the PDF's line work is never opened (the functions are replaced
+  by ones that fail), and the stored trace has exactly the keys it had.
+* One change reaches a study with the outline off, deliberately narrow: none. The guard for
+  a garage the sketch does not draw and the sentence about upper blocks apply only to a
+  perimeter whose source is `drawing`; a perimeter from any other source is used as before
+  (the byte comparison above includes that case).
+
+**Verdict.** On a born-digital sketch the outline can be read from the PDF with no model, in
+0.2 s, and checked against the page's own table strongly enough to tell two real outlines
+from 141 other loops: the reader reproduces the hand-checked outline exactly, and with its
+perimeters the takeoff's wall length is the drawing's. `TAKEOFF_SKETCH_OUTLINE` ships `off`
+all the same. One document from one sketching tool has line work; the six other stored
+sketches are pictures, where the reader correctly writes nothing; and the redesigned URAR
+delivers pictures. On the one client property the perimeter is read but unused at the
+default, because the sketch itself is refused until the GLA is corrected. The accepted path
+has been run on fabricated PDFs and on a replay, not live.
+
+**Open.**
+
+* **Coverage is one tool.** Whether other forms software prints vector sketches is not known
+  (`SKETCH_READER.md` 6.4). An image sketch needs a different reader (a vision model or
+  raster vectorisation); nothing paid was run, so that is not measured.
+* **Blocks of one floor on separate pages** are summed (100.4). If a firm's engineers see
+  the sum overstate, the alternative is to ask at the appraisal gate; not built.
+* **Not read by design**: curved walls, a drawing turned off the page's axes, walls drawn in
+  more than one stroke style, a table above or beside its drawing. Each writes nothing.
+* **The printed-dimension check is necessary, not sufficient.** No wrong loop has passed it
+  on the data here; a sketch with many identical rectangles could.
+* **The perimeter fields are outside the field catalogue**, like the area fields of section
+  96: no highlight region, no correction through the gate, and the web app does not show
+  them or the outline the trace keeps (`web/FRONTEND_BACKLOG.md` 16).
+* **Gutters** still run on the rectangle's long side: an outline does not say which edges
+  are eaves. **Gable ends** are still not added to the siding.
+* Nothing was run live: no extraction with the setting on has run against the stack.
+
+## 101. Public geographic sources: government imagery, history, parcels and lidar per property (2026-11-23)
+
+**Question.** Can Basis gather, for a study's pin, the public records an engineer uses beside
+the property pictures (EVAL_REPORT 98): the sharpest free top-down image to measure on, a dated
+series for history, the parcel and its area against the appraisal, and the building's heights
+and footprint from lidar; each stored with its source, credit, terms and georeference, gently,
+with every failure tracked? Design: `PROPERTY_CAPTURE.md` section 10. API:
+`docs/api/PUBLIC_GEO.md`. Code: `basis/geo/`. Research: the 32-state survey in
+`REMOTE_INSPECTION_AND_MEASUREMENT.md` section 12 (branch `claude/remote-inspection-measurement`)
+and the hands-on Wisconsin check in its section 11.
+
+**The standard, and what was taken from it.**
+
+* *Asking the servers.* Every public imagery service found speaks one of four protocols: an
+  ArcGIS ImageServer (`exportImage`), an ArcGIS MapServer (`export`), OGC WMS `GetMap`, or a
+  cached XYZ tile set. All accept a Web Mercator box (`bboxSR/imageSR=3857`, `CRS=EPSG:3857`),
+  including services stored in state plane or UTM, so every view is requested in EPSG:3857,
+  north up. Mercator is conformal: a pixel is square on the ground and `pixel_size_m` at the
+  centre converts a traced shape exactly as a property-capture view does (heading 0). The box
+  is stored too, for the exact inverse.
+* *Areas.* Parcel polygons are measured on the WGS84 ellipsoid with Karney's algorithm
+  (`geographiclib`, the method behind PROJ's `geod`), never in Mercator, which inflates area by
+  `1 / cos^2(lat)` (1.93 times at the test latitude). The Wisconsin layer's own `Shape__Area` is
+  such a Mercator area and is not used.
+* *Lidar.* The federal 3DEP point clouds as Entwine Point Tiles on AWS, located through the
+  maintainers' project index; only the octree nodes over the lot are read; LAZ is decoded with
+  `laspy` and the `lazrs` backend (no pure-Python LAZ decoder exists; the `geo` dependency group,
+  which only the geo worker needs). Building and ground are the ASPRS classes 6 and 2.
+* *Politeness.* One request at a time per host and 1 s between two; timeouts; retries with
+  exponential backoff and jitter that honour `Retry-After`; no retry of other 4xx (the standard
+  pattern of the AWS and Google client libraries).
+* *Tracking.* The capture's pattern reused: catalogue area `GEO` (001 to 016), `error_code` on
+  the log lines, `study_events` (`geo.*`), and a grouped incident table keyed by code and
+  source (a public server fails on its own, so the source is part of the key).
+
+**Setup.** One gather on the client property (in Wisconsin) (the pin of EVAL_REPORT 98, the only
+client property asked); one small request per registry source at its state's capitol (a public
+point; the Wisconsin capitol for the federal sources), with the centre of the service's extent
+tried once when the capitol is outside a partial service; laptop on home broadband,
+2026-11-23. The private record is `$BASIS_EVAL_DATA_DIR/work/public_geo_2026-11-23/`
+(`retest_2026-11-23.json`, `client_run/result.json`, the images and the overlays).
+
+### 101.1 The registry, re-tested live
+
+128 entries in `basis/geo/sources.json`: federal NAIP Plus and the USGS NAIP service (fallbacks
+everywhere), NAIP by year 2004 to 2023, and 15 states. Each was asked without a key; 126 were
+asked (the two marked `unsupported` were not: New Jersey's 2025 imagery is only 210 MB
+state-plane files, and the Texas parcel layer refuses `query`).
+
+| State | Imagery entries | Real image at a test point | Finest native pixel | Years | Leaf-off stated | Terms as stated | Parcel layer (polygon vs the layer's acres at the capitol) |
+|---|---|---|---|---|---|---|---|
+| Federal | 22 | 15 | 60 cm | 2005-2023 | no | public domain | none |
+| CT | 6 | 6 | 7.6 cm | 1990-2023 | yes | open, credit | yes (-18.6 %) |
+| FL | 15 | 5 | 15 cm | 2007-2021 | not stated | none stated | yes (+8.0 %) |
+| IL | 11 | 10 | 15 cm | 2011-2025 | not stated | public domain / none | none |
+| IN | 9 | 8 | 7.6 cm | 2005-2025 | some years | public domain (CC0) | outlines only |
+| KY | 3 | 3 | 7.6 cm | 2013-2023 | yes | public domain | none |
+| MA | 4 (tiles) | 4 | 15 cm | 2019-2025 | some years | open, credit | yes (+7.2 %) |
+| MD | 5 | 5 | 15 cm | 2012-2024 | not stated | open, credit | yes (-2.0 %) |
+| MN | 11 (WMS) | 11 | 30 cm | 2008-2025 | metro 2025 | public domain | 60 counties (-1.9 %) |
+| MO | 4 | 4 | 15 cm | 2008-2024 | 2023-2024 | open (CC BY) | none |
+| NC | 5 | 5 | 15 cm | 2010-2024 | not stated | open, credit | yes (0.0 %) |
+| NJ | 4 (WMS) + 1 files | 4 | 30 cm live | 2007-2020 | yes | open, credit | yes (+3.0 %) |
+| OH | 3 | 3 | 15 cm | 2006-2025 | OSIP III | open / none | yes (0.0 %) |
+| PA | 2 | 2 | 15 cm | 2019-2022 | not stated | open, credit | geometry only, not seeded |
+| TX | 3 | 3 | 15 cm | 2019-2021 | yes | none stated | refuses query (unavailable) |
+| WI | 9 | 9 | 15 cm here (7.6 cm finest) | 2005-2024 | latest and 2010 | none stated / NAIP | yes (+23.6 %) |
+
+Columns: "Real image" counts the entries that answered with real imagery at the capitol or at the
+extent's centre; the rest answered blank there (a partial service: NAIP years that did not fly
+those states, Florida's county rotation, one Illinois block, Indiana 2024), so their coverage was
+not proven at a point. No entry failed: 0 HTTP errors, 0 timeouts. "Finest native pixel" is the
+registry's value, which is the service's finest; a county inside a mosaic may be coarser.
+Per-request time: median 10 s and at most 113 s, but these include waiting behind the same
+host's other entries at one request a second (Illinois' 11 entries share one host); a single
+request, measured in the gather below, took at most 9.8 s.
+
+**The parcel areas** at the capitols, the layer's acres against the polygon on the ellipsoid:
+-18.6 to +23.6 %, median +2.0 %. Capitol parcels are odd (squares, streets, campuses), but it
+shows the two figures are not interchangeable. The site check therefore accepts either figure
+of the parcel under the pin, and states which.
+
+### 101.2 One gather on the client property
+
+| Part | Outcome |
+|---|---|
+| Parcels | 2 parcels of one owner: the one under the pin and its neighbour, found as adjacent (gap under 3 m), 1.2 s |
+| Current view | The state's leaf-off mosaic, the county's 2020 flight (year read at the point from the index layer), 15.2 cm pixels, 1,050 x 1,050 over 160 m, 156 KB, 6.3 s |
+| History | 9 years: 2024 (state NAIP), 2022, 2018, 2017, 2015, 2013 (NAIP), 2010 (state leaf-off, 46 cm), 2008, 2005 (NAIP); 10 years blank (NAIP not flown here those years) |
+| Lidar | 2018 project, 14 nodes, 4.1 MB read and not stored, 18.2 s |
+| Whole gather | 43 requests, 67 s, 10 views, 290 KB stored |
+
+### 101.3 Is the public image better to measure on than the Google view?
+
+Sharpness proxy: the edge width of Marziliano et al. (2002), a standard no-reference blur
+measure: the ground distance between the intensity extremes on either side of the strongest 1 %
+of edges (Sobel), along the row or column the edge crosses, median over the edges. Same ground
+window on every image (the house and drive, 40 x 40 m; and 60 x 60 m).
+
+| Image | Nominal pixel | Edge width, house window (median; IQR) | Edge width, 60 m window | Edges |
+|---|---|---|---|---|
+| State leaf-off 2020 (public) | 15.2 cm | 0.30 m (0.30 to 0.46) | 0.46 m | 644 / 1,322 |
+| Google Earth top-down view (EVAL_REPORT 98) | 8.4 cm | 0.76 m (0.67 to 0.93) | 0.76 m | 1,295 / 3,133 |
+| State leaf-off 2010 | 46 cm | 1.37 m | 1.37 m | 56 / 125 |
+| NAIP 2024 (state service) | 60 cm | 3.0 m | 3.0 m | 44 / 95 |
+| NAIP 2022 | 60 cm | 4.8 m | 5.4 m | 27 / 69 |
+
+The public image's edges are 2.5 times narrower than the Google view's although its pixels are
+1.8 times larger: the Google view is a screen capture of imagery shown above its resolution (its
+edges spread over 9 of its pixels; the state image's over 2 to 3).
+
+**Measuring on each** (traced in ground metres on metre grids over the stored views; the
+client's figures are in the private record; percentages here):
+
+| Feature | Reference | Public 2020 leaf-off | Google view |
+|---|---|---|---|
+| Fence (one straight run) | earlier hand trace, rough | -1.0 % | not readable: under leaf-on canopy, no contrast |
+| Garage roof, two sides | the sketch's wall lines | +7 % and +9 % (consistent with a 0.35 m eave overhang each side) | edges blur over about 0.8 m; not read to better than +-1 m |
+| Driveway | earlier hand trace, rough | not re-traced: the earlier trace's corners were not saved, and its northern half lies under evergreens in this image | open part only, under leaf-on canopy south of the house |
+
+**Lot area against the appraisal's site area.** The parcel under the pin alone is 60 % short of
+the appraisal; with the owner's adjacent parcel the layer's acres sum to the appraisal's figure
+exactly (0.0 %) and the two polygons on the ellipsoid to +0.14 %. The check answers
+`adjacent_match` (`BASIS-GEO-013`), not a flag. `GEO_SITE_TOLERANCE_PCT` = 5 is a judgment
+between this case (0.0 to 0.14 %) and the capitols' spread between two figures of one parcel
+(median 2 %, beyond 5 % at five of nine); one property cannot measure it.
+
+### 101.4 Lidar: heights and footprint
+
+The footprint method was chosen on synthetic buildings of known area (10 x 20 m and 16 x 30 m,
+rotated 0 to 45 degrees, offset within a cell, 20 draws each), the area read against the truth:
+
+| Points per m^2 | 0.5 m grid, closed once (chosen) | 0.5 m grid, not closed | 1 m grid | 1 m grid, closed once |
+|---|---|---|---|---|
+| 2.0 | -9 % / -6 % | fails (the pin's cell empty) | -0 % / +0 % | +4 % / +3 % |
+| 3.4 (the test project) | -3 % / -2 % | -18 % / -13 % | +7 % / +4 % | +8 % / +5 % |
+| 8.0 | +2 % / +1 % | +0 % / +0 % | +12 % / +7 % | +12 % / +8 % |
+
+On the client building (2018 project, 3.4 points per m^2 over the parcel box): roof peak about 9.0 m
+above the ground around it (99th percentile; the highest point 10.1 m, a chimney or ridge
+cap), eaves about 3.2 m (5th percentile), and a roof outline 29 % larger than the sketch's first
+floor and garage together. The overhang measured on the image accounts for about 11 %; the
+rest is not explained from these records (porches, a deck roof, or a part of the building the
+sketch leaves out are candidates). What lidar does not give: the garage apart from the house
+(one connected roof), floors or stories, wall lines.
+
+**Verdict.**
+- Where a state serves 15 cm or finer imagery, it is the better image to measure on: sharper
+  than the Google view on this property and free to store, trace and print where its terms
+  allow. Ranked default: pixel class, then leaf-off within four years, then recency.
+- The dated series is real (9 years back to 2005 here), but mostly federal 60 cm to 1 m NAIP:
+  enough to see what existed, not to measure.
+- The parcel check found the two-parcel site automatically and matched the appraisal exactly.
+- Lidar gives heights and a roof outline; the outline is the roof, not the walls.
+- `PUBLIC_GEO` stays off by default until the terms questions below are answered.
+
+**Open.**
+- Terms: Wisconsin's leaf-off imagery states none (the counties own the source; library copies
+  of the metadata restrict it to the program), as do Florida, Texas and Illinois' IDOT years.
+  Written answers are needed before relying on them commercially.
+- Only one client property; the ranking and the 5 % tolerance are untested elsewhere on real
+  buildings. The lidar method was tried on 14 public buildings afterwards (101.5). The driveway was not re-measured.
+- The 19 blank entries' coverage is not proven at any point; NAIP Plus, the per-year NAIP and
+  Florida were asked from one test point each.
+- The workflow was not run under a real Temporal server (unit-tested activities, API and
+  Postgres tests only); no Docker this session.
+- Esri tiles in state plane (Missouri's cached service, Maryland's cache) and New Jersey's 2025
+  files are not read.
+
+### 101.5 Lidar on 14 public sites (2026-11-24)
+
+**Question.** Section 101.4 tested the lidar reader on one real building, the client property.
+How does it do on public buildings of known outline, in other states, other lidar projects,
+other sizes and roof shapes?
+
+**Method.**
+
+* *Sites.* 14 public buildings in 9 states and DC (IL, MA, FL, CO, TX, PA, NY, MN, IN, DC),
+  from about 94 m² to 13,449 m², with flat, pitched and pyramidal roofs. The first ten were
+  picked before any lidar was read. Six of them gave no building, so four more (MN, IN, IL, TX)
+  were added to get more footprints to compare. No client property and no client data.
+* *Reference footprint.* The OpenStreetMap building polygon (way or multipolygon), fetched from
+  the Overpass API one query at a time, at least 5 s apart, with a generic User-Agent. Its area
+  is taken on the WGS84 ellipsoid with `basis.geo.geometry.geojson_area_m2` (Karney, the same
+  function the parcel check uses). OSM outlines are traced from imagery by volunteers. They
+  are a check, not ground truth: they may follow the walls or the roof, and they may be shifted
+  about a metre from where the lidar puts the building.
+* *Reader.* `basis.geo.lidar.summarize` unchanged, called the way the gatherer calls it when
+  there is no parcel: an 80 m square around the pin (`LIDAR_NO_PARCEL_HALF_M` = 40),
+  `max_nodes` = 64, and the reader's own `PoliteClient` (1 s per host, 60 s timeout, 3
+  retries). The pin is a point well inside the OSM outline, standing in for a geocoded
+  address. A second call with a parcel-like box (the OSM outline's bounds plus 10 m, which is
+  how the gatherer pads a parcel) was made when the building could reach past the 80 m square.
+  This happened for Independence Hall, the Air and Space Museum, Crown Hall and the Revere
+  House.
+* *Diagnosis.* The LAZ bytes the reader fetched were kept in memory only and decoded a second
+  time. On them, the steps of `lidar.measure` were repeated to get the mask the reader used.
+  The re-derived area equals the reader's footprint to 1e-6 m² on every site with a building.
+  The mask was then compared cell by cell with the OSM outline rasterised on the same 0.5 m grid.
+  To see whether an older or newer project would have done better, `summarize` was also run
+  with the project picked by name (`choose_project` swapped in the script's own process only,
+  not in the repository).
+* *Runs.* Laptop on home broadband, 2026-11-23/24. Each surprising reading was run a second
+  time with the same result: the Revere House merge, Lincoln Memorial's empty project, the Hill
+  House "no building" and the Crown Hall cut. The script was kept outside the repository (it reads only public data;
+  the landmarks' coordinates are public). No point tiles were written to disk.
+
+| Site (state; roof) | Project the reader chose (year it read) | Nodes / MB / s | Points per m² | Lidar footprint, m² (ft²) | OSM footprint, m² (ft²) | Diff | Peak / max / eave, m | Published height | Outcome |
+|---|---|---|---|---|---|---|---|---|---|
+| Lincoln Home, Springfield (IL; pitched) | `USGS_LPC_IL_WestCentral_2017_LAS_2019` (2019) | 17 / 3.7 / 20 | 8.3 | 199.5 (2,147) | 186.3 (2,005) | **+7.1 %** | 10.5 / 11.9 / 4.6 | none found | ok |
+| The Alamo church, San Antonio (TX; flat) | `USGS_LPC_TX_Central_B2_2017_LAS_2019` (2019) | 24 / 4.5 / 28 | 8.7 | 580.3 (6,246) | 541.4 (5,828) | **+7.2 %** | 8.9 / 10.0 / 6.2 | none found | ok |
+| LBJ Presidential Library, Austin (TX; flat) | `USGS_LPC_TX_Central_B1_2017_LAS_2019` (2019) | 14 / 3.0 / 17 | 4.9 | 2,341 (25,198) | 2,150 (23,142) | **+8.9 %** | 29.2 / 29.3 / 26.7 | 10 stories (no metres published) | ok |
+| S. R. Crown Hall, Chicago (IL; flat), 80 m square | `USGS_LPC_IL_4County_Cook_2017_LAS_2019` (2019) | 26 / 5.3 / 29 | 35.1 | 2,234 (24,047) | 2,511 (27,028) | **-11.0 %** | 10.4 / 15.4 / 8.3 | roof 7.3 m above grade (5.5 m above a floor raised 1.8 m) | building cut by the box |
+| the same, outline + 10 m | same | 28 / 5.6 / 31 | 29.6 | 2,544 (27,386) | 2,511 (27,028) | **+1.3 %** (+2.6 % on the published 67 x 37 m) | 10.4 / 15.4 / 8.3 | as above | ok |
+| Paul Revere House, Boston (MA; pitched), 80 m square | `MA_CentralEastern_1_2021` (2021) | 16 / 3.9 / 19 | 8.7 | 2,552 (27,472) | 94.0 (1,012) | **+2,615 %** | 24.7 / 25.3 / 3.2 | none found | wrong building: the block's roofs merged |
+| the same, outline + 10 m | same | 14 / 3.2 / 17 | 8.7 | 345 (3,714) | 94.0 (1,012) | **+267 %** | 24.2 / 25.0 / 3.0 | none found | wrong building: merged, then cut by the box |
+| James J. Hill House, St Paul (MN; pitched) | `MN_FullState` (no year in the name) | 28 / 14.1 / 31 | 8.5 | none | 1,579 (16,997) | | | | no building: class-6 points in 93 fragments |
+| Hemingway Home, Key West (FL; pitched) | `FL_TopobathyFLKeysNOAA_Hydroflattened_2019` (2019) | 22 / 5.8 / 25 | 30.1 | none | 201.7 (2,171) | | | | no building: project has no class 6 |
+| Molly Brown House, Denver (CO; hipped) | `CO_DRCOG_2_2020` (2020) | 20 / 5.5 / 24 | 4.3 | none | 272.8 (2,936) | | | | no building: no class 6 (nor in the 2008 or 2013 projects) |
+| Independence Hall, Philadelphia (PA; pitched) | `USGS_LPC_DE_DelawareValley_HD_2015_LAS_2017` (2017) | 20 / 11.0 / 23 | 16.5 | none | 924.1 (9,947) | | | | no building: no class 6 (same with outline box) |
+| Flatiron Building, New York (NY; flat) | `NY_NewYorkCity` (no year in the name) | 16 / 7.3 / 19 | 3.0 | none | 1,008 (10,848) | | | 86 m (OSM tag); 93.6 m to the top (Wikipedia) | no building: no class 6 |
+| Benjamin Harrison Home, Indianapolis (IN; pitched) | `USGS_LPC_IN_Central_MarionCo_2016_LAS_2018` (2018) | 16 / 7.8 / 18 | 6.9 | none | 361.8 (3,894) | | | | no building: no class 6 (nor in the 2011 project) |
+| Washington Monument (DC; pyramidion) | `USGS_LPC_MD_VA_Sandy_NCR_2014_LAS_2015` (2015) | 23 / 8.6 / 26 | 8.4 | none | 290.2 (3,124) | | (class 1 and 17 points reach 168.9 m) | 169.046 m (NGS 2013-14; OSM 169.294) | no building: the structure is class 17 and 1 |
+| National Air and Space Museum (DC; flat) | same 2015 project | 23 / 11.4 / 26; outline box 37 / 15.0 / 40 | 3.5; 4.2 | none | 13,449 (144,764) | | | 25.3 m (OSM tag) | no building: class 17 and 1 |
+| Lincoln Memorial (DC; flat) | `USGS_LPC_VA_Fairfax_County_2018` (2018) | 11 / 1.4 / 14 | **0.0** | none | 2,145 (23,083) | | (2015 project: class 1 and 17 points reach 31.2 m) | 30 m / 99 ft (Wikipedia) | no building: the chosen project has **no points** at the pin |
+
+Columns. *Project*: the 3DEP project `summarize` picked, and the year `project_year` read from
+its name (it takes the largest four-digit number, which in `..._2017_LAS_2019` is 2019; the
+2017 is probably the flight year, but that naming rule is not verified). *Nodes / MB / s*: the
+octree nodes read, the LAZ megabytes downloaded, and the seconds for the whole `summarize`
+call. At 1 s between requests to one host, the time is about one second per request.
+*Points per m²*: every return in the query box divided by the box's ground area. *Lidar
+footprint*: `building.footprint_m2`. *OSM footprint*: the polygon's area on the ellipsoid.
+*Diff*: (lidar - OSM) / OSM. *Peak / max / eave*: the 99th percentile, the highest point and
+the 5th percentile of the building's points, in metres above the median ground in a ring 2 to
+15 m around the footprint. For rows with no building, the bracketed heights are the 99th
+percentile or maximum of the points inside the OSM outline, above the median ground of the
+whole box. The reader does not report those.
+
+**Summary.**
+
+* **The footprint was read on 5 of 14 sites, and it was the right building on 4.** On those 4
+  the gap to OSM is +7.1, +7.2, +8.9 and -11.0 %, median +7.2 %. With Crown Hall's parcel-like
+  box the four read +1.3 to +8.9 %, and the median is the same.
+* **On the 4 right buildings the lidar outline sits outside the OSM outline.** The lidar cells
+  outside the OSM outline lie mostly within 1.5 m of it: 24 of 30 m² (Lincoln Home), 56 of 56
+  m² (Alamo), 173 of 184 m² (LBJ) and 75 of 94 m² (Crown Hall). That is an outward band, which
+  is what a roof edge or overhang outside traced walls looks like. It is not a second building.
+* **Worst case: wrong building, +2,615 %.** The Paul Revere House roof joins its neighbours'
+  roofs. The 3 x 3 closing bridged the gaps of a metre or less, and the reader returned the
+  whole connected block, 2,552 m² against 94 m² (overlap with the OSM house 93.75 m²).
+  The parcel-like box only cut that block smaller (345 m²). Its peak, 24.7 m, belongs to a
+  taller neighbour: the class-6 points inside the OSM house reach only 16.7 m (99th
+  percentile).
+* **9 of 14 gave no building.** At 8 of them the chosen project has no ASPRS class 6 near
+  the pin. At one of those, Lincoln Memorial, it has no points at all. Hill House has class 6
+  points, but the reader found no building (see below).
+* No project failed to cover a pin, and there were no timeouts and no HTTP errors. Each
+  `summarize` call read 7 to 37 nodes and 1.1 to 15.0 MB in 11 to 40 s.
+
+**Each gap explained (verified / suspected).**
+
+* *Lincoln Home +7.1 %.* Verified: 24 m² of the 30 m² extra lies within 1.5 m of the OSM
+  outline. The best whole-cell shift of the OSM outline (1.0 m south) raises the overlap from
+  169.5 to 183.5 of 186.8 m². So the OSM tracing is offset about 1 m, and the rest is an outward
+  band. Suspected, not verified: the band is the eaves of the pitched roof (no published
+  overhang was found).
+* *Alamo +7.2 %.* Verified: 55.5 of the 56 m² extra is within 1.5 m. A 1.1 m shift raises the
+  overlap from 524 to 539 m². Not explained: whether the church has any roof projection. The
+  roof is flat behind the facade, and the +7 % is larger than the +2 % that the synthetic tests
+  of 101.4 give at this density (8.7 points per m²).
+* *LBJ Library +8.9 %.* Verified: no OSM cell is missing, no shift helps, and 173 of the 184 m²
+  extra is within 1.5 m. The flat roof reads alike at peak and eave (29.2 and 26.7 m), as the
+  module says a flat roof should. Suspected: the upper storeys project past the outline OSM
+  traced. The Wikipedia article gives no dimensions to check this.
+* *Crown Hall -11.0 % in the 80 m square.* Verified as a cut by the box. The pin (a point well
+  inside the outline) is about 15 m east of the building's centre, so the 67 m long building
+  reaches past the box's west edge (OSM cells inside the box: 2,168 of 2,511 m²). The mask runs
+  to within 2 cells of the box edge. With the outline + 10 m box the result is +1.3 % against
+  OSM and +2.6 % against the published 67 x 37 m. Height: the roof surface reads 8.3 m (eave
+  percentile) against a published 7.3 m to the roof, and the peak (10.4 m) and maximum (15.4 m)
+  are the plate girders and the structure above the roof. That the 1 m difference is roof deck
+  and parapet is suspected.
+* *Washington Monument, Air and Space, Lincoln Memorial (2015 project).* Verified: the project
+  labels these structures class 17 (the ASPRS code for a bridge deck) and class 1, never 6. The
+  class 17 and class 1 points inside the Monument's outline reach 168.9 m above the box's ground,
+  against a published 169.046 m, so the height is in the data but the reader cannot see it.
+  Suspected: the producer used 17 for elevated structures in general. The project's metadata
+  was not read.
+* *Hemingway, Molly Brown, Independence Hall, Flatiron, Harrison.* Verified: the class counts in
+  the box contain no class 6, only 1 (unclassified), 2 (ground), 7, 17 and 18 (noise), and 11 or
+  12 in the older projects. For Molly Brown and Harrison, the older projects over the same pin
+  (CO 2008 and 2013, IN 2011) were also read and have no class 6 either, so the choice of
+  project is not the cause there.
+
+**Defects found (reproducing site and numbers; what changed follows).**
+
+1. **The chosen project can have no points at the pin, and the reader then reports "no
+   building", not "no lidar", and does not try another project.** Lincoln Memorial (pin
+   -77.050175, 38.889181): the index outlines of `USGS_LPC_VA_Fairfax_County_2018` and
+   `VA_NorthernVA_1_B22` both hold the pin. `summarize` picks the 2018 one, reads 11 nodes and
+   1.4 MB, and gets 0 points in the box. The `VA_NorthernVA_1_B22` project also has 0 points
+   (7 nodes). `USGS_LPC_MD_VA_Sandy_NCR_2014_LAS_2015` has 31,651 points (4.9 per m²) there.
+   The gatherer records `GEO_NO_BUILDING`, because the summary is not `None`. Re-run: identical.
+   Suspected cause: the project outlines in `resources.geojson` are coarser than the data.
+2. **Project names without a four-digit year rank as year 0.** `project_year` reads `None` for
+   `MN_FullState`, `NY_NewYorkCity`, `VA_NorthernVA_1_B22` and `MN_CentralMissRiver_5_B22`. At
+   Hill House both covering projects are undated, so the tie goes to the larger point count,
+   `MN_FullState`, a statewide project. The other one, `MN_CentralMissRiver_5_B22` (24.4 points
+   per m²), is probably newer; that `B22` means 2022 is not verified. A dated 2015 project would
+   outrank both. In this sample the B22 projects had no class 6 or no points, so the outcome did
+   not change, but the ranking is not what the docstring states ("the newest project").
+3. **Attached or near-touching buildings merge into one footprint.** Paul Revere House: +2,615 %
+   in the 80 m box and +267 % in the outline box, with the peak height of a neighbour. Nothing in
+   the summary flags it. The footprint is 27 times the OSM outline and still reads "ok".
+4. **The no-parcel box (80 m) cuts buildings that reach past it, with no flag.** Crown Hall:
+   -11.0 % against +1.3 % with a padded box. This matters only when there is no parcel. A
+   building wider than about 80 m minus twice the pin's distance from its centre is cut. Nothing
+   in `LidarSummary` says the mask reached the box edge.
+5. **Sparse or striped class-6 points fall apart, and a fragment can be taken as the
+   building.** Hill House with `MN_FullState` (8.5 points per m² overall, but 2,956 class-6
+   points over 1,579 m², 1.9 per m²): after the 3 x 3 closing the building is 93 components.
+   The pin's cell is in none of them, and the nearest component is 0.75 m² at 1.8 m. That
+   fragment was rejected only because it has no ground points 2 to 15 m away: it sits inside
+   the house. Had it passed, the reader would have returned a footprint of 0.75 m². That last
+   step is inferred from the code, not observed. That the points come in scan-line stripes is
+   suspected and was not measured. The synthetic tests of 101.4 use uniformly random points.
+
+**What lidar gave and did not give here.** Where class 6 exists and the building stands alone,
+the footprint reads 1 to 9 % over the OSM outline, mostly as a band within 1.5 m of it. That
+fits 101.4's observation that the outline is the roof, not the walls, but on these sites the
+overhang is suspected, not measured. Only 4 of 14 public buildings gave a usable footprint,
+because class 6 is often missing: 8 of the 14 sites were in projects with no class 6 near the
+pin. Coverage by a 3DEP project does not mean a footprint.
+
+**Not verified.**
+
+* The OSM outlines' accuracy. Only Crown Hall has published dimensions, and it agrees with OSM
+  to 1.3 %. The roof overhangs of Lincoln Home, the Alamo and LBJ were not measured.
+* Published heights could be checked on only two rows that gave a building (Crown Hall
+  roughly; LBJ only as 10 stories). The Monument's 168.9 m is from the points, not from the
+  reader.
+* What `B22` and the 2015 project's class 17 mean in the producers' metadata.
+* One run per site and project, plus one repeat of each surprising reading. No parcel boxes from
+  a real parcel layer: the padded OSM bounds stand in for them.
+
+**What changed after this run, and the re-check.** The reader was changed in the same branch,
+then run again at three of the sites on the final code (same machine, 2026-11-24, the 80 m
+no-parcel box):
+
+1. *Empty project passed over (defect 1, fixed).* `summarize` reads the covering projects in
+   rank order and passes over one with no point in the box, up to three (`MAX_PROJECTS`); the
+   ones passed over are listed in `skipped`. When all three are empty the gather records no
+   lidar (`BASIS-GEO-010`), not "no building".
+2. *Undated names (defect 2, documented, ranking unchanged).* A name without a year ranks after
+   every dated one: its age is unknown, and reading `B22` as 2022 is not verified. With (1), an
+   empty undated project no longer ends the search.
+3. *Cut or joined footprints (defects 3 and 4, flagged, not solved).* `building.reaches_box_edge`
+   is true, with `BASIS-GEO-017`, when the footprint comes within 1 m (2 cells) of the box. Two
+   cells because the 3 x 3 closing treats outside the box as empty and trims the outermost cell
+   of a building that runs past it: the first version, checking only the outermost cell, missed
+   the unit test's cut building, and the helper saw Crown Hall's mask stop 2 cells short.
+4. *Sparse fragments (defect 5).* Not changed; open.
+
+| Site, pin | Project read (passed over) | Points | Footprint, m² | Flag (017) | What it shows |
+|---|---|---|---|---|---|
+| Lincoln Memorial | 2015 Sandy NCR (passed over: Fairfax County 2018) | 31,656 | none | | (1) works: the empty 2018 project is passed over. Still no building: this project labels the structure class 17 and 1, not 6 |
+| Crown Hall, pin about 15 m east of centre | Cook County 2017 | 251,433 | 2,015 (OSM 2,511: -20 %) | yes | the cut is flagged |
+| Crown Hall, near centre | Cook County 2017 | 228,219 | 2,540 (+1.2 %) | yes | a false alarm: the 67 m building fits the 80 m box with about a metre to spare. Cautious by design |
+| Paul Revere House, a point by the house (3.3 m off its roof) | MA Central Eastern 2021 | 55,916 | 1,118 (OSM house 94) | yes | the joined block runs to the box and is flagged here; a block that stayed inside would not be |
+
+**What this means for the product.** A lidar footprint is a check on the sketch, never a
+measurement: it read a usable building on 4 of 14 public sites, 1 to 9 % over the traced
+outline where it did, and attached roofs merge. The heights are read only from class 6, so
+projects that label buildings otherwise (17, 1) give none even where the points reach the true
+height (the Washington Monument). Not changed and open: reading other classes for heights, a
+merge check against the parcel or the appraisal's living area, and the sparse fragments.
+
+## 102. Renovations: a row's own age, a renovation's schedule and its dispositions (2026-11-23)
+
+**Answer first.** Basis now handles the three renovation cases the standard distinguishes
+(docs/review_2026-10-15/RENOVATIONS.md). (1) The seller's renovation: a row can be depreciated on
+its own age over its own life; on the two stored client exports, hypothetical new kitchen
+cabinets and countertops (age 2 of 20 years) move the reconciliation gap by about a third of a
+point and the 5-year share up by about 0.3 points. (2) The buyer's renovation after service: a
+second schedule priced from the invoices with its own factor and dates, QIP for nonresidential
+interiors, and a disposition table for the lines it removed; the arithmetic matches an answer key
+computed by hand and the IRS Practice Unit's own worked example. (3) Bought, renovated, then
+placed in service: one date, the capitalized cost as an intake line in the basis and in the
+reconciliation's target. A study without renovations produces the same bytes as main. No
+model is called, no paid call: cost $0, tokens none.
+
+**Question.** Does the renovation arithmetic give the answers the IRS's own examples and a hand
+computation give, does a study without renovations come out exactly as before, and how much does
+a seller's renovation move a real study?
+
+**Setup.** The renovations branch, uncommitted. Fixtures: the synthetic
+study of `tests/unit/evidence/test_result.py` (a 2,000 SF house, appraiser's physical
+depreciation 25 %, itemized rows plus four concealed rows; fabricated values) with three kitchen
+rows added; the report's synthetic export (`tests/unit/report/support.py`). The client property:
+the two stored exports sections 87 and 96 replay (run 3A revision 5, run 3B revision 1), replayed
+by `evals.structure_replay` at the production variant on the 2020 RSMeans unit-cost table, by a
+private script (`$BASIS_EVAL_DATA_DIR/work/renovations_102/ages_client.py`); its figures are in
+`$BASIS_EVAL_DATA_DIR/reports/RENOVATIONS_AGES_2026-11-23.json`. Only shares and counts are printed
+here.
+
+### 102.1 The depreciation engine against the IRS's examples
+
+How to read this table: each row is an example the IRS publishes with its answer; "Basis" is
+what `basis/report/macrs.py` computes from the Pub 946 (2025) tables. Equal is better.
+
+| Example | IRS answer | Basis | Note |
+|---|---|---|---|
+| Practice Unit DCE-P-002 p.23: a $150,000 elevator of a 39-year building, in service 7/1/2011, disposed of 6/30/2014 | allowed $11,220, adjusted basis $138,780 | allowed $11,220.25, adjusted $138,779.75 | the Practice Unit rounds to the dollar; 1.177 % + 2.564 % + 2.564 % + 2.564 % x 5.5/12 |
+| Pub 946 (2025) ch. 4: $100,000 of residential rental property, in service July 2, 2023, sold March 2, 2025 | 2025 deduction $757.50 | $757.50 | 3.636 % x 2.5/12 |
+| Every column of Tables A-1 (5, 7, 15-year), A-8 (15-year SL), A-6 (12 months), A-7a (12 months) | sums to 100 % | 100 % each | the tables are transcribed; the alternation of A-6 is a rule, checked cell by cell against the printed table |
+
+The tables, not the formula: Pub 946 warns that "Figuring MACRS deductions without using the
+tables will generally result in a slightly different amount than using the tables", and the
+Practice Unit's $11,220 is the table's figure (the formula gives $11,217.95).
+
+### 102.2 The buyer's kitchen remodel: the answer key
+
+The synthetic residential rental study, bought 2023-03-10 and placed in service 2023-04-01
+(statutory bonus default 80 %, the 2023 phase-down), price 205,000, land 20,000. Its acquisition
+priced the kitchen cabinets (estimate 12,000, 5-year), the countertops (4,000, 5-year) and a
+hardwood floor (6,000, 27.5-year). In 2025 a kitchen remodel (contract 2025-02-10, work from
+2025-03-03, in service 2025-05-30; invoices and capitalized amount 38,500) replaced them with new
+cabinets (estimate 15,000), countertops (6,000) and a tile floor (9,000), and the engineer marked
+the three original lines removed on 2025-03-03.
+
+How to read this table: the renovation's schedule. "Estimate" is the cost table's price, used
+only to split the actual cost; "Allocated" is its share of the capitalized amount.
+
+| Line | Estimate | Allocated (hand) | Allocated (Basis) |
+|---|---|---|---|
+| Kitchen cabinets (5-year) | 15,000.00 | 15,000 x 38,500 / 30,000 = 19,250.00 | 19,250.00 |
+| Countertops (5-year) | 6,000.00 | 7,700.00 | 7,700.00 |
+| Tile floor (27.5-year) | 9,000.00 | 11,550.00 | 11,550.00 |
+| Total | 30,000.00 | 38,500.00 (factor 1.283333333, the project's own) | 38,500.00 |
+
+The bonus default of the remodel is 100 % (contract after 2025-01-19, Notice 2026-11 section
+3.03); the acquisition's lines and totals are exactly those of the same study without the
+remodel's rows. The 22.1 % gap between the estimates and the invoices is a warning only.
+
+How to read this table: the dispositions. "Basis" is the line's allocated amount in the
+acquisition study; "Allowed or allowable" is its bonus plus each year's MACRS deduction to the
+removal; "Adjusted" is what is left, the loss on its abandonment. Every figure was computed by
+hand from Pub 946 Tables A-1 and A-6 and matches Basis to the cent.
+
+| Line | Basis | Bonus (80 %) | MACRS by year | Allowed or allowable | Adjusted | Treatment |
+|---|---|---|---|---|---|---|
+| Cabinets, 5-year | 9,173.55 | 7,338.84 | 2023: 1,834.71 x 20 % = 366.94; 2024: x 32 % = 587.11; 2025: x 19.20 % / 2 = 176.13 | 8,469.02 | 704.53 | whole asset |
+| Countertops, 5-year | 3,057.85 | 2,446.28 | 122.31; 195.70; 58.71 | 2,823.00 | 234.85 | whole asset |
+| Hardwood floor, 27.5-year | 4,586.78 | none (real property) | 2023: 2.576 % (April) = 118.16; 2024: 3.636 % = 166.78; 2025: 3.636 % x 2.5/12 = 34.74 | 319.68 | 4,267.10 | partial disposition election |
+| 2025 total (3 lines, 1 election) | 16,818.18 | | | 11,611.70 | 5,206.48 | |
+
+With the CPA's word that no bonus was claimed (`acquisition_bonus_rate` 0) the cabinets' allowed
+figure is 1,834.71 + 2,935.54 + 880.66 = 5,650.91. The treatment column is Basis's inference from
+Reg. 1.168(i)-8 (a portion of the building needs the election; a line that is its own asset does
+not), the CPA's to confirm. The report prints the renovation's schedule with its own dates and
+bonus, the disposition table with each method, the totals by year and the election note; the
+preparer's schedule's acquisition rows sum to the depreciable basis, the renovation's to 38,500,
+all to their sum (`tests/unit/report/test_renovations_report.py`).
+
+### 102.3 Bought, renovated, then placed in service
+
+The same study bought for 185,000 with a 20,000 renovation before it was placed in service (the
+intake line `improvements_before_service` and a before-service project): the depreciable basis is
+185,000 and the reconciliation compares the depreciated schedule (181,500) with price less land
+plus the improvement (185,000): gap 1.9 %, reconciled. Without the line in the target the same
+schedule would sit at -10.0 %, the edge of the tolerance: the photographs show the renovated
+building, so the target must include what was spent on it. No disposition, one date. The line is
+spread over the classes pro rata like the closing costs (a simplification: RENOVATIONS.md 4.5).
+
+### 102.4 A study without renovations is unchanged
+
+The result of five fixtures (no structure inputs, no intake, the structure path withheld, the
+structure path allocated, a residential variant) as JSON, the report's PDF and the schedule's CSV
+and XLSX, hashed with this branch and with `origin/main`'s code (extracted with `git archive`,
+imported first on the path): every sha256 is equal. The new result members are left out when
+empty (`exclude_if`), so the JSON keys are the same 13. The pinned vendor hashes of
+`tests/unit/report/test_vendors.py` pass unchanged.
+
+### 102.5 The seller's renovation on the client property
+
+What supports an age: the client's UAD 3.6 appraisal marks the kitchen and the seven bathrooms
+`PartiallyUpdated` and gives no time frame (`RoomUpdatedTimeframeType` absent); the photographs
+were not reviewed for this. Nothing dates the update, so **the ages below are hypothetical**: the
+kitchen cabinets and countertops (6 rows on run 3A, 7 on run 3B) at an effective age of 2, 5 and
+10 years of a 20-year life, against the appraiser's 21.4 % for the improvements. Both replayed
+exports are withheld in production by their own blockers (unpriced rows and the cost year's
+index, as in sections 87 and 96), so the class shares are the allocation the result would give
+(`allocate` on the depreciated rows), not one it printed.
+
+How to read this table: the reconciliation gap is (price less land - depreciated schedule) /
+(price less land), within 10 % reconciles; the shares are of the depreciable basis. A smaller
+gap is closer to the price.
+
+| Export | Ages | Gap | 5-year share | 39-year share |
+|---|---|---|---|---|
+| run 3A | the appraiser's rate (today) | 8.99 % | 11.42 % | 83.67 % |
+| run 3A | 2 of 20 (10 %) | 8.69 % | 11.69 % | 83.42 % |
+| run 3A | 5 of 20 (25 %) | 9.09 % | | |
+| run 3A | 10 of 20 (50 %) | 9.76 % | | |
+| run 3B | the appraiser's rate (today) | 8.57 % | 8.52 % | 86.53 % |
+| run 3B | 2 of 20 | 8.24 % | 8.85 % | 86.22 % |
+| run 3B | 5 of 20 | 8.68 % | | |
+| run 3B | 10 of 20 | 9.42 % | | |
+
+On the synthetic fixture (102.2's study), cabinets at age 2 of 20 move the gap from 1.89 % to
+0.92 %; that is the fixture, not the client. The effect is small on the client property because
+the kitchen rows are a small part of a large building; it grows with the share the renovated rows
+hold. An age above the appraiser's rate (10 of 20) moves the gap the other way.
+
+**Verdict.** The arithmetic agrees with the IRS's two worked examples and with the hand-computed
+answer key; a study without renovations is byte-identical to main; the seller's-renovation ages
+behave as the age-life method predicts and stay inside the reconciliation's tolerance on the client
+property. The defaults change nothing until an engineer enters an age, a project or a removal.
+
+Tests (counts at writing): `test_component_age.py` 25, `test_macrs.py` 25, `test_renovations.py`
+(domain) 32, `test_renovations.py` (result) 42, `test_renovations_report.py` 7,
+`tests/api/test_renovations.py` 19, `test_process_assets_renovations.py` 5; the contract test,
+the tenancy walk, the known routes and migration 0039's test pass (backEnd/tests/LEDGER.md).
+
+**Open.**
+
+* No live study, no reprice run on a real stack: the route, the decision route and
+  `process_assets` were exercised on Postgres in the tests, not end to end in the workflow.
+* Not built: the UAD 3.6 update-status fields in the extraction (the suggestion function has no
+  input yet), the EXIF date-taken suggestion, pricing a before-service renovation's components
+  from its invoices, the mid-quarter convention (the report says half-year and leaves the 40 %
+  test to the preparer), a later renovation removing an earlier renovation's row.
+* The treatment split (election required or whole asset) is an inference, the CPA's to confirm.
+* Migration 0039 revises 0035 on this branch and is re-pointed when 0036-0038 land.
+
+## 103. Ground truth for measuring: ten measured houses, the harness, today's formulas, lidar and the Google pixel size (2026-11-25)
+
+**Answer first.** Ten real houses in seven states (IL, MO, MD, LA, VA, NC, GA; one to two
+storeys; hip, gable, cross-gable and low-slope roofs) are now ground truth, each transcribed twice
+from its HABS measured drawings, with the chain closing and the two readings agreeing to 0.6 % on
+the plan. Today's formulas, fed a perfect appraisal, read the **perimeter 14.5 % low on average
+and low on every house**, the wall face 26 % low and the gutter 49 % low. 3DEP lidar found the
+building on 2 of the 8 houses it read; on the other 6 the project never classified buildings.
+Google's straight-down view measures a roof edge true to about 1 % (3 houses), probably because
+the roof's height and a 2.7 % too-fine recorded pixel size cancel (suspected). Cost $0; 17 Google
+page loads, no block signal; no client data.
+
+**Question.** Step 1 of `AI_MEASUREMENT_PLAN.md` section 7: before any method drafts a
+measurement, is there a set of real houses whose exterior is known to the inch, a harness that
+scores any measuring method against it, the baseline (today's formulas) scored on it, and an
+answer to the one assumption every Google-traced quantity rests on: is the straight-down view's
+recorded pixel size right? No paid call of any kind; no client data.
+
+**The standard.**
+
+* *Ground truth for building geometry.* The Historic American Buildings Survey's measured
+  drawings (Library of Congress; "No known restrictions on images made by the U.S. Government",
+  read on every record used) are hand-measured on site and printed as dimension strings to the
+  inch or the eighth of an inch. NPS's measured-drawing guidelines give no numeric tolerance; the
+  passes below measure the transcription's own repeatability instead of assuming it.
+* *Floor area.* ANSI Z765 (the measure appraisers use): gross living area from the outside face
+  of the exterior walls, finished above-grade floors only. The truth's GLA is that sum of the
+  plan's floor outlines.
+* *Scoring.* Paired design (every method on the same houses), signed and absolute percent error
+  per quantity per house, the bias (mean signed) and the per-house spread (SD of signed), which
+  is what sizes the set (AI_MEASUREMENT_PLAN section 4: about 18 houses separate two methods
+  2 points apart when they disagree by 3 % a house).
+* *A perspective camera over 3D buildings.* A straight-down pinhole view of flat ground has one
+  scale everywhere; a surface `h` above the ground point is `range - h` from the camera and shows
+  `range / (range - h)` larger. Google renders photogrammetric 3D buildings where it has them,
+  so a roof edge in the straight-down view is not at the ground's scale. A public ortho is
+  resampled to the ground; a building leans (relief displacement) but its roof's scale changes
+  by `H / (H - h)` with a flying height `H` of kilometres, under 1 %.
+
+### 103.1 The set and how it was built
+
+**Picking.** 27 candidates (`$BASIS_EVAL_DATA_DIR/work/measure_research/ground_truth.md`) were
+screened on their item records and the small preview of every sheet (Library of Congress, one
+request at a time, 4 s apart, generic User-Agent; 195 requests in all, 11 of them retried after a
+dropped connection, logged in `measure_truth/work/loc_requests.jsonl`). Kept: detached houses
+whose first-floor plan prints an overall and the exterior wall strings, and whose elevations
+print heights or can be scaled at 1/4" = 1'-0", spread over states and roof shapes; NPS-owned
+houses first, because they are most likely to stand unchanged. Not used: the Swedish House and
+the tenant house of the Sandburg estate (nc0491, nc0492, small outbuildings, in favour of the
+farm manager's house), the Boulter House (oh1974), the Bethel Gulf station (fl0003, not a house),
+the Arnold and Dean houses (il0490, il0494): not needed once ten were found. Only the needed sheets were downloaded as the
+400 dpi masters (1-bit TIFF, 14,400 x 9,600 px; 56 sheets, 33 MB) to `measure_truth/habs/<id>/`.
+
+**Transcribing.** Each house was read twice, independently: two readers per group of five
+houses, each with the same written instructions (`measure_truth/work/TRANSCRIBE.md`: the
+schema, the outline to follow, how to treat strings that disagree) and the sheet viewer, neither
+shown the other's files. Every edge carries its printed text, its value, its sheet, and whether
+it is printed, arithmetic on printed strings (a sum, a difference, a closure) or scaled (with the
+scale and the printed dimension it was calibrated on). The validator (`evals.measure_truth`)
+checks every printed text against its value, every printed height against its datum, that the
+chain closes to 0.10 ft and that its extent equals the printed overall to 0.10 ft; a check that
+fails must be declared in the file's `flags`, or the unit test fails. The two passes were then
+compared quantity by quantity (`measure_truth/work/compare.py`) and merged by a script that
+writes every disagreement and its resolution into the file (`passes.disagreements`,
+`measure_truth/work/merge.py`).
+
+How to read this table: the ten houses as committed in `backEnd/evals/fixtures/measure_truth/`.
+*Outline*: the ground floor's exterior walls (printed: every edge printed or arithmetic on
+printed strings; scaled: at least one edge scaled). *Heights*: above grade; printed, derived
+(a printed level plus the mean of the printed grades around a sloping lot) or scaled.
+*Standing*: what the public ortho (and its history back to 2007) shows against the drawing.
+
+| House | Name, place | Drawn | Storeys | Roof | Outline (edges) | Footprint SF | Perimeter ft | GLA SF | Eave / ridge ft (how) | Roof truths | Standing |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| ga0157 | Jimmy Carter Boyhood Home, Sumter County GA | 1989 | 1 | hip with cross gables | printed (12) | 2,016 | 192.5 | 2,016 | 9.9 / 20.8 (printed, printed) | none | unknown |
+| il0491 | Miller House, Sangamon County IL | 1985 | 2 | hip | printed (10) | 1,608 | 173.2 | 3,213 | 22.8 / 27.6 (printed, printed) | roof_plan_sf, roof_area_sf, gutter_ft | unchanged |
+| la0726 | James Muslow House, Caddo Parish LA | 2015 | 1 | low-slope gable | scaled (14) | 3,916 | 288.7 | 3,916 | 10.7 / 13.0 (scaled, derived) | none | unknown |
+| md1464 | Norris-Higgins House, Montgomery County MD | 1994 | 2 | cross-gable on a two-story block | printed (8) | 973 | 135.7 | 1,745 | 22.3 / 30.2 (scaled, derived) | none | changed |
+| mo1222 | Frank Wallace House, Jackson County MO | 1992 | 1 | hip | printed (4) | 1,216 | 145.2 | 1,216 | 13.6 / 23.5 (derived, derived) | roof_plan_sf, roof_area_sf, gutter_ft | unchanged |
+| mo1223 | George Wallace House, Jackson County MO | 1992 | 1 | cross: front-gable main roof | printed (16) | 1,170 | 174.0 | 1,170 | 10.1 / 17.6 (derived, derived) | none | unchanged |
+| mo1224 | Noland-Haukenberry House, Jackson County MO | 1992 | 2 | cross-gable | printed (12) | 1,328 | 174.6 | 2,037 | 21.5 / 29.2 (derived, derived) | none | unchanged |
+| mo1857 | Harry S. Truman Farm Home, Jackson County MO | 1996 | 2 | hip | printed (12) | 1,014 | 161.5 | 1,890 | 19.8 / 27.5 (printed, derived) | none | unchanged |
+| nc0490 | Carl Sandburg Home, Farm Manager's House, Henderson County NC | 1974 | 1.5 | cross-gable | printed (6) | 1,356 | 179.3 | 1,795 | 10.2 / 25.2 (scaled, scaled) | none | unknown |
+| va1914 | Minor-Nelson House, Charlottesville VA | 1999 | 2 | gable | scaled (16) | 2,319 | 223.4 | 3,705 | 23.4 / 29.7 (scaled, scaled) | none | unchanged |
+
+**Where the passes agreed.** Of the ten houses, the footprint area agreed to the square foot on
+5 and differed by at most 0.6 % (median 0.04 %); the perimeter on 6, at most 0.3 %; the long side
+on 9, at most 0.46 %. The heights differed more: the eave by up to 14 % and the ridge by up to 8 %
+on one house (mo1223), because the two readers took the grade from different elevations of a
+lot that falls 2.4 ft around the house; both read the same eight printed grades, so the merged
+file uses their mean. Each disagreement and its resolution is in the file; the ones that move a
+truth value by more than 0.5 %:
+
+| House | What | Pass A | Pass B | Kept |
+|---|---|---|---|---|
+| il0491 | north-south depth | 46'-8" (left string, overall 54'-6"), chain open 0.25 ft | 30'-1" + 16'-4" = 46'-5" (right string, overall 54'-3"), chain closes | B: the right string closes the chain, the second-floor plan prints 54'-3" on both sides, and the left string's end tick does not meet a wall face; the left string is recorded as a drafting difference (footprint 1,611.6 against 1,608.4 SF, 0.2 %) |
+| la0726 | chain | 12 edges, 3,892.8 SF (scaled jogs 0.33 and 0.63 ft, 30.29 / 3.46 / 14.46 ft) | 14 edges, 3,916.0 SF (scaled jogs 0.17, 0.43, 0.60 ft; 30.43 / 3.27 / 14.75 ft; kitchen jog read) | B, the finer reading; the 0.6 % difference is this house's truth uncertainty (five runs are scaled at 3/16") |
+| md1464 | ridge | 27'-4 5/8" above the first floor (main ridge) + 1.92 ft scaled grade = 29.3 ft | 28'-3" above the first floor (the higher of the two printed 'roof ridges') + 2.08 ft scaled grade = 30.33 ft | the higher printed ridge, 28'-3" (the roof's top, as lidar's peak reads it), plus the mean of the two scaled grades, 2.00 ft |
+| md1464 | eave | 22.1 ft scaled | 22.42 ft scaled | the mean, 22.26 ft (both scaled on the north elevation) |
+| mo1223 | grade under the eave | -2'-0 1/2" (east) | -3'-5 1/4" (north) | the mean of the eight printed grades, 2.370 ft below the floor (eave 1.4 ft apart between the passes' single readings: the lot slopes) |
+| va1914 | north-south extent | 51'-5" (left string's segments, which the drawing scales to); overall 51'-8" declared a mismatch | 51'-8" (right string, with the printed 5'-4" the drawing shows as about 5.0 ft) | A: both passes found the drawing scales 51.1 to 51.4 ft, which supports 51'-5"; areas differ 0.21 %, perimeters 0.30 % |
+
+**Why some truths are missing.** A roof area or a gutter length is a truth only where it rests on
+printed values and one stated assumption that holds: one roof of one pitch over the outline with
+the same overhang all round (`roof.derive`), or a printed roof plan. That is 2 houses of 10
+(il0491, mo1222); the other roofs mix pitches and heights, cover porches, or have overhangs from
+0.1 to 7 ft (la0726), and a single number for them would be a guess dressed as truth. The wall
+face is perimeter x eave above grade (one eave for the whole building, no gable triangles, no
+openings): derived, and an overstatement where a one-storey wing meets a two-storey block
+(mo1224, mo1857, md1464, va1914). Site items were not transcribed: only one site plan prints
+anything to scale for paving (il0491's walk), so they wait for step 4's county shapes.
+
+### 103.2 The harness
+
+`python -m evals.measure_eval` (component `measure_eval`, version `v1`; `evals/README.md`) loads
+the truth files, runs every method listed in `METHODS` on every house and scores each quantity:
+signed error `(method - truth) / truth`, its absolute value, then per quantity across houses the
+bias (mean signed), the spread (SD of signed, which sizes the set), the mean, median and worst
+absolute error, and per method the dollars, tokens and seconds per house. M1 to M6 of the plan
+plug in as one more `Method` each (an id, the plain setup name, the exact settings, a function
+of the house). `--geo` adds the lidar look, `--pixels` the pixel-size check. The truth's own
+checks run as cases (a house whose findings are not all declared fails the run).
+`evals.measure_gather` runs the production public gather (`basis.geo.gather.Gatherer` with the
+in-memory store and local files, no study) per house; `evals.measure_capture` runs the
+production capture (`CaptureRunner`, the real Playwright browser, the in-memory store) with a
+page-load ledger of its own; `evals.measure_pixels` scores hand-measured pixel lengths.
+
+Tests (`tests/unit/evals/`, 62 in all, LEDGER): the dimension parser, every schema rule, the
+chain arithmetic on an L-shape and a 45-degree bay, the findings-must-be-declared rule, every
+derived truth's closed form, M0 as the production functions compute it, the scoring arithmetic,
+the lidar conversions, the pixel ratio and its perspective correction, the load ledger's refusals
+and hour wait, and the dry-run record (CI runs it on a synthetic box).
+
+### 103.3 Today's formulas (M0) on the ten houses
+
+**Setup.** M0 is `basis.domain.measurements` exactly as the takeoff calls it (`footprint`,
+`ground_footprint`, `perimeter_ft`, `long_side_ft`, `roof_area`, `siding_area`,
+`gutter_length`): a 1.5:1 rectangle, 6/12 pitch (factor 1.118), 1 ft overhang, 9 ft of wall a
+storey, gutters on the two long eaves; no garage, no sketch. Its inputs are what an appraisal
+would print for the house: the GLA as the plan's finished floors summed (so exact: this is M0 with
+a perfect appraisal, its best case) and the storeys as drawn. The siding is compared before its
+15 % openings, on the same footing as the truth's gross wall face. Cost $0, no tokens, 0.1 ms a
+house.
+
+How to read this table: one row per quantity, over the houses that have a truth for it.
+*Mean signed* is the bias (negative: M0 reads low); *SD* the spread of the signed error from
+house to house; *worst* the largest absolute error and its house.
+
+| Setup | Quantity | Houses | Truth tier | Mean signed % | SD % | Mean abs % | Median abs % | Worst abs % (house) |
+|---|---|---|---|---|---|---|---|---|
+| Today's formulas | ground-floor outline area | 10 | printed 8, scaled 2 | -7.2 | 8.9 | 7.2 | 3.4 | 23.3 (mo1224) |
+| Today's formulas | ground-floor wall perimeter | 10 | printed 8, scaled 2 | **-14.5** | 8.5 | 14.5 | 15.6 | 25.4 (mo1224) |
+| Today's formulas | the outline's long side | 10 | printed 8, scaled 2 | -14.4 | 9.5 | 14.4 | 13.1 | 33.9 (mo1224) |
+| Today's formulas | eave height above grade (9 ft a storey) | 10 | printed 3, derived 3, scaled 4 | -12.5 | 17.6 | 19.1 | 17.6 | 33.8 (mo1222) |
+| Today's formulas | wall face, before openings | 10 | derived | **-25.8** | 13.0 | 26.7 | 28.4 | 39.5 (va1914) |
+| Today's formulas | roof outline in plan | 2 | printed 1, derived 1 | -20.7 | 13.6 | 20.7 | 20.7 | 30.3 (mo1222) |
+| Today's formulas | roof surface | 2 | derived | -18.8 | 21.2 | 18.8 | 18.8 | 33.8 (mo1222) |
+| Today's formulas | gutter length | 2 | derived | **-49.1** | 4.0 | 49.1 | 49.1 | 51.9 (mo1222) |
+
+Per house (signed %, M0's value against the truth in brackets, SF or ft):
+
+| House | footprint_sf | perimeter_ft | long_side_ft | gla_sf | eave_height_ft | wall_area_gross_sf | roof_plan_sf | roof_area_sf | gutter_ft |
+|---|---|---|---|---|---|---|---|---|---|
+| ga0157 | 0.0 (2,016 vs 2,016) | -4.8 (183 vs 192) | -2.3 (55 vs 56) | 0.0 (2,016 vs 2,016) | -8.9 (9 vs 10) | -13.2 (1,650 vs 1,901) |  |  |  |
+| il0491 | -0.1 (1,606 vs 1,608) | -5.5 (164 vs 173) | -9.5 (49 vs 54) | -0.0 (3,213 vs 3,213) | -20.9 (18 vs 23) | -25.2 (2,945 vs 3,940) | -11.0 (1,770 vs 1,990) | -3.8 (1,979 vs 2,058) | -46.2 (102 vs 190) |
+| la0726 | 0.0 (3,916 vs 3,916) | -11.5 (255 vs 289) | -20.2 (77 vs 96) | 0.0 (3,916 vs 3,916) | -16.1 (9 vs 11) | -25.7 (2,299 vs 3,096) |  |  |  |
+| md1464 | -10.3 (872 vs 973) | -11.1 (121 vs 136) | -16.5 (36 vs 43) | 0.0 (1,745 vs 1,745) | -19.1 (18 vs 22) | -28.1 (2,170 vs 3,020) |  |  |  |
+| mo1222 | -0.0 (1,216 vs 1,216) | -2.0 (142 vs 145) | -8.0 (43 vs 46) | -0.0 (1,216 vs 1,216) | -33.8 (9 vs 14) | -35.1 (1,281 vs 1,973) | -30.3 (1,358 vs 1,948) | -33.8 (1,518 vs 2,294) | -51.9 (89 vs 186) |
+| mo1223 | -0.0 (1,170 vs 1,170) | -19.7 (140 vs 174) | -10.9 (42 vs 47) | -0.0 (1,170 vs 1,170) | -11.2 (9 vs 10) | -28.8 (1,257 vs 1,764) |  |  |  |
+| mo1224 | -23.3 (1,019 vs 1,328) | -25.4 (130 vs 175) | -33.9 (39 vs 59) | -0.0 (2,037 vs 2,037) | -16.1 (18 vs 21) | -37.4 (2,345 vs 3,747) |  |  |  |
+| mo1857 | -6.8 (945 vs 1,014) | -22.3 (125 vs 162) | -15.2 (38 vs 44) | -0.0 (1,890 vs 1,890) | -9.1 (18 vs 20) | -29.3 (2,259 vs 3,196) |  |  |  |
+| nc0490 | -11.8 (1,196 vs 1,356) | -21.3 (141 vs 179) | -22.7 (42 vs 55) | 0.0 (1,795 vs 1,795) | 33.0 (14 vs 10) | 4.7 (1,906 vs 1,820) |  |  |  |
+| va1914 | -20.1 (1,853 vs 2,319) | -21.3 (176 vs 223) | -4.3 (53 vs 55) | 0.0 (3,705 vs 3,705) | -23.0 (18 vs 23) | -39.5 (3,163 vs 5,225) |  |  |  |
+
+What it says:
+
+* **The perimeter is low on every house, 2 to 25 %.** The bias is structural, not noise: a 1.5:1
+  rectangle is nearly the most compact outline an area can have, and real outlines (an L, a
+  wing, a bay, a long low house) are never more compact. On the five one-storey or equal-floor
+  houses, where the footprint is exact, the perimeter is still 2 to 20 % low. The client house's
+  31 % (AI_MEASUREMENT_PLAN section 1) is the same effect, larger.
+* **The footprint is exact only where the floors are equal.** GLA / storeys is low by 7 to 23 % on
+  the five houses whose upper floor is smaller than the ground floor (a one-storey wing, a
+  half-storey under the roof).
+* **The wall face is low by a quarter** (both errors multiply: perimeter low, and 9 ft a storey
+  against eaves that stand 0.9 to 5.4 ft higher above grade than 9 ft a storey, because of the
+  floor's height above grade and the wall above the ceiling). The one exception is the 1.5
+  storey house (nc0490), where 13.5 ft for 1.5 storeys overshoots a 10.2 ft eave.
+* **The gutter is half the truth** on both hip roofs: M0 puts gutters on two long eaves (a gable),
+  and a hip has them all round; and its 1 ft overhang is under the 2.1 and 2.85 ft drawn.
+* The roof figures rest on 2 houses (the only ones with one pitch over one outline, or a printed
+  roof plan): too few to say more than that both are low.
+
+**Spread, for sizing the set.** The per-house SD of M0's signed error is 8.5 to 9.5 % on the
+plan quantities and 13 to 18 % on heights and wall face. Whether 10 houses separate two methods
+depends on the spread of their *paired difference*, which needs a second method; M0's own spread
+says that against M0 any method within a few percent will be separated easily, and that the
+methods compared later (M1 against M2, say) are what the set must be sized for.
+
+### 103.4 Locating the houses, the public gather and the lidar, first look
+
+**Locating.** Each building centre was placed by hand on the public ortho (the gather's current
+view, a labelled pixel grid, `pixel_to_lonlat` for the point), checked against the drawing's
+outline and the Google search's pin for the address, and the ortho's history (one view a year
+back to 2006 to 2008) was looked at for changes. The result is in each file's `location` and
+`standing`:
+
+| House | Placed on | Standing | Note |
+|---|---|---|---|
+| il0491, mo1222, mo1223, mo1224, mo1857 | 15 cm state orthos (IL 2025, MO 2008 and 2024) | unchanged | NPS-owned; outline sizes on the ortho match the drawing's roof; mo1857 found from the historical marker's coordinates after the Google address search found no place |
+| va1914 | Google's view (NAIP is 0.6 m) | unchanged at 0.6 m | the same rotated block and wings 2008 to 2023 |
+| md1464 | 15 cm MD ortho, 2015 | **changed** | a long addition to the west appears between the 2015 and 2018 orthos (not measured); scored for M0 only, never for a method that measures today's building |
+| ga0157 | the lidar building at Google's farm view | unknown | lidar's roof (3,205 SF, eave 2.8 m, peak 6.5 m) matches the drawn house with its porches under the roof (about 3,240 SF, eave 3.0 m, ridge 6.3 m); NPS restored the farm after 1989 |
+| la0726 | Google's address pin | unknown | the house is under canopy on every ortho and on Google's view |
+| nc0490 | approximate (the barn complex) | unknown | not told apart from the estate's other buildings from above |
+
+So 6 houses are confirmed standing and unchanged, 1 changed, 3 not checked from above. For M0
+(which reads the appraisal) all 10 count; a method that measures from imagery or lidar can be
+scored on 6 today.
+
+**The gather.** `evals.measure_gather` at each house's centre: 448 requests to the public
+servers over the 10 houses, one at a time per host; no source failed except the NC lidar read
+(below). Files under `$BASIS_EVAL_DATA_DIR/measure_truth/geo/<id>/`.
+
+How to read this table: the 3DEP summary exactly as `basis.geo.lidar` reads it, against the
+truth. *Footprint*: the lidar building's 0.5 m cells, eaves included; *vs walls*: against the
+wall outline; *vs roof plan*: against the walls offset by the overhang (only where that is a
+truth); *eave*: the 5th percentile of the building's points above the ground ring; *peak*: the
+99th. Not a method (M1 will be): the raw numbers.
+
+| House | Project (year) | Pts/m2 | Footprint SF | vs walls % | vs roof plan % | Eave ft | vs truth % | Peak ft | vs ridge % | Status |
+|---|---|---|---|---|---|---|---|---|---|---|
+| ga0157 | USGS_LPC_GA_Georgia_A1_2016_LAS_2018 (2018) | 3.0 | 3,205 | 59.0 |  | 9.2 | -6.6 | 21.4 | 2.8 | ok |
+| il0491 | USGS_LPC_IL_WestCentral_2017_LAS_2019 (2019) | 9.1 | 2,209 | 37.4 | 11.0 | 21.8 | -4.4 | 28.6 | 3.6 | ok |
+| la0726 | LA_Sabine_River_Lidar_A5_2018 (2018) | 38.2 |  |  |  |  |  |  |  | BASIS-GEO-016 |
+| md1464 |  () |  |  |  |  |  |  |  |  | no lidar |
+| mo1222 | MO_WestCentral_1_2018 (2018) | 7.8 |  |  |  |  |  |  |  | BASIS-GEO-016 |
+| mo1223 | MO_WestCentral_1_2018 (2018) | 8.1 |  |  |  |  |  |  |  | BASIS-GEO-016 |
+| mo1224 | MO_WestCentral_1_2018 (2018) | 11.0 |  |  |  |  |  |  |  | BASIS-GEO-016 |
+| mo1857 | MO_FEMANRCS_1_2020 (2020) | 6.9 |  |  |  |  |  |  |  | BASIS-GEO-016 |
+| nc0490 |  () |  |  |  |  |  |  |  |  | no lidar |
+| va1914 | VA_ChesapeakeBaySouth_2015 (2015) | 14.0 |  |  |  |  |  |  |  | BASIS-GEO-016 |
+
+* **Lidar found the building on 2 of the 8 houses it read.** Miller House (IL, 9 points a m2):
+  outline 11 % over the roof plan, 37 % over the walls; eave 4.4 % under the printed top of
+  gutter; peak 3.6 % over the printed roof top. Carter home (GA, 3 points a m2): outline 59 %
+  over the walls (the roof also covers both porches), eave 6.6 % low, peak 2.8 % high.
+* **On the other six the project has no building class at all.** A second read of every point
+  in each box (`measure_truth/work/lidar_classes.py`) found classes 1 (unclassified), 2
+  (ground), 7, 8 or 18 and **no class 6** in MO_WestCentral_1_2018 (three houses),
+  MO_FEMANRCS_1_2020, VA_ChesapeakeBaySouth_2015 and LA_Sabine_River_Lidar_A5_2018; the IL
+  project has 5,867 class-6 points in its box. The gather reports these as `BASIS-GEO-016` ("no
+  building points near the pin"), true but misleading: the project never classified buildings.
+  A lidar method (M1) has to find the building among the unclassified points above the ground
+  itself, or it will draft nothing on most houses.
+* Garrett Park (MD) has no 3DEP project (`BASIS-GEO-010`). On the Sandburg estate the parcel
+  under the pin is the whole 264-acre site and the box over it needs more than 64 tiles
+  (`BASIS-GEO-011`): a parcel that large should fall back to the 40 m box (not changed here).
+* Parcels came back only in MD and NC, the states in the registry with an open parcel layer.
+
+### 103.5 The Google captures
+
+`evals.measure_capture` drove the production `CaptureRunner` (clean views, dates read, history
+off, street level on in a headed browser) with the in-memory store, a plain browser profile
+(never signed in to any account) and its own ledger: every page load written before it happens,
+at most 2 a house and 22 in all, the governor seeded with the ledger so its 6-an-hour and 8 to
+20 s spacing held, and a stop at the first block signal.
+
+| House | Searched by | Outcome | Loads | Close view's imagery date | Notes |
+|---|---|---|---|---|---|
+| mo1222 (and mo1223 in the same views) | address | 7 views | 2 | 8/6/2022 | |
+| mo1224 | address | 6 views | 2 | 8/6/2022 | no street panorama (019) |
+| mo1857 | address | **failed, 006** | 1 | | the search found no place; not retried (it would have waited an hour for the cap) |
+| md1464 | address | 7 views | 2 | 8/16/2023 | shows today's building, with the addition |
+| la0726 | address | 7 views | 2 | 11/15/2024 | the house is under canopy; the street picture shows planting only |
+| va1914 | address | 7 views | 2 | 10/21/2023 | |
+| il0491 | address | 7 views | 2 | 4/6/2024 | Google's address pin is 13 m north of the building's centre |
+| ga0157 | place name | 7 views | 2 | 10/16/2023 | centred on the visitor parking; the house is at the edge of the wide view |
+| nc0490 | point | 6 views | 2 | 8/21/2023 | no street panorama (019) |
+
+**17 page loads in all, no block signal** (no `BASIS-CAPTURE-001` to `004`), about 2 minutes a
+house plus the hourly cap's waits. The wide view's date was unread on 6 houses (021, a note).
+PNGs and view metadata under `$BASIS_EVAL_DATA_DIR/measure_truth/captures/<id>/`; the load
+ledger is `captures/loads.jsonl`. Both towns measured below render Google's photogrammetric 3D
+buildings (the oblique views show walls and trees standing).
+
+### 103.6 Is the straight-down view's pixel size right?
+
+**Method.** On each view, a straight roof edge of known length was measured by reading its two
+ends off a labelled pixel grid, enlarged 2.4 to 4.4 times (by eye, not a script; each edge read
+at two places along it). The true length is a roof-edge length: the printed roof plan where
+there is one (mo1222 61'-0 1/4" by 31'-11"; mo1223 the main gable's 27'-2"), else the printed
+walls plus the overhang at both ends (il0491, overhang scaled 2.1 ft by both passes). The ratio
+is the metres per pixel the true length implies over the recorded `pixel_size_m` (1: right;
+under 1: the view shows the edge larger than its recorded scale, so a trace reads long). On
+Google's view a roof edge `h` above the ground stands `range - h` from the camera and shows
+`range / (range - h)` larger (`range` 165.3 m at `aerial-close`, the eave heights from the
+truth): the *corrected* ratio divides that out and is the pixel size's own error at the ground.
+The points are in `measure_truth/pixel_check/points.json`, scored by `evals.measure_pixels`.
+
+| House | View | Edge | True ft | Pixels | Ratio | Height-corrected |
+|---|---|---|---|---|---|---|
+| mo1222 | Google straight-down | roof plan, north-south | 61.02 | 227.5 | 0.972 | 0.997 |
+| mo1222 | Google straight-down | roof plan, east-west | 31.92 | 115.5 | 1.002 | 1.028 |
+| mo1223 | Google straight-down | main gable roof, east-west | 27.17 | 99.0 | 0.995 | 1.014 |
+| il0491 | Google straight-down | main hip, north-south | 36.53 | 131.0 | 1.011 | 1.055 |
+| mo1222 | public ortho (MO 2024, 15 cm) | roof plan, north-south | 61.02 | 125.0 | 0.992 | |
+| mo1222 | public ortho | roof plan, east-west | 31.92 | 67.0 | 0.968 | |
+| mo1223 | public ortho | main gable roof, east-west | 27.17 | 54.5 | 1.013 | |
+| il0491 | public ortho (IL 2025, 15 cm) | main hip, east-west | 50.62 | 101.0 | 1.002 | |
+| il0491 | public ortho | main hip, north-south | 36.53 | 71.0 | 1.029 | |
+
+| View | Houses | Edges | Ratio: mean of house means | SD | Range | Height-corrected mean | SD |
+|---|---|---|---|---|---|---|---|
+| Google straight-down (`aerial-close`, 0.0841 m/px) | 3 | 4 | 0.998 | 1.2 % | 0.987 to 1.011 | 1.027 | 2.4 % |
+| Public ortho (15 cm) | 3 | 5 | 1.003 | 2.0 % | 0.980 to 1.016 | | |
+
+* **A roof edge traced on Google's straight-down view reads true to about 1 % on average**
+  (mean ratio 0.998, houses 0.987 to 1.011, 3 houses), and the public ortho's recorded pixel size
+  is right to the same reading error (1.003, SD 2 %).
+* **That is two errors cancelling, suspected, not proven.** Corrected for the roofs' height, the
+  ground's pixel is 2.7 % larger than recorded (1.027, SD 2.4 %): the same direction and size as
+  EVAL_REPORT 98's finding that the formula reads 2.0 to 2.6 % finer than the viewer's own scale
+  bar. If both hold, a length on the ground (a driveway, a walk, a fence) traced on Google's view
+  reads about 2.5 % short, and a roof edge 4 to 7 m up reads about right. Three houses and four
+  edges, read by eye at 1 to 2 pixels an end (0.4 to 2 % of these lengths), cannot separate a
+  2.7 % effect from zero with confidence; ground-level lengths of known size (a printed site
+  dimension, a county planimetric edge) are the next check.
+* **The roof-edge-versus-wall confound is ten times larger than the pixel error.** Every outline
+  seen from above is the roof's. Taken as the walls it overstates a side by twice the overhang:
+  5.7 ft on mo1222's 26.2 ft wall (22 %), 4.2 ft on il0491's 32.3 ft (13 %); and as an area,
+  mo1222's roof plan is 60 % over its walls (the roof also covers the porch). A pixel size within
+  3 % matters only after the overhang is taken off; that is M1's job, with the overhang from the
+  elevations or the photos.
+* Not measured: the other houses on Google's view (canopy over la0726 and va1914's eaves, the
+  ga0157 house at the wide view's edge, md1464 changed, nc0490 not identified, mo1857 not
+  captured), and mo1224 (shadowed on the ortho, under trees on Google's view).
+
+### 103.7 Verified, and not
+
+**Verified.** The ten truth files load and pass their checks (every finding declared); the two
+passes agree on the plan to 0.6 % at worst; M0 is the production code (a unit test computes it
+from `basis.domain.measurements`); every number in 103.3 and 103.4 is the recorded run's; the
+gather and the captures ran through the production code with no block signal and 17 loads; the
+lidar's missing building class was re-read point by point on every project that showed it.
+
+**Not verified, or suspected only.**
+
+* The drawings' own accuracy: HABS sets are hand-measured; the passes measure transcription,
+  not the survey. Strings that disagree on the sheet are recorded per house.
+* Heights: 3 eaves are printed against grade, 3 derived from a printed level and the mean of
+  printed grades on sloping lots (the printed grade varies 0.4 to 2.4 ft around those houses), 4 scaled.
+  The wall-face truth uses one eave height for the whole building.
+* Roof area and gutter are truths on 2 houses only, and the roof's slope factor assumes one
+  pitch from the main eave to the ridge.
+* Standing: 3 houses not checked from above (la0726, nc0490, ga0157 identified by lidar only);
+  md1464 has an addition and is not for imagery methods.
+* The pixel-size result is 3 houses read by eye; the 2.7 % at the ground is suspected.
+* mo1857 was not captured on Google (the address search found no place; a point search is next,
+  1 load).
+* Site items were not transcribed.
+* Nothing was signed in to, no model was called, cost $0.
+
+**Run record.** `$BASIS_EVAL_DATA_DIR/verification/measure_eval/v1/measure_eval_2026-11-25`
+(manifest, the 10 truth files with their sha256, 11 cases passed, $0; `python -m
+evals.registry --component measure_eval` lists it). Working files (sheets, passes, crops,
+gathers, captures, pixel points) under `$BASIS_EVAL_DATA_DIR/measure_truth/`.
+
+**Open.** M1 (lidar and public imagery for the shell) against M0 on the 6 houses that stand
+unchanged, with a building finder for unclassified lidar; ground-level lengths for the pixel
+size; 15 to 20 more HABS houses (the spread of a paired difference, not M0's, sizes the set);
+the `BASIS-GEO-016` wording and the large-parcel lidar box.
+
+## 104. The measure tool: a length on every edge, editing, typed lengths, photos and the AI's original (2026-11-25)
+
+**Question.** Bryan asked for measurements on the shapes the way Fusion 360 shows them, "as easy as
+possible", with the engineer able to change them (AI_MEASUREMENT_PLAN.md, step 2 of section 7). Can
+the tool show a length on every edge that agrees with what the server computes, let the engineer
+correct a shape by dragging or typing, measure inside items on photos, and keep an AI's draft beside
+the engineer's edit, without changing how anything is priced?
+
+**Setup.** The standard is section 3 of the plan (research in
+`$BASIS_EVAL_DATA_DIR/work/measure_research/products_and_practice.md`): EagleView's per-segment
+labels and totals from unrounded values, SiteRecon's and Google Earth's vertex editing, Fusion's
+driving dimensions (and AutoCAD's text override as the thing not to copy), Bluebeam's calibration
+to a known length, Roofr's "Mark as done", SiteRecon's locked base view. Built: `traced.py` takes
+`drawn_by`, `verified`, `view` and `original` (OVERRIDES.md section 4); the browser tool in
+`web/live/property.js` and its geometry in `property-model.js`; the assets gate's draft kept on the
+server; a model-draft fixture in the sample API (`&measure=draft`; no model drafts yet). No paid
+call, no live study.
+
+**Method.** Each per-edge length is the server's own computation: a segment on the tangent plane at
+its middle latitude (`lonlat_path_length_ft`) on the lon/lat the body carries (rounded to 1e-9
+degree as the body is), or pixels times the scale. Checked by values printed from the backend for a
+five-corner ring on the sample's close aerial, by sums against the browser's port of `measure` for
+lines and closed paths, and in a headless Chromium (Playwright, 1440 x 900) on the sample.
+
+| Check | Result |
+|---|---|
+| Five edges of a ring on the close aerial, browser vs `lonlat_path_length_ft` | identical to the last digit (168.41265105573947 ... 62.152118164820415 ft); sum 533.0674892835889 ft both |
+| Labels of a line vs the server's `length_ft` | equal after rounding to 0.01 |
+| Area at the shape's middle vs `traced.measure` | 17,177.85 SF both |
+| Typed length, image space | exact (30 ft gives 30 ft) |
+| Typed length, lon/lat (54.25, 100, 12.58, 300 ft) | within 0.001 ft; the sent body computes it within 0.006 ft (the 1e-9 degree rounding) |
+| Headless: the sample's 210 ft back-yard fence clicked at whole screen pixels | 209.72 LF in the dialog, 209.91 LF on the Property page (truth 209.97) |
+| Headless: first edge typed 54'-3" | label 54'-3"; the next edge stretched; total 211.62 LF; Undo and Redo restore both states |
+| Headless: the patio's model draft (845.40 SF, truth 800) with two edges typed to 40 and 20 ft | 821.32 SF (the other two edges untouched); Edges table shows draft, now and change |
+| Headless: a corner dragged across the ring | undone: "The shape crosses or touches itself (two of its edges meet). The change was undone." |
+| Headless: a counter line on a photo scaled by a 36 in door width | 8.39 LF, flagged undated after the send (`measure:IMAGE_UNDATED`, the server's rule) |
+
+**Live check (2026-11-25, the local stack running this branch, study 8c2d6de0, revision 2, assets
+review open, 388 assets, pin not confirmed).** Four findings from the lead's walk, fixed the same day:
+Measure was offered on 0 of 388 rows (it needed a measurement reason; formula-priced roof, siding
+and floors carry none): now 71 rows (every area or length); 52 photo chips pushed the picture below
+the fold: now thumbnails of the asset's own photos and one list; the dialog scrolled as one column:
+now picture and controls side by side at full height; a typed length on a rectangle skewed it
+(21'-0" became 21'-6"): now the far side slides when both corners are square within 3 degrees.
+Persistence on the real API: a counter traced on its photo (an area, scale from a 36 in counter
+height) was saved (`PUT .../drafts/assets_review` 200, version 1), the page reloaded, `GET` returned
+the draft (version 1, revision 2, not stale, the measurement in it) and the page showed "1 correction
+ready to send" with the traced quantity on the row; Remove deleted it (`DELETE` 200) and a second
+reload found no draft. No decision was sent; the study was left as it was.
+
+**Verdict.** The labels are the server's numbers, so what the engineer reads on an edge is what the
+schedule will carry; typed lengths move the geometry and the label never disagrees with it; an
+unverified draft is priced exactly as a trace (no pricing change). Default choices to confirm: the
+Verified box starts on for an engineer's own trace and off for a draft; snapping is on, 8 screen
+pixels; a shape under an eighth of the picture opens at 4x.
+
+Tests: `test_traced_provenance.py` 56, one API test (Postgres), `measure-tool.test.cjs` 23,
+`measure-screen.test.cjs` 9, `assets-draft.test.cjs` 4, `measure-assets-list.test.cjs` 2
+(mutation-checked: offering Measure only where needed fails it); the web suite 547 (509 before),
+the existing property tests unchanged (backEnd/tests/LEDGER.md).
+
+**Open.**
+
+* Not verified by a person on a tablet's touch or in Safari. Against the live stack only the
+  photo path and persistence were run (the study's pin is not confirmed, so no aerial). The sample's photos are placeholders (the real sample photos are not in
+  the repository), so the photo flow was checked on a placeholder.
+* No model drafts measurements yet; whether an unverified draft may price the report is the
+  maintainer's decision (plan section 8.3); no review flag is raised for one.
+* Not built: the other gates' drafts, snapping to a building outline and to right angles, slope,
+  colour by asset type, the diagram in the report, phones.
+
+### 104.1 Photo | Diagram: a clean plan under the same overlay (2026-11-25)
+
+**Question.** Bryan asked to switch the measure picture between the real picture and a clean, simple
+diagram with "the lines and everything" staying put. Can a plan drawn from data the study already
+has (no model call) sit under the measure tool's overlay at exactly the same place?
+
+**Method.** On a georeferenced top-down view (capture views, public orthos; not study photos) the
+picture is replaced by an SVG with the view's own width, height and viewBox, so the overlay needs no
+change. It draws, EagleView-style: the lot lines from the parcels (`parcelRings`, adjacent ones
+dashed); every lon/lat measurement of the study on that picture (stored `takeoff.inputs.measurement`,
+or the pending one in the assets review), projected with the view's `georef` (the inverse of what the
+tool traces with); a colour per asset type (eight strokes, each 6.0:1 to 8.1:1 on the diagram's
+ground, WCAG AA) with edge lengths and a total; a legend with each type once; a north arrow from
+the view's heading; a scale bar in round feet (1, 2 or 5 x 10^n, at most a quarter of the picture)
+from `pixel_size_m`; the picture's date and source. Image-space measurements, ones off the picture
+and the asset being edited (drawn by the tool on top) are left out.
+
+| Check | Result |
+|---|---|
+| A parcel corner and a measured corner, diagram vs overlay | the same pixel (`georef.toPixel`); back through the tool's frame to the lon/lat within 1e-9 degree |
+| Scale bar on the close aerial (8.41 cm a pixel) | 50 ft = 181.2128 px; px x pixel size = 50 ft to 1e-9 |
+| Headless (sample, 1440 x 900): the patio's corners on screen, photo vs diagram | identical to the pixel; a length typed in diagram mode applies as in photo mode |
+| Live (Lincoln Home capture, pin moved back to its point and confirmed, no new capture): a gutter traced on the real close aerial, 93.75 LF | the three corners at the same screen pixels in photo and diagram; the Property page's diagram lists "Gutter · 93.75 LF"; the trace then removed (draft deleted) |
+
+**Verdict.** The diagram is a different background, not a different drawing: the overlay, editing
+and snapping are untouched. Nothing is priced or stored by it. The choice is kept per browser
+(Photo by default) and still works for the session with storage blocked.
+
+Tests: `measure-diagram.test.cjs` 8; the web suite 555.
+
+**Open.** The legend, north arrow and scale bar sit at the picture's corners, so a zoomed-in view
+scrolls them out of sight; the building outline is not drawn (no outline polygon is stored); on the
+live study the public records were gathered around an earlier pin, so there is no lot line there;
+the diagram is not in the report.
+
+### 104.2 The lidar roof outline as a polygon, drawn in the diagram (2026-11-25)
+
+**Question.** The diagram (104.1) on a study with no parcel and nothing measured was an empty sheet:
+the lidar gave the building's footprint area but no polygon. Can the outline the lidar already
+finds be kept as a polygon, with corners an engineer would recognise and an area true to the cells?
+
+**Method.** `basis/geo/lidar.py` traces the building's cells (0.5 m, closed and hole-filled, one
+component, as before) along their edges into one ring (counter-clockwise, the first corner not
+repeated), merges straight runs to their corners, simplifies by Douglas-Peucker and maps back to
+lon/lat through the exact inverse of the cell mapping. The tolerance was chosen on buildings of
+known shape rasterized at the lidar grid (`uv run python -m evals.lidar_outline_tolerance`), then
+checked on the real lidar at the Lincoln Home (USGS_LPC_IL_WestCentral_2017_LAS_2019, read again from
+the public tiles):
+
+| Shape | 0 m (cell corners) | 0.25 m | 0.5 m | **0.71 m (chosen)** | 1 m |
+|---|---|---|---|---|---|
+| rectangle 12 x 8 m at 0 deg (4) | 4 · 0.0 % | 4 · 0.0 % | 4 · 0.0 % | **4 · 0.0 %** | 4 · 0.0 % |
+| rectangle at 10 deg (4) | 30 · 0.0 % | 30 · 0.0 % | 4 · +0.3 % | **4 · +0.3 %** | 4 · +0.3 % |
+| rectangle at 22.5 deg (4) | 62 · 0.0 % | 58 · 0.0 % | 7 · +3.3 % | **4 · +0.5 %** | 4 · +0.5 % |
+| rectangle at 30 deg (4) | 78 · 0.0 % | 42 · 0.0 % | 8 · +1.0 % | **4 · +0.3 %** | 4 · +0.3 % |
+| rectangle at 45 deg (4) | 110 · 0.0 % | 102 · 0.0 % | 6 · +3.3 % | **4 · -3.3 %** | 4 · -3.3 % |
+| L 10 x 10 m less 5 x 5 at 0 deg (6) | 6 · 0.0 % | 6 · 0.0 % | 6 · 0.0 % | **6 · 0.0 %** | 6 · 0.0 % |
+| L at 30 deg (6) | 78 · 0.0 % | 46 · 0.0 % | 8 · -0.5 % | **7 · +1.0 %** | 6 · -2.0 % |
+| T (8) | 8 · 0.0 % | 8 · 0.0 % | 8 · 0.0 % | **8 · 0.0 %** | 8 · 0.0 % |
+| house 14 x 9 m with a 1 m jog (6) | 6 · 0.0 % | 6 · 0.0 % | 4 · 0.0 % | **4 · 0.0 %** | 4 · 0.0 % |
+| **Lincoln Home, real lidar** | 36 · 0.0 % | 34 · 0.0 % | 6 · -5.0 % | **6 · -5.0 %** | 4 · -6.2 % |
+
+Each cell: corners kept · the outline's area against the cells' area (the reported footprint). The
+true corner count in parentheses. Every ring stayed simple.
+
+**Verdict.** One cell's diagonal (0.71 m) gives every turned rectangle its 4 corners and an L or a T
+its own, within 1 % of the cells' area on the synthetic shapes except the 45 degree rectangle
+(-3.3 % against the cells, -1.6 % against the true area). On the real roof the outline keeps 6
+corners and reads 5.0 % under the cells (190.3 against 200.5 m²): the real edge is ragged by a cell,
+and Douglas-Peucker keeps the inner stair corners as often as the outer ones, so the line sits about
+a third of a cell inside. The footprint figure is unchanged (the cells' area); the polygon is for
+seeing and snapping, never a quantity. A jog of 1 m or less is smoothed away from 0.5 m up. The
+summary's heights, footprint, counts and flags are byte-identical to main's on the synthetic tests;
+a gather stored before the outline reads with `outline: []`. No migration: the summary is stored as
+JSON.
+
+**The diagram.** The outline is drawn grey with its edge lengths and in the key ("Building · roof
+outline from 2019 lidar · 2,158 SF"); the measure tool snaps to it after the shape's own corners and
+before the parcel, in photo mode too. The key, north arrow, scale bar and source now sit in the
+stage's corners over the zoomed picture, and the scale bar is chosen for the screen (a round length,
+at most 140 px, from the pixel size times the picture pixels per screen pixel), so it stays true
+when zoomed.
+
+**Live check** (API, worker and geo worker restarted on this branch): the pin moved from the capture
+centre (a street intersection) to a point inside the Lincoln Home's roof and confirmed; Gather them
+again (public sources only) found the lidar building under the pin (distance 0, 6 outline corners)
+and no parcel (`BASIS-GEO-009`, as before: no parcel layer answered for the county). The captured
+views now read as taken around an earlier pin and are still offered for measuring. A gutter traced
+on the close aerial in diagram mode with clicks 3 px off three outline corners landed exactly on
+them; the trace was removed (draft deleted, no decision sent).
+
+Tests: `test_lidar_outline.py` 8 (rectangle 4 corners with the cells' area, L 6, T 8, a stair-stepped
+wall within tolerance, a pinch, the lon/lat round trip within 1 cm, the synthetic building's outline
+area within 0.5 % of its footprint, the regression against main's values, an old body without
+`outline`); `measure-diagram.test.cjs` 10; the backend unit suite 6,325, the geo tests 64, the web
+suite 557.
+
+**Found in the lead's live check, fixed the same day.** Zoom on the Property page kept the scroll in
+pixels, so 200 % slid the view to the top left and the building left it (the dialog measured the
+middle against the pane, not the picture). Both now keep the picture point at the middle of the view:
+live, 100 to 200 % kept (0.5, 0.5), and a view scrolled to the building kept (0.6798, 0.2877) through
+400 % and back, in diagram and photo mode. The pin covered the building's label; every diagram label
+is now placed clear of the pin (the building's below the outline when the pin is inside it). Web
+suite 561. No wheel or pinch zoom exists to fix. A second live check found the building's name, moved
+below the outline, sitting on the bottom edge's length label: names are now placed after every edge
+label, tested against each label already placed and the pin (inside the shape first, then below or
+above, then beside). Live, at 100 % and 200 %, no name meets an edge label or the pin's halo and no
+edge label meets the pin (measured on the rendered boxes). Web suite 564.
+
+A third check found edge labels of different shapes meeting: on the sample's Property page at 100 %
+the patio's bottom length and the building's top length overlapped (one overlap among 14 labels).
+Every label is now placed against every label already placed and the pin, in a fixed order: the
+active trace's labels first (never moved or hidden), then each measured item's lengths and name, then
+the building's. A colliding length tries the other side of its edge, then slides along it (within the
+edge's middle half), then a smaller offset; if nothing fits it is left out and named in the diagram's
+title and aria text ("Not drawn for lack of room: ..."), its length still in the edge list. Rendered
+boxes, all labels and the pin's halo: the sample at 100, 200 and 400 % (10, 12, 12 labels; one
+building length left out at 100 %, none at 200 and 400 %) and the live roof at the same zooms (6, 7,
+7 labels): zero overlaps. Unit tests add the same for the sample and live geometry at three scales
+and a fence traced across the patio and the garage. Web suite 569.
+
+A fourth check, in the Measure dialog, found the patio's name drawn inside the building's outline below
+it, so the building read as the patio. A name now sits inside its own shape or outside every other
+shape (the building, each measured shape, the trace's areas; never over another's area), on the
+picture; outside its shape and apart from it, a short leader runs to the shape's nearest edge; if no
+place qualifies the name is left out of the drawing and named in the title and aria text (it stays in
+the key). Tests: the patio-above-building geometry at the dialog's scale with the patio's inside taken
+(the name goes outside, clear of the building, with a leader ending on the patio's edge), and every
+name against every other shape's polygon (a 9 x 9 grid of the box) on the sample and live geometry at
+the Property page's and the dialog's scales for 100, 200 and 400 %, with and without a fence traced
+across. Removing the area check fails two tests; removing the leader fails one. Rendered, in the
+dialog (Fence, Close aerial, Diagram, 1440 x 900) at 100, 200 and 400 %, without and with a fence
+drawn across the patio and the building: zero label overlaps and no name over another shape (with the
+fence at 100 % the patio's name goes outside with a leader); the Property page still zero. Web suite
+574.
+
+A fifth check found the patio's name under the key (HTML over the stage's corner). The key is now a
+strip at the top of the bar under the picture (one line per item, wrapping), never over the drawing.
+The north arrow, scale bar and source note stay over the picture; their screen rectangles, mapped
+into the diagram's picture pixels at the current zoom and scroll (`PM.furnitureObstacles`), are taken
+before any label is placed, recomputed after every render and 60 ms after a pan. The trace's own
+labels, drawn by the tool, never move and may sit under them (seen once: the fence's 47'-5" under the
+source note at 200 % panned to the top-left corner). Measured furniture at 1440 x 900: north 36 x 43,
+scale bar 132 (page) or 142 (dialog) x 36, source 482 or 548 x 38. Placing names around the others
+showed two more faults, fixed with the same check: a leader drawn through a length label, and the
+patio's name below the building with its leader through the building. A leader now crosses no label
+and no other shape's edge (a place that needs one does not qualify), and a name and its leader keep
+to their side of the lot lines where they can (else anywhere that qualifies). Unit tests: the
+furniture mapping; every label and name against the furniture on both stages, sample and live, at
+100, 200 and 400 % panned to two corners and the middle (over 500 label-furniture pairs; without the
+furniture taken some would be under it); no leader crosses a label or another shape, with and without
+the fence and the furniture; names and leaders on their side of the lot lines; the key outside the
+stage's view. Mutations (furniture ignored, leader check off, shapes left out of the leader check,
+lot lines off) each fail a test. Rendered, both stages (sample, the dialog with a fence drawn by hand,
+live), 100, 200 and 400 %, panned: zero label overlaps, zero lengths or names under furniture, no
+name over another shape, the key outside the stage's view. Web suite 578.
+
+**Open.** No lot line on the live study (no parcel); the outline is the roof, not the walls; the
+building is not drawn in photo mode (only snapped to); the outline is not checked against a surveyed
+footprint.
+

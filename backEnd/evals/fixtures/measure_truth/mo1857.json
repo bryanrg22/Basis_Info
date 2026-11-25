@@ -1,0 +1,616 @@
+{
+ "schema": "measure_truth/v1",
+ "id": "mo1857",
+ "name": "Harry S. Truman Farm Home",
+ "loc_url": "https://www.loc.gov/pictures/item/mo1857/",
+ "survey_number": "HABS MO-1937",
+ "drawing_date": "1996",
+ "address": "12302 Blue Ridge Boulevard, Grandview, Jackson County, MO",
+ "location": {
+  "lat": 38.9017184,
+  "lon": -94.5309026,
+  "how": "centre of the building's outline clicked by hand on the public ortho mo-2023-2024 (2024, 0.150 m/px), pixel (636, 505)"
+ },
+ "standing": {
+  "status": "unchanged",
+  "source": "public ortho mo-2023-2024",
+  "year": 2024,
+  "note": "The farmhouse south of Blue Ridge Boulevard in the NPS grounds beside the visitor parking (located from the historical marker coordinates, 38 deg 54.1 min N, 94 deg 31.85 min W); about 108 x 76 px (16 x 11 m) with porches and eaves against walls of 44 ft 5 in x 36 ft 4 in plus a 5 ft 10 in porch; the two-storey hip block and the lower wings read as drawn; no addition visible. NPS-owned."
+ },
+ "passes": {
+  "a": "pass A: an independent reader of the 400 dpi sheets (2026-11-25), chain and heights read from crops",
+  "b": "pass B: a second independent reader of the same sheets (2026-11-25), not shown pass A",
+  "disagreements": [
+   {
+    "what": "everything scored",
+    "pass_a": "identical chain and heights",
+    "pass_b": "identical",
+    "resolved": "A"
+   },
+   {
+    "what": "overhang",
+    "pass_a": "1.25 ft scaled (west elevation)",
+    "pass_b": "1.1 ft scaled (plan's dashed roof line)",
+    "resolved": "not scored (roof.derive false); the mean 1.175 ft is recorded"
+   }
+  ]
+ },
+ "sheets": {
+  "2": "first floor plan, 3/8\" = 1'-0\" (150 px per ft), dimensioned top (50'-3 1/2\" with the west porch), left (36'-4\") and right (36'-4\") strings, no bottom string; delineated 1996",
+  "3": "second floor plan, 3/8\" = 1'-0\", dimensioned (50'-10\" top with the porch roof, left 36'-2\")",
+  "5": "west elevation, 3/8\" = 1'-0\": heights as dimension strings from grade (no level datum); delineated 1996",
+  "6": "north elevation, 3/8\" = 1'-0\": height strings (main block right, kitchen wing left); delineated 1996",
+  "7": "east elevation, 3/8\" = 1'-0\": height strings; delineated 1997",
+  "8": "south elevation, 3/8\" = 1'-0\": height strings"
+ },
+ "stories": 2,
+ "roof_shape": "hip (two-storey west block) with a lower east-west gable over the two-storey dining block and a one-storey gable kitchen wing",
+ "plan": {
+  "sheet": "2",
+  "scale": "3/8\" = 1'-0\"",
+  "chain": [
+   {
+    "dir": "E",
+    "length": {
+     "ft": 16.2501,
+     "how": "derived",
+     "note": "top string segments 6'-11\" + 2'-5\" + 6'-11\" = 16'-3\" over the parlor's north wall",
+     "sheet": "2"
+    },
+    "label": "parlor's top (north) wall"
+   },
+   {
+    "dir": "S",
+    "length": {
+     "ft": 8.9167,
+     "how": "derived",
+     "note": "right string 5'-11\" + 2'-5\" + 7\" = 8'-11\" (parlor's north wall to the dining block's north wall)",
+     "sheet": "2"
+    },
+    "label": "parlor's right (east) wall above the dining block"
+   },
+   {
+    "dir": "E",
+    "length": {
+     "ft": 16.1667,
+     "how": "derived",
+     "note": "top string 5'-8\" + 2'-1\" + 8'-5\" = 16'-2\"",
+     "sheet": "2"
+    },
+    "label": "dining block's top (north) wall"
+   },
+   {
+    "dir": "S",
+    "length": {
+     "ft": 1.25,
+     "text": "1'-3\"",
+     "how": "printed",
+     "sheet": "2",
+     "note": "right string"
+    },
+    "label": "step down to the kitchen wing's north wall"
+   },
+   {
+    "dir": "E",
+    "length": {
+     "ft": 11.9999,
+     "how": "derived",
+     "note": "top string 3'-4\" + 2'-1\" + 6'-7\" = 12'-0\"",
+     "sheet": "2"
+    },
+    "label": "kitchen's top (north) wall"
+   },
+   {
+    "dir": "S",
+    "length": {
+     "ft": 10.3333,
+     "text": "10'-4\"",
+     "how": "printed",
+     "sheet": "2",
+     "note": "right string"
+    },
+    "label": "kitchen's right (east) wall"
+   },
+   {
+    "dir": "W",
+    "length": {
+     "ft": 12.0,
+     "how": "derived",
+     "note": "no bottom string on the plan: taken equal to the kitchen's north wall, 12'-0\"; the kitchen's east wall is straight on the sheet (outside face at x 10925 px at both corners)",
+     "sheet": "2"
+    },
+    "label": "kitchen's bottom (south) wall, behind the screened kitchen porch"
+   },
+   {
+    "dir": "S",
+    "length": {
+     "ft": 6.9167,
+     "how": "derived",
+     "note": "right string 5'-5\" + 1'-6\" = 6'-11\"",
+     "sheet": "2"
+    },
+    "label": "dining block's right (east) wall below the kitchen"
+   },
+   {
+    "dir": "W",
+    "length": {
+     "ft": 16.1667,
+     "how": "derived",
+     "note": "no bottom string: taken equal to the dining block's north wall, 16'-2\"",
+     "sheet": "2"
+    },
+    "label": "dining block's bottom (south) wall, behind the screened south porch"
+   },
+   {
+    "dir": "S",
+    "length": {
+     "ft": 8.9166,
+     "how": "derived",
+     "note": "right string 7'-7\" + 1'-4\" = 8'-11\"",
+     "sheet": "2"
+    },
+    "label": "sitting room's right (east) wall below the dining block"
+   },
+   {
+    "dir": "W",
+    "length": {
+     "ft": 16.2501,
+     "how": "derived",
+     "note": "no bottom string: taken equal to the parlor's 16'-3\"; the sitting room's east wall lines up with the parlor's on the sheet (outside faces at x 6705-6707 px)",
+     "sheet": "2"
+    },
+    "label": "sitting room's bottom (south) wall"
+   },
+   {
+    "dir": "N",
+    "length": {
+     "ft": 36.3333,
+     "text": "36'-4\"",
+     "how": "printed",
+     "sheet": "2",
+     "note": "left overall; segments 5'-0\" 11\" 2'-5\" 8'-6\" 2'-10\" 8'-4\" 2'-4\" 1'-0\" 5'-0\" add to it; the right string (1'-4\" 7'-7\" 1'-6\" 5'-5\" 10'-4\" 1'-3\" 7\" 2'-5\" 5'-11\") also adds to 36'-4\""
+    },
+    "label": "west (front) wall"
+   }
+  ],
+  "excluded": [
+   "open front porch along the west wall: 5'-10 1/2\" deep (top string), about 34 ft long (posts from about y 2960 to 6960 px)",
+   "screened porch south of the dining block, 14'-6\" x 7'-2\" (room label), screens on a wainscot, steps down",
+   "screened porch south of the kitchen, 9'-8\" x 5'-0\" (room label)",
+   "masonry cellar window well (semicircular) on the dining block's north wall",
+   "walks, platform and cistern/pump pad south of the kitchen porch"
+  ],
+  "north": "up (the arrow points to the sheet's top; the front porch faces west, sheet left)",
+  "note": "Start at the parlor's top-left (north-west) outside corner and walk clockwise on the sheet: two-storey west block (parlor, hall, sitting room, 16'-3\" x 36'-4\"), two-storey dining block east of it, one-storey kitchen wing east of that. The plan has no bottom string, so the three south walls are taken from the north walls they mirror (checked on the sheet)."
+ },
+ "floors": [
+  {
+   "level": "first",
+   "finished": true,
+   "same_as_ground": true
+  },
+  {
+   "level": "second",
+   "finished": true,
+   "chain": [
+    {
+     "dir": "E",
+     "length": {
+      "ft": 16.0833,
+      "how": "derived",
+      "note": "second floor top string 6'-10\" + 2'-6\" + 6'-9\" = 16'-1\"",
+      "sheet": "3"
+     },
+     "label": "west block's top wall"
+    },
+    {
+     "dir": "S",
+     "length": {
+      "ft": 8.7917,
+      "text": "8'-9 1/2\"",
+      "how": "printed",
+      "sheet": "3",
+      "note": "right string"
+     },
+     "label": "west block's east wall above the dining block"
+    },
+    {
+     "dir": "E",
+     "length": {
+      "ft": 15.9166,
+      "how": "derived",
+      "note": "top string 5'-7\" + 2'-1\" + 8'-3\" = 15'-11\"",
+      "sheet": "3"
+     },
+     "label": "dining block's top wall"
+    },
+    {
+     "dir": "S",
+     "length": {
+      "ft": 18.5,
+      "how": "derived",
+      "note": "right string 8\" (wall) + 17'-1\" (room) + 9\" (wall) = 18'-6\"",
+      "sheet": "3"
+     },
+     "label": "dining block's east wall"
+    },
+    {
+     "dir": "W",
+     "length": {
+      "ft": 15.9583,
+      "how": "derived",
+      "note": "bottom string 6'-10 1/2\" + 2'-1\" + 6'-7\" + 5\" = 15'-11 1/2\"",
+      "sheet": "3"
+     },
+     "label": "dining block's bottom wall"
+    },
+    {
+     "dir": "S",
+     "length": {
+      "ft": 8.875,
+      "how": "derived",
+      "note": "left overall 36'-2\" less 8'-9 1/2\" and 18'-6\" = 8'-10 1/2\"; the right string prints 8'-5\" here, which scales 9.07 ft and does not close to 36'-2\"",
+      "sheet": "3"
+     },
+     "label": "west block's east wall below the dining block"
+    },
+    {
+     "dir": "W",
+     "length": {
+      "ft": 16.0833,
+      "how": "derived",
+      "note": "taken equal to the top 16'-1\": the bottom string's first segment over this wall prints only 0\" (digits missing); with 2'-5\" + 6'-9\" it scales 7.0 + 2.4 + 6.8 ft",
+      "sheet": "3"
+     },
+     "label": "west block's bottom wall"
+    },
+    {
+     "dir": "N",
+     "length": {
+      "ft": 36.1667,
+      "text": "36'-2\"",
+      "how": "printed",
+      "sheet": "3",
+      "note": "left overall; segments 4'-5\" 1'-5\" 2'-5\" 8'-9\" 2'-6\" 8'-4\" 2'-5\" 1'-5\" 4'-6\" add to it"
+     },
+     "label": "west wall"
+    }
+   ],
+   "sheet": "3",
+   "note": "Over the west block and the dining block (four bedrooms and hall); the kitchen wing is one storey. The second floor's strings read 1-3\" smaller than the first floor's for the same walls (16'-1\" vs 16'-3\", 36'-2\" vs 36'-4\", 15'-11\" vs 16'-2\"); the walls are at the same sheet positions within 0.1 ft."
+  }
+ ],
+ "heights": {
+  "eave": {
+   "above_grade_ft": 19.7917,
+   "text": "19'-9 1/2\"",
+   "datum_text": "0'-0\"",
+   "how": "printed",
+   "sheet": "5",
+   "elevation": "west elevation",
+   "note": "printed as a dimension from grade to the eave (top of the box gutter/cornice) on the left (south end) string; the right (north end) string reads 19'-11\". No level datum is printed on any elevation; 0'-0\" stands for the grade the dimension starts at."
+  },
+  "ridge": {
+   "above_grade_ft": 27.4584,
+   "how": "derived",
+   "sheet": "5",
+   "elevation": "west elevation",
+   "note": "west elevation left string: 19'-9 1/2\" (grade to eave) + 7'-8\" (eave to the hip roof's ridge) = 27'-5 1/2\"; the right string gives 19'-11\" + 7'-9\" = 27'-8\""
+  },
+  "readings": [
+   {
+    "what": "grade to eave",
+    "text": "19'-9 1/2\"",
+    "datum_text": "grade",
+    "sheet": "5",
+    "elevation": "west elevation",
+    "note": "left string"
+   },
+   {
+    "what": "eave to ridge",
+    "text": "7'-8\"",
+    "datum_text": "eave",
+    "sheet": "5",
+    "elevation": "west elevation",
+    "note": "left string"
+   },
+   {
+    "what": "ridge to chimney top",
+    "text": "3'-4\"",
+    "datum_text": "ridge",
+    "sheet": "5",
+    "elevation": "west elevation",
+    "note": "left string"
+   },
+   {
+    "what": "grade to chimney top",
+    "text": "30'-9 1/2\"",
+    "datum_text": "grade",
+    "sheet": "5",
+    "elevation": "west elevation",
+    "note": "left overall"
+   },
+   {
+    "what": "grade to eave",
+    "text": "19'-11\"",
+    "datum_text": "grade",
+    "sheet": "5",
+    "elevation": "west elevation",
+    "note": "right string"
+   },
+   {
+    "what": "eave to ridge",
+    "text": "7'-9\"",
+    "datum_text": "eave",
+    "sheet": "5",
+    "elevation": "west elevation",
+    "note": "right string"
+   },
+   {
+    "what": "ridge to chimney top",
+    "text": "3'-3\"",
+    "datum_text": "ridge",
+    "sheet": "5",
+    "elevation": "west elevation",
+    "note": "right string"
+   },
+   {
+    "what": "grade to first floor",
+    "text": "1'-1\"",
+    "datum_text": "grade",
+    "sheet": "6",
+    "elevation": "north elevation",
+    "note": "right string (main block)"
+   },
+   {
+    "what": "first floor to second floor",
+    "text": "9'-2\"",
+    "datum_text": "first floor",
+    "sheet": "6",
+    "elevation": "north elevation"
+   },
+   {
+    "what": "second floor to eave",
+    "text": "10'-6\"",
+    "datum_text": "second floor",
+    "sheet": "6",
+    "elevation": "north elevation",
+    "note": "scales 9.52 ft (1428 px at 150 px/ft); every other elevation puts the eave 19'-8\" to 20'-6\" above grade, so 10'-6\" is probably a misprint for 9'-6\""
+   },
+   {
+    "what": "eave to chimney top",
+    "text": "10'-11 1/2\"",
+    "datum_text": "eave",
+    "sheet": "6",
+    "elevation": "north elevation"
+   },
+   {
+    "what": "grade to kitchen eave",
+    "text": "7'-10\"",
+    "datum_text": "grade",
+    "sheet": "6",
+    "elevation": "north elevation",
+    "note": "left string (kitchen wing)"
+   },
+   {
+    "what": "kitchen eave to kitchen ridge",
+    "text": "5'-5\"",
+    "datum_text": "eave",
+    "sheet": "6",
+    "elevation": "north elevation"
+   },
+   {
+    "what": "kitchen ridge to chimney top",
+    "text": "2'-1\"",
+    "datum_text": "ridge",
+    "sheet": "6",
+    "elevation": "north elevation"
+   },
+   {
+    "what": "grade to kitchen chimney top",
+    "text": "15'-4\"",
+    "datum_text": "grade",
+    "sheet": "6",
+    "elevation": "north elevation"
+   },
+   {
+    "what": "grade to first floor",
+    "text": "2'-2\"",
+    "datum_text": "grade",
+    "sheet": "7",
+    "elevation": "east elevation",
+    "note": "left string"
+   },
+   {
+    "what": "first floor to eave",
+    "text": "18'-4\"",
+    "datum_text": "first floor",
+    "sheet": "7",
+    "elevation": "east elevation",
+    "note": "left string"
+   },
+   {
+    "what": "eave to ridge",
+    "text": "7'-11\"",
+    "datum_text": "eave",
+    "sheet": "7",
+    "elevation": "east elevation",
+    "note": "left string"
+   },
+   {
+    "what": "ridge to chimney top",
+    "text": "3'-1\"",
+    "datum_text": "ridge",
+    "sheet": "7",
+    "elevation": "east elevation",
+    "note": "left string"
+   },
+   {
+    "what": "grade to chimney top",
+    "text": "31'-6\"",
+    "datum_text": "grade",
+    "sheet": "7",
+    "elevation": "east elevation",
+    "note": "left overall"
+   },
+   {
+    "what": "grade to first floor",
+    "text": "1'-8\"",
+    "datum_text": "grade",
+    "sheet": "7",
+    "elevation": "east elevation",
+    "note": "right string"
+   },
+   {
+    "what": "first floor to eave",
+    "text": "18'-5\"",
+    "datum_text": "first floor",
+    "sheet": "7",
+    "elevation": "east elevation",
+    "note": "right string"
+   },
+   {
+    "what": "eave to ridge",
+    "text": "7'-9 1/2\"",
+    "datum_text": "eave",
+    "sheet": "7",
+    "elevation": "east elevation",
+    "note": "right string"
+   },
+   {
+    "what": "ridge to chimney top",
+    "text": "3'-2\"",
+    "datum_text": "ridge",
+    "sheet": "7",
+    "elevation": "east elevation",
+    "note": "right string"
+   },
+   {
+    "what": "grade to first floor",
+    "text": "1'-1\"",
+    "datum_text": "grade",
+    "sheet": "8",
+    "elevation": "south elevation",
+    "note": "left string"
+   },
+   {
+    "what": "first floor to second floor",
+    "text": "9'-3\"",
+    "datum_text": "first floor",
+    "sheet": "8",
+    "elevation": "south elevation"
+   },
+   {
+    "what": "second floor to window head level",
+    "text": "2'-0\"",
+    "sheet": "8",
+    "elevation": "south elevation",
+    "note": "intermediate tick"
+   },
+   {
+    "what": "to eave",
+    "text": "7'-6\"",
+    "sheet": "8",
+    "elevation": "south elevation",
+    "note": "grade to eave 1'-1\" + 9'-3\" + 2'-0\" + 7'-6\" = 19'-10\""
+   },
+   {
+    "what": "eave to ridge",
+    "text": "7'-8\"",
+    "datum_text": "eave",
+    "sheet": "8",
+    "elevation": "south elevation"
+   },
+   {
+    "what": "ridge to chimney top",
+    "text": "3'-2\"",
+    "datum_text": "ridge",
+    "sheet": "8",
+    "elevation": "south elevation"
+   },
+   {
+    "what": "grade to chimney top",
+    "text": "30'-8\"",
+    "datum_text": "grade",
+    "sheet": "8",
+    "elevation": "south elevation",
+    "note": "left overall"
+   },
+   {
+    "what": "grade to kitchen ridge",
+    "text": "13'-3 1/2\"",
+    "datum_text": "grade",
+    "sheet": "8",
+    "elevation": "south elevation",
+    "note": "right string"
+   },
+   {
+    "what": "kitchen ridge to chimney top",
+    "text": "2'-2\"",
+    "datum_text": "ridge",
+    "sheet": "8",
+    "elevation": "south elevation",
+    "note": "right string"
+   }
+  ]
+ },
+ "roof": {
+  "overhang": {
+   "ft": 1.175,
+   "how": "scaled",
+   "scale": "3/8\" = 1'-0\"",
+   "note": "mean of the two passes' scaled readings, 1.25 and 1.1 ft",
+   "sheet": "5"
+  },
+  "eaves": [
+   "N",
+   "S",
+   "W"
+  ],
+  "note": "West block: hip roof, eaves all round its exposed sides. Dining block and kitchen wing: east-west gables with eaves on the north and south and rakes on the east. No roof plan; the eave level differs by block (main 19'-8\" to 20'-6\" above grade, dining block's eave about 13.5 ft scaled, kitchen 7'-10\").",
+  "derive": false,
+  "derive_note": "hip over the west block with lower gables over the dining block and the kitchen wing: mixed"
+ },
+ "porches": [
+  {
+   "name": "front porch (west)",
+   "a": {
+    "ft": 5.875,
+    "text": "5'-10 1/2\"",
+    "how": "printed",
+    "sheet": "2",
+    "note": "top string, porch edge to the west wall"
+   },
+   "b": {
+    "ft": 26.7,
+    "how": "scaled",
+    "scale": "3/8\" = 1'-0\"",
+    "note": "sheet 2: porch floor from about y 2960 to 6960 px at 150 px/ft",
+    "sheet": "2"
+   }
+  }
+ ],
+ "flags": [
+  {
+   "code": "no_overall",
+   "note": "No printed east-west overall of the walls: the top string's 50'-3 1/2\" includes the 5'-10 1/2\" west porch (walls 44'-5\"), and the plan has no bottom string. North-south both side strings add to 36'-4\" and the chain matches."
+  },
+  {
+   "code": "note",
+   "note": "Three south walls (kitchen, dining block, sitting room) are derived from the north walls they mirror because the first floor plan has no bottom string; checked on the sheet (corners line up within 0.1 ft)."
+  },
+  {
+   "code": "note",
+   "note": "The first and second floor plans print the same walls 1-3\" apart (16'-3\" / 16'-1\", 36'-4\" / 36'-2\", 16'-2\" / 15'-11\"); the parlor's 16'-3\" scales 16.12 ft, and its first 6'-11\" segment scales 6.81 ft, so the first floor's 16'-3\" may be about 2\" long."
+  },
+  {
+   "code": "note",
+   "note": "North elevation: second floor to eave prints 10'-6\" but scales 9.52 ft; read as a likely misprint for 9'-6\". Second floor plan: the right string's lowest segment prints 8'-5\" but scales 9.07 ft and the left overall needs 8'-10 1/2\"; the bottom string's first west-block segment prints only 0\"."
+  },
+  {
+   "code": "note",
+   "note": "Grade varies: the eave over the main block is 19'-9 1/2\" (west elevation, south end), 19'-11\" (west, north end), 19'-10\" (south), 20'-1\" and 20'-6\" (east). One eave height also ignores the lower dining-block and kitchen eaves."
+  }
+ ],
+ "note": "Kept from pass A, with the resolutions in passes.disagreements."
+}

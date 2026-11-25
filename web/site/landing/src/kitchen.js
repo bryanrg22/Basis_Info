@@ -74,6 +74,9 @@ export async function mountKitchen(fig) {
   const replay = fig.querySelector('.detect-replay');
   const sec = fig.closest('section');
   const say2 = sec && sec.querySelector('.cs-2'), say2in = say2 && say2.querySelector('.cs-in');
+  // Desktop holds the section's second line back until the engineer steps in; stacked (tablets
+  // and phones) it shows from the start, so the space under the heading is never left empty.
+  const holdSay = !matchMedia('(max-width: 980px)').matches;
 
   // Labels are placed by fractions of the photo but keep their own size, so on a narrower photo a
   // label near the edge would run off it; nudge each one back inside.
@@ -154,7 +157,7 @@ export async function mountKitchen(fig) {
     for (const c of changes) c.classList.toggle('is-on', !start);
     cursor.classList.remove('is-on');
     drag.style.opacity = 0;
-    if (say2) { say2in.getAnimations().forEach((a) => a.cancel()); say2.classList.toggle('is-hold', start); }
+    if (say2) { say2in.getAnimations().forEach((a) => a.cancel()); say2.classList.toggle('is-hold', start && holdSay); }
   }
 
   let run = 0, cx = 0, cy = 0;
@@ -189,7 +192,7 @@ export async function mountKitchen(fig) {
       }
       await wait(1100, token);
       // 2. the second line rises in as the engineer steps in and marks the stair edge Not counted
-      if (say2) {
+      if (say2 && holdSay) {
         say2.classList.remove('is-hold');
         say2in.animate([{ transform: 'translateY(105%)' }, { transform: 'none' }], { duration: 800, easing: EASE });
         await wait(250, token);

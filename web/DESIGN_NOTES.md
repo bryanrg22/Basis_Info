@@ -1,5 +1,157 @@
 # Basis visual design review
 
+## November 2026: Measure tool
+
+A length on every edge of a traced shape, as Fusion 360 and EagleView show them, editing after
+drawing, typed lengths, measuring on photos, and the AI's original beside the engineer's edit
+(`live/property.js`, `live/property-model.js`, `live/property.css`; EVAL_REPORT 104;
+`docs/review_2026-10-15/AI_MEASUREMENT_PLAN.md` sections 3 and 6). The screen is the maintainer's
+to redirect.
+
+* **One tool, two places.** The Property page's side panel (as before) and a dialog opened by
+  Measure on the Assets list and Measure or Edit measurement on the asset page, so a row is
+  measured where it is reviewed. Every row with an area or a length offers Measure (the engineer
+  can measure and change any such quantity, not only one the takeoff could not size: roof,
+  siding, flooring are priced by formulas); it is the primary button only on a row held for a
+  measured quantity. On the live study (2026-11-25) 71 of 388 rows offer it.
+* **The picker.** The property's top-down pictures (outside items, the pin confirmed) as chips;
+  then the asset's own photos as up to eight thumbnails (where it was seen, then its room's); every
+  other photo behind one "All photos (52)" list. A study with 52 photos had pushed the picture
+  below the fold as 52 chips.
+* **Picture and controls together.** The dialog fills the window: the picture takes the height
+  left (CSS container units fit it to the pane), the controls sit beside it and scroll on their
+  own with Undo to Save pinned at their foot. Checked at 1440 x 900 and 1280 x 800: the picture
+  and Save are both on screen with no page scroll. Below 1000 px wide it stacks.
+* **Labels.** Feet and inches to the nearest inch at each edge's middle, outside the shape, turned
+  along the edge but never upside down; whole feet when the full text does not fit on screen,
+  none when nothing fits (the Edges table lists every edge). Area and perimeter (SY when the unit
+  is SY) at a point inside the shape; a line's total at its end; a wall face as length x height.
+  Label and handle sizes follow the screen (picture pixels per screen pixel measured after each
+  render), so they read the same at every zoom.
+* **Editing.** Drag a corner (pointer events: mouse, pen, touch), drag an edge's middle dot to add
+  one, Delete or Backspace (or the button) removes the selected corner, arrows move it a pixel
+  (Shift: ten), + adds a corner after it. Undo and Redo (Cmd/Ctrl+Z, Shift+Cmd+Z, Ctrl+Y) cover
+  drawing and editing. Snap (on by default, a visible toggle) pulls to the shape's corners, then
+  the parcel's corners, then its edges, within 8 screen pixels. An edit that makes a ring cross
+  itself, or puts a corner off the picture, is undone with the server's words.
+* **Typed lengths.** Click a label (or Enter on it, or a length in the Edges table) and type
+  54'-3", 54' 3", 54.25, 54.25 ft, 36 in or 16.5 m: the far corner moves along the edge and the
+  label always matches the geometry (Fusion's driving dimension, never AutoCAD's text override).
+  When both corners of the edge are square (within 3 degrees: the sample's model draft has corners
+  2.05 degrees off), the far side slides with it and a rectangle stays a rectangle, as a sketch
+  with perpendicular constraints would; otherwise the next edge stretches.
+* **The original.** A stored measurement (a model's draft; there are none yet, the sample has one
+  with `&measure=draft`) opens as it is with "Drafted by Basis · not verified". Once changed, the
+  draft stays dashed yellow beside the new shape, changed labels turn amber, and the Edges table
+  shows the draft's length and the change per edge. Verified is a checkbox: on by default for an
+  engineer's own trace, off for a draft until the engineer ticks it.
+* **Photos.** Scale first (a photo opens on the Scale tool): two clicks on something of known
+  length and its length typed or picked from the hints; the area and line tools wait for it. The scale line is drawn with its length.
+* **Zoom.** A small shape opens zoomed onto it (2x or 4x); the zoomed picture keeps its scroll
+  across renders.
+* **Photo | Diagram.** A switch beside the zoom on every georeferenced top-down view (not on
+  photos) swaps the picture for a clean plan in the same pixels: light ground, lot lines (adjacent
+  dashed), each measured item in its type's colour with its lengths and total, a key, north, a scale
+  bar in round feet and the picture's date and source. The overlay is the same in both, so a shape
+  can be traced on the photo and checked on the plan. Photo by default; the choice is kept in this
+  browser. The lidar's roof outline is drawn grey with its edge lengths and in the key, and the
+  tool snaps to it (in photo mode too): the shape's own corners first, then the building's corners
+  and edges, then the parcel's. The north arrow, scale bar and source sit in the stage's corners
+  over the picture, so they stay on screen when zoomed (the scale bar a round length chosen for the
+  current zoom); no length or name is placed under them, at any zoom or scroll. The key is a strip
+  at the top of the bar under the picture, one line per item, so it never covers the drawing. A
+  name sits inside its shape or outside every other, with a leader that crosses no label, lot line
+  or other shape; else it is left out and named in the title (it stays in the key). Captures 40 to 47 (sample) and 50 to 59 (live).
+
+Headless captures at 1440 x 900 on the sample (`?mode=live&api=sample&sample=assets&property=confirmed&measure=draft`),
+kept with the private work files (`$BASIS_EVAL_DATA_DIR/work/measure_tool/`): 01 to 27 on the
+sample (the list, the fence traced and typed, a drag, the patio draft edited with its original, a
+refused crossing, the photo with its scale, the send, the read-only card, the Property page
+zoomed, Measure on every row, the picker and layout at both sizes, a rectangle typed and still
+square), 30 to 35 on the live study (the list, the picker over 52 photos, a counter measured on its
+photo, restored after a reload from the server's draft, removed again).
+
+## November 2026: Property
+
+The study's dated pictures of its property, its public records and the tracing tool
+(`live/property.js`, `live/property-model.js`, `live/property.css`; `README.md`, "The Property
+area"). The screen design is the maintainer's: everything below is a proposal to redirect.
+
+### Where it sits, and why
+
+* **Not a step.** The step bar is the gates (Upload to Report & sign); a capture is a background
+  record that starts at intake and serves every gate (the appraisal's site check, the components
+  of the outside, the assets' measurements, renovation dates). A step would read as something to
+  approve. It sits with the other study records (History, Study inputs, Results) as a link, and
+  as a card at the top of Study progress's side column, above Study details.
+* **The card asks the first question.** `docs/review_2026-10-15/PROPERTY_CAPTURE.md` section 7.2:
+  the first thing the engineer sees is the point the search found. The card shows the close
+  aerial with the pin and, until it is confirmed, "Is this the right house?" as its action.
+* **Measuring starts from the row.** A row the takeoff could not size gets Measure on the assets
+  review (the row is where the engineer finds the problem); it opens the Property area on the
+  suggested picture with the tool in the side column, and Save puts the measurement with the
+  review's other corrections, so it is sent, reviewed and audited like them.
+
+### Decisions (each the maintainer's to change)
+
+* **Map-free.** The pin is moved by clicking the house on a top-down picture: no map library, no
+  provider tiles; the picture is already of the place. A point can only be dropped on a picture
+  the capture took, so an address that found no place is fixed by editing the address.
+* **Pictures on the photo workspace's forest canvas**, with an opaque caption line under each:
+  date, season, pixel size, then the source or credit (the credit is required by public sources
+  and names no provider in the sample). Overlays use a light halo under a dark line so they read
+  on any picture: the parcel yellow (adjacent parcels dashed), the pin red, the tracing green,
+  cut-outs dashed amber.
+* **Default view:** the wide aerial while the pin is unconfirmed (the house in its setting), the
+  close aerial after; the suggested `measure_on` view when measuring. Phones always open on the
+  close aerial (the wide one shows the house at a few pixels).
+* **"Stale" views.** The API marks a view stale when the pin's version changed, and confirming
+  the pin changes the version without moving it, so every confirmation would ask to take the
+  pictures again (6 page loads an hour per worker). The app treats a stale view whose centre is
+  still the pin as current and asks for a retake only when the point moved. Reported to the
+  backend; the fix belongs there (compare the point, not the version).
+* **Pixels to lon/lat** use the WGS84 radii of curvature at the view's centre, the same ones the
+  server measures with (`basis/domain/traced.py`), not the backlog's rounded 111,320 and 110,540
+  metres a degree: those would bias a traced area by about half a percent at 43 degrees north
+  (`tests/property-model.test.cjs` measures it). A public view converts through its exact Mercator
+  box. A public image has a year, not a date, so a measurement on it leaves `captured_on` out and
+  the review flags it undated; the tool says so before saving. Coarse public years (over 0.5 m a
+  pixel) are for seeing, not measuring.
+* **The tracing interaction** follows the measuring tools engineers know: the area or length
+  updates with every click, as in QGIS's measure tool and Esri's area measurement widget (area and
+  perimeter of the polygon being drawn, with a clear action); an area closes by clicking its first
+  corner (highlighted once there are three), a line finishes by clicking its last point again,
+  Enter or Finish line (QGIS finishes on a right click, which nobody finds); Undo, Clear and Esc;
+  zoom to 400 % with the picture scrolling under a fixed toolbar. Shapes stay with the picture
+  they were drawn on, and carry over only to a picture with the same georeference (every dated
+  view shares the close aerial's camera). References: [ArcGIS AreaMeasurement2D](https://developers.arcgis.com/javascript/latest/references/core/widgets/AreaMeasurement2D/),
+  [QGIS measure tools help](https://svn.osgeo.org/qgis/trunk/qgis/resources/context_help/QgsMeasureDialog-en_US)
+  (an older help text; the right-click finish was not re-checked in a current QGIS).
+* **Compare:** side by side by default on a desktop, a slider on a phone and whenever asked; the
+  slider only when both pictures share a georeference, since a slider over two scales misleads.
+* **Renovation evidence** is recorded from the compare (the two dates it shows), as
+  corroboration only, which the panel says.
+* **Phone (390 px), redesigned not stacked** (the repository's rule: ask whether each element
+  belongs on a phone): the house question first, one picture at a time with the view chips
+  swiping sideways, the dated pictures and the four sides as swipeable rows, the compare as a
+  slider. Cut: zoom buttons, the optional head actions (Take them again when nothing asks for it,
+  the back button the breadcrumb already gives), the list of assets to measure, thumbnail
+  credits. The tracing tool is desktop and tablet only and the phone says so instead.
+
+### Verified
+
+Node: `tests/property-model.test.cjs` (the measurement against the server's documented values,
+the ellipsoid's closed form at every latitude from 25 to 49 N within 0.01 %, and the server
+module's own answers on 24 synthetic shapes to the cent; georeference round trips; status texts;
+the history strip; capabilities), `tests/sample-property.test.cjs` (the routes as the contracts
+say, the drawn site measuring what it is, the measurement pricing the row),
+`tests/property-screen.test.cjs` (the rendered area for each capability set and state, the
+correction it adds, 412 and 429). Browser: Chromium at 1440 x 900 and WebKit at 390 x 844 on the
+sample, every state and the flows above; no console error from these screens (the only errors
+were the sample photos absent from git, as before). Captures are kept outside the repository
+(`~/basis-eval-data/work/property_screen/`). Not verified: a real capture's PNGs (the sample draws
+SVG), the iOS Simulator, a screen reader pass, live mode against the branches' running backend.
+
 ## October 22: shared engineer interface
 
 The photo workspace's contrast and control discipline now extends through the engineer

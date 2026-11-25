@@ -29,7 +29,14 @@ from basis.db.enums import Bucket
 from basis.domain.rules import RULES, canonical_key, lookup
 from basis.errors.codes import E
 from basis.report.inputs import ReportInputs, missing_for_final
-from basis.report.tax import BonusDefault, ClassTerms, bonus_default, terms
+from basis.report.tax import (
+    QIP_AUTHORITY,
+    QIP_TERMS,
+    BonusDefault,
+    ClassTerms,
+    bonus_default,
+    terms,
+)
 
 TEMPLATE_VERSION: Final = "1"
 CENT: Final = Decimal("0.01")
@@ -127,6 +134,69 @@ class ItemLine:
     # EVAL_REPORT 90: priced at the engineer's unit price, not the cost table: the price
     # and its source, as the report prints them; None for a table or model price.
     engineer_price: str | None = None
+    # EVAL_REPORT 102: a renovation row the schedule prints as qualified improvement property.
+    qip: bool = False
+
+    @property
+    def terms(self) -> ClassTerms:
+        return QIP_TERMS if self.qip else terms(self.bucket)
+
+
+@dataclass(frozen=True, slots=True)
+class RenovationSchedule:
+    """One after-service renovation project's schedule (EVAL_REPORT 102): its own dates, its
+    rows priced from its invoices (the capitalized amount apportioned by the estimates)."""
+
+    key: str
+    scope: str
+    addition: bool
+    acquired: date  # the contract date, else the work-start date
+    acquired_source: str
+    placed_in_service: date
+    capitalized: Decimal
+    confirmed_by: str
+    invoice_total: Decimal
+    estimate_total: Decimal
+    bonus: BonusDefault | None
+    items: tuple[ItemLine, ...]
+    classes: tuple[tuple[str, Decimal, int], ...]  # (class name, allocated, items)
+    invoices: tuple[tuple[str, Decimal, str, str], ...]  # (document id, amount, date, words)
+    after_photos: int
+    aerial: str  # the dated views, in words ("" when none)
+
+
+@dataclass(frozen=True, slots=True)
+class DispositionLine:
+    """An acquisition line removed by a renovation (EVAL_REPORT 102)."""
+
+    line: int  # the acquisition line in Appendix 1
+    description: str
+    project: str
+    bucket: Bucket
+    parent: str
+    placed_in_service: date
+    disposed: date
+    tax_year: int
+    unadjusted: Decimal
+    allowed: Decimal
+    adjusted: Decimal
+    treatment: str
+    method: str
+
+
+@dataclass(frozen=True, slots=True)
+class AgeLine:
+    """An acquisition line depreciated on its own age (EVAL_REPORT 102)."""
+
+    line: int
+    description: str
+    effective_age: Decimal | None
+    year_installed: int | None
+    economic_life: Decimal
+    rate: Decimal | None
+    replaced_rate: Decimal
+    source: str
+    detail: str
 
 
 @dataclass(frozen=True, slots=True)
@@ -218,6 +288,15 @@ class StudyReport:
     photographs: int
     look_back: bool
     checklist: tuple[tuple[str, str, str], ...] = field(default=())
+    # EVAL_REPORT 102: every field below is empty for a study without renovations or ages.
+    renovations: tuple[RenovationSchedule, ...] = field(default=())
+    dispositions: tuple[DispositionLine, ...] = field(default=())
+    ages: tuple[AgeLine, ...] = field(default=())
+    exterior_views: tuple[str, ...] = field(default=())
+
+    @property
+    def renovations_basis(self) -> Decimal:
+        return sum((r.capitalized for r in self.renovations), Decimal(0))
 
 
 # ------------------------------------------------------------------ building it
@@ -398,6 +477,13 @@ def build_report(
     assets = list(document.get("assets") or [])
     by_id = {str(a["id"]): a for a in assets}
     allocated = {str(a["asset_id"]): a for a in allocation.get("assets") or []}
+    renovations = basis.get("renovations") or {}
+    # EVAL_REPORT 102: a project's rows are on its own schedule, not the acquisition's.
+    project_rows = {
+        str(row["asset_id"]): (project, row)
+        for project in renovations.get("projects") or []
+        for row in project.get("rows") or []
+    }
 
     # ---- lines
     folded: dict[str, list[str]] = defaultdict(list)
@@ -412,7 +498,7 @@ def build_report(
             folded[str(host)].append(aid)
             allocated.pop(aid, None)
             continue
-        if aid in allocated:
+        if aid in allocated or aid in project_rows:
             continue
         else:
             awaiting.append(
@@ -476,6 +562,58 @@ def build_report(
     items = tuple(
         ItemLine(**{**{f: getattr(i, f) for f in ItemLine.__dataclass_fields__}, "line": n})
         for n, i in enumerate(raw, start=1)
+    )
+
+    # ---- renovations (EVAL_REPORT 102)
+    renovation_schedules, next_line = _renovation_schedules(
+        renovations, by_id, property_class, start=len(items) + 1
+    )
+    line_of = {aid: i.line for i in items for aid in i.asset_ids}
+    dispositions = tuple(
+        DispositionLine(
+            line=line_of.get(str(d["asset_id"]), 0),
+            description=next(
+                (i.description for i in items if str(d["asset_id"]) in i.asset_ids),
+                str(d.get("category") or ""),
+            ),
+            project=str(d["project"]),
+            bucket=Bucket(d["bucket"]),
+            parent=str(d["parent"]),
+            placed_in_service=date.fromisoformat(str(d["parent_placed_in_service"])),
+            disposed=date.fromisoformat(str(d["disposition_date"])),
+            tax_year=int(d["tax_year"]),
+            unadjusted=money(d["unadjusted_basis"]),
+            allowed=money(d["allowed_or_allowable"]),
+            adjusted=money(d["adjusted_basis"]),
+            treatment=str(d["treatment"]),
+            method=str(d.get("method") or ""),
+        )
+        for d in renovations.get("dispositions") or []
+    )
+    ages = tuple(
+        AgeLine(
+            line=line_of.get(str(a["asset_id"]), 0),
+            description=next(
+                (i.description for i in items if str(a["asset_id"]) in i.asset_ids),
+                str(a.get("category") or ""),
+            ),
+            effective_age=None
+            if a.get("effective_age") is None
+            else Decimal(str(a["effective_age"])),
+            year_installed=a.get("year_installed"),
+            economic_life=Decimal(str(a["economic_life"])),
+            rate=None if a.get("rate") is None else Decimal(str(a["rate"])),
+            replaced_rate=Decimal(str(a.get("replaced_rate") or 0)),
+            source=str(a.get("source") or "").replace("_", " "),
+            detail=str(a.get("source_detail") or ""),
+        )
+        for a in basis.get("component_ages") or []
+    )
+    exterior_views = tuple(
+        f"{b.get('label')}: last view without it {b['bracket']['last_without']['date']} "
+        f"({b['bracket']['last_without']['reference']}), first with it "
+        f"{b['bracket']['first_with']['date']} ({b['bracket']['first_with']['reference']})"
+        for b in renovations.get("exterior_brackets") or []
     )
 
     # ---- classes and categories
@@ -604,6 +742,17 @@ def build_report(
             "take-off",
         ),
     )
+    if ages:
+        methodology = (
+            *methodology,
+            Fact(
+                "Component ages",
+                f"{len(ages)} item{'s' if len(ages) != 1 else ''} depreciated on its own age "
+                "over its economic life (the age-life method) instead of the appraiser's rate; "
+                "the ages and their sources are in section 8",
+                "engineer",
+            ),
+        )
     engineer_priced = sum(1 for i in items if i.engineer_price)
     if engineer_priced:
         # EVAL_REPORT 90: the methodology names the lines the cost table did not price.
@@ -680,9 +829,129 @@ def build_report(
         photographs=photos,
         look_back=look_back,
         checklist=CHECKLIST,
+        renovations=renovation_schedules,
+        dispositions=dispositions,
+        ages=ages,
+        exterior_views=exterior_views,
     )
     check(report, price=price, capitalized=capitalized, export_assets=assets)
     return report
+
+
+def _renovation_schedules(
+    renovations: Mapping[str, Any],
+    by_id: Mapping[str, Mapping[str, Any]],
+    property_class: str,
+    *,
+    start: int,
+) -> tuple[tuple[RenovationSchedule, ...], int]:
+    """Each after-service project with a schedule, its rows numbered on from ``start``."""
+    out: list[RenovationSchedule] = []
+    line = start
+    order = {b: i for i, b in enumerate(CLASS_ORDER)}
+    for p in renovations.get("projects") or []:
+        if p.get("kind") != "after_service" or not p.get("rows"):
+            continue
+        rows = []
+        for row in p["rows"]:
+            aid = str(row["asset_id"])
+            a = by_id.get(aid)
+            if a is None:
+                raise ReportError(
+                    E.REPORT_ASSET_UNACCOUNTED, f"renovation row {aid} is not in the export"
+                )
+            bucket = Bucket(row["bucket"])
+            key, name = category_name(a.get("label"), a.get("material"))
+            qip = row.get("schedule_class") == "qip"
+            cls, _ = _asset_class(a, property_class, bucket)
+            rows.append(
+                ItemLine(
+                    line=0,
+                    description=_description(name, a.get("material")),
+                    category_key=key,
+                    category=name,
+                    location=_location(a),
+                    quantity=_quantity(a),
+                    masterformat=masterformat_of(a.get("cost_source")),
+                    rcn=money(row.get("estimate")),
+                    allocated=money(row.get("allocated")),
+                    bucket=bucket,
+                    asset_class=None if qip else cls,
+                    asset_class_source="qualified improvement property" if qip else "",
+                    authority=QIP_AUTHORITY if qip else _authority(a),
+                    estimated=False,
+                    contested=False,
+                    also_in=(),
+                    asset_ids=(aid,),
+                    engineer_price=engineer_price(a),
+                    qip=qip,
+                )
+            )
+        rows.sort(
+            key=lambda i: (
+                order.get(i.bucket, 9),
+                i.qip,
+                i.category,
+                i.location,
+                i.asset_ids[0],
+            )
+        )
+        numbered = []
+        for i in rows:
+            numbered.append(
+                ItemLine(
+                    **{**{f: getattr(i, f) for f in ItemLine.__dataclass_fields__}, "line": line}
+                )
+            )
+            line += 1
+        bonus = p.get("bonus")
+        contract = p.get("contract_date")
+        acquired = date.fromisoformat(str(contract or p["work_start_date"]))
+        aerial = p.get("aerial")
+        out.append(
+            RenovationSchedule(
+                key=str(p["key"]),
+                scope=str(p.get("scope") or ""),
+                addition=bool(p.get("addition")),
+                acquired=acquired,
+                acquired_source="contract date" if contract else "work-start date",
+                placed_in_service=date.fromisoformat(str(p["placed_in_service_date"])),
+                capitalized=money(p["capitalized_amount"]),
+                confirmed_by=str(p.get("capitalized_confirmed_by") or ""),
+                invoice_total=money(p["invoice_total"]),
+                estimate_total=money(p.get("estimate_total")),
+                bonus=None
+                if not bonus
+                else BonusDefault(
+                    None if bonus.get("rate") is None else Decimal(str(bonus["rate"])),
+                    str(bonus.get("reason") or ""),
+                    str(bonus.get("source") or ""),
+                ),
+                items=tuple(numbered),
+                classes=tuple(
+                    (str(c["name"]), money(c["allocated"]), int(c["rows"]))
+                    for c in p.get("by_class") or []
+                ),
+                invoices=tuple(
+                    (
+                        str(i["document_id"]),
+                        money(i["amount"]),
+                        str(i.get("invoice_date") or ""),
+                        str(i.get("description") or ""),
+                    )
+                    for i in p.get("invoice_documents") or []
+                ),
+                after_photos=int(p.get("after_photos") or 0),
+                aerial=""
+                if not aerial
+                else (
+                    f"last view without the work {aerial['last_without']['date']} "
+                    f"({aerial['last_without']['reference']}), first with it "
+                    f"{aerial['first_with']['date']} ({aerial['first_with']['reference']})"
+                ),
+            )
+        )
+    return tuple(out), line
 
 
 def check(
@@ -717,9 +986,23 @@ def check(
         raise ReportError(
             E.REPORT_TOTALS_DO_NOT_TIE, "the schedule does not sum to the depreciable basis"
         )
-    placed = [aid for i in report.items for aid in i.asset_ids] + [
-        w.asset_id for w in report.awaiting
-    ]
+    for r in report.renovations:
+        rows_sum = sum((i.allocated for i in r.items), Decimal(0))
+        if rows_sum != r.capitalized:
+            raise ReportError(
+                E.REPORT_TOTALS_DO_NOT_TIE,
+                f"renovation {r.key}: the items sum to {rows_sum}, the capitalized amount is "
+                f"{r.capitalized}",
+            )
+        if sum((c[1] for c in r.classes), Decimal(0)) != r.capitalized:
+            raise ReportError(
+                E.REPORT_TOTALS_DO_NOT_TIE, f"renovation {r.key}: the classes do not sum"
+            )
+    placed = (
+        [aid for i in report.items for aid in i.asset_ids]
+        + [w.asset_id for w in report.awaiting]
+        + [aid for r in report.renovations for i in r.items for aid in i.asset_ids]
+    )
     exported = [str(a["id"]) for a in export_assets]
     if sorted(placed) != sorted(exported):
         missing = sorted(set(exported) - set(placed))
@@ -731,7 +1014,10 @@ def check(
 
 
 __all__ = [
+    "AgeLine",
     "CHECKLIST",
+    "DispositionLine",
+    "RenovationSchedule",
     "TEMPLATE_VERSION",
     "AwaitingLine",
     "BasisLine",

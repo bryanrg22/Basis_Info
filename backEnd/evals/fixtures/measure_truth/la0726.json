@@ -1,0 +1,343 @@
+{
+ "schema": "measure_truth/v1",
+ "id": "la0726",
+ "name": "James Muslow House",
+ "loc_url": "https://www.loc.gov/pictures/item/la0726/",
+ "survey_number": "HABS LA-205",
+ "drawing_date": "2015",
+ "address": "6025 Arden Street, Shreveport, Caddo Parish, LA",
+ "location": {
+  "lat": 32.4518674,
+  "lon": -93.7405333,
+  "how": "the Google Earth search's pin for the address (its view labels '6025' there); the house itself is not visible on any public ortho (NAIP 2007 to 2023, 0.6 m) nor on Google's 3D view: tree canopy covers the lot, so the building centre could not be placed by hand"
+ },
+ "standing": {
+  "status": "unknown",
+  "source": "public orthos us-naip-2007 to us-naip-2023; Google aerial and street-level views 2026-11-25",
+  "year": 2023,
+  "note": "Hidden by canopy from above in every view; the street-level picture shows only the planting along the street. Drawn in 2014 to 2015 (Peterson Prize 2015), so recent. The 2018 3DEP lidar over the pin has no building-classified points (BASIS-GEO-016). Usable for methods that read the appraisal (M0); not for any method that measures from above until the building is confirmed."
+ },
+ "sheets": {
+  "2": "Site plan / roof plan, 1\" = 20'-0\" (roof outline undimensioned)",
+  "3": "First floor plan, 3/16\" = 1'-0\" (dimension strings top, bottom, left, right; dashed roof outline)",
+  "6": "North elevation and west elevation, 3/16\" = 1'-0\" (11'-2 1/4\" and 12'-6 1/4\" floor to roof top)",
+  "8": "Sections A-A and B-B, 3/8\" = 1'-0\" (12'-6 1/4\" floor to ridge)",
+  "9": "Sections C-C and D-D, 3/8\" = 1'-0\" (12'-6 1/4\" floor to ridge)"
+ },
+ "stories": 1,
+ "roof_shape": "low-slope gable (1 in 12, asphalt rolled roofing), one broad roof over the house and its courts, ridge running across the sheet (left-right); eaves on the sheet-top and sheet-bottom sides, gable (rake) ends at the sheet-left and sheet-right ends",
+ "plan": {
+  "sheet": "3",
+  "scale": "3/16\" = 1'-0\"",
+  "north": "down the sheet (arrow points to the sheet bottom, turned roughly 10-15 degrees toward the sheet's left); all directions here are sheet directions",
+  "note": "Start at the outside corner of the bedroom wing at the sheet's top-left (NW on the sheet), walk clockwise. The enclosed building is the bedroom wing (left), the family room, hall, mechanical, laundry and service porch (middle), and the dining, living, kitchen, breakfast room and foyer (right). The service porch is counted as enclosed: it is walled on all sides with a door to the 'family and servant entry', and the materials note lists vinyl-tile floor in it like the kitchen and laundry. The sheet-top side of the family/dining/living rooms is a steel window wall drawn about 2\" outside the bedroom wing's north face line, and the living room's 1'-0\" stone end wall projects about 3\" past the bedroom wing's face; these jogs are scaled (13 px and 32 px at 75 px/ft) and are within the reading noise of the drawing's line weights (about 5 px). The stone walls between the family room and dining room (1'-0\") and between the bedroom wing and family room (7 1/8\") run on past the building as garden walls; the chain cuts across them at the building face. The entry garden wall (1'-0\") east of the breakfast room is the breakfast room's exterior wall between the foyer's glass wall and the breakfast room's glass wall; the chain follows its outside (entry-court) face there. The stone wall between the kitchen/service porch and the carport is the service porch's exterior wall; the chain follows its outside (court) face down to the sheet-bottom wall line and cuts across it there. Every across-the-sheet position is printed (top string 28'-0 5/8\", 7 1/8\", 20'-10 1/4\", 1'-0\", 45'-6\"; bottom string 28'-1 1/2\", 9\", 20'-7 1/2\", 1'-0\", 35'-0\", 1'-0\", 8'-6\", 1'-0\"; both total 96'-0\") except the kitchen/breakfast partition (scaled). Up-the-sheet, only the bedroom wing (47'-11\") and the living room's stone east wall (33'-9\" to the wall's end, past the foyer) are printed; the foyer, breakfast and kitchen glass lines are scaled. The bedroom wing floor is about 1'-4\" above the living-area floor (ramp up in the hall).",
+  "chain": [
+   {
+    "dir": "E",
+    "length": {
+     "ft": 28.0521,
+     "text": "28'-0 5/8\"",
+     "how": "printed",
+     "sheet": "3"
+    },
+    "label": "bedroom wing, sheet-top wall, outside of west wall to the 7 1/8\" wall between the owner's bedroom and the family room (top string)"
+   },
+   {
+    "dir": "S",
+    "length": {
+     "ft": 0.17,
+     "how": "scaled",
+     "sheet": "3",
+     "scale": "3/16\" = 1'-0\"",
+     "note": "13 px: bedroom-wing face (extension line y 2376) to the outside of the family-room window wall (y 2389); about 2\""
+    },
+    "label": "jog to the family-room window wall line"
+   },
+   {
+    "dir": "E",
+    "length": {
+     "ft": 57.4479,
+     "text": "57'-5 3/8\"",
+     "how": "derived",
+     "sheet": "3",
+     "note": "7 1/8\" + 20'-10 1/4\" + 1'-0\" (top string, to the outside of the stone wall between family and dining rooms) + 35'-0\" (bottom string, from that face to the west face of the 1'-0\" entry garden wall; the living room's stone end wall begins at the same line, scaled x 10455 against 10458)"
+    },
+    "label": "window wall of the family, dining and living rooms (crossing the family/dining stone wall)"
+   },
+   {
+    "dir": "N",
+    "length": {
+     "ft": 0.43,
+     "how": "scaled",
+     "sheet": "3",
+     "scale": "3/16\" = 1'-0\"",
+     "note": "32 px: window-wall outside line (y 2389) to the outside of the living room's stone end wall (extension line of the 33'-9\" string, y 2357)"
+    },
+    "label": "jog out to the living room's stone end wall"
+   },
+   {
+    "dir": "E",
+    "length": {
+     "ft": 10.5,
+     "text": "10'-6\"",
+     "how": "derived",
+     "sheet": "3",
+     "note": "45'-6\" less 35'-0\" (= 1'-0\" + 8'-6\" + 1'-0\" on the bottom string)"
+    },
+    "label": "living room's stone end wall (sheet top)"
+   },
+   {
+    "dir": "S",
+    "length": {
+     "ft": 30.43,
+     "how": "scaled",
+     "sheet": "3",
+     "scale": "3/16\" = 1'-0\"",
+     "note": "33'-9\" printed (right string) runs to the end of the stone wall, which stands 249 px (3.32 ft) past the outside of the foyer's glass wall (y 4640 against the wall end at 4889); 33.75 - 3.32"
+    },
+    "label": "living room and foyer, stone east wall (sheet right)"
+   },
+   {
+    "dir": "W",
+    "length": {
+     "ft": 9.5,
+     "text": "9'-6\"",
+     "how": "derived",
+     "sheet": "3",
+     "note": "8'-6\" + 1'-0\" (bottom string): the east stone wall's inside face is 8'-6\" from the entry wall's east face"
+    },
+    "label": "foyer glass wall with entry door (sheet bottom of the foyer)"
+   },
+   {
+    "dir": "S",
+    "length": {
+     "ft": 3.27,
+     "how": "scaled",
+     "sheet": "3",
+     "scale": "3/16\" = 1'-0\"",
+     "note": "245 px: foyer glass wall outside face (y 4640) to breakfast-room glass wall outside face (y 4885)"
+    },
+    "label": "entry garden wall, entry-court face, as the breakfast room's exterior wall"
+   },
+   {
+    "dir": "W",
+    "length": {
+     "ft": 14.75,
+     "how": "scaled",
+     "sheet": "3",
+     "scale": "3/16\" = 1'-0\"",
+     "note": "1106 px: entry wall east face (x 10533, printed position 86'-6\") to the east face of the kitchen/breakfast partition (x 9427); checked against the printed 35'-0\" = 2625 px on the same sheet"
+    },
+    "label": "breakfast room glass wall (across the entry wall's thickness)"
+   },
+   {
+    "dir": "S",
+    "length": {
+     "ft": 0.6,
+     "how": "scaled",
+     "sheet": "3",
+     "scale": "3/16\" = 1'-0\"",
+     "note": "45 px: breakfast glass outside face (y 4885) to kitchen window wall outside face (y 4930)"
+    },
+    "label": "jog at the kitchen/breakfast partition"
+   },
+   {
+    "dir": "W",
+    "length": {
+     "ft": 21.25,
+     "how": "derived",
+     "sheet": "3",
+     "note": "from the scaled partition position (71.75 ft from the west face) to the outside of the stone wall between kitchen and carport (printed 50'-6\": 28'-1 1/2\" + 9\" + 20'-7 1/2\" + 1'-0\")"
+    },
+    "label": "kitchen window wall (steel columns)"
+   },
+   {
+    "dir": "S",
+    "length": {
+     "ft": 13.877,
+     "how": "derived",
+     "sheet": "3",
+     "note": "47'-11\" (left string) less the scaled position of the kitchen window wall (34.04 ft below the bedroom wing's sheet-top face: 0.17 - 0.43 + 30.43 + 3.27 + 0.60); scaled directly 1047 px = 13.96 ft"
+    },
+    "label": "service porch, court face of the stone wall (wall continues south as the carport's wall)"
+   },
+   {
+    "dir": "W",
+    "length": {
+     "ft": 50.5,
+     "text": "50'-6\"",
+     "how": "derived",
+     "sheet": "3",
+     "note": "28'-1 1/2\" + 22'-4 1/2\" (bottom string); the sheet-bottom walls of the bedroom wing, laundry and service porch lie on one line (scaled y 5972 to 5983)"
+    },
+    "label": "sheet-bottom wall: service porch, laundry (clerestory), son's and daughter's bedrooms"
+   },
+   {
+    "dir": "N",
+    "length": {
+     "ft": 47.9167,
+     "text": "47'-11\"",
+     "how": "printed",
+     "sheet": "3"
+    },
+    "label": "bedroom wing, sheet-left (west on sheet) wall"
+   }
+  ],
+  "excluded": [
+   "2-car carport (open; between the 9\" and 1'-0\" stone walls below the sheet-bottom wall line, 20'-7 1/2\" clear)",
+   "storage and trash rooms at the far (sheet-bottom) end of the carport: separate enclosed store rooms off the carport, not part of the house's wall outline",
+   "five 'open to sky' courts under the roof trellis, the breakfast terrace and the covered walk for guests (sheet bottom of the kitchen/breakfast block)",
+   "entry court with steps down between the entry garden wall and the living room's east stone wall",
+   "pergola beyond the sheet-top window wall; flagstone terraces; garden and retaining walls that continue the house's stone walls",
+   "motor court",
+   "door jamb projection on the bedroom wing's sheet-left wall at the owner's bathrooms (about 0.5 ft, a door frame, not a wall run)"
+  ]
+ },
+ "floors": [
+  {
+   "level": "first",
+   "finished": true,
+   "same_as_ground": true,
+   "note": "one story; no basement or attic living space drawn"
+  }
+ ],
+ "heights": {
+  "eave": {
+   "above_grade_ft": 10.725,
+   "how": "scaled",
+   "sheet": "8",
+   "elevation": "Section A-A, living room's sheet-top (garden, true south) eave",
+   "scale": "3/8\" = 1'-0\"",
+   "note": "mean of the two passes' scaled readings, 10.75 and 10.7 ft. top of copper gutter at y 1595, finished floor at y 3133 (the 12'-6 1/4\" floor-to-ridge string calibrates 150 px/ft: 1875 px), grade outside the stone wall at y 3200: gutter 10.25 ft above floor + floor 0.45 ft above grade. Grade is not printed and varies: section C-C's same eave (gutter 10.29 ft above floor) has grade about 0.75 ft below floor (11.0 ft above grade); the sheet-bottom (court) eave of the kitchen block is higher (C-C: gutter about 10.95 ft above floor) and the motor-court grade on the north elevation falls well below the floor."
+  },
+  "ridge": {
+   "above_grade_ft": 12.98,
+   "how": "derived",
+   "sheet": "8",
+   "elevation": "Section A-A",
+   "note": "mean of the two passes, 12.99 and 12.97 ft. 12'-6 1/4\" printed floor to ridge top (sections A-A, B-B, C-C, D-D) plus the floor's height above grade scaled at the same place as the eave (0.45 ft, 67 px at 3/8\" = 1'-0\"); the printed string has no grade datum",
+   "scale": "1/4\" = 1'-0\""
+  },
+  "readings": [
+   {
+    "what": "ridge (roof top) above finished floor",
+    "text": "12'-6 1/4\"",
+    "datum_text": "finished floor (no grade printed)",
+    "sheet": "8",
+    "elevation": "Section A-A",
+    "note": "same string in B-B"
+   },
+   {
+    "what": "ridge (roof top) above finished floor",
+    "text": "12'-6 1/4\"",
+    "datum_text": "finished floor (no grade printed)",
+    "sheet": "9",
+    "elevation": "Sections C-C and D-D"
+   },
+   {
+    "what": "roof top above the living-area floor at the base of the wall",
+    "text": "12'-6 1/4\"",
+    "datum_text": "base of the wall at the entry end (not grade; grade falls away below it)",
+    "sheet": "6",
+    "elevation": "North elevation (motor-court side, sheet bottom of the plan)"
+   },
+   {
+    "what": "roof top above the bedroom-wing floor at the base of the siding",
+    "text": "11'-2 1/4\"",
+    "datum_text": "base of the siding (bedroom wing floor, about 1'-4\" above the living-area floor; not grade)",
+    "sheet": "6",
+    "elevation": "North elevation, bedroom wing"
+   },
+   {
+    "what": "roof top above floor",
+    "text": "12'-6 1/4\"",
+    "datum_text": "floor at the gable end",
+    "sheet": "6",
+    "elevation": "West elevation"
+   },
+   {
+    "what": "interior door / millwork head",
+    "text": "6'-10\"",
+    "datum_text": "finished floor",
+    "sheet": "8",
+    "elevation": "Sections A-A and B-B (also C-C and D-D on sheet 9); not used"
+   },
+   {
+    "what": "top of gutter above finished floor (scaled)",
+    "text": "10.25 ft scaled",
+    "datum_text": "finished floor",
+    "sheet": "8",
+    "elevation": "Section A-A, garden side",
+    "note": "scaled at 150 px/ft"
+   },
+   {
+    "what": "top of gutter above finished floor (scaled)",
+    "text": "10.29 ft scaled",
+    "datum_text": "finished floor",
+    "sheet": "9",
+    "elevation": "Section C-C, garden side",
+    "note": "grade there about 0.75 ft below floor"
+   }
+  ]
+ },
+ "roof": {
+  "eaves": [
+   "N",
+   "S"
+  ],
+  "note": "Overhang left out on purpose: it is very uneven, so one number would misstate the roof. Scaled off the dashed roof outline on sheet 3 (75 px/ft): sheet-top (garden) eave 536 px = 7.15 ft beyond the bedroom wing face (about 7.05 ft beyond the living room's stone wall in section A-A at 150 px/ft); sheet-bottom eave 264 px = 3.5 ft beyond the bedroom wing and laundry wall, and about 17 ft beyond the kitchen/breakfast walls because the roof covers the courts and the covered walk; sheet-left rake 148 px = 2.0 ft; sheet-right rake about 0.1 ft (dashed line at the wall face, fascia drawn to about 0.75 ft). The roof outline is a plain rectangle about 98.2 x 58.6 ft (7364 x 4396 px), which agrees with the site/roof plan (about 98 x 56 ft scaled at 20 px/ft).",
+  "derive": false,
+  "derive_note": "one low-slope roof over the house and its courts with very uneven overhangs"
+ },
+ "porches": [],
+ "site": [],
+ "passes": {
+  "a": "pass A: an independent reader of the 400 dpi sheets (2026-11-25), chain and heights read from crops",
+  "b": "pass B: a second independent reader of the same sheets (2026-11-25), not shown pass A",
+  "disagreements": [
+   {
+    "what": "chain",
+    "pass_a": "12 edges, 3,892.8 SF (scaled jogs 0.33 and 0.63 ft, 30.29 / 3.46 / 14.46 ft)",
+    "pass_b": "14 edges, 3,916.0 SF (scaled jogs 0.17, 0.43, 0.60 ft; 30.43 / 3.27 / 14.75 ft; kitchen jog read)",
+    "resolved": "B, the finer reading; the 0.6 % difference is this house's truth uncertainty (five runs are scaled at 3/16\")"
+   },
+   {
+    "what": "eave",
+    "pass_a": "10.75 ft scaled",
+    "pass_b": "10.7 ft scaled",
+    "resolved": "the mean, 10.725 ft"
+   },
+   {
+    "what": "ridge",
+    "pass_a": "12.99 ft (printed 12'-6 1/4\" + 0.47 ft scaled grade)",
+    "pass_b": "12.97 ft (+ 0.45 ft)",
+    "resolved": "the mean, 12.98 ft"
+   },
+   {
+    "what": "overhang",
+    "pass_a": "5.1 ft, the mean of two very different sides",
+    "pass_b": "left out: 7.15 ft one side, 3.5 ft the other, 0.1 to 2.0 ft at the rakes",
+    "resolved": "left out (B): one number would misstate the roof"
+   }
+  ]
+ },
+ "flags": [
+  {
+   "code": "no_overall",
+   "note": "The 96'-0\" across-the-sheet overall is printed and the chain matches it exactly (96.0 ft), but no up-the-sheet overall of the wall outline is printed: 47'-11\" is the bedroom wing only and 33'-9\" runs to the end of a stone wall past the foyer. The chain's up-the-sheet extent (48.18 ft: 47'-11\" plus the 0.26 ft the living room's stone wall stands past the bedroom wing) rests on two scaled jogs."
+  },
+  {
+   "code": "note",
+   "note": "Overhang not given (see roof.note): sheet-top 7.15 ft, sheet-bottom 3.5 ft (17 ft over the courts), rakes 2.0 and about 0.1 ft. A single overhang would make roof_plan_sf and gutter_ft wrong."
+  },
+  {
+   "code": "note",
+   "note": "Five up-the-sheet runs are scaled (foyer glass, breakfast glass, kitchen jog, the two sheet-top jogs) and one across run (breakfast room 14.75 ft); the kitchen run and the service porch run are derived from them. Footprint and perimeter are therefore scaled-tier. Enclosure judgement: the service porch is counted as enclosed; the carport, its store rooms and the courts are not."
+  },
+  {
+   "code": "note",
+   "note": "Grade is not printed anywhere; eave and ridge above grade rest on a scaled floor-to-grade offset (0.45 ft at section A-A), which varies from about 0.45 to 0.75 ft on the garden side and is more on the motor-court side."
+  }
+ ],
+ "note": "Kept from pass B, with the resolutions in passes.disagreements."
+}

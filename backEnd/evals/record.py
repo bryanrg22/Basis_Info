@@ -724,6 +724,7 @@ HARNESS_COMPONENTS: Final[dict[str, str]] = {
     "evals.fuse_counts": "photo_counts",
     "evals.combine_rooms": "room_inventory",
     "evals.predict_surface_crops": "surface_crop_material",
+    "evals.measure_eval": "measure_eval",
     "evals.appraisal.run": "appraisal_fields",
     "docs/review_2026-10-15/repro/extraction_replay.py": "appraisal_fields",
     "live study export (repro/live_export.py)": "study_export",

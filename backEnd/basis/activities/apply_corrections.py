@@ -116,6 +116,7 @@ without corrections and flags the stage; see ``StudyWorkflow._reject``).
 
 from __future__ import annotations
 
+import asyncio
 import uuid
 from collections.abc import Sequence
 from dataclasses import dataclass
@@ -140,11 +141,13 @@ from basis.activities.corrections import (
     ROOM_FIELDS,
     check_asset,
     check_component,
+    check_component_age,
     check_component_remove,
     check_extraction_field,
     check_extraction_field_add,
     check_fields,
     check_photo_room,
+    check_removal,
     check_room_component,
     check_unit_cost,
 )
@@ -164,7 +167,7 @@ from basis.db.repositories.extraction import ExtractionRepository
 from basis.db.repositories.photo_object import PhotoObjectRepository
 from basis.db.repositories.room import RoomRepository
 from basis.db.repositories.study_event import StudyEventRepository
-from basis.domain import price_overrides, removals
+from basis.domain import price_overrides, removals, traced
 from basis.domain.rooms import room_field_problems, stored_floor
 from basis.errors.codes import E
 from basis.extraction import added_fields
@@ -356,8 +359,14 @@ async def _validate(
     assets = AssetRepository(session)
     asset_prices: dict[uuid.UUID, tuple[uuid.UUID, CorrectionInput]] = {}
     for correction in by_type.get("asset", []):
-        check_asset(correction.after)
+        if traced.MEASUREMENT in correction.after:
+            # A traced shape's checks are geometry (every pair of edges): off the event loop.
+            await asyncio.to_thread(check_asset, correction.after)
+        else:
+            check_asset(correction.after)
         check_unit_cost(correction.after, correction.reason)
+        check_component_age(correction.after, correction.reason)
+        check_removal(correction.after, correction.reason)
         asset = await assets.get(study_id, parse_uuid(correction.entity_id, "entity_id"))
         if asset is None or asset.revision != from_revision:
             raise validation_error(

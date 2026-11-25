@@ -1,0 +1,101 @@
+{
+  "two_level": {
+    "what": "a two-story house: first floor, attached garage and a patio on page 9, second floor on page 10; living area 1200 + 900 = 2100",
+    "pages": [
+      [9, [
+        "Building Sketch (Page - 1)", "Borrower", "Pat Example", "30'", "22'", "2 Car Garage", "22'",
+        "Kitchen", "40'", "Living Area", "00", "Patio", "12'", "10'",
+        "TOTAL Sketch by a la mode", "Area Calculations Summary",
+        "Living Area", "Calculation Details",
+        "First Floor", "1200 Sq ft", "30 × 30", "= 900", "20 x 15", "-", "300",
+        "Total Living Area (Rounded):", "1200 Sq ft",
+        "Non-living Area",
+        "2 Car Attached", "484 Sq ft", "22 × 22 = 484",
+        "Patio", "120 Sq ft", "12 × 10 =120",
+        "Non-Calculated", "60 Sq ft", "10 x 6", "= 60"
+      ]],
+      [10, [
+        "Building Sketch (Page - 2)", "2nd Floor", "30'", "Bedroom", "30'",
+        "TOTAL Sketch by a la mode", "Area Calculations Summary",
+        "Living Area", "Calculation Details",
+        "Second Floor", "900 Sq ft", "30 x 30 = 900",
+        "Total Living Area (Rounded):", "900 Sq ft"
+      ]]
+    ]
+  },
+  "one_level": {
+    "what": "a one-story house in the redesigned URAR's style, with a finished basement, a detached garage and an accessory unit that names no floor; living area 1650.50",
+    "pages": [
+      [6, [
+        "Uniform Residential Appraisal Report", "Page 5 of 20", "Sketch", "Measurement Standard", "ANSI",
+        "Level 1", "[1650 Sq Ft]", "55'", "30'", "Garage",
+        "Area Calculations Summary",
+        "Total Above Grade", "Calculation Details",
+        "Floor 1", "1650.50 Sq. Ft.", "55.00 x 30.00 = 1650.00", "0.5 × 1.00 × 1.00 = 0.50",
+        "Accessory Dwelling Unit", "400.00 Sq. Ft.", "20.00", "20.00 =", "400.00",
+        "Total Below Grade",
+        "B1 Finished Below Grade", "800.00 Sq. Ft.", ".00 x 20.00 = 800.00",
+        "Non-Living Area",
+        "Detached Garage", "576.00 Sq. Ft.", "24.00 x 24.00 = 576.00",
+        "Sketch does not represent actual dimensions of pictures, used for example only.",
+        "Dwelling Exterior", "Structure", "1", "Year Built", "2019"
+      ]]
+    ]
+  },
+  "text_layer": {
+    "what": "the two_level first page as a PDF text layer prints it: a row's label, area and first calculation on one line",
+    "pages": [
+      [3, [
+        "Building Sketch (Page - 1)",
+        "'03", "22'",
+        "TOTAL Sketch by a la mode Area Calculations Summary",
+        "Living Area Calculation Details",
+        "First Floor 1200 Sq ft 30 × 30 = 900",
+        "20 × 15 = 300",
+        "Total Living Area (Rounded): 1200 Sq ft",
+        "Non-living Area",
+        "2 Car Attached 484 Sq ft 22 × 22 = 484"
+      ]]
+    ]
+  },
+  "damaged": {
+    "what": "a first floor whose second calculation lost its result, and a garage with no calculation: neither row verifies",
+    "pages": [
+      [4, [
+        "Area Calculations Summary", "Living Area", "Calculation Details",
+        "First Floor", "1200 Sq ft", "30 × 30 = 900", "20 x 15 =",
+        "Total Living Area (Rounded):", "1200 Sq ft",
+        "Non-living Area", "2 Car Attached", "484 Sq ft"
+      ]]
+    ]
+  },
+  "page_total_disagrees": {
+    "what": "rows that verify one by one but do not sum to the page's printed living total",
+    "pages": [
+      [4, [
+        "Area Calculations Summary", "Living Area", "Calculation Details",
+        "First Floor", "1200 Sq ft", "30 × 40 = 1200",
+        "Total Living Area (Rounded):", "1500 Sq ft"
+      ]]
+    ]
+  },
+  "no_table": {
+    "what": "a sketch page with a drawing and no area calculation table, and a form page",
+    "pages": [
+      [1, ["Uniform Residential Appraisal Report", "Gross Living Area", "2,100", "Sq ft"]],
+      [9, ["Building Sketch (Page - 1)", "30'", "22'", "Kitchen", "Living Area", "1200 Sq ft"]]
+    ]
+  },
+  "apex_style": {
+    "what": "a table with the heading but in the code / net size layout this reader does not parse",
+    "pages": [
+      [7, [
+        "SKETCH/AREA TABLE ADDENDUM", "AREA CALCULATIONS SUMMARY",
+        "Code", "Description", "Net Size", "Net Totals",
+        "GLA1", "Main Level", "1200.00", "1200.00",
+        "GAR", "Garage", "484.00", "484.00",
+        "Net LIVABLE cnt 1 (rounded) 1,200"
+      ]]
+    ]
+  }
+}

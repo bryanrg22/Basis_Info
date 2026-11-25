@@ -21,6 +21,9 @@
  * pending, accepted, expired and revoked invitations. Dates are relative to now (a capture pins
  * the browser clock, so they repeat).
  *
+ * The Property area (&property=, PROPOSED P8): ready | confirmed | running | paused | waiting |
+ * failed | noplace | nopin | site, the main study's property pictures (live/sample-property.js).
+ *
  * Who is signed in (&role=): admin (Alex Morgan, the owner; the default) | engineer (Jordan Lee)
  * | viewer (Sam Rivera). The real API's rules apply: team, invitations and the firm profile are
  * owner-only, a viewer cannot decide or sign. Onboarding (&onboarding=): invited (Casey Nguyen,
@@ -645,7 +648,7 @@
  const gateNotOpen=(S,code=E.GATE)=>conflict('gate-not-open',`${S.stage} revision ${S.revision} of study ${S.id} is not open for a decision yet (status ${S.status})`,code);
 
  function create(options={}){
-  const inst={now:options.now||(()=>Date.now()),delayMs:options.delayMs??2000,fetchAsset:options.fetchAsset||null,assetBase:options.assetBase||null,seeding:false,profile:clone(PROFILE),profileVersion:1,idem:new Map(),assetCache:new Map()};
+  const inst={measureDraft:options.measureDraft,now:options.now||(()=>Date.now()),delayMs:options.delayMs??2000,fetchAsset:options.fetchAsset||null,assetBase:options.assetBase||null,seeding:false,profile:clone(PROFILE),profileVersion:1,idem:new Map(),assetCache:new Map()};
   inst.t0=inst.now();inst.profileUpdated=iso(inst.t0-DAY*30);
   const state=STATES.includes(options.state)?options.state:'components';
   inst.state=state;
@@ -761,27 +764,41 @@
  }
 
  // POST /decisions
- function decide(S,inst,body){
-  const errs=checkShape(body,{stage:v=>GATES.includes(v),revision:v=>Number.isInteger(v)&&v>=1,decision:v=>v==='approve'||v==='reject',comment:v=>v===null||typeof v==='string',corrections:v=>Array.isArray(v)},['stage','revision','decision']);
-  if(errs.length)return invalid(errs);
-  const corrections=body.corrections||[];
+ // The correction checks of POST .../decisions, shared with the gate drafts: a draft that would be
+ // refused at submit time is refused at save time (docs/api/GATE_DRAFTS_AND_RESUME.md).
+ function correctionShapeErrors(corrections){
+  const errs=[];
   corrections.forEach((c,i)=>{if(!c||typeof c!=='object'){errs.push(fieldErr(['body','corrections',i],'Input should be an object','model_type'));return}for(const k of Object.keys(c))if(!['entity_type','entity_id','before','after','reason'].includes(k))errs.push(fieldErr(['body','corrections',i,k],'Extra inputs are not permitted','extra_forbidden'));if(typeof c.entity_type!=='string'||!/^[a-z][a-z0-9_]*$/.test(c.entity_type))errs.push(fieldErr(['body','corrections',i,'entity_type'],'Field required','missing'));if(typeof c.entity_id!=='string')errs.push(fieldErr(['body','corrections',i,'entity_id'],'Field required','missing'));if(!c.after||typeof c.after!=='object'||Array.isArray(c.after))errs.push(fieldErr(['body','corrections',i,'after'],'Input should be a valid dictionary','dict_type'))});
-  if(errs.length)return invalid(errs);
-  if(body.stage!==S.stage||body.revision!==S.revision)return conflict('stale-state',`study ${S.id} is at ${S.stage} revision ${S.revision} (${S.status}); expected ${body.stage} revision ${body.revision}`,E.STALE);
-  if(S.status!=='waiting_review')return gateNotOpen(S);
-  if(body.decision==='approve'&&corrections.length)return invalid([fieldErr(['body','corrections'],'An approval takes no corrections; reject with them instead.','approval_with_corrections')]);
-  const allowed=CORRECTION_TYPES[body.stage],ctx={newRooms:new Map(),touched:new Map(),corrections};
+  return errs;
+ }
+ function checkCorrections(S,stage,corrections){
+  const allowed=CORRECTION_TYPES[stage],ctx={newRooms:new Map(),touched:new Map(),corrections};
   for(const c of corrections)ctx.touched.set(c.entity_id,(ctx.touched.get(c.entity_id)||0)+1);
   const out=[];
-  corrections.forEach((c,i)=>{if(!allowed.includes(c.entity_type)||!CORRECTORS[c.entity_type])out.push(fieldErr(['body','corrections',i,'entity_type'],`${body.stage} does not accept ${c.entity_type} corrections (accepted: ${allowed.join(', ')})`,'correction_type'))});
+  corrections.forEach((c,i)=>{if(!allowed.includes(c.entity_type)||!CORRECTORS[c.entity_type])out.push(fieldErr(['body','corrections',i,'entity_type'],`${stage} does not accept ${c.entity_type} corrections (accepted: ${allowed.join(', ')})`,'correction_type'))});
   if(out.length)return invalid(out);
   // Two passes: corrections that create entities first, so later ones may name them.
   const order=corrections.map((c,i)=>[c,i]).sort((a,b)=>(CORRECTORS[b[0].entity_type].creates?1:0)-(CORRECTORS[a[0].entity_type].creates?1:0));
   for(const [c,i] of order)for(const e of CORRECTORS[c.entity_type].validate(c,S,ctx,i)){out.push(fieldErr(['body','corrections',i,e.where],e.detail,e.type))}
   if(out.length)return invalid(out.sort((a,b)=>a.loc[2]-b.loc[2]));
+  return {ctx,order};
+ }
+ function decide(S,inst,body){
+  const errs=checkShape(body,{stage:v=>GATES.includes(v),revision:v=>Number.isInteger(v)&&v>=1,decision:v=>v==='approve'||v==='reject',comment:v=>v===null||typeof v==='string',corrections:v=>Array.isArray(v)},['stage','revision','decision']);
+  if(errs.length)return invalid(errs);
+  const corrections=body.corrections||[];
+  errs.push(...correctionShapeErrors(corrections));
+  if(errs.length)return invalid(errs);
+  if(body.stage!==S.stage||body.revision!==S.revision)return conflict('stale-state',`study ${S.id} is at ${S.stage} revision ${S.revision} (${S.status}); expected ${body.stage} revision ${body.revision}`,E.STALE);
+  if(S.status!=='waiting_review')return gateNotOpen(S);
+  if(body.decision==='approve'&&corrections.length)return invalid([fieldErr(['body','corrections'],'An approval takes no corrections; reject with them instead.','approval_with_corrections')]);
+  const checked=checkCorrections(S,body.stage,corrections);if(checked instanceof Problem)return checked;
+  const {ctx,order}=checked;
   // Record the review and the corrections.
   const at=iso(S.clock()),review={id:S.next(7),study_id:S.id,stage:S.stage,revision:S.revision,decision:body.decision,reviewer_id:actorOf(S).id,comment:body.comment??null,created_at:at};
-  S.reviews.push(review);const rev=S.revisions[S.revisions.length-1];rev.decisions.push({stage:review.stage,decision:review.decision,reviewer_id:actorOf(S).id,review_id:review.id,at});
+  S.reviews.push(review);const rev=S.revisions[S.revisions.length-1];
+  // The decision takes the submitter's draft on the stage with it (docs/api/GATE_DRAFTS_AND_RESUME.md, "Submission").
+  if(S.drafts?.[body.stage])delete S.drafts[body.stage][actorOf(S).id];rev.decisions.push({stage:review.stage,decision:review.decision,reviewer_id:actorOf(S).id,review_id:review.id,at});
   const stg=S.stages[S.stages.length-1];stg.decided_at=at;stg.decision=body.decision;stg.review_wait_ms=stg.gate_opened_at?Date.parse(at)-Date.parse(stg.gate_opened_at):null;
   event(S,'review.decided',{actor:'engineer',entity_type:'review',entity_id:review.id,after:{decision:body.decision},detail:{decision:body.decision,comment:body.comment??null,corrections:corrections.length}});
   audit(S,'decision',body.decision==='approve'?'approved':'rejected',{entity_type:'review',entity_id:review.id,review_id:review.id,reason:body.comment??null});
@@ -997,6 +1014,35 @@
    route('GET','/v1/studies/{study_id}/evidence',withStudy((S,ctx)=>{const id=ctx.q.get('asset_id');if(!S.has.assets)return json(200,page([],{revision:S.revision}));const items=evidenceOut(S,id);if(id&&!items.length)return notFound('Asset not found.');return json(200,page(items,{revision:S.revision}))}));
    route('GET','/v1/studies/{study_id}/result',withStudy((S,ctx)=>atRevision(S,ctx,(snap,r)=>snap?.result?json(200,snap.result):notFound(`Revision ${r} has no assets.`),()=>S.has.assets?json(200,resultOf(S)):notFound(`Revision ${S.revision} has no assets yet.`))));
    route('POST','/v1/studies/{study_id}/decisions',withStudy((S,ctx)=>{const r=decide(S,ctx.i,ctx.body);return r instanceof Problem?r:json(202,r)}));
+   // Gate drafts (backEnd/basis/api/routes/drafts.py; docs/api/GATE_DRAFTS_AND_RESUME.md): one per
+   // (study, stage, user), saved whole, checked as a decision is, If-Match on its version, stale once
+   // the study leaves its revision or the stage is decided at it.
+   const draftStage=(ctx)=>GATES.includes(ctx.p.stage)?null:invalid([fieldErr(['path','stage'],`Input should be ${GATES.map(g=>`'${g}'`).join(', ')}`,'literal_error')]);
+   const draftsOf=(S,stage)=>((S.drafts||={})[stage]||={});
+   const staleReason=(S,stage,d)=>d.revision!==S.revision?'revision':S.reviews.some(r=>r.stage===stage&&r.revision===d.revision)?'decided':null;
+   const draftOut=(S,stage,uid,d)=>{const why=staleReason(S,stage,d);return {study_id:S.id,stage,revision:d.revision,user_id:uid,comment:d.comment,corrections:clone(d.corrections),version:d.version,stale:!!why,stale_reason:why,created_at:d.created_at,updated_at:d.updated_at}};
+   const draftsBody=(S,ctx,stage)=>{const me=actorOf(S).id,all=draftsOf(S,stage),mine=all[me];return {study_id:S.id,stage,current_revision:S.revision,draft:mine?draftOut(S,stage,me,mine):null,
+    others:Object.entries(all).filter(([u])=>u!==me).map(([u,d])=>{const p=ctx.i.people.find(x=>x.id===u);return {user_id:u,display_name:p?.name||null,email:p?.email||null,revision:d.revision,corrections:d.corrections.length,has_comment:!!d.comment,stale:!!staleReason(S,stage,d),updated_at:d.updated_at}})}};
+   const draftWriter=ctx=>ctx.i.me.role==='viewer'?forbidden('A viewer cannot draft corrections.'):null;
+   route('GET','/v1/studies/{study_id}/drafts/{stage}',withStudy((S,ctx)=>{const bad=draftStage(ctx)||draftWriter(ctx);if(bad)return bad;const b=draftsBody(S,ctx,ctx.p.stage);return json(200,b,{etag:`"${b.draft?.version??0}"`,'cache-control':'no-store'})}));
+   route('PUT','/v1/studies/{study_id}/drafts/{stage}',withStudy((S,ctx)=>{
+    const bad=draftStage(ctx)||draftWriter(ctx);if(bad)return bad;const stage=ctx.p.stage,b=ctx.body;
+    const errs=checkShape(b,{revision:v=>Number.isInteger(v)&&v>=1,comment:v=>v===null||typeof v==='string',corrections:v=>Array.isArray(v)},['revision']);
+    if(errs.length)return invalid(errs);
+    const corrections=b.corrections||[],shape=correctionShapeErrors(corrections);if(shape.length)return invalid(shape);
+    if(b.revision!==S.revision||S.reviews.some(r=>r.stage===stage&&r.revision===S.revision))return conflict('draft-stale',`The study is at revision ${S.revision}; a draft for revision ${b.revision} could never be submitted.`,'BASIS-STUDY-026');
+    const me=actorOf(S).id,all=draftsOf(S,stage),cur=all[me];
+    if(!ifMatchAllows(ctx.h['if-match'],cur?.version??0,!!cur))return new Problem(412,'precondition-failed','Precondition Failed','Your draft changed since you read it; read it again, merge and save.','BASIS-STUDY-025',undefined,{etag:`"${cur?.version??0}"`});
+    const checked=checkCorrections(S,stage,corrections);if(checked instanceof Problem)return checked;
+    const at=iso(S.clock());all[me]={revision:b.revision,comment:b.comment??null,corrections:clone(corrections).map(c=>({entity_type:c.entity_type,entity_id:c.entity_id,before:c.before??null,after:c.after,reason:c.reason??null})),version:(cur?.version||0)+1,created_at:cur?.created_at||at,updated_at:at};
+    const out=draftsBody(S,ctx,stage);return json(200,out,{etag:`"${out.draft.version}"`});
+   }));
+   route('DELETE','/v1/studies/{study_id}/drafts/{stage}',withStudy((S,ctx)=>{
+    const bad=draftStage(ctx)||draftWriter(ctx);if(bad)return bad;const stage=ctx.p.stage,me=actorOf(S).id,all=draftsOf(S,stage),cur=all[me];
+    if(!cur)return notFound('You have no draft on this stage.','BASIS-STUDY-027');
+    if(!ifMatchAllows(ctx.h['if-match'],cur.version,true))return new Problem(412,'precondition-failed','Precondition Failed','Your draft changed since you read it.','BASIS-STUDY-025',undefined,{etag:`"${cur.version}"`});
+    delete all[me];return json(200,draftsBody(S,ctx,stage),{etag:'"0"'});
+   }));
    route('POST','/v1/studies/{study_id}/reopen',withStudy((S,ctx)=>{const r=reopen(S,ctx.i,ctx.body);return r instanceof Problem?r:json(r.status,r.body)}));
    route('GET','/v1/studies/{study_id}/report/state',withStudy((S,ctx)=>json(200,reportState(S,ctx.i))));
    route('GET','/v1/studies/{study_id}/report-answers',withStudy(S=>json(200,{study_id:S.id,report_answers:clone(S.answers),report_answers_version:S.answersVersion},{etag:`"${S.answersVersion}"`})));
@@ -1106,10 +1152,22 @@
   *      the name, credentials, license number and state an engineer signs with.
   *  P7  GET /v1/orgs/{org_id}/feed: the firm's study activity for every member, newest first,
   *      each event with the actor's name and the study's name and address.
+  *
+  * The Property area (web/FRONTEND_BACKLOG.md section 21, "Built from sections 17 to 20"; the
+  * contracts are on open backend branches):
+  *  P8  property_capture, public_geo and traced_measurement in GET /v1/capabilities; the property
+  *      pin, captures and views, the public records and the renovations document
+  *      (live/sample-property.js, docs/api/PROPERTY_CAPTURE.md, PUBLIC_GEO.md, RENOVATIONS.md).
+  *  P9  `measurement` on asset corrections (docs/api/OVERRIDES.md section 4): the shape the
+  *      engineer traced; the asset's takeoff becomes its computed quantity, with the formula,
+  *      the stored record and the four measure: review flags.
+  *  P10 a model's drafted measurement on the patio's row (&measure=draft, or create({measureDraft:
+  *      true})): takeoff.inputs.measurement with drawn_by model:..., verified false, priced as a
+  *      traced one is (EVAL_REPORT 104: no model drafts yet; this is the measure tool's fixture).
   * ===================================================================================== */
  (function proposed(){
   // P0
-  PROPOSED_ROUTES.push(({route,json})=>route('GET','/v1/capabilities',()=>json(200,{object_exclusion:true,unit_cost_override:true,room_create:true})));
+  PROPOSED_ROUTES.push(({route,json})=>route('GET','/v1/capabilities',()=>json(200,{object_exclusion:true,unit_cost_override:true,room_create:true,property_capture:true,public_geo:true,traced_measurement:true})));
   // P4: what identifies each study, and a search that reaches it.
   STUDY_OUT.push((out,S)=>{const m=S.meta;out.summary=m?{address:m.address,city:m.city,state:m.state,zip:m.zip,county:m.county,parcel_number:m.apn,client:m.client,borrower:m.borrower,taxpayer:S.answers?.taxpayer_name||m.taxpayer,file_number:m.file}:null});
   STUDY_MATCH.push((S,q)=>{const m=S.meta;if(!m)return false;
@@ -1217,6 +1275,51 @@
    },
    apply(c,S,ctx){S.rooms.push({id:c.entity_id,key:'new-'+c.entity_id.slice(0,8),name:c.after.name.trim(),room_type:c.after.room_type,floor:c.after.floor==null?null:String(c.after.floor),area:null,source:'engineer',group_key:null,photos:[],inventory:[],provenance:{...ctx.prov(null,clone(c.after),Object.keys(c.after)),origin:'engineer_added'}})},
   };
+  // P8: the property routes (live/sample-property.js).
+  // In the browser the two files are loaded before this one; in Node they are required beside it
+  // (a test that evaluates this source from web/tests reaches them as ../live/).
+  const near=(file,global)=>{if(scope[global])return scope[global];if(typeof require!=='function')return null;for(const p of ['./'+file,'../live/'+file]){try{return require(p)}catch{}}return null};
+  const PS=near('sample-property.js','BasisPropertySample'),PM=near('property-model.js','BasisPropertyModel');
+  if(PS)PROPOSED_ROUTES.push(h=>PS.register(h));
+  // P9: a traced measurement on an asset correction, computed as basis/domain/traced.py does
+  // (live/property-model.js is its port, tested against the server's values).
+  if(PM){
+   AFTER_KEYS.asset.push('measurement');
+   const TYPED=['quantity','quantity_unit','quantity_source'];
+   ASSET_CHECKS.push(c=>{
+    if(!('measurement' in c.after))return null;
+    if(TYPED.some(k=>k in c.after))return {where:'after',detail:'measurement goes alone or with a classification or a unit price, never with quantity, quantity_unit or quantity_source (one way to state a quantity).',type:'correction_value'};
+    const problems=PM.problems(c.after.measurement);
+    return problems.length?{where:'after',detail:problems.join('; '),type:'correction_value'}:null;
+   });
+   const MEASURE_CODES={'measure:IMAGE_UNDATED':'BASIS-ASSETS-021','measure:IMAGE_AFTER_SERVICE':'BASIS-ASSETS-022','measure:ERROR_UNKNOWN':'BASIS-ASSETS-023','measure:COARSE':'BASIS-ASSETS-024'};
+   REASON_CODES.push(...Object.entries(MEASURE_CODES));
+   const baseApply=CORRECTORS.asset.apply;
+   CORRECTORS.asset.apply=(c,S,ctx)=>{
+    baseApply(c,S,ctx);if(!c.after.measurement)return;
+    const m=c.after.measurement,r=PM.measure(m),e=S.assetEdits[c.entity_id];
+    Object.assign(e,{quantity:r.quantity,quantity_unit:r.unit,quantity_source:m.image.source.trim(),traced:{...JSON.parse(JSON.stringify(m)),...r}});
+   };
+   COST_HOOKS.push((asset,{S,id})=>{
+    const t=S.assetEdits[id]?.traced;if(!t)return;
+    asset.takeoff.formula=PM.formula(t,{source:t.image.source,captured_on:t.image.captured_on,height_ft:t.height_ft});
+    asset.takeoff.inputs={quantity_source:'engineer',measured_by_engineer:t.image.source,computed_quantity:null,measurement:JSON.parse(JSON.stringify(t))};
+    if(asset.cost?.trail?.quantity){asset.cost.trail.quantity.formula=asset.takeoff.formula;asset.cost.trail.quantity.inputs=asset.takeoff.inputs}
+    const flags=PM.reviewFlags(t,{captured_on:t.image.captured_on,placedInService:INTAKE.placed_in_service_date});
+    asset.review_reasons=[...asset.review_reasons.filter(x=>!x.startsWith('measure:')),...flags];
+    asset.review_codes=codesFor(asset.review_reasons);asset.needs_review=asset.review_reasons.length>0;
+   });
+   // P10: the patio's model draft, until a correction replaces it.
+   if(PS?.patioDraft)COST_HOOKS.push((asset,{S,id})=>{
+    const I=S.inst;if(!(I.measureDraft??(scope.location?new URLSearchParams(scope.location.search||'').get('measure')==='draft':false))||asset.label!=='patio'||S.assetEdits[id])return;
+    const body=PS.patioDraft(),r=PM.measure(body),q=Number(r.quantity),unitCents=asset.cost?.unit_cost!=null?toCents(asset.cost.unit_cost):null;
+    asset.takeoff.quantity=r.quantity;asset.takeoff.method='traced';
+    asset.takeoff.formula=PM.formula(r,{source:body.image.source,captured_on:body.image.captured_on,drawn_by:body.drawn_by,verified:body.verified});
+    asset.takeoff.inputs={quantity_source:'model',computed_quantity:String(asset.takeoff.inputs?.estimate??''),measurement:{...JSON.parse(JSON.stringify(body)),...r}};asset.takeoff.assumptions=[];
+    if(unitCents!==null){const total=Math.round(unitCents*q);asset.cost.total=money(total);asset.cost.trail.total=money(total)}
+    if(asset.cost?.trail?.quantity){Object.assign(asset.cost.trail.quantity,{value:r.quantity,formula:asset.takeoff.formula,inputs:asset.takeoff.inputs,method:'traced',assumptions:[]})}
+   });
+  }
  })();
  /* END PROPOSED ====================================================================== */
 

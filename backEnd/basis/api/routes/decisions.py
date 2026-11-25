@@ -67,13 +67,23 @@ both are refused while ``UNIT_COST_OVERRIDE`` is off. A price on a concealed row
 structure model (an asset with no component: its total is a share of the building's cost,
 not a unit price) is ``correction_value`` at ``after``, checked with the targets.
 
+A traced measurement (EVAL_REPORT 97, :mod:`basis.domain.traced`, docs/api/OVERRIDES.md
+section 4): an ``asset`` correction may carry ``measurement``, the shape the engineer traced,
+whose quantity the server computes. A bad one is ``correction_value`` at ``after`` with every
+problem named (the activities check the same rules, ``E.CORRECT_MEASUREMENT``), and so is one
+beside ``quantity``, ``quantity_unit`` or ``quantity_source``, one on another entity type,
+and any while ``TRACED_MEASUREMENT`` is off; an ``image.document_id`` that is not a document
+of the study is ``correction_target`` at ``after``, checked with the targets.
+
 The checks that need no database run with the types, before anything is written; the
-rebuilt, last-row, existing-key, page and concealed-row checks run after the target check,
-in the same transaction, so a stale decision is still a 409.
+rebuilt, last-row, existing-key, page, concealed-row and measurement-document checks run
+after the target check, in the same transaction, so a stale decision is still a 409.
 """
 
 from __future__ import annotations
 
+import asyncio
+import functools
 import uuid
 from collections.abc import Sequence
 from typing import Annotated, Any, Final
@@ -84,7 +94,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from temporalio.exceptions import ApplicationError
 
-from basis.activities.corrections import check_quantity
+from basis.activities.corrections import check_quantity, measurement_problems
 from basis.activities.reprice_corrections import STUDY_TARGETED
 from basis.api.idempotency import IDEMPOTENCY_HEADER, parse_idempotency_key
 from basis.api.routes.common import problems, write_router
@@ -92,12 +102,12 @@ from basis.api.schemas.reviews import CorrectionIn, DecisionAccepted, DecisionIn
 from basis.api.users import CurrentUserDep, study_access
 from basis.config import Settings
 from basis.db.enums import OrgRole, Stage
-from basis.db.models import Asset
+from basis.db.models import Asset, Document, Study
 from basis.db.repositories import CorrectionInput, ReviewRepository, VisibleStudy
 from basis.db.repositories.extraction import ExtractionRepository
 from basis.db.repositories.room import RoomRepository
 from basis.db.session import SessionDep
-from basis.domain import price_overrides, removals
+from basis.domain import component_age, price_overrides, removals, renovations, traced
 from basis.domain.counts import count_problem, room_component_problems
 from basis.domain.rooms import room_field_problems
 from basis.errors.codes import E
@@ -197,7 +207,10 @@ async def check_correction_targets(
 
 
 def check_correction_values(
-    corrections: Sequence[CorrectionIn], *, unit_cost_override: bool = True
+    corrections: Sequence[CorrectionIn],
+    *,
+    unit_cost_override: bool = True,
+    traced_measurement: bool = True,
 ) -> None:
     """422 naming every count the rooms review would refuse (:mod:`basis.domain.counts`): a
     ``component`` ``count`` that is not a whole number from 1, or a ``room_component`` that
@@ -207,10 +220,13 @@ def check_correction_values(
     ``apply_corrections`` refusing one would start the next revision without any of the
     rejection's corrections. A unit price on an ``asset`` or ``component`` correction is
     checked here too (module doc), and refused outright when ``unit_cost_override`` (the
-    ``UNIT_COST_OVERRIDE`` setting) is off."""
+    ``UNIT_COST_OVERRIDE`` setting) is off; so is a traced measurement
+    (:func:`measurement_errors`, ``traced_measurement``: the ``TRACED_MEASUREMENT`` setting)."""
     errors = []
     for index, item in enumerate(corrections):
         errors += unit_cost_errors(index, item, enabled=unit_cost_override)
+        errors += measurement_errors(index, item, enabled=traced_measurement)
+        errors += annotation_errors(index, item)
         problems: list[str] = []
         if item.entity_type == "component" and "count" in item.after:
             problem = count_problem(item.after["count"])
@@ -221,7 +237,7 @@ def check_correction_values(
             problems = ["a photo_room correction takes exactly a room_id (a room id)"]
         elif item.entity_type == "room":
             problems = room_field_problems(item.after)
-        elif item.entity_type == "asset":
+        elif item.entity_type == "asset" and traced.MEASUREMENT not in item.after:
             problems = quantity_problems(item.after)
         errors += [
             _correction_error(index, "after", problem, CORRECTION_VALUE_ERROR)
@@ -229,6 +245,22 @@ def check_correction_values(
         ]
     if errors:
         raise RequestValidationError(errors)
+
+
+async def check_values(corrections: Sequence[CorrectionIn], settings: Settings) -> None:
+    """:func:`check_correction_values` with the deployment's settings; on a thread when a
+    correction carries a traced measurement (its checks compare every pair of a ring's edges:
+    tens of milliseconds at the point cap, EVAL_REPORT 97), so the event loop keeps serving."""
+    check = functools.partial(
+        check_correction_values,
+        corrections,
+        unit_cost_override=settings.unit_cost_override,
+        traced_measurement=settings.traced_measurement,
+    )
+    if any(traced.MEASUREMENT in item.after for item in corrections):
+        await asyncio.to_thread(check)
+    else:
+        check()
 
 
 def unit_cost_errors(index: int, item: CorrectionIn, *, enabled: bool) -> list[dict[str, Any]]:
@@ -258,6 +290,123 @@ def unit_cost_errors(index: int, item: CorrectionIn, *, enabled: bool) -> list[d
             )
         )
     return errors
+
+
+def measurement_errors(index: int, item: CorrectionIn, *, enabled: bool) -> list[dict[str, Any]]:
+    """The 422 entries of a correction's traced measurement (none when it carries none)."""
+    if traced.MEASUREMENT not in item.after:
+        return []
+    if item.entity_type != "asset":
+        problems = [
+            f"measurement is an asset correction's field (the assets review); a "
+            f"{item.entity_type} correction cannot carry it"
+        ]
+    elif not enabled:
+        problems = ["traced measurements are turned off on this deployment (GET /v1/capabilities)"]
+    else:
+        problems = measurement_problems(item.after)
+    return [
+        _correction_error(index, "after", problem, CORRECTION_VALUE_ERROR) for problem in problems
+    ]
+
+
+async def check_measurement_targets(
+    session: AsyncSession, study_id: uuid.UUID, corrections: Sequence[CorrectionIn]
+) -> None:
+    """422 naming every asset correction whose measurement's ``image.document_id`` is not a
+    document of this study. Runs after the target check (the values were checked before)."""
+    named: dict[int, uuid.UUID] = {}
+    for index, item in enumerate(corrections):
+        value = item.after.get(traced.MEASUREMENT) if item.entity_type == "asset" else None
+        image = value.get("image") if isinstance(value, dict) else None
+        raw = image.get("document_id") if isinstance(image, dict) else None
+        if isinstance(raw, str):
+            try:
+                named[index] = uuid.UUID(raw)
+            except ValueError:  # pragma: no cover - refused with the values
+                continue
+    if not named:
+        return
+    found = set(
+        (
+            await session.scalars(
+                select(Document.id).where(
+                    Document.study_id == study_id, Document.id.in_(list(set(named.values())))
+                )
+            )
+        ).all()
+    )
+    errors = [
+        _correction_error(
+            index,
+            "after",
+            f"measurement.image.document_id {document_id} is not a document of this study",
+            CORRECTION_TARGET_ERROR,
+        )
+        for index, document_id in named.items()
+        if document_id not in found
+    ]
+    if errors:
+        raise RequestValidationError(errors)
+
+
+def annotation_errors(index: int, item: CorrectionIn) -> list[dict[str, Any]]:
+    """The 422 entries of an ``asset`` correction's age or removal (EVAL_REPORT 102; none when
+    it carries neither): the value problems at ``after``, a missing reason at ``reason``."""
+    if item.entity_type != "asset":
+        return []
+    found: list[str] = []
+    if component_age.has_age(item.after):
+        found += component_age.problems(item.after, "-")
+    if renovations.has_removal(item.after):
+        found += renovations.removal_problems(item.after, "-")
+    errors = [_correction_error(index, "after", p, CORRECTION_VALUE_ERROR) for p in found]
+    carries = component_age.has_age(item.after) or renovations.has_removal(item.after)
+    if carries and (item.reason is None or not item.reason.strip()):
+        errors.append(
+            _correction_error(
+                index,
+                "reason",
+                "a component age or a removal needs a reason (what it rests on)",
+                CORRECTION_REASON_ERROR,
+            )
+        )
+    return errors
+
+
+async def check_removal_projects(
+    session: AsyncSession, study_id: uuid.UUID, corrections: Sequence[CorrectionIn]
+) -> None:
+    """422 naming every removal whose project the study's renovations do not list (an
+    ``after_service`` project: a before-service one replaced nothing that was in service)."""
+    named = {
+        index: item.after.get(renovations.REMOVED_BY_PROJECT)
+        for index, item in enumerate(corrections)
+        if item.entity_type == "asset"
+        and isinstance(item.after.get(renovations.REMOVED_BY_PROJECT), str)
+    }
+    if not named:
+        return
+    study = await session.get(Study, study_id)
+    document = None if study is None else study.renovations
+    keys = (
+        set()
+        if document is None
+        else {p.key for p in document.projects if p.kind == "after_service"}
+    )
+    errors = [
+        _correction_error(
+            index,
+            "after",
+            f"removed_by_project {key!r} is not an after-service project of this study's "
+            "renovations (PUT /v1/studies/{id}/renovations)",
+            CORRECTION_VALUE_ERROR,
+        )
+        for index, key in named.items()
+        if key not in keys
+    ]
+    if errors:
+        raise RequestValidationError(errors)
 
 
 async def check_unit_cost_targets(
@@ -507,7 +656,12 @@ def check_no_corrections_on_approve(decision: str, corrections: Sequence[Correct
         "component to); a `photo_room` `after` is exactly a `room_id` of that revision; a "
         "`component` `count` must be a whole number from 1, an `asset`'s measured quantity "
         "(EVAL_REPORT 78) is `quantity` (positive), `quantity_unit` (EA, SF, LF, SY) and "
-        "`quantity_source` (where it was measured) together, and a `room_component` "
+        "`quantity_source` (where it was measured) together, or a traced `measurement` "
+        "(EVAL_REPORT 97: the shape the engineer traced on an image, in lon/lat or in pixels "
+        "with a scale; the server computes the quantity; never with the three, refused for a "
+        "shape that breaks a rule of docs/api/OVERRIDES.md section 4, for an `image."
+        "document_id` that is not a document of the study and while `GET /v1/capabilities` "
+        "says `traced_measurement: false`), and a `room_component` "
         "`after` a taxonomy `label` with a `count` (optional `material`, `attachment` from "
         "their vocabularies); an `asset` or `component` correction may carry the "
         "engineer's unit price, `unit_cost` (dollars per takeoff unit to the cent, above 0, "
@@ -548,7 +702,7 @@ async def record_decision(
     )
     check_no_corrections_on_approve(body.decision, body.corrections)
     settings: Settings = request.app.state.settings
-    check_correction_values(body.corrections, unit_cost_override=settings.unit_cost_override)
+    await check_values(body.corrections, settings)
     check_removals_and_additions(body.corrections)
     reviews = ReviewRepository(session)
     record = await reviews.record_decision(
@@ -574,6 +728,8 @@ async def record_decision(
     await check_removal_targets(session, access.study.id, body.revision, body.corrections)
     await check_field_add_targets(session, access.study.id, body.corrections)
     await check_unit_cost_targets(session, access.study.id, body.corrections)
+    await check_measurement_targets(session, access.study.id, body.corrections)
+    await check_removal_projects(session, access.study.id, body.corrections)
     return DecisionAccepted(
         review=ReviewOut.model_validate(record.review),
         current_stage=record.study.current_stage,

@@ -241,3 +241,21 @@ explicitly authorized action with a budget and an audit record.
 
 Rollout: apply migration 0021 before deploying the worker and the relay. Until it is
 applied they log `BASIS-INF-004` and keep running.
+
+## 7. `property_capture`
+
+A member beside `services` (added with migration 0036; `schema_version` stays 1: additive), null
+when the database could not be read within 2 s. Property pictures are optional, so nothing here
+makes the document 503.
+
+| Member | Meaning |
+|---|---|
+| `enabled` | `PROPERTY_CAPTURE`. |
+| `worker.status`, `worker.seen_at` | `up` (a capture worker wrote `capture_state.worker_seen_at` within 90 s; it writes every 30 s), `down`, `never`. |
+| `breaker.state` | `closed`; `open` (captures wait until `open_until`); `half_open` (lapsed, the next capture is the trial). With `opened_at`, `code` (the signal's `BASIS-CAPTURE-<nnn>`), `reason` (what the page showed) and `trips` (consecutive; each doubles the wait). |
+| `used` | `loads_hour`/`loads_hour_cap`, `loads_day`/`loads_day_cap`, `moves_hour`/`moves_hour_cap`: navigations in their sliding windows against the caps. |
+| `last_success_at`, `last_navigation_at` | From `capture_state`. |
+| `capturing` | A worker holds the capture lease now. |
+
+The incidents behind a trip: `GET /v1/ops/capture-incidents` (docs/api/PROPERTY_CAPTURE.md
+section 4).

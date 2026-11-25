@@ -21,6 +21,11 @@ A unit price (EVAL_REPORT 90, :mod:`basis.domain.price_overrides`): an ``asset``
 ``component`` correction may carry ``unit_cost`` and ``unit_cost_source`` with a required
 reason (:func:`check_unit_cost`); ``apply_corrections`` stores it on the component row and
 ``process_assets`` prices with it.
+
+A traced measurement (EVAL_REPORT 97, :mod:`basis.domain.traced`): an ``asset`` correction
+may carry ``measurement``, the shape the engineer traced, in place of the typed ``quantity``,
+``quantity_unit`` and ``quantity_source`` (never with them: one way to state a quantity);
+:func:`check_measurement` applies the module's rules, as the decision route does.
 """
 
 from __future__ import annotations
@@ -31,7 +36,7 @@ from typing import Any, Final
 
 from basis.activities._support import validation_error
 from basis.db.enums import Bucket
-from basis.domain import price_overrides
+from basis.domain import component_age, price_overrides, renovations, traced
 from basis.domain.counts import count_problem, room_component_problems
 from basis.domain.validators import (
     VALID_SECTION_BUCKETS,
@@ -62,6 +67,11 @@ ASSET_FIELDS: Final = frozenset(
         "quantity_source",
         # EVAL_REPORT 90: the engineer's unit price and where it comes from.
         *price_overrides.FIELDS,
+        # EVAL_REPORT 97: the shape the engineer traced, instead of the three above.
+        traced.MEASUREMENT,
+        # EVAL_REPORT 102 (RENOVATIONS.md): the row's own age, and its removal by a renovation.
+        *component_age.FIELDS,
+        *renovations.REMOVAL_FIELDS,
     }
 )
 QUANTITY_FIELDS: Final = frozenset({"quantity", "quantity_unit", "quantity_source"})
@@ -145,6 +155,22 @@ def check_unit_cost(after: dict[str, Any], reason: str | None) -> None:
         raise validation_error("; ".join(problems), E.CORRECT_UNIT_COST)
 
 
+def check_component_age(after: dict[str, Any], reason: str | None) -> None:
+    """A row's age on an ``asset`` correction (:func:`basis.domain.component_age.problems`),
+    or nothing when it carries none."""
+    problems = component_age.problems(after, reason)
+    if problems:
+        raise validation_error("; ".join(problems), E.CORRECT_COMPONENT_AGE)
+
+
+def check_removal(after: dict[str, Any], reason: str | None) -> None:
+    """A removal by a renovation project on an ``asset`` correction
+    (:func:`basis.domain.renovations.removal_problems`), or nothing when it carries none."""
+    problems = renovations.removal_problems(after, reason)
+    if problems:
+        raise validation_error("; ".join(problems), E.CORRECT_REMOVAL)
+
+
 def check_photo_room(after: dict[str, Any]) -> None:
     """Exactly a ``room_id`` (the target room is checked against the revision by the caller)."""
     if set(after) != PHOTO_ROOM_FIELDS:
@@ -200,6 +226,7 @@ def check_asset(after: dict[str, Any]) -> None:
     15/27.5/39): the domain validators of ``basis.domain.validators``.
     """
     check_fields("asset", after, ASSET_FIELDS)
+    check_measurement(after)
     check_quantity(after)
     bucket = parse_bucket(after["bucket"]) if "bucket" in after else None
     period = parse_recovery_period(after["recovery_period"]) if "recovery_period" in after else None
@@ -256,3 +283,37 @@ def check_quantity(after: dict[str, Any]) -> Decimal | None:
             E.CORRECT_QUANTITY,
         )
     return quantity
+
+
+def check_measurement(after: dict[str, Any]) -> traced.Traced | None:
+    """The engineer's traced measurement in an asset correction (EVAL_REPORT 97,
+    :func:`basis.domain.traced.measure`), or None when the correction carries none; a bad
+    one, or one sent with the typed quantity's fields, is a ``CORRECT_MEASUREMENT`` error."""
+    if traced.MEASUREMENT not in after:
+        return None
+    typed = _typed_beside(after)
+    if typed:
+        raise validation_error(typed, E.CORRECT_MEASUREMENT)
+    try:
+        return traced.measure(after[traced.MEASUREMENT])
+    except traced.MeasurementError as exc:
+        raise validation_error(str(exc), E.CORRECT_MEASUREMENT) from None
+
+
+def _typed_beside(after: dict[str, Any]) -> str | None:
+    typed = sorted(QUANTITY_FIELDS & set(after))
+    if not typed:
+        return None
+    return (
+        "a measurement states the quantity itself; send it without "
+        f"{', '.join(typed)} (one way to state a quantity)"
+    )
+
+
+def measurement_problems(after: dict[str, Any]) -> list[str]:
+    """Why an asset correction's ``measurement`` cannot be applied (empty when it can or when
+    there is none): the measurement's own rules, and no typed quantity beside it."""
+    if traced.MEASUREMENT not in after:
+        return []
+    typed = _typed_beside(after)
+    return [typed] if typed else traced.problems(after[traced.MEASUREMENT])

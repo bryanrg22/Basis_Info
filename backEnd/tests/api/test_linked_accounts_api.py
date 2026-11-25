@@ -87,3 +87,33 @@ async def test_an_unverified_new_account_is_not_linked(
     me = (await api.get("ada-new", "/v1/me")).json()
     assert me["memberships"] == []
     assert (await api.get("ada-new", f"/v1/orgs/{org}/members")).status_code == 404
+
+
+async def test_a_linked_account_can_write_and_shares_the_members_idempotency_keys(
+    api_and_setting: tuple[Api, bool], seed: Seed, verifier: FakeVerifier
+) -> None:
+    # Live check 2026-11-24: a member signed in with a new verified account (linked to them)
+    # read every page, but every write answered 500: the idempotency store looked the caller
+    # up by the users row's own uid and never followed the link.
+    api, link = api_and_setting
+    org = await seed.org("Acme Engineering")
+    await seed.member(org, "ada", OrgRole.OWNER, own_firm=False)
+    verifier.identities["ada-new"] = Principal(
+        uid="ada-new", email="ada@example.test", display_name=None, email_verified=True
+    )
+    body = {"property_name": "12 Main St", "org_id": str(org)}
+    first = await api.post("ada-new", "/v1/studies", body, key="study-key-1")
+    if not link:
+        # A new user in no firm: refused as before (403), never a 500.
+        assert first.status_code == 403, first.text
+        return
+    assert first.status_code == 201, first.text
+    # The same key again, from the same account: the stored answer, not a second study.
+    again = await api.post("ada-new", "/v1/studies", body, key="study-key-1")
+    assert again.status_code == 201 and again.json()["id"] == first.json()["id"]
+    # Both accounts are one user, so they share the user's keys: the original account
+    # replaying the key gets the same study, not a second one.
+    original = await api.post("ada", "/v1/studies", body, key="study-key-1")
+    assert original.status_code == 201 and original.json()["id"] == first.json()["id"]
+    studies = (await api.get("ada", "/v1/studies")).json()["items"]
+    assert [s["id"] for s in studies] == [first.json()["id"]]

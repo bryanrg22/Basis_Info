@@ -12,7 +12,7 @@
 // The record is the page's content and the finished state: it is what shows without script,
 // under reduced motion and to screen readers. The chat is a decorative layer (aria-hidden) laid
 // over the same box while it plays, so nothing in the layout moves (CLS 0); only transform and
-// opacity animate, and the pile fades as one element.
+// opacity animate, and the pile fades as one element. The story plays on desktop only (below).
 
 const EASE = 'cubic-bezier(.22,.61,.36,1)';
 const reduce = matchMedia('(prefers-reduced-motion: reduce)');
@@ -72,7 +72,10 @@ export function mountRecord(root) {
   let frame = 0;
   addEventListener('resize', () => { cancelAnimationFrame(frame); frame = requestAnimationFrame(layout); });
   layout();
-  if (reduce.matches) return;
+  // The story plays on desktop only. Stacked (tablets and phones) the record is taller than the
+  // screen, so a reader scrolls through it while the chat would still be playing above empty rows;
+  // there the finished record shows at once, as it does under reduced motion.
+  if (reduce.matches || !wide.matches) return;
 
   root.classList.add('is-motion');
   replay.hidden = false;

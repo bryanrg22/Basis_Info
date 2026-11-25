@@ -52,6 +52,9 @@ Schemathesis setup, and why:
   ``logo_png`` from the profile and ``prior_depreciation`` from the answers, as on the
   intake: a generated tag is rightly 412, a base64 string that is not a PNG or a money
   string that is not a number rightly 422 (``test_report_signing.py``).
+* ``PUT .../renovations`` (EVAL_REPORT 102): ``If-Match`` dropped as above and the body replaced
+  by a valid document (``{"projects": []}``): a project names the study's uploads and dates its
+  intake must agree with, which the schema cannot say (``test_renovations.py``).
 * ``PUT /me/signer`` (EVAL_REPORT 91): ``If-Match`` dropped as above, and a license number
   without its state (or a state without its number) cleared: the pair is a rule between two
   fields, which the schema cannot say, so the half is rightly 422 (``test_signer_details.py``).
@@ -333,6 +336,32 @@ def prepare_case(case: Any, study_ids: dict[str, str]) -> None:
             case.body.get("license_state") is None
         ):
             case.body["license_number"] = case.body["license_state"] = None
+    if case.path.endswith("/property/pin") and case.method.upper() == "PUT":
+        # The property pin (docs/api/PROPERTY_CAPTURE.md): If-Match as on the intake; a
+        # generated tag is rightly 412 (tests/api/test_property_capture.py covers it). lat and
+        # lon come together or not at all, a relation between two fields the schema cannot say
+        # (the same test covers the refusal).
+        if case.headers:
+            case.headers.pop("If-Match", None)
+        # The pin's cross-field rules (a point or an address; lat with lon; a confirmation
+        # needs a point): a generated body that breaks one is replaced by a valid pin.
+        if isinstance(case.body, dict):
+            lat, lon = case.body.get("lat"), case.body.get("lon")
+            if (
+                (lat is None) != (lon is None)
+                or (case.body.get("address") is None and lat is None)
+                or (case.body.get("confirmed") and lat is None)
+            ):
+                case.body = {"address": "1 Main St", "lat": 41.61, "lon": -93.60}
+    if case.path.endswith("/renovations") and case.method.upper() == "PUT":
+        # The renovation projects (docs/api/RENOVATIONS.md): If-Match as on the intake; a
+        # project names uploads of the study and dates the study's intake must agree with
+        # (the schema's own example contradicts this study's intake), which the schema cannot
+        # say, so a generated project is rightly 422; one valid document, like the intake's
+        # (tests/api/test_renovations.py and tests/unit/domain/test_renovations.py cover them).
+        if case.headers:
+            case.headers.pop("If-Match", None)
+        case.body = {"projects": []}
     if case.path.endswith("/assets/reprice") and case.method.upper() == "POST":
         # "At least one member" of the square-foot model is not in the schema.
         if isinstance(case.body, dict) and case.body.get("structure_model") is not None:

@@ -1,0 +1,6157 @@
+{
+ "about": "Public geographic sources (basis.geo.registry, EVAL_REPORT 101). Regenerate the retest fields with python -m basis.geo.retest --write.",
+ "sources": [
+  {
+   "id": "us-naip-plus",
+   "name": "USGS NAIP Plus (NAIP and state high-resolution orthoimagery)",
+   "protocol": "arcgis-imageserver",
+   "url": "https://imagery.nationalmap.gov/arcgis/rest/services/USGSNAIPPlus/ImageServer",
+   "native_pixel_m": 0.6,
+   "year_query": {
+    "url": "https://imagery.nationalmap.gov/arcgis/rest/services/USGSNAIPPlus/ImageServer/query",
+    "field": "Year",
+    "where": "Category=1"
+   },
+   "leaf_off": false,
+   "credit": "USGS, USDA, The National Map: Orthoimagery",
+   "terms_class": "public-domain",
+   "terms_quote": "USGS-authored or produced data and information are considered to be in the U.S. Public Domain.",
+   "terms_url": "https://www.usgs.gov/information-policies-and-instructions/copyrights-and-credits",
+   "notes": "The fallback everywhere: one vintage per place (no history). Service pixelSizeX is 0.3 m (its finest); NAIP is 0.6 m in most states.",
+   "states": [
+    "US"
+   ],
+   "bbox": [
+    -179.2972,
+    -14.6292,
+    179.8256,
+    71.4987
+   ],
+   "kind": "imagery",
+   "status": "available",
+   "checked_on": "2026-11-23",
+   "retest": {
+    "service_wkid": 3857,
+    "service_pixel": 0.299999999987858,
+    "extent_lonlat": [
+     -179.2972,
+     -14.6292,
+     179.8256,
+     71.4987
+    ],
+    "ok": true,
+    "point": [
+     43.07472,
+     -89.38417
+    ],
+    "blank": false,
+    "bytes": 3705,
+    "content_type": "image/jpeg",
+    "size": [
+     134,
+     134
+    ],
+    "request_seconds": 7.57,
+    "year_at_point": 2022,
+    "seconds": 92.03
+   }
+  },
+  {
+   "id": "us-naip-usgs",
+   "name": "USGS NAIP Imagery (The National Map)",
+   "protocol": "arcgis-imageserver",
+   "url": "https://imagery.nationalmap.gov/arcgis/rest/services/USGSNAIPImagery/ImageServer",
+   "native_pixel_m": 0.6,
+   "leaf_off": false,
+   "credit": "USGS, USDA, The National Map: Orthoimagery",
+   "terms_class": "public-domain",
+   "terms_quote": "free downloads of public domain, NAIP compressed orthoimagery",
+   "terms_url": "https://imagery.nationalmap.gov/arcgis/rest/services/USGSNAIPImagery/ImageServer",
+   "notes": "Second fallback: slow (about 80 s per image in the survey) and one vintage per place. No year is read at the point (its catalog query timed out in the survey).",
+   "states": [
+    "US"
+   ],
+   "bbox": [
+    -124.8314,
+    24.4859,
+    -66.8516,
+    49.5713
+   ],
+   "kind": "imagery",
+   "status": "available",
+   "checked_on": "2026-11-23",
+   "retest": {
+    "service_wkid": 3857,
+    "service_pixel": 0.29999999999944177,
+    "extent_lonlat": [
+     -124.8314,
+     24.4859,
+     -66.8516,
+     49.5713
+    ],
+    "ok": true,
+    "point": [
+     43.07472,
+     -89.38417
+    ],
+    "blank": false,
+    "bytes": 3706,
+    "content_type": "image/jpeg",
+    "size": [
+     134,
+     134
+    ],
+    "request_seconds": 81.97,
+    "year_at_point": 2022,
+    "seconds": 119.88
+   },
+   "year_label": "one vintage per place, year not read"
+  },
+  {
+   "id": "us-naip-2004",
+   "name": "NAIP 2004 (USDA FPAC, served by USFS GTAC)",
+   "protocol": "arcgis-imageserver",
+   "url": "https://imagery.geoplatform.gov/iipp/rest/services/NAIP/NAIP2004_CONUS/ImageServer",
+   "params": {
+    "bandIds": "0,1,2"
+   },
+   "native_pixel_m": 1.0,
+   "year": 2004,
+   "leaf_off": false,
+   "credit": "USDA Farm Production and Conservation, National Agriculture Imagery Program 2004; served by the U.S. Forest Service GTAC",
+   "terms_class": "public-domain",
+   "terms_quote": "free downloads of public domain, NAIP compressed orthoimagery",
+   "terms_url": "https://imagery.nationalmap.gov/arcgis/rest/services/USGSNAIPImagery/ImageServer",
+   "notes": "One service per year; each covers only the states flown that year (a blank answer elsewhere).",
+   "states": [
+    "US"
+   ],
+   "bbox": [
+    -124.3799,
+    29.9956,
+    -77.9932,
+    49.0034
+   ],
+   "kind": "imagery",
+   "status": "available",
+   "checked_on": "2026-11-23",
+   "retest": {
+    "service_wkid": 3857,
+    "service_pixel": 1,
+    "extent_lonlat": [
+     -124.3799,
+     29.9956,
+     -77.9932,
+     49.0034
+    ],
+    "ok": true,
+    "point": [
+     39.4995,
+     -101.18655000000001
+    ],
+    "blank": true,
+    "bytes": 105,
+    "content_type": "image/png",
+    "size": [
+     80,
+     80
+    ],
+    "request_seconds": 25.12,
+    "seconds": 48.52
+   }
+  },
+  {
+   "id": "us-naip-2005",
+   "name": "NAIP 2005 (USDA FPAC, served by USFS GTAC)",
+   "protocol": "arcgis-imageserver",
+   "url": "https://imagery.geoplatform.gov/iipp/rest/services/NAIP/NAIP2005_CONUS/ImageServer",
+   "params": {
+    "bandIds": "0,1,2"
+   },
+   "native_pixel_m": 1.0,
+   "year": 2005,
+   "leaf_off": false,
+   "credit": "USDA Farm Production and Conservation, National Agriculture Imagery Program 2005; served by the U.S. Forest Service GTAC",
+   "terms_class": "public-domain",
+   "terms_quote": "free downloads of public domain, NAIP compressed orthoimagery",
+   "terms_url": "https://imagery.nationalmap.gov/arcgis/rest/services/USGSNAIPImagery/ImageServer",
+   "notes": "One service per year; each covers only the states flown that year (a blank answer elsewhere).",
+   "states": [
+    "US"
+   ],
+   "bbox": [
+    -124.5679,
+    31.9972,
+    -78.4947,
+    49.0046
+   ],
+   "kind": "imagery",
+   "status": "available",
+   "checked_on": "2026-11-23",
+   "retest": {
+    "service_wkid": 3857,
+    "service_pixel": 1,
+    "extent_lonlat": [
+     -124.5679,
+     31.9972,
+     -78.4947,
+     49.0046
+    ],
+    "ok": true,
+    "point": [
+     43.07472,
+     -89.38417
+    ],
+    "blank": false,
+    "bytes": 1974,
+    "content_type": "image/jpeg",
+    "size": [
+     80,
+     80
+    ],
+    "request_seconds": 24.19,
+    "seconds": 25.28
+   }
+  },
+  {
+   "id": "us-naip-2006",
+   "name": "NAIP 2006 (USDA FPAC, served by USFS GTAC)",
+   "protocol": "arcgis-imageserver",
+   "url": "https://imagery.geoplatform.gov/iipp/rest/services/NAIP/NAIP2006_CONUS/ImageServer",
+   "params": {
+    "bandIds": "0,1,2"
+   },
+   "native_pixel_m": 1.0,
+   "year": 2006,
+   "leaf_off": false,
+   "credit": "USDA Farm Production and Conservation, National Agriculture Imagery Program 2006; served by the U.S. Forest Service GTAC",
+   "terms_class": "public-domain",
+   "terms_quote": "free downloads of public domain, NAIP compressed orthoimagery",
+   "terms_url": "https://imagery.nationalmap.gov/arcgis/rest/services/USGSNAIPImagery/ImageServer",
+   "notes": "One service per year; each covers only the states flown that year (a blank answer elsewhere).",
+   "states": [
+    "US"
+   ],
+   "bbox": [
+    -124.8815,
+    30.1841,
+    -71.8061,
+    49.0669
+   ],
+   "kind": "imagery",
+   "status": "available",
+   "checked_on": "2026-11-23",
+   "retest": {
+    "service_wkid": 3857,
+    "service_pixel": 1,
+    "extent_lonlat": [
+     -124.8815,
+     30.1841,
+     -71.8061,
+     49.0669
+    ],
+    "ok": true,
+    "point": [
+     39.6255,
+     -98.3438
+    ],
+    "blank": true,
+    "bytes": 105,
+    "content_type": "image/png",
+    "size": [
+     80,
+     80
+    ],
+    "request_seconds": 23.48,
+    "seconds": 49.17
+   }
+  },
+  {
+   "id": "us-naip-2007",
+   "name": "NAIP 2007 (USDA FPAC, served by USFS GTAC)",
+   "protocol": "arcgis-imageserver",
+   "url": "https://imagery.geoplatform.gov/iipp/rest/services/NAIP/NAIP2007_CONUS/ImageServer",
+   "params": {
+    "bandIds": "0,1,2"
+   },
+   "native_pixel_m": 1.0,
+   "year": 2007,
+   "leaf_off": false,
+   "credit": "USDA Farm Production and Conservation, National Agriculture Imagery Program 2007; served by the U.S. Forest Service GTAC",
+   "terms_class": "public-domain",
+   "terms_quote": "free downloads of public domain, NAIP compressed orthoimagery",
+   "terms_url": "https://imagery.nationalmap.gov/arcgis/rest/services/USGSNAIPImagery/ImageServer",
+   "notes": "One service per year; each covers only the states flown that year (a blank answer elsewhere).",
+   "states": [
+    "US"
+   ],
+   "bbox": [
+    -114.8801,
+    24.4967,
+    -66.9311,
+    47.503
+   ],
+   "kind": "imagery",
+   "status": "available",
+   "checked_on": "2026-11-23",
+   "retest": {
+    "service_wkid": 3857,
+    "service_pixel": 1,
+    "extent_lonlat": [
+     -114.8801,
+     24.4967,
+     -66.9311,
+     47.503
+    ],
+    "ok": true,
+    "point": [
+     35.99985,
+     -90.90559999999999
+    ],
+    "blank": true,
+    "bytes": 105,
+    "content_type": "image/png",
+    "size": [
+     80,
+     80
+    ],
+    "request_seconds": 23.57,
+    "seconds": 50.26
+   }
+  },
+  {
+   "id": "us-naip-2008",
+   "name": "NAIP 2008 (USDA FPAC, served by USFS GTAC)",
+   "protocol": "arcgis-imageserver",
+   "url": "https://imagery.geoplatform.gov/iipp/rest/services/NAIP/NAIP2008_CONUS/ImageServer",
+   "params": {
+    "bandIds": "0,1,2"
+   },
+   "native_pixel_m": 1.0,
+   "year": 2008,
+   "leaf_off": false,
+   "credit": "USDA Farm Production and Conservation, National Agriculture Imagery Program 2008; served by the U.S. Forest Service GTAC",
+   "terms_class": "public-domain",
+   "terms_quote": "free downloads of public domain, NAIP compressed orthoimagery",
+   "terms_url": "https://imagery.nationalmap.gov/arcgis/rest/services/USGSNAIPImagery/ImageServer",
+   "notes": "One service per year; each covers only the states flown that year (a blank answer elsewhere).",
+   "states": [
+    "US"
+   ],
+   "bbox": [
+    -106.6923,
+    25.8087,
+    -69.8703,
+    49.4414
+   ],
+   "kind": "imagery",
+   "status": "available",
+   "checked_on": "2026-11-23",
+   "retest": {
+    "service_wkid": 3857,
+    "service_pixel": 1,
+    "extent_lonlat": [
+     -106.6923,
+     25.8087,
+     -69.8703,
+     49.4414
+    ],
+    "ok": true,
+    "point": [
+     43.07472,
+     -89.38417
+    ],
+    "blank": false,
+    "bytes": 1868,
+    "content_type": "image/jpeg",
+    "size": [
+     80,
+     80
+    ],
+    "request_seconds": 26.26,
+    "seconds": 30.48
+   }
+  },
+  {
+   "id": "us-naip-2009",
+   "name": "NAIP 2009 (USDA FPAC, served by USFS GTAC)",
+   "protocol": "arcgis-imageserver",
+   "url": "https://imagery.geoplatform.gov/iipp/rest/services/NAIP/NAIP2009_CONUS/ImageServer",
+   "params": {
+    "bandIds": "0,1,2"
+   },
+   "native_pixel_m": 1.0,
+   "year": 2009,
+   "leaf_off": false,
+   "credit": "USDA Farm Production and Conservation, National Agriculture Imagery Program 2009; served by the U.S. Forest Service GTAC",
+   "terms_class": "public-domain",
+   "terms_quote": "free downloads of public domain, NAIP compressed orthoimagery",
+   "terms_url": "https://imagery.nationalmap.gov/arcgis/rest/services/USGSNAIPImagery/ImageServer",
+   "notes": "One service per year; each covers only the states flown that year (a blank answer elsewhere).",
+   "states": [
+    "US"
+   ],
+   "bbox": [
+    -124.8189,
+    28.8711,
+    -66.9313,
+    49.4442
+   ],
+   "kind": "imagery",
+   "status": "available",
+   "checked_on": "2026-11-23",
+   "retest": {
+    "service_wkid": 3857,
+    "service_pixel": 1,
+    "extent_lonlat": [
+     -124.8189,
+     28.8711,
+     -66.9313,
+     49.4442
+    ],
+    "ok": true,
+    "point": [
+     39.157650000000004,
+     -95.8751
+    ],
+    "blank": true,
+    "bytes": 105,
+    "content_type": "image/png",
+    "size": [
+     80,
+     80
+    ],
+    "request_seconds": 20.25,
+    "seconds": 51.23
+   }
+  },
+  {
+   "id": "us-naip-2010",
+   "name": "NAIP 2010 (USDA FPAC, served by USFS GTAC)",
+   "protocol": "arcgis-imageserver",
+   "url": "https://imagery.geoplatform.gov/iipp/rest/services/NAIP/NAIP2010_CONUS/ImageServer",
+   "params": {
+    "bandIds": "0,1,2"
+   },
+   "native_pixel_m": 1.0,
+   "year": 2010,
+   "leaf_off": false,
+   "credit": "USDA Farm Production and Conservation, National Agriculture Imagery Program 2010; served by the U.S. Forest Service GTAC",
+   "terms_class": "public-domain",
+   "terms_quote": "free downloads of public domain, NAIP compressed orthoimagery",
+   "terms_url": "https://imagery.nationalmap.gov/arcgis/rest/services/USGSNAIPImagery/ImageServer",
+   "notes": "One service per year; each covers only the states flown that year (a blank answer elsewhere).",
+   "states": [
+    "US"
+   ],
+   "bbox": [
+    -124.4425,
+    24.4967,
+    -69.8704,
+    49.4415
+   ],
+   "kind": "imagery",
+   "status": "available",
+   "checked_on": "2026-11-23",
+   "retest": {
+    "service_wkid": 3857,
+    "service_pixel": 1,
+    "extent_lonlat": [
+     -124.4425,
+     24.4967,
+     -69.8704,
+     49.4415
+    ],
+    "ok": true,
+    "point": [
+     43.07472,
+     -89.38417
+    ],
+    "blank": false,
+    "bytes": 2711,
+    "content_type": "image/jpeg",
+    "size": [
+     80,
+     80
+    ],
+    "request_seconds": 26.42,
+    "seconds": 32.64
+   }
+  },
+  {
+   "id": "us-naip-2011",
+   "name": "NAIP 2011 (USDA FPAC, served by USFS GTAC)",
+   "protocol": "arcgis-imageserver",
+   "url": "https://imagery.geoplatform.gov/iipp/rest/services/NAIP/NAIP2011_CONUS/ImageServer",
+   "params": {
+    "bandIds": "0,1,2"
+   },
+   "native_pixel_m": 1.0,
+   "year": 2011,
+   "leaf_off": false,
+   "credit": "USDA Farm Production and Conservation, National Agriculture Imagery Program 2011; served by the U.S. Forest Service GTAC",
+   "terms_class": "public-domain",
+   "terms_quote": "free downloads of public domain, NAIP compressed orthoimagery",
+   "terms_url": "https://imagery.nationalmap.gov/arcgis/rest/services/USGSNAIPImagery/ImageServer",
+   "notes": "One service per year; each covers only the states flown that year (a blank answer elsewhere).",
+   "states": [
+    "US"
+   ],
+   "bbox": [
+    -124.8191,
+    30.1841,
+    -66.9313,
+    49.067
+   ],
+   "kind": "imagery",
+   "status": "available",
+   "checked_on": "2026-11-23",
+   "retest": {
+    "service_wkid": 3857,
+    "service_pixel": 1,
+    "extent_lonlat": [
+     -124.8191,
+     30.1841,
+     -66.9313,
+     49.067
+    ],
+    "ok": true,
+    "point": [
+     39.625550000000004,
+     -95.8752
+    ],
+    "blank": true,
+    "bytes": 105,
+    "content_type": "image/png",
+    "size": [
+     80,
+     80
+    ],
+    "request_seconds": 19.27,
+    "seconds": 52.26
+   }
+  },
+  {
+   "id": "us-naip-2012",
+   "name": "NAIP 2012 (USDA FPAC, served by USFS GTAC)",
+   "protocol": "arcgis-imageserver",
+   "url": "https://imagery.geoplatform.gov/iipp/rest/services/NAIP/NAIP2012_CONUS/ImageServer",
+   "params": {
+    "bandIds": "0,1,2"
+   },
+   "native_pixel_m": 1.0,
+   "year": 2012,
+   "leaf_off": false,
+   "credit": "USDA Farm Production and Conservation, National Agriculture Imagery Program 2012; served by the U.S. Forest Service GTAC",
+   "terms_class": "public-domain",
+   "terms_quote": "free downloads of public domain, NAIP compressed orthoimagery",
+   "terms_url": "https://imagery.nationalmap.gov/arcgis/rest/services/USGSNAIPImagery/ImageServer",
+   "notes": "One service per year; each covers only the states flown that year (a blank answer elsewhere).",
+   "states": [
+    "US"
+   ],
+   "bbox": [
+    -124.6306,
+    25.8088,
+    -69.8705,
+    49.0664
+   ],
+   "kind": "imagery",
+   "status": "available",
+   "checked_on": "2026-11-23",
+   "retest": {
+    "service_wkid": 3857,
+    "service_pixel": 1,
+    "extent_lonlat": [
+     -124.6306,
+     25.8088,
+     -69.8705,
+     49.0664
+    ],
+    "ok": true,
+    "point": [
+     37.4376,
+     -97.25055
+    ],
+    "blank": false,
+    "bytes": 1331,
+    "content_type": "image/jpeg",
+    "size": [
+     80,
+     80
+    ],
+    "request_seconds": 21.3,
+    "seconds": 55.36
+   }
+  },
+  {
+   "id": "us-naip-2013",
+   "name": "NAIP 2013 (USDA FPAC, served by USFS GTAC)",
+   "protocol": "arcgis-imageserver",
+   "url": "https://imagery.geoplatform.gov/iipp/rest/services/NAIP/NAIP2013_CONUS/ImageServer",
+   "params": {
+    "bandIds": "0,1,2"
+   },
+   "native_pixel_m": 1.0,
+   "year": 2013,
+   "leaf_off": false,
+   "credit": "USDA Farm Production and Conservation, National Agriculture Imagery Program 2013; served by the U.S. Forest Service GTAC",
+   "terms_class": "public-domain",
+   "terms_quote": "free downloads of public domain, NAIP compressed orthoimagery",
+   "terms_url": "https://imagery.nationalmap.gov/arcgis/rest/services/USGSNAIPImagery/ImageServer",
+   "notes": "One service per year; each covers only the states flown that year (a blank answer elsewhere).",
+   "states": [
+    "US"
+   ],
+   "bbox": [
+    -124.8191,
+    24.4968,
+    -66.9313,
+    49.4416
+   ],
+   "kind": "imagery",
+   "status": "available",
+   "checked_on": "2026-11-23",
+   "retest": {
+    "service_wkid": 3857,
+    "service_pixel": 0.5,
+    "extent_lonlat": [
+     -124.8191,
+     24.4968,
+     -66.9313,
+     49.4416
+    ],
+    "ok": true,
+    "point": [
+     43.07472,
+     -89.38417
+    ],
+    "blank": false,
+    "bytes": 2168,
+    "content_type": "image/jpeg",
+    "size": [
+     80,
+     80
+    ],
+    "request_seconds": 26.63,
+    "seconds": 35.84
+   }
+  },
+  {
+   "id": "us-naip-2014",
+   "name": "NAIP 2014 (USDA FPAC, served by USFS GTAC)",
+   "protocol": "arcgis-imageserver",
+   "url": "https://imagery.geoplatform.gov/iipp/rest/services/NAIP/NAIP2014_CONUS/ImageServer",
+   "params": {
+    "bandIds": "0,1,2"
+   },
+   "native_pixel_m": 1.0,
+   "year": 2014,
+   "leaf_off": false,
+   "credit": "USDA Farm Production and Conservation, National Agriculture Imagery Program 2014; served by the U.S. Forest Service GTAC",
+   "terms_class": "public-domain",
+   "terms_quote": "free downloads of public domain, NAIP compressed orthoimagery",
+   "terms_url": "https://imagery.nationalmap.gov/arcgis/rest/services/USGSNAIPImagery/ImageServer",
+   "notes": "One service per year; each covers only the states flown that year (a blank answer elsewhere).",
+   "states": [
+    "US"
+   ],
+   "bbox": [
+    -124.6306,
+    25.7464,
+    -69.8704,
+    49.0664
+   ],
+   "kind": "imagery",
+   "status": "available",
+   "checked_on": "2026-11-23",
+   "retest": {
+    "service_wkid": 3857,
+    "service_pixel": 1,
+    "extent_lonlat": [
+     -124.6306,
+     25.7464,
+     -69.8704,
+     49.0664
+    ],
+    "ok": true,
+    "point": [
+     37.406400000000005,
+     -97.2505
+    ],
+    "blank": false,
+    "bytes": 1972,
+    "content_type": "image/jpeg",
+    "size": [
+     80,
+     80
+    ],
+    "request_seconds": 20.21,
+    "seconds": 56.6
+   }
+  },
+  {
+   "id": "us-naip-2015",
+   "name": "NAIP 2015 (USDA FPAC, served by USFS GTAC)",
+   "protocol": "arcgis-imageserver",
+   "url": "https://imagery.geoplatform.gov/iipp/rest/services/NAIP/NAIP2015_CONUS/ImageServer",
+   "params": {
+    "bandIds": "0,1,2"
+   },
+   "native_pixel_m": 1.0,
+   "year": 2015,
+   "leaf_off": false,
+   "credit": "USDA Farm Production and Conservation, National Agriculture Imagery Program 2015; served by the U.S. Forest Service GTAC",
+   "terms_class": "public-domain",
+   "terms_quote": "free downloads of public domain, NAIP compressed orthoimagery",
+   "terms_url": "https://imagery.nationalmap.gov/arcgis/rest/services/USGSNAIPImagery/ImageServer",
+   "notes": "One service per year; each covers only the states flown that year (a blank answer elsewhere).",
+   "states": [
+    "US"
+   ],
+   "bbox": [
+    -124.8191,
+    24.4968,
+    -66.9313,
+    49.4416
+   ],
+   "kind": "imagery",
+   "status": "available",
+   "checked_on": "2026-11-23",
+   "retest": {
+    "service_wkid": 3857,
+    "service_pixel": 0.5,
+    "extent_lonlat": [
+     -124.8191,
+     24.4968,
+     -66.9313,
+     49.4416
+    ],
+    "ok": true,
+    "point": [
+     43.07472,
+     -89.38417
+    ],
+    "blank": false,
+    "bytes": 2241,
+    "content_type": "image/jpeg",
+    "size": [
+     80,
+     80
+    ],
+    "request_seconds": 27.06,
+    "seconds": 38.28
+   }
+  },
+  {
+   "id": "us-naip-2016",
+   "name": "NAIP 2016 (USDA FPAC, served by USFS GTAC)",
+   "protocol": "arcgis-imageserver",
+   "url": "https://imagery.geoplatform.gov/iipp/rest/services/NAIP/NAIP2016_CONUS/ImageServer",
+   "params": {
+    "bandIds": "0,1,2"
+   },
+   "native_pixel_m": 0.6,
+   "year": 2016,
+   "leaf_off": false,
+   "credit": "USDA Farm Production and Conservation, National Agriculture Imagery Program 2016; served by the U.S. Forest Service GTAC",
+   "terms_class": "public-domain",
+   "terms_quote": "free downloads of public domain, NAIP compressed orthoimagery",
+   "terms_url": "https://imagery.nationalmap.gov/arcgis/rest/services/USGSNAIPImagery/ImageServer",
+   "notes": "One service per year; each covers only the states flown that year (a blank answer elsewhere).",
+   "states": [
+    "US"
+   ],
+   "bbox": [
+    -124.6306,
+    25.8089,
+    -69.8705,
+    49.0662
+   ],
+   "kind": "imagery",
+   "status": "available",
+   "checked_on": "2026-11-23",
+   "retest": {
+    "service_wkid": 3857,
+    "service_pixel": 0.6,
+    "extent_lonlat": [
+     -124.6306,
+     25.8089,
+     -69.8705,
+     49.0662
+    ],
+    "ok": true,
+    "point": [
+     37.43755,
+     -97.25055
+    ],
+    "blank": true,
+    "bytes": 149,
+    "content_type": "image/png",
+    "size": [
+     134,
+     134
+    ],
+    "request_seconds": 18.37,
+    "seconds": 57.04
+   }
+  },
+  {
+   "id": "us-naip-2017",
+   "name": "NAIP 2017 (USDA FPAC, served by USFS GTAC)",
+   "protocol": "arcgis-imageserver",
+   "url": "https://imagery.geoplatform.gov/iipp/rest/services/NAIP/NAIP2017_CONUS/ImageServer",
+   "params": {
+    "bandIds": "0,1,2"
+   },
+   "native_pixel_m": 0.6,
+   "year": 2017,
+   "leaf_off": false,
+   "credit": "USDA Farm Production and Conservation, National Agriculture Imagery Program 2017; served by the U.S. Forest Service GTAC",
+   "terms_class": "public-domain",
+   "terms_quote": "free downloads of public domain, NAIP compressed orthoimagery",
+   "terms_url": "https://imagery.nationalmap.gov/arcgis/rest/services/USGSNAIPImagery/ImageServer",
+   "notes": "One service per year; each covers only the states flown that year (a blank answer elsewhere).",
+   "states": [
+    "US"
+   ],
+   "bbox": [
+    -124.819,
+    24.4967,
+    -71.8061,
+    49.4414
+   ],
+   "kind": "imagery",
+   "status": "available",
+   "checked_on": "2026-11-23",
+   "retest": {
+    "service_wkid": 3857,
+    "service_pixel": 0.6,
+    "extent_lonlat": [
+     -124.819,
+     24.4967,
+     -71.8061,
+     49.4414
+    ],
+    "ok": true,
+    "point": [
+     43.07472,
+     -89.38417
+    ],
+    "blank": false,
+    "bytes": 4031,
+    "content_type": "image/jpeg",
+    "size": [
+     134,
+     134
+    ],
+    "request_seconds": 27.48,
+    "seconds": 40.7
+   }
+  },
+  {
+   "id": "us-naip-2018",
+   "name": "NAIP 2018 (USDA FPAC, served by USFS GTAC)",
+   "protocol": "arcgis-imageserver",
+   "url": "https://imagery.geoplatform.gov/iipp/rest/services/NAIP/NAIP2018_CONUS/ImageServer",
+   "params": {
+    "bandIds": "0,1,2"
+   },
+   "native_pixel_m": 0.6,
+   "year": 2018,
+   "leaf_off": false,
+   "credit": "USDA Farm Production and Conservation, National Agriculture Imagery Program 2018; served by the U.S. Forest Service GTAC",
+   "terms_class": "public-domain",
+   "terms_quote": "free downloads of public domain, NAIP compressed orthoimagery",
+   "terms_url": "https://imagery.nationalmap.gov/arcgis/rest/services/USGSNAIPImagery/ImageServer",
+   "notes": "One service per year; each covers only the states flown that year (a blank answer elsewhere).",
+   "states": [
+    "US"
+   ],
+   "bbox": [
+    -124.6278,
+    26.0603,
+    -66.9308,
+    49.0649
+   ],
+   "kind": "imagery",
+   "status": "available",
+   "checked_on": "2026-11-23",
+   "retest": {
+    "service_wkid": 3857,
+    "service_pixel": 0.3,
+    "extent_lonlat": [
+     -124.6278,
+     26.0603,
+     -66.9308,
+     49.0649
+    ],
+    "ok": true,
+    "point": [
+     43.07472,
+     -89.38417
+    ],
+    "blank": false,
+    "bytes": 4319,
+    "content_type": "image/jpeg",
+    "size": [
+     134,
+     134
+    ],
+    "request_seconds": 27.66,
+    "seconds": 41.88
+   }
+  },
+  {
+   "id": "us-naip-2019",
+   "name": "NAIP 2019 (USDA FPAC, served by USFS GTAC)",
+   "protocol": "arcgis-imageserver",
+   "url": "https://imagery.geoplatform.gov/iipp/rest/services/NAIP/NAIP2019_CONUS/ImageServer",
+   "params": {
+    "bandIds": "0,1,2"
+   },
+   "native_pixel_m": 0.6,
+   "year": 2019,
+   "leaf_off": false,
+   "credit": "USDA Farm Production and Conservation, National Agriculture Imagery Program 2019; served by the U.S. Forest Service GTAC",
+   "terms_class": "public-domain",
+   "terms_quote": "free downloads of public domain, NAIP compressed orthoimagery",
+   "terms_url": "https://imagery.nationalmap.gov/arcgis/rest/services/USGSNAIPImagery/ImageServer",
+   "notes": "One service per year; each covers only the states flown that year (a blank answer elsewhere).",
+   "states": [
+    "US"
+   ],
+   "bbox": [
+    -124.8175,
+    24.4977,
+    -71.8073,
+    49.4419
+   ],
+   "kind": "imagery",
+   "status": "available",
+   "checked_on": "2026-11-23",
+   "retest": {
+    "service_wkid": 3857,
+    "service_pixel": 0.6,
+    "extent_lonlat": [
+     -124.8175,
+     24.4977,
+     -71.8073,
+     49.4419
+    ],
+    "ok": true,
+    "point": [
+     36.9698,
+     -98.3124
+    ],
+    "blank": false,
+    "bytes": 2376,
+    "content_type": "image/jpeg",
+    "size": [
+     134,
+     134
+    ],
+    "request_seconds": 17.81,
+    "seconds": 59.82
+   }
+  },
+  {
+   "id": "us-naip-2020",
+   "name": "NAIP 2020 (USDA FPAC, served by USFS GTAC)",
+   "protocol": "arcgis-imageserver",
+   "url": "https://imagery.geoplatform.gov/iipp/rest/services/NAIP/NAIP2020_CONUS/ImageServer",
+   "params": {
+    "bandIds": "0,1,2"
+   },
+   "native_pixel_m": 0.6,
+   "year": 2020,
+   "leaf_off": false,
+   "credit": "USDA Farm Production and Conservation, National Agriculture Imagery Program 2020; served by the U.S. Forest Service GTAC",
+   "terms_class": "public-domain",
+   "terms_quote": "free downloads of public domain, NAIP compressed orthoimagery",
+   "terms_url": "https://imagery.nationalmap.gov/arcgis/rest/services/USGSNAIPImagery/ImageServer",
+   "notes": "One service per year; each covers only the states flown that year (a blank answer elsewhere).",
+   "states": [
+    "US"
+   ],
+   "bbox": [
+    -124.6292,
+    25.8099,
+    -75.4333,
+    49.0653
+   ],
+   "kind": "imagery",
+   "status": "available",
+   "checked_on": "2026-11-23",
+   "retest": {
+    "service_wkid": 3857,
+    "service_pixel": 0.6,
+    "extent_lonlat": [
+     -124.6292,
+     25.8099,
+     -75.4333,
+     49.0653
+    ],
+    "ok": true,
+    "point": [
+     43.07472,
+     -89.38417
+    ],
+    "blank": false,
+    "bytes": 4190,
+    "content_type": "image/jpeg",
+    "size": [
+     134,
+     134
+    ],
+    "request_seconds": 23.97,
+    "seconds": 43.99
+   }
+  },
+  {
+   "id": "us-naip-2021",
+   "name": "NAIP 2021 (USDA FPAC, served by USFS GTAC)",
+   "protocol": "arcgis-imageserver",
+   "url": "https://imagery.geoplatform.gov/iipp/rest/services/NAIP/NAIP2021_CONUS/ImageServer",
+   "params": {
+    "bandIds": "0,1,2"
+   },
+   "native_pixel_m": 0.6,
+   "year": 2021,
+   "leaf_off": false,
+   "credit": "USDA Farm Production and Conservation, National Agriculture Imagery Program 2021; served by the U.S. Forest Service GTAC",
+   "terms_class": "public-domain",
+   "terms_quote": "free downloads of public domain, NAIP compressed orthoimagery",
+   "terms_url": "https://imagery.nationalmap.gov/arcgis/rest/services/USGSNAIPImagery/ImageServer",
+   "notes": "One service per year; each covers only the states flown that year (a blank answer elsewhere).",
+   "states": [
+    "US"
+   ],
+   "bbox": [
+    -121.6292,
+    24.4968,
+    -66.9308,
+    49.4419
+   ],
+   "kind": "imagery",
+   "status": "available",
+   "checked_on": "2026-11-23",
+   "retest": {
+    "service_wkid": 3857,
+    "service_pixel": 0.3,
+    "extent_lonlat": [
+     -121.6292,
+     24.4968,
+     -66.9308,
+     49.4419
+    ],
+    "ok": true,
+    "point": [
+     36.96935,
+     -94.28
+    ],
+    "blank": true,
+    "bytes": 149,
+    "content_type": "image/png",
+    "size": [
+     134,
+     134
+    ],
+    "request_seconds": 14.42,
+    "seconds": 60.23
+   }
+  },
+  {
+   "id": "us-naip-2022",
+   "name": "NAIP 2022 (USDA FPAC, served by USFS GTAC)",
+   "protocol": "arcgis-imageserver",
+   "url": "https://imagery.geoplatform.gov/iipp/rest/services/NAIP/NAIP2022_CONUS/ImageServer",
+   "params": {
+    "bandIds": "0,1,2"
+   },
+   "native_pixel_m": 0.6,
+   "year": 2022,
+   "leaf_off": false,
+   "credit": "USDA Farm Production and Conservation, National Agriculture Imagery Program 2022; served by the U.S. Forest Service GTAC",
+   "terms_class": "public-domain",
+   "terms_quote": "free downloads of public domain, NAIP compressed orthoimagery",
+   "terms_url": "https://imagery.nationalmap.gov/arcgis/rest/services/USGSNAIPImagery/ImageServer",
+   "notes": "One service per year; each covers only the states flown that year (a blank answer elsewhere).",
+   "states": [
+    "US"
+   ],
+   "bbox": [
+    -124.6292,
+    25.8095,
+    -71.8073,
+    49.0653
+   ],
+   "kind": "imagery",
+   "status": "available",
+   "checked_on": "2026-11-23",
+   "retest": {
+    "service_wkid": 3857,
+    "service_pixel": 0.3,
+    "extent_lonlat": [
+     -124.6292,
+     25.8095,
+     -71.8073,
+     49.0653
+    ],
+    "ok": true,
+    "point": [
+     43.07472,
+     -89.38417
+    ],
+    "blank": false,
+    "bytes": 3498,
+    "content_type": "image/jpeg",
+    "size": [
+     134,
+     134
+    ],
+    "request_seconds": 25.6,
+    "seconds": 46.72
+   }
+  },
+  {
+   "id": "us-naip-2023",
+   "name": "NAIP 2023 (USDA FPAC, served by USFS GTAC)",
+   "protocol": "arcgis-imageserver",
+   "url": "https://imagery.geoplatform.gov/iipp/rest/services/NAIP/NAIP2023_CONUS/ImageServer",
+   "params": {
+    "bandIds": "0,1,2"
+   },
+   "native_pixel_m": 0.6,
+   "year": 2023,
+   "leaf_off": false,
+   "credit": "USDA Farm Production and Conservation, National Agriculture Imagery Program 2023; served by the U.S. Forest Service GTAC",
+   "terms_class": "public-domain",
+   "terms_quote": "free downloads of public domain, NAIP compressed orthoimagery",
+   "terms_url": "https://imagery.nationalmap.gov/arcgis/rest/services/USGSNAIPImagery/ImageServer",
+   "notes": "One service per year; each covers only the states flown that year (a blank answer elsewhere).",
+   "states": [
+    "US"
+   ],
+   "bbox": [
+    -124.8175,
+    24.4977,
+    -66.9326,
+    49.4415
+   ],
+   "kind": "imagery",
+   "status": "available",
+   "checked_on": "2026-11-23",
+   "retest": {
+    "service_wkid": 3857,
+    "service_pixel": 0.3,
+    "extent_lonlat": [
+     -124.8175,
+     24.4977,
+     -66.9326,
+     49.4415
+    ],
+    "ok": true,
+    "point": [
+     36.9696,
+     -95.87504999999999
+    ],
+    "blank": false,
+    "bytes": 3639,
+    "content_type": "image/jpeg",
+    "size": [
+     134,
+     134
+    ],
+    "request_seconds": 15.42,
+    "seconds": 62.36
+   }
+  },
+  {
+   "id": "wi-leafoff-latest",
+   "name": "Wisconsin DNR leaf-off image basemap, latest (WROC)",
+   "protocol": "arcgis-imageserver",
+   "url": "https://dnrmaps.wi.gov/arcgis_image/rest/services/DW_Imagery/EN_Image_Basemap_Latest_Leaf_Off/ImageServer",
+   "native_pixel_m": 0.1524,
+   "year_label": "2018-2024 by county",
+   "year_query": {
+    "url": "https://dnrmaps.wi.gov/arcgis_image/rest/services/DW_Imagery/EN_Image_Basemap_Latest_Leaf_Off_Index/MapServer/0/query",
+    "field": "AIRPHOTO_YEAR"
+   },
+   "leaf_off": true,
+   "credit": "Wisconsin DNR; the counties and partners of the Wisconsin Regional Orthophoto Consortium (WROC)",
+   "terms_class": "no-terms-stated",
+   "terms_quote": "The state provides this information on an \"as is\" basis.",
+   "terms_url": "https://dnr.wisconsin.gov/legal",
+   "notes": "3, 6, 9 or 12 inch by county (service pixelSizeX 0.0762 is the finest); the index layer gives the county's year and resolution. The counties own the source: confirm commercial use with DNR or SCO.",
+   "states": [
+    "WI"
+   ],
+   "bbox": [
+    -92.89,
+    42.49,
+    -86.25,
+    47.31
+   ],
+   "kind": "imagery",
+   "status": "available",
+   "checked_on": "2026-11-23",
+   "retest": {
+    "service_wkid": 3071,
+    "service_pixel": 0.0762,
+    "ok": true,
+    "point": [
+     43.07472,
+     -89.38417
+    ],
+    "blank": false,
+    "bytes": 19810,
+    "content_type": "image/jpeg",
+    "size": [
+     256,
+     256
+    ],
+    "request_seconds": 9.45,
+    "year_at_point": 2024,
+    "seconds": 27.44
+   }
+  },
+  {
+   "id": "wi-leafoff-2010",
+   "name": "Wisconsin DNR leaf-off image basemap 2010 (WROC 2010)",
+   "protocol": "arcgis-imageserver",
+   "url": "https://dnrmaps.wi.gov/arcgis_image/rest/services/DW_Imagery/EN_Image_Basemap_2010_Leaf_Off/ImageServer",
+   "native_pixel_m": 0.4572,
+   "year": 2010,
+   "leaf_off": true,
+   "credit": "Wisconsin DNR; Wisconsin Regional Orthophoto Consortium 2010",
+   "terms_class": "no-terms-stated",
+   "terms_quote": "The state provides this information on an \"as is\" basis.",
+   "terms_url": "https://dnr.wisconsin.gov/legal",
+   "states": [
+    "WI"
+   ],
+   "bbox": [
+    -92.89,
+    42.49,
+    -86.25,
+    47.31
+   ],
+   "kind": "imagery",
+   "status": "available",
+   "checked_on": "2026-11-23",
+   "retest": {
+    "service_wkid": 3071,
+    "service_pixel": 0.4571999999999995,
+    "ok": true,
+    "point": [
+     43.07472,
+     -89.38417
+    ],
+    "blank": false,
+    "bytes": 8991,
+    "content_type": "image/jpeg",
+    "size": [
+     175,
+     175
+    ],
+    "request_seconds": 9.35,
+    "seconds": 10.6
+   }
+  },
+  {
+   "id": "wi-leafon-2005",
+   "name": "Wisconsin DNR leaf-on image basemap 2005 (NAIP)",
+   "protocol": "arcgis-imageserver",
+   "url": "https://dnrmaps.wi.gov/arcgis_image/rest/services/DW_Imagery/EN_Image_Basemap_2005_Leaf_On/ImageServer",
+   "native_pixel_m": 1.0,
+   "year": 2005,
+   "leaf_off": false,
+   "credit": "Wisconsin DNR; USDA Farm Service Agency, National Agriculture Imagery Program 2005",
+   "terms_class": "public-domain",
+   "terms_quote": "free downloads of public domain, NAIP compressed orthoimagery",
+   "terms_url": "https://imagery.nationalmap.gov/arcgis/rest/services/USGSNAIPImagery/ImageServer",
+   "states": [
+    "WI"
+   ],
+   "bbox": [
+    -92.89,
+    42.49,
+    -86.25,
+    47.31
+   ],
+   "kind": "imagery",
+   "status": "available",
+   "checked_on": "2026-11-23",
+   "retest": {
+    "service_wkid": 3071,
+    "service_pixel": 1,
+    "ok": true,
+    "point": [
+     43.07472,
+     -89.38417
+    ],
+    "blank": false,
+    "bytes": 2103,
+    "content_type": "image/jpeg",
+    "size": [
+     80,
+     80
+    ],
+    "request_seconds": 8.91,
+    "seconds": 11.29
+   }
+  },
+  {
+   "id": "wi-leafon-2008",
+   "name": "Wisconsin DNR leaf-on image basemap 2008 (NAIP)",
+   "protocol": "arcgis-imageserver",
+   "url": "https://dnrmaps.wi.gov/arcgis_image/rest/services/DW_Imagery/EN_Image_Basemap_2008_Leaf_On/ImageServer",
+   "native_pixel_m": 1.0,
+   "year": 2008,
+   "leaf_off": false,
+   "credit": "Wisconsin DNR; USDA Farm Service Agency, National Agriculture Imagery Program 2008",
+   "terms_class": "public-domain",
+   "terms_quote": "free downloads of public domain, NAIP compressed orthoimagery",
+   "terms_url": "https://imagery.nationalmap.gov/arcgis/rest/services/USGSNAIPImagery/ImageServer",
+   "states": [
+    "WI"
+   ],
+   "bbox": [
+    -92.89,
+    42.49,
+    -86.25,
+    47.31
+   ],
+   "kind": "imagery",
+   "status": "available",
+   "checked_on": "2026-11-23",
+   "retest": {
+    "service_wkid": 3071,
+    "service_pixel": 1,
+    "ok": true,
+    "point": [
+     43.07472,
+     -89.38417
+    ],
+    "blank": false,
+    "bytes": 1967,
+    "content_type": "image/jpeg",
+    "size": [
+     80,
+     80
+    ],
+    "request_seconds": 9.11,
+    "seconds": 12.3
+   }
+  },
+  {
+   "id": "wi-leafon-2013",
+   "name": "Wisconsin DNR leaf-on image basemap 2013 (NAIP)",
+   "protocol": "arcgis-imageserver",
+   "url": "https://dnrmaps.wi.gov/arcgis_image/rest/services/DW_Imagery/EN_Image_Basemap_2013_Leaf_On/ImageServer",
+   "native_pixel_m": 1.0,
+   "year": 2013,
+   "leaf_off": false,
+   "credit": "Wisconsin DNR; USDA Farm Service Agency, National Agriculture Imagery Program 2013",
+   "terms_class": "public-domain",
+   "terms_quote": "free downloads of public domain, NAIP compressed orthoimagery",
+   "terms_url": "https://imagery.nationalmap.gov/arcgis/rest/services/USGSNAIPImagery/ImageServer",
+   "states": [
+    "WI"
+   ],
+   "bbox": [
+    -92.89,
+    42.49,
+    -86.25,
+    47.31
+   ],
+   "kind": "imagery",
+   "status": "available",
+   "checked_on": "2026-11-23",
+   "retest": {
+    "service_wkid": 3071,
+    "service_pixel": 0.9992912379139668,
+    "ok": true,
+    "point": [
+     43.07472,
+     -89.38417
+    ],
+    "blank": false,
+    "bytes": 2337,
+    "content_type": "image/jpeg",
+    "size": [
+     80,
+     80
+    ],
+    "request_seconds": 11.42,
+    "seconds": 15.61
+   }
+  },
+  {
+   "id": "wi-leafon-2015",
+   "name": "Wisconsin DNR leaf-on image basemap 2015 (NAIP)",
+   "protocol": "arcgis-imageserver",
+   "url": "https://dnrmaps.wi.gov/arcgis_image/rest/services/DW_Imagery/EN_Image_Basemap_2015_Leaf_On/ImageServer",
+   "native_pixel_m": 1.0,
+   "year": 2015,
+   "leaf_off": false,
+   "credit": "Wisconsin DNR; USDA Farm Service Agency, National Agriculture Imagery Program 2015",
+   "terms_class": "public-domain",
+   "terms_quote": "free downloads of public domain, NAIP compressed orthoimagery",
+   "terms_url": "https://imagery.nationalmap.gov/arcgis/rest/services/USGSNAIPImagery/ImageServer",
+   "states": [
+    "WI"
+   ],
+   "bbox": [
+    -92.89,
+    42.49,
+    -86.25,
+    47.31
+   ],
+   "kind": "imagery",
+   "status": "available",
+   "checked_on": "2026-11-23",
+   "retest": {
+    "service_wkid": 3071,
+    "service_pixel": 0.9992924261033169,
+    "ok": true,
+    "point": [
+     43.07472,
+     -89.38417
+    ],
+    "blank": false,
+    "bytes": 2226,
+    "content_type": "image/jpeg",
+    "size": [
+     80,
+     80
+    ],
+    "request_seconds": 10.8,
+    "seconds": 15.99
+   }
+  },
+  {
+   "id": "wi-leafon-2020",
+   "name": "Wisconsin DNR leaf-on image basemap 2020 (NAIP)",
+   "protocol": "arcgis-imageserver",
+   "url": "https://dnrmaps.wi.gov/arcgis_image/rest/services/DW_Imagery/EN_Image_Basemap_2020_Leaf_On/ImageServer",
+   "native_pixel_m": 0.6,
+   "year": 2020,
+   "leaf_off": false,
+   "credit": "Wisconsin DNR; USDA Farm Service Agency, National Agriculture Imagery Program 2020",
+   "terms_class": "public-domain",
+   "terms_quote": "free downloads of public domain, NAIP compressed orthoimagery",
+   "terms_url": "https://imagery.nationalmap.gov/arcgis/rest/services/USGSNAIPImagery/ImageServer",
+   "states": [
+    "WI"
+   ],
+   "bbox": [
+    -92.89,
+    42.49,
+    -86.25,
+    47.31
+   ],
+   "kind": "imagery",
+   "status": "available",
+   "checked_on": "2026-11-23",
+   "retest": {
+    "service_wkid": 3071,
+    "service_pixel": 0.5999999999999989,
+    "ok": true,
+    "point": [
+     43.07472,
+     -89.38417
+    ],
+    "blank": false,
+    "bytes": 3841,
+    "content_type": "image/jpeg",
+    "size": [
+     134,
+     134
+    ],
+    "request_seconds": 10.94,
+    "seconds": 17.15
+   }
+  },
+  {
+   "id": "wi-leafon-2022",
+   "name": "Wisconsin DNR leaf-on image basemap 2022 (NAIP)",
+   "protocol": "arcgis-imageserver",
+   "url": "https://dnrmaps.wi.gov/arcgis_image/rest/services/DW_Imagery/EN_Image_Basemap_2022_Leaf_On/ImageServer",
+   "native_pixel_m": 0.6,
+   "year": 2022,
+   "leaf_off": false,
+   "credit": "Wisconsin DNR; USDA Farm Service Agency, National Agriculture Imagery Program 2022",
+   "terms_class": "public-domain",
+   "terms_quote": "free downloads of public domain, NAIP compressed orthoimagery",
+   "terms_url": "https://imagery.nationalmap.gov/arcgis/rest/services/USGSNAIPImagery/ImageServer",
+   "states": [
+    "WI"
+   ],
+   "bbox": [
+    -92.89,
+    42.49,
+    -86.25,
+    47.31
+   ],
+   "kind": "imagery",
+   "status": "available",
+   "checked_on": "2026-11-23",
+   "retest": {
+    "service_wkid": 3071,
+    "service_pixel": 0.5999999999999989,
+    "ok": true,
+    "point": [
+     43.07472,
+     -89.38417
+    ],
+    "blank": false,
+    "bytes": 3261,
+    "content_type": "image/jpeg",
+    "size": [
+     134,
+     134
+    ],
+    "request_seconds": 10.85,
+    "seconds": 18.05
+   }
+  },
+  {
+   "id": "wi-leafon-2024",
+   "name": "Wisconsin DNR leaf-on image basemap, latest (NAIP 2024)",
+   "protocol": "arcgis-imageserver",
+   "url": "https://dnrmaps.wi.gov/arcgis_image/rest/services/DW_Imagery/EN_Image_Basemap_Latest_Leaf_On/ImageServer",
+   "native_pixel_m": 0.6,
+   "year": 2024,
+   "leaf_off": false,
+   "credit": "Wisconsin DNR; USDA National Agriculture Imagery Program 2024",
+   "terms_class": "public-domain",
+   "terms_quote": "free downloads of public domain, NAIP compressed orthoimagery",
+   "terms_url": "https://imagery.nationalmap.gov/arcgis/rest/services/USGSNAIPImagery/ImageServer",
+   "states": [
+    "WI"
+   ],
+   "bbox": [
+    -92.89,
+    42.49,
+    -86.25,
+    47.31
+   ],
+   "kind": "imagery",
+   "status": "available",
+   "checked_on": "2026-11-23",
+   "retest": {
+    "service_wkid": 3071,
+    "service_pixel": 0.5999999999999995,
+    "ok": true,
+    "point": [
+     43.07472,
+     -89.38417
+    ],
+    "blank": false,
+    "bytes": 3979,
+    "content_type": "image/jpeg",
+    "size": [
+     134,
+     134
+    ],
+    "request_seconds": 19.08,
+    "seconds": 27.27
+   }
+  },
+  {
+   "kind": "parcels",
+   "id": "wi-parcels",
+   "name": "Wisconsin Statewide Parcels V12 (SCO, WLIP)",
+   "protocol": "arcgis-feature",
+   "url": "https://services3.arcgis.com/n6uYoouQZW75n5WI/arcgis/rest/services/Wisconsin_Statewide_Parcels_DB/FeatureServer/0",
+   "terms_class": "open-with-credit",
+   "terms_quote": "This data is provided free of charge",
+   "terms_url": "https://www.sco.wisc.edu/parcels/data/",
+   "credit": "Version 12 Statewide Parcel Map Database, Wisconsin State Cartographer's Office and the Wisconsin Land Information Program (DOA)",
+   "fields": {
+    "id": "PARCELID",
+    "owner": "OWNERNME1",
+    "acres": [
+     "ASSDACRES",
+     "DEEDACRES",
+     "GISACRES"
+    ],
+    "land": "LNDVALUE",
+    "improvements": "IMPVALUE",
+    "total": "CNTASSDVALUE",
+    "address": "SITEADRESS"
+   },
+   "notes": "No building fields. Shape__Area is in Web Mercator square metres (inflated by 1/cos^2 lat): never used.",
+   "states": [
+    "WI"
+   ],
+   "bbox": [
+    -92.89,
+    42.49,
+    -86.25,
+    47.31
+   ],
+   "status": "available",
+   "checked_on": "2026-11-23",
+   "retest": {
+    "ok": true,
+    "point": [
+     43.07472,
+     -89.38417
+    ],
+    "under_pin": 1,
+    "adjacent_same_owner": 0,
+    "seconds": 2.62,
+    "polygon_acres": 14.4636,
+    "layer_acres": 11.7,
+    "polygon_vs_layer_pct": 23.62,
+    "fields_present": [
+     "address",
+     "improvement_value",
+     "land_value",
+     "owner",
+     "total_value"
+    ]
+   }
+  },
+  {
+   "id": "mn-metro-2025",
+   "name": "Twin Cities seven-county leaf-off 2025 (MnGeo WMS met25)",
+   "protocol": "wms",
+   "url": "https://imageserver.gisdata.mn.gov/cgi-bin/wmsll",
+   "params": {
+    "VERSION": "1.3.0",
+    "LAYERS": "met25"
+   },
+   "native_pixel_m": 0.3,
+   "year": 2025,
+   "leaf_off": true,
+   "terms_class": "public-domain",
+   "terms_quote": "None. This dataset is public domain under the Minnesota Government Data Practices Act",
+   "terms_url": "https://mnatlas.org/metadata/2025_7_county.html",
+   "credit": "Metropolitan Council; MnGeo",
+   "notes": "Seven metro counties only; elsewhere an all-white image (read as blank).",
+   "states": [
+    "MN"
+   ],
+   "bbox": [
+    -97.24,
+    43.5,
+    -89.49,
+    49.38
+   ],
+   "kind": "imagery",
+   "status": "available",
+   "checked_on": "2026-11-23",
+   "retest": {
+    "ok": true,
+    "point": [
+     44.95528,
+     -93.10222
+    ],
+    "blank": false,
+    "bytes": 9739,
+    "content_type": "image/jpeg",
+    "size": [
+     256,
+     256
+    ],
+    "request_seconds": 0.57,
+    "seconds": 0.57
+   }
+  },
+  {
+   "id": "mn-naip-2025",
+   "name": "Minnesota NAIP 2025 (MnGeo WMS fsa2025)",
+   "protocol": "wms",
+   "url": "https://imageserver.gisdata.mn.gov/cgi-bin/wmsll",
+   "params": {
+    "VERSION": "1.3.0",
+    "LAYERS": "fsa2025"
+   },
+   "native_pixel_m": 0.6,
+   "year": 2025,
+   "leaf_off": false,
+   "credit": "USDA FSA National Agriculture Imagery Program 2025; served by MnGeo",
+   "terms_class": "public-domain",
+   "terms_quote": "free downloads of public domain, NAIP compressed orthoimagery",
+   "terms_url": "https://imagery.nationalmap.gov/arcgis/rest/services/USGSNAIPImagery/ImageServer",
+   "states": [
+    "MN"
+   ],
+   "bbox": [
+    -97.24,
+    43.5,
+    -89.49,
+    49.38
+   ],
+   "kind": "imagery",
+   "status": "available",
+   "checked_on": "2026-11-23",
+   "retest": {
+    "ok": true,
+    "point": [
+     44.95528,
+     -93.10222
+    ],
+    "blank": false,
+    "bytes": 3425,
+    "content_type": "image/jpeg",
+    "size": [
+     134,
+     134
+    ],
+    "request_seconds": 1.09,
+    "seconds": 1.09
+   }
+  },
+  {
+   "id": "mn-naip-2023",
+   "name": "Minnesota NAIP 2023 (MnGeo WMS fsa2023)",
+   "protocol": "wms",
+   "url": "https://imageserver.gisdata.mn.gov/cgi-bin/wmsll",
+   "params": {
+    "VERSION": "1.3.0",
+    "LAYERS": "fsa2023"
+   },
+   "native_pixel_m": 0.6,
+   "year": 2023,
+   "leaf_off": false,
+   "credit": "USDA FSA National Agriculture Imagery Program 2023; served by MnGeo",
+   "terms_class": "public-domain",
+   "terms_quote": "free downloads of public domain, NAIP compressed orthoimagery",
+   "terms_url": "https://imagery.nationalmap.gov/arcgis/rest/services/USGSNAIPImagery/ImageServer",
+   "states": [
+    "MN"
+   ],
+   "bbox": [
+    -97.24,
+    43.5,
+    -89.49,
+    49.38
+   ],
+   "kind": "imagery",
+   "status": "available",
+   "checked_on": "2026-11-23",
+   "retest": {
+    "ok": true,
+    "point": [
+     44.95528,
+     -93.10222
+    ],
+    "blank": false,
+    "bytes": 3931,
+    "content_type": "image/jpeg",
+    "size": [
+     134,
+     134
+    ],
+    "request_seconds": 2.41,
+    "seconds": 2.41
+   }
+  },
+  {
+   "id": "mn-naip-2021",
+   "name": "Minnesota NAIP 2021 (MnGeo WMS fsa2021)",
+   "protocol": "wms",
+   "url": "https://imageserver.gisdata.mn.gov/cgi-bin/wmsll",
+   "params": {
+    "VERSION": "1.3.0",
+    "LAYERS": "fsa2021"
+   },
+   "native_pixel_m": 0.6,
+   "year": 2021,
+   "leaf_off": false,
+   "credit": "USDA FSA National Agriculture Imagery Program 2021; served by MnGeo",
+   "terms_class": "public-domain",
+   "terms_quote": "free downloads of public domain, NAIP compressed orthoimagery",
+   "terms_url": "https://imagery.nationalmap.gov/arcgis/rest/services/USGSNAIPImagery/ImageServer",
+   "states": [
+    "MN"
+   ],
+   "bbox": [
+    -97.24,
+    43.5,
+    -89.49,
+    49.38
+   ],
+   "kind": "imagery",
+   "status": "available",
+   "checked_on": "2026-11-23",
+   "retest": {
+    "ok": true,
+    "point": [
+     44.95528,
+     -93.10222
+    ],
+    "blank": false,
+    "bytes": 2874,
+    "content_type": "image/jpeg",
+    "size": [
+     134,
+     134
+    ],
+    "request_seconds": 3.2,
+    "seconds": 3.2
+   }
+  },
+  {
+   "id": "mn-naip-2019",
+   "name": "Minnesota NAIP 2019 (MnGeo WMS fsa2019)",
+   "protocol": "wms",
+   "url": "https://imageserver.gisdata.mn.gov/cgi-bin/wmsll",
+   "params": {
+    "VERSION": "1.3.0",
+    "LAYERS": "fsa2019"
+   },
+   "native_pixel_m": 0.6,
+   "year": 2019,
+   "leaf_off": false,
+   "credit": "USDA FSA National Agriculture Imagery Program 2019; served by MnGeo",
+   "terms_class": "public-domain",
+   "terms_quote": "free downloads of public domain, NAIP compressed orthoimagery",
+   "terms_url": "https://imagery.nationalmap.gov/arcgis/rest/services/USGSNAIPImagery/ImageServer",
+   "states": [
+    "MN"
+   ],
+   "bbox": [
+    -97.24,
+    43.5,
+    -89.49,
+    49.38
+   ],
+   "kind": "imagery",
+   "status": "available",
+   "checked_on": "2026-11-23",
+   "retest": {
+    "ok": true,
+    "point": [
+     44.95528,
+     -93.10222
+    ],
+    "blank": false,
+    "bytes": 2833,
+    "content_type": "image/jpeg",
+    "size": [
+     134,
+     134
+    ],
+    "request_seconds": 4.21,
+    "seconds": 4.21
+   }
+  },
+  {
+   "id": "mn-naip-2017",
+   "name": "Minnesota NAIP 2017 (MnGeo WMS fsa2017)",
+   "protocol": "wms",
+   "url": "https://imageserver.gisdata.mn.gov/cgi-bin/wmsll",
+   "params": {
+    "VERSION": "1.3.0",
+    "LAYERS": "fsa2017"
+   },
+   "native_pixel_m": 0.6,
+   "year": 2017,
+   "leaf_off": false,
+   "credit": "USDA FSA National Agriculture Imagery Program 2017; served by MnGeo",
+   "terms_class": "public-domain",
+   "terms_quote": "free downloads of public domain, NAIP compressed orthoimagery",
+   "terms_url": "https://imagery.nationalmap.gov/arcgis/rest/services/USGSNAIPImagery/ImageServer",
+   "states": [
+    "MN"
+   ],
+   "bbox": [
+    -97.24,
+    43.5,
+    -89.49,
+    49.38
+   ],
+   "kind": "imagery",
+   "status": "available",
+   "checked_on": "2026-11-23",
+   "retest": {
+    "ok": true,
+    "point": [
+     44.95528,
+     -93.10222
+    ],
+    "blank": false,
+    "bytes": 2612,
+    "content_type": "image/jpeg",
+    "size": [
+     134,
+     134
+    ],
+    "request_seconds": 5.21,
+    "seconds": 5.21
+   }
+  },
+  {
+   "id": "mn-naip-2015",
+   "name": "Minnesota NAIP 2015 (MnGeo WMS fsa2015)",
+   "protocol": "wms",
+   "url": "https://imageserver.gisdata.mn.gov/cgi-bin/wmsll",
+   "params": {
+    "VERSION": "1.3.0",
+    "LAYERS": "fsa2015"
+   },
+   "native_pixel_m": 0.6,
+   "year": 2015,
+   "leaf_off": false,
+   "credit": "USDA FSA National Agriculture Imagery Program 2015; served by MnGeo",
+   "terms_class": "public-domain",
+   "terms_quote": "free downloads of public domain, NAIP compressed orthoimagery",
+   "terms_url": "https://imagery.nationalmap.gov/arcgis/rest/services/USGSNAIPImagery/ImageServer",
+   "states": [
+    "MN"
+   ],
+   "bbox": [
+    -97.24,
+    43.5,
+    -89.49,
+    49.38
+   ],
+   "kind": "imagery",
+   "status": "available",
+   "checked_on": "2026-11-23",
+   "retest": {
+    "ok": true,
+    "point": [
+     44.95528,
+     -93.10222
+    ],
+    "blank": false,
+    "bytes": 3081,
+    "content_type": "image/jpeg",
+    "size": [
+     134,
+     134
+    ],
+    "request_seconds": 6.22,
+    "seconds": 6.22
+   }
+  },
+  {
+   "id": "mn-naip-2013",
+   "name": "Minnesota NAIP 2013 (MnGeo WMS fsa2013)",
+   "protocol": "wms",
+   "url": "https://imageserver.gisdata.mn.gov/cgi-bin/wmsll",
+   "params": {
+    "VERSION": "1.3.0",
+    "LAYERS": "fsa2013"
+   },
+   "native_pixel_m": 1.0,
+   "year": 2013,
+   "leaf_off": false,
+   "credit": "USDA FSA National Agriculture Imagery Program 2013; served by MnGeo",
+   "terms_class": "public-domain",
+   "terms_quote": "free downloads of public domain, NAIP compressed orthoimagery",
+   "terms_url": "https://imagery.nationalmap.gov/arcgis/rest/services/USGSNAIPImagery/ImageServer",
+   "states": [
+    "MN"
+   ],
+   "bbox": [
+    -97.24,
+    43.5,
+    -89.49,
+    49.38
+   ],
+   "kind": "imagery",
+   "status": "available",
+   "checked_on": "2026-11-23",
+   "retest": {
+    "ok": true,
+    "point": [
+     44.95528,
+     -93.10222
+    ],
+    "blank": false,
+    "bytes": 1589,
+    "content_type": "image/jpeg",
+    "size": [
+     80,
+     80
+    ],
+    "request_seconds": 7.21,
+    "seconds": 7.21
+   }
+  },
+  {
+   "id": "mn-naip-2010",
+   "name": "Minnesota NAIP 2010 (MnGeo WMS fsa2010)",
+   "protocol": "wms",
+   "url": "https://imageserver.gisdata.mn.gov/cgi-bin/wmsll",
+   "params": {
+    "VERSION": "1.3.0",
+    "LAYERS": "fsa2010"
+   },
+   "native_pixel_m": 1.0,
+   "year": 2010,
+   "leaf_off": false,
+   "credit": "USDA FSA National Agriculture Imagery Program 2010; served by MnGeo",
+   "terms_class": "public-domain",
+   "terms_quote": "free downloads of public domain, NAIP compressed orthoimagery",
+   "terms_url": "https://imagery.nationalmap.gov/arcgis/rest/services/USGSNAIPImagery/ImageServer",
+   "states": [
+    "MN"
+   ],
+   "bbox": [
+    -97.24,
+    43.5,
+    -89.49,
+    49.38
+   ],
+   "kind": "imagery",
+   "status": "available",
+   "checked_on": "2026-11-23",
+   "retest": {
+    "ok": true,
+    "point": [
+     44.95528,
+     -93.10222
+    ],
+    "blank": false,
+    "bytes": 2134,
+    "content_type": "image/jpeg",
+    "size": [
+     80,
+     80
+    ],
+    "request_seconds": 8.21,
+    "seconds": 8.21
+   }
+  },
+  {
+   "id": "mn-naip-2009",
+   "name": "Minnesota NAIP 2009 (MnGeo WMS fsa2009)",
+   "protocol": "wms",
+   "url": "https://imageserver.gisdata.mn.gov/cgi-bin/wmsll",
+   "params": {
+    "VERSION": "1.3.0",
+    "LAYERS": "fsa2009"
+   },
+   "native_pixel_m": 1.0,
+   "year": 2009,
+   "leaf_off": false,
+   "credit": "USDA FSA National Agriculture Imagery Program 2009; served by MnGeo",
+   "terms_class": "public-domain",
+   "terms_quote": "free downloads of public domain, NAIP compressed orthoimagery",
+   "terms_url": "https://imagery.nationalmap.gov/arcgis/rest/services/USGSNAIPImagery/ImageServer",
+   "states": [
+    "MN"
+   ],
+   "bbox": [
+    -97.24,
+    43.5,
+    -89.49,
+    49.38
+   ],
+   "kind": "imagery",
+   "status": "available",
+   "checked_on": "2026-11-23",
+   "retest": {
+    "ok": true,
+    "point": [
+     44.95528,
+     -93.10222
+    ],
+    "blank": false,
+    "bytes": 1393,
+    "content_type": "image/jpeg",
+    "size": [
+     80,
+     80
+    ],
+    "request_seconds": 9.21,
+    "seconds": 9.21
+   }
+  },
+  {
+   "id": "mn-naip-2008",
+   "name": "Minnesota NAIP 2008 (MnGeo WMS fsa2008)",
+   "protocol": "wms",
+   "url": "https://imageserver.gisdata.mn.gov/cgi-bin/wmsll",
+   "params": {
+    "VERSION": "1.3.0",
+    "LAYERS": "fsa2008"
+   },
+   "native_pixel_m": 1.0,
+   "year": 2008,
+   "leaf_off": false,
+   "credit": "USDA FSA National Agriculture Imagery Program 2008; served by MnGeo",
+   "terms_class": "public-domain",
+   "terms_quote": "free downloads of public domain, NAIP compressed orthoimagery",
+   "terms_url": "https://imagery.nationalmap.gov/arcgis/rest/services/USGSNAIPImagery/ImageServer",
+   "states": [
+    "MN"
+   ],
+   "bbox": [
+    -97.24,
+    43.5,
+    -89.49,
+    49.38
+   ],
+   "kind": "imagery",
+   "status": "available",
+   "checked_on": "2026-11-23",
+   "retest": {
+    "ok": true,
+    "point": [
+     44.95528,
+     -93.10222
+    ],
+    "blank": false,
+    "bytes": 1607,
+    "content_type": "image/jpeg",
+    "size": [
+     80,
+     80
+    ],
+    "request_seconds": 10.21,
+    "seconds": 10.21
+   }
+  },
+  {
+   "kind": "parcels",
+   "id": "mn-parcels",
+   "name": "Minnesota parcels, opt-in open data counties (MnGeo)",
+   "protocol": "arcgis-feature",
+   "url": "https://enterprise.gisdata.mn.gov/aghost/rest/services/us_mn_state_mngeo/plan_parcels_open/FeatureServer/0",
+   "terms_class": "no-terms-stated",
+   "terms_quote": "Users should consult county websites for original county data",
+   "terms_url": "https://enterprise.gisdata.mn.gov/portal/sharing/rest/content/items/69148d3959194a05a23964cc60f6517b?f=json",
+   "credit": "MnGeo; the contributing counties",
+   "fields": {
+    "id": "state_pin",
+    "owner": "owner_name",
+    "acres": [
+     "acres_deed",
+     "acres_poly"
+    ],
+    "land": "emv_land",
+    "improvements": "emv_bldg",
+    "total": "emv_total",
+    "year_built": "year_built",
+    "building_area": "fin_sq_ft"
+   },
+   "notes": "60 of 87 counties.",
+   "states": [
+    "MN"
+   ],
+   "bbox": [
+    -97.24,
+    43.5,
+    -89.49,
+    49.38
+   ],
+   "status": "available",
+   "checked_on": "2026-11-23",
+   "retest": {
+    "ok": true,
+    "point": [
+     44.95528,
+     -93.10222
+    ],
+    "under_pin": 1,
+    "adjacent_same_owner": 0,
+    "seconds": 1.33,
+    "polygon_acres": 5.9156,
+    "layer_acres": 6.03,
+    "polygon_vs_layer_pct": -1.9,
+    "fields_present": [
+     "improvement_value",
+     "land_value",
+     "owner",
+     "total_value",
+     "year_built"
+    ]
+   }
+  },
+  {
+   "id": "tx-stratmap-2021",
+   "name": "StratMap 2021 natural color, central Texas regions (TxGIO)",
+   "protocol": "arcgis-imageserver",
+   "url": "https://imagery.geographic.texas.gov/server/rest/services/StratMap/StratMap21_NCCIR_CapArea_Brazos_Kerr/ImageServer",
+   "params": {
+    "bandIds": "0,1,2"
+   },
+   "native_pixel_m": 0.1524,
+   "year": 2021,
+   "leaf_off": true,
+   "credit": "Texas Geographic Information Office (TxGIO) and the regional partners",
+   "terms_class": "no-terms-stated",
+   "terms_quote": "Content of this site copyright Texas Geographic Information Office and Texas Water Development Board",
+   "terms_url": "https://geographic.texas.gov/stratmap/orthoimagery",
+   "notes": "About 15 central Texas counties per flight; nothing newer than 2021 is served without a licence.",
+   "states": [
+    "TX"
+   ],
+   "bbox": [
+    -99.5479,
+    29.6239,
+    -96.0139,
+    31.048
+   ],
+   "kind": "imagery",
+   "status": "available",
+   "checked_on": "2026-11-23",
+   "retest": {
+    "service_wkid": 3857,
+    "service_pixel": 0.15240030000000032,
+    "extent_lonlat": [
+     -99.5479,
+     29.6239,
+     -96.0139,
+     31.048
+    ],
+    "ok": true,
+    "point": [
+     30.27472,
+     -97.74056
+    ],
+    "blank": false,
+    "bytes": 13916,
+    "content_type": "image/jpeg",
+    "size": [
+     256,
+     256
+    ],
+    "request_seconds": 5.47,
+    "seconds": 5.94
+   }
+  },
+  {
+   "id": "tx-stratmap-2020",
+   "name": "StratMap 2020 natural color, central Texas regions (TxGIO)",
+   "protocol": "arcgis-imageserver",
+   "url": "https://imagery.geographic.texas.gov/server/rest/services/StratMap/StratMap20_NCCIR_CapArea_McLennan/ImageServer",
+   "params": {
+    "bandIds": "0,1,2"
+   },
+   "native_pixel_m": 0.1524,
+   "year": 2020,
+   "leaf_off": true,
+   "credit": "Texas Geographic Information Office (TxGIO) and the regional partners",
+   "terms_class": "no-terms-stated",
+   "terms_quote": "Content of this site copyright Texas Geographic Information Office and Texas Water Development Board",
+   "terms_url": "https://geographic.texas.gov/stratmap/orthoimagery",
+   "notes": "About 15 central Texas counties per flight; nothing newer than 2021 is served without a licence.",
+   "states": [
+    "TX"
+   ],
+   "bbox": [
+    -98.9922,
+    29.6055,
+    -96.537,
+    31.9004
+   ],
+   "kind": "imagery",
+   "status": "available",
+   "checked_on": "2026-11-23",
+   "retest": {
+    "service_wkid": 3857,
+    "service_pixel": 0.07620015,
+    "extent_lonlat": [
+     -98.9922,
+     29.6055,
+     -96.537,
+     31.9004
+    ],
+    "ok": true,
+    "point": [
+     30.27472,
+     -97.74056
+    ],
+    "blank": false,
+    "bytes": 11667,
+    "content_type": "image/jpeg",
+    "size": [
+     256,
+     256
+    ],
+    "request_seconds": 7.55,
+    "seconds": 8.84
+   }
+  },
+  {
+   "id": "tx-stratmap-2019",
+   "name": "StratMap 2019 natural color, central Texas regions (TxGIO)",
+   "protocol": "arcgis-imageserver",
+   "url": "https://imagery.geographic.texas.gov/server/rest/services/StratMap/StratMap19_NCCIR_CapArea/ImageServer",
+   "params": {
+    "bandIds": "0,1,2"
+   },
+   "native_pixel_m": 0.1524,
+   "year": 2019,
+   "leaf_off": true,
+   "credit": "Texas Geographic Information Office (TxGIO) and the regional partners",
+   "terms_class": "no-terms-stated",
+   "terms_quote": "Content of this site copyright Texas Geographic Information Office and Texas Water Development Board",
+   "terms_url": "https://geographic.texas.gov/stratmap/orthoimagery",
+   "notes": "About 15 central Texas counties per flight; nothing newer than 2021 is served without a licence.",
+   "states": [
+    "TX"
+   ],
+   "bbox": [
+    -98.9856,
+    29.6083,
+    -96.5455,
+    31.048
+   ],
+   "kind": "imagery",
+   "status": "available",
+   "checked_on": "2026-11-23",
+   "retest": {
+    "service_wkid": 3857,
+    "service_pixel": 0.15240029999999966,
+    "extent_lonlat": [
+     -98.9856,
+     29.6083,
+     -96.5455,
+     31.048
+    ],
+    "ok": true,
+    "point": [
+     30.27472,
+     -97.74056
+    ],
+    "blank": false,
+    "bytes": 7018,
+    "content_type": "image/jpeg",
+    "size": [
+     256,
+     256
+    ],
+    "request_seconds": 6.66,
+    "seconds": 9.07
+   }
+  },
+  {
+   "kind": "parcels",
+   "id": "tx-parcels",
+   "name": "StratMap Land Parcels, most recent (TxGIO)",
+   "protocol": "unsupported",
+   "url": "https://feature.geographic.texas.gov/arcgis/rest/services/Parcels/stratmap_land_parcels_48_most_recent/MapServer/0",
+   "terms_class": "no-terms-stated",
+   "terms_quote": "They are not survey grade and should not be used for legal purposes.",
+   "terms_url": "https://geographic.texas.gov/stratmap/land-parcels",
+   "credit": "TxGIO, various counties",
+   "status": "unavailable",
+   "checked_on": "2026-11-23",
+   "status_reason": "the layer's query operation answers 'Requested operation is not supported'; only identify works, which this client does not use",
+   "states": [
+    "TX"
+   ],
+   "bbox": [
+    -106.65,
+    25.84,
+    -93.51,
+    36.5
+   ]
+  },
+  {
+   "id": "fl-aerials-2021",
+   "name": "Florida yearly aerials 2021 (county flights for FDOR, mosaicked by FDEP)",
+   "protocol": "arcgis-imageserver",
+   "url": "https://ca.dep.state.fl.us/image/rest/services/FDOT_Yearly_Aerials/Aerial_Imagery_2021/ImageServer",
+   "native_pixel_m": 0.1524,
+   "year": 2021,
+   "leaf_off": null,
+   "credit": "FDOR, FDOT, FDEP; the county property appraisers",
+   "terms_class": "no-terms-stated",
+   "terms_quote": "none stated (the service's licence and access fields are empty)",
+   "terms_url": "https://ca.dep.state.fl.us/image/rest/services/FDOT_Yearly_Aerials/Aerial_Imagery_2021/ImageServer/info/iteminfo?f=json",
+   "notes": "The counties flown that cycle only (about a three-year rotation).",
+   "states": [
+    "FL"
+   ],
+   "bbox": [
+    -87.63,
+    24.4,
+    -79.97,
+    31.0
+   ],
+   "kind": "imagery",
+   "status": "available",
+   "checked_on": "2026-11-23",
+   "retest": {
+    "service_wkid": 6439,
+    "service_pixel": 0.07620015240030391,
+    "ok": true,
+    "point": [
+     30.43811,
+     -84.2816
+    ],
+    "blank": false,
+    "bytes": 12778,
+    "content_type": "image/jpeg",
+    "size": [
+     256,
+     256
+    ],
+    "request_seconds": 20.35,
+    "seconds": 20.79
+   }
+  },
+  {
+   "id": "fl-aerials-2020",
+   "name": "Florida yearly aerials 2020 (county flights for FDOR, mosaicked by FDEP)",
+   "protocol": "arcgis-imageserver",
+   "url": "https://ca.dep.state.fl.us/image/rest/services/FDOT_Yearly_Aerials/Aerial_Imagery_2020/ImageServer",
+   "native_pixel_m": 0.1524,
+   "year": 2020,
+   "leaf_off": null,
+   "credit": "FDOR, FDOT, FDEP; the county property appraisers",
+   "terms_class": "no-terms-stated",
+   "terms_quote": "none stated (the service's licence and access fields are empty)",
+   "terms_url": "https://ca.dep.state.fl.us/image/rest/services/FDOT_Yearly_Aerials/Aerial_Imagery_2021/ImageServer/info/iteminfo?f=json",
+   "notes": "The counties flown that cycle only (about a three-year rotation).",
+   "states": [
+    "FL"
+   ],
+   "bbox": [
+    -87.63,
+    24.4,
+    -79.97,
+    31.0
+   ],
+   "kind": "imagery",
+   "status": "available",
+   "checked_on": "2026-11-23",
+   "retest": {
+    "service_wkid": 6439,
+    "service_pixel": 0.07620015240030484,
+    "ok": true,
+    "point": [
+     30.43811,
+     -84.2816
+    ],
+    "blank": true,
+    "bytes": 334,
+    "content_type": "image/png",
+    "size": [
+     256,
+     256
+    ],
+    "request_seconds": 19.57,
+    "seconds": 20.94
+   }
+  },
+  {
+   "id": "fl-aerials-2019",
+   "name": "Florida yearly aerials 2019 (county flights for FDOR, mosaicked by FDEP)",
+   "protocol": "arcgis-imageserver",
+   "url": "https://ca.dep.state.fl.us/image/rest/services/FDOT_Yearly_Aerials/Aerial_Imagery_2019/ImageServer",
+   "native_pixel_m": 0.1524,
+   "year": 2019,
+   "leaf_off": null,
+   "credit": "FDOR, FDOT, FDEP; the county property appraisers",
+   "terms_class": "no-terms-stated",
+   "terms_quote": "none stated (the service's licence and access fields are empty)",
+   "terms_url": "https://ca.dep.state.fl.us/image/rest/services/FDOT_Yearly_Aerials/Aerial_Imagery_2021/ImageServer/info/iteminfo?f=json",
+   "notes": "The counties flown that cycle only (about a three-year rotation).",
+   "states": [
+    "FL"
+   ],
+   "bbox": [
+    -87.63,
+    24.4,
+    -79.97,
+    31.0
+   ],
+   "kind": "imagery",
+   "status": "available",
+   "checked_on": "2026-11-23",
+   "retest": {
+    "service_wkid": 3087,
+    "service_pixel": 0.07620015240030481,
+    "ok": true,
+    "point": [
+     30.43811,
+     -84.2816
+    ],
+    "blank": true,
+    "bytes": 334,
+    "content_type": "image/png",
+    "size": [
+     256,
+     256
+    ],
+    "request_seconds": 23.01,
+    "seconds": 25.52
+   }
+  },
+  {
+   "id": "fl-aerials-2018",
+   "name": "Florida yearly aerials 2018 (county flights for FDOR, mosaicked by FDEP)",
+   "protocol": "arcgis-imageserver",
+   "url": "https://ca.dep.state.fl.us/image/rest/services/FDOT_Yearly_Aerials/Aerial_Imagery_2018/ImageServer",
+   "native_pixel_m": 0.1524,
+   "year": 2018,
+   "leaf_off": null,
+   "credit": "FDOR, FDOT, FDEP; the county property appraisers",
+   "terms_class": "no-terms-stated",
+   "terms_quote": "none stated (the service's licence and access fields are empty)",
+   "terms_url": "https://ca.dep.state.fl.us/image/rest/services/FDOT_Yearly_Aerials/Aerial_Imagery_2021/ImageServer/info/iteminfo?f=json",
+   "notes": "The counties flown that cycle only (about a three-year rotation).",
+   "states": [
+    "FL"
+   ],
+   "bbox": [
+    -87.63,
+    24.4,
+    -79.97,
+    31.0
+   ],
+   "kind": "imagery",
+   "status": "available",
+   "checked_on": "2026-11-23",
+   "retest": {
+    "service_wkid": 3087,
+    "service_pixel": 0.07620015240030392,
+    "ok": true,
+    "point": [
+     30.43811,
+     -84.2816
+    ],
+    "blank": false,
+    "bytes": 11127,
+    "content_type": "image/jpeg",
+    "size": [
+     256,
+     256
+    ],
+    "request_seconds": 27.23,
+    "seconds": 30.69
+   }
+  },
+  {
+   "id": "fl-aerials-2017",
+   "name": "Florida yearly aerials 2017 (county flights for FDOR, mosaicked by FDEP)",
+   "protocol": "arcgis-imageserver",
+   "url": "https://ca.dep.state.fl.us/image/rest/services/FDOT_Yearly_Aerials/Aerial_Imagery_2017/ImageServer",
+   "native_pixel_m": 0.1524,
+   "year": 2017,
+   "leaf_off": null,
+   "credit": "FDOR, FDOT, FDEP; the county property appraisers",
+   "terms_class": "no-terms-stated",
+   "terms_quote": "none stated (the service's licence and access fields are empty)",
+   "terms_url": "https://ca.dep.state.fl.us/image/rest/services/FDOT_Yearly_Aerials/Aerial_Imagery_2021/ImageServer/info/iteminfo?f=json",
+   "notes": "The counties flown that cycle only (about a three-year rotation).",
+   "states": [
+    "FL"
+   ],
+   "bbox": [
+    -87.63,
+    24.4,
+    -79.97,
+    31.0
+   ],
+   "kind": "imagery",
+   "status": "available",
+   "checked_on": "2026-11-23",
+   "retest": {
+    "service_wkid": 3087,
+    "service_pixel": 0.07620015240030484,
+    "ok": true,
+    "point": [
+     30.43811,
+     -84.2816
+    ],
+    "blank": true,
+    "bytes": 334,
+    "content_type": "image/png",
+    "size": [
+     256,
+     256
+    ],
+    "request_seconds": 26.47,
+    "seconds": 30.91
+   }
+  },
+  {
+   "id": "fl-aerials-2016",
+   "name": "Florida yearly aerials 2016 (county flights for FDOR, mosaicked by FDEP)",
+   "protocol": "arcgis-imageserver",
+   "url": "https://ca.dep.state.fl.us/image/rest/services/FDOT_Yearly_Aerials/Aerial_Imagery_2016/ImageServer",
+   "native_pixel_m": 0.1524,
+   "year": 2016,
+   "leaf_off": null,
+   "credit": "FDOR, FDOT, FDEP; the county property appraisers",
+   "terms_class": "no-terms-stated",
+   "terms_quote": "none stated (the service's licence and access fields are empty)",
+   "terms_url": "https://ca.dep.state.fl.us/image/rest/services/FDOT_Yearly_Aerials/Aerial_Imagery_2021/ImageServer/info/iteminfo?f=json",
+   "notes": "The counties flown that cycle only (about a three-year rotation).",
+   "states": [
+    "FL"
+   ],
+   "bbox": [
+    -87.63,
+    24.4,
+    -79.97,
+    31.0
+   ],
+   "kind": "imagery",
+   "status": "available",
+   "checked_on": "2026-11-23",
+   "retest": {
+    "service_wkid": 3087,
+    "service_pixel": 0.0762001523992403,
+    "ok": true,
+    "point": [
+     30.43811,
+     -84.2816
+    ],
+    "blank": true,
+    "bytes": 334,
+    "content_type": "image/png",
+    "size": [
+     256,
+     256
+    ],
+    "request_seconds": 26.49,
+    "seconds": 31.88
+   }
+  },
+  {
+   "id": "fl-aerials-2015",
+   "name": "Florida yearly aerials 2015 (county flights for FDOR, mosaicked by FDEP)",
+   "protocol": "arcgis-imageserver",
+   "url": "https://ca.dep.state.fl.us/image/rest/services/FDOT_Yearly_Aerials/Aerial_Imagery_2015/ImageServer",
+   "native_pixel_m": 0.1524,
+   "year": 2015,
+   "leaf_off": null,
+   "credit": "FDOR, FDOT, FDEP; the county property appraisers",
+   "terms_class": "no-terms-stated",
+   "terms_quote": "none stated (the service's licence and access fields are empty)",
+   "terms_url": "https://ca.dep.state.fl.us/image/rest/services/FDOT_Yearly_Aerials/Aerial_Imagery_2021/ImageServer/info/iteminfo?f=json",
+   "notes": "The counties flown that cycle only (about a three-year rotation).",
+   "states": [
+    "FL"
+   ],
+   "bbox": [
+    -87.63,
+    24.4,
+    -79.97,
+    31.0
+   ],
+   "kind": "imagery",
+   "status": "available",
+   "checked_on": "2026-11-23",
+   "retest": {
+    "service_wkid": 3087,
+    "service_pixel": 0.1524003048006096,
+    "ok": true,
+    "point": [
+     30.43811,
+     -84.2816
+    ],
+    "blank": false,
+    "bytes": 15802,
+    "content_type": "image/jpeg",
+    "size": [
+     256,
+     256
+    ],
+    "request_seconds": 33.0,
+    "seconds": 39.41
+   }
+  },
+  {
+   "id": "fl-aerials-2013",
+   "name": "Florida yearly aerials 2013 (county flights for FDOR, mosaicked by FDEP)",
+   "protocol": "arcgis-imageserver",
+   "url": "https://ca.dep.state.fl.us/image/rest/services/FDOT_Yearly_Aerials/Aerial_Imagery_2013/ImageServer",
+   "native_pixel_m": 0.1524,
+   "year": 2013,
+   "leaf_off": null,
+   "credit": "FDOR, FDOT, FDEP; the county property appraisers",
+   "terms_class": "no-terms-stated",
+   "terms_quote": "none stated (the service's licence and access fields are empty)",
+   "terms_url": "https://ca.dep.state.fl.us/image/rest/services/FDOT_Yearly_Aerials/Aerial_Imagery_2021/ImageServer/info/iteminfo?f=json",
+   "notes": "The counties flown that cycle only (about a three-year rotation).",
+   "states": [
+    "FL"
+   ],
+   "bbox": [
+    -87.63,
+    24.4,
+    -79.97,
+    31.0
+   ],
+   "kind": "imagery",
+   "status": "available",
+   "checked_on": "2026-11-23",
+   "retest": {
+    "service_wkid": 3087,
+    "service_pixel": 0.15240030480060784,
+    "ok": true,
+    "point": [
+     30.43811,
+     -84.2816
+    ],
+    "blank": true,
+    "bytes": 334,
+    "content_type": "image/png",
+    "size": [
+     256,
+     256
+    ],
+    "request_seconds": 32.79,
+    "seconds": 40.19
+   }
+  },
+  {
+   "id": "fl-aerials-2012",
+   "name": "Florida yearly aerials 2012 (county flights for FDOR, mosaicked by FDEP)",
+   "protocol": "arcgis-imageserver",
+   "url": "https://ca.dep.state.fl.us/image/rest/services/FDOT_Yearly_Aerials/Aerial_Imagery_2012/ImageServer",
+   "native_pixel_m": 0.1524,
+   "year": 2012,
+   "leaf_off": null,
+   "credit": "FDOR, FDOT, FDEP; the county property appraisers",
+   "terms_class": "no-terms-stated",
+   "terms_quote": "none stated (the service's licence and access fields are empty)",
+   "terms_url": "https://ca.dep.state.fl.us/image/rest/services/FDOT_Yearly_Aerials/Aerial_Imagery_2021/ImageServer/info/iteminfo?f=json",
+   "notes": "The counties flown that cycle only (about a three-year rotation).",
+   "states": [
+    "FL"
+   ],
+   "bbox": [
+    -87.63,
+    24.4,
+    -79.97,
+    31.0
+   ],
+   "kind": "imagery",
+   "status": "available",
+   "checked_on": "2026-11-23",
+   "retest": {
+    "service_wkid": 3087,
+    "service_pixel": 0.15240028395022273,
+    "ok": true,
+    "point": [
+     30.43811,
+     -84.2816
+    ],
+    "blank": false,
+    "bytes": 13528,
+    "content_type": "image/jpeg",
+    "size": [
+     256,
+     256
+    ],
+    "request_seconds": 38.44,
+    "seconds": 46.83
+   }
+  },
+  {
+   "id": "fl-aerials-2011",
+   "name": "Florida yearly aerials 2011 (county flights for FDOR, mosaicked by FDEP)",
+   "protocol": "arcgis-imageserver",
+   "url": "https://ca.dep.state.fl.us/image/rest/services/FDOT_Yearly_Aerials/Aerial_Imagery_2011/ImageServer",
+   "native_pixel_m": 0.1524,
+   "year": 2011,
+   "leaf_off": null,
+   "credit": "FDOR, FDOT, FDEP; the county property appraisers",
+   "terms_class": "no-terms-stated",
+   "terms_quote": "none stated (the service's licence and access fields are empty)",
+   "terms_url": "https://ca.dep.state.fl.us/image/rest/services/FDOT_Yearly_Aerials/Aerial_Imagery_2021/ImageServer/info/iteminfo?f=json",
+   "notes": "The counties flown that cycle only (about a three-year rotation).",
+   "states": [
+    "FL"
+   ],
+   "bbox": [
+    -87.63,
+    24.4,
+    -79.97,
+    31.0
+   ],
+   "kind": "imagery",
+   "status": "available",
+   "checked_on": "2026-11-23",
+   "retest": {
+    "service_wkid": 3087,
+    "service_pixel": 0.3048006096012192,
+    "ok": true,
+    "point": [
+     30.43811,
+     -84.2816
+    ],
+    "blank": true,
+    "bytes": 334,
+    "content_type": "image/png",
+    "size": [
+     256,
+     256
+    ],
+    "request_seconds": 37.71,
+    "seconds": 47.1
+   }
+  },
+  {
+   "id": "fl-aerials-2010",
+   "name": "Florida yearly aerials 2010 (county flights for FDOR, mosaicked by FDEP)",
+   "protocol": "arcgis-imageserver",
+   "url": "https://ca.dep.state.fl.us/image/rest/services/FDOT_Yearly_Aerials/Aerial_Imagery_2010/ImageServer",
+   "native_pixel_m": 0.1524,
+   "year": 2010,
+   "leaf_off": null,
+   "credit": "FDOR, FDOT, FDEP; the county property appraisers",
+   "terms_class": "no-terms-stated",
+   "terms_quote": "none stated (the service's licence and access fields are empty)",
+   "terms_url": "https://ca.dep.state.fl.us/image/rest/services/FDOT_Yearly_Aerials/Aerial_Imagery_2021/ImageServer/info/iteminfo?f=json",
+   "notes": "The counties flown that cycle only (about a three-year rotation).",
+   "states": [
+    "FL"
+   ],
+   "bbox": [
+    -87.63,
+    24.4,
+    -79.97,
+    31.0
+   ],
+   "kind": "imagery",
+   "status": "available",
+   "checked_on": "2026-11-23",
+   "retest": {
+    "service_wkid": 3087,
+    "service_pixel": 0.30480060960121924,
+    "ok": true,
+    "point": [
+     30.43811,
+     -84.2816
+    ],
+    "blank": true,
+    "bytes": 334,
+    "content_type": "image/png",
+    "size": [
+     256,
+     256
+    ],
+    "request_seconds": 38.01,
+    "seconds": 48.49
+   }
+  },
+  {
+   "id": "fl-aerials-2009",
+   "name": "Florida yearly aerials 2009 (county flights for FDOR, mosaicked by FDEP)",
+   "protocol": "arcgis-imageserver",
+   "url": "https://ca.dep.state.fl.us/image/rest/services/FDOT_Yearly_Aerials/Aerial_Imagery_2009/ImageServer",
+   "native_pixel_m": 0.1524,
+   "year": 2009,
+   "leaf_off": null,
+   "credit": "FDOR, FDOT, FDEP; the county property appraisers",
+   "terms_class": "no-terms-stated",
+   "terms_quote": "none stated (the service's licence and access fields are empty)",
+   "terms_url": "https://ca.dep.state.fl.us/image/rest/services/FDOT_Yearly_Aerials/Aerial_Imagery_2021/ImageServer/info/iteminfo?f=json",
+   "notes": "The counties flown that cycle only (about a three-year rotation).",
+   "states": [
+    "FL"
+   ],
+   "bbox": [
+    -87.63,
+    24.4,
+    -79.97,
+    31.0
+   ],
+   "kind": "imagery",
+   "status": "available",
+   "checked_on": "2026-11-23",
+   "retest": {
+    "service_wkid": 3087,
+    "service_pixel": 0.15240030480060962,
+    "ok": true,
+    "point": [
+     30.43811,
+     -84.2816
+    ],
+    "blank": true,
+    "bytes": 334,
+    "content_type": "image/png",
+    "size": [
+     256,
+     256
+    ],
+    "request_seconds": 38.06,
+    "seconds": 49.45
+   }
+  },
+  {
+   "id": "fl-aerials-2008",
+   "name": "Florida yearly aerials 2008 (county flights for FDOR, mosaicked by FDEP)",
+   "protocol": "arcgis-imageserver",
+   "url": "https://ca.dep.state.fl.us/image/rest/services/FDOT_Yearly_Aerials/Aerial_Imagery_2008/ImageServer",
+   "native_pixel_m": 0.1524,
+   "year": 2008,
+   "leaf_off": null,
+   "credit": "FDOR, FDOT, FDEP; the county property appraisers",
+   "terms_class": "no-terms-stated",
+   "terms_quote": "none stated (the service's licence and access fields are empty)",
+   "terms_url": "https://ca.dep.state.fl.us/image/rest/services/FDOT_Yearly_Aerials/Aerial_Imagery_2021/ImageServer/info/iteminfo?f=json",
+   "notes": "The counties flown that cycle only (about a three-year rotation).",
+   "states": [
+    "FL"
+   ],
+   "bbox": [
+    -87.63,
+    24.4,
+    -79.97,
+    31.0
+   ],
+   "kind": "imagery",
+   "status": "available",
+   "checked_on": "2026-11-23",
+   "retest": {
+    "service_wkid": 3087,
+    "service_pixel": 0.1524003048006096,
+    "ok": true,
+    "point": [
+     30.43811,
+     -84.2816
+    ],
+    "blank": true,
+    "bytes": 334,
+    "content_type": "image/png",
+    "size": [
+     256,
+     256
+    ],
+    "request_seconds": 37.75,
+    "seconds": 50.13
+   }
+  },
+  {
+   "id": "fl-aerials-2007",
+   "name": "Florida yearly aerials 2007 (county flights for FDOR, mosaicked by FDEP)",
+   "protocol": "arcgis-imageserver",
+   "url": "https://ca.dep.state.fl.us/image/rest/services/FDOT_Yearly_Aerials/Aerial_Imagery_2007/ImageServer",
+   "native_pixel_m": 0.1524,
+   "year": 2007,
+   "leaf_off": null,
+   "credit": "FDOR, FDOT, FDEP; the county property appraisers",
+   "terms_class": "no-terms-stated",
+   "terms_quote": "none stated (the service's licence and access fields are empty)",
+   "terms_url": "https://ca.dep.state.fl.us/image/rest/services/FDOT_Yearly_Aerials/Aerial_Imagery_2021/ImageServer/info/iteminfo?f=json",
+   "notes": "The counties flown that cycle only (about a three-year rotation).",
+   "states": [
+    "FL"
+   ],
+   "bbox": [
+    -87.63,
+    24.4,
+    -79.97,
+    31.0
+   ],
+   "kind": "imagery",
+   "status": "available",
+   "checked_on": "2026-11-23",
+   "retest": {
+    "service_wkid": 2883,
+    "service_pixel": 0.9999979999936651,
+    "ok": true,
+    "point": [
+     30.43811,
+     -84.2816
+    ],
+    "blank": false,
+    "bytes": 15189,
+    "content_type": "image/jpeg",
+    "size": [
+     256,
+     256
+    ],
+    "request_seconds": 43.9,
+    "seconds": 57.28
+   }
+  },
+  {
+   "id": "fl-aerials-2004",
+   "name": "Florida yearly aerials 2004 (county flights for FDOR, mosaicked by FDEP)",
+   "protocol": "arcgis-imageserver",
+   "url": "https://ca.dep.state.fl.us/image/rest/services/FDOT_Yearly_Aerials/Aerial_Imagery_2004/ImageServer",
+   "native_pixel_m": 0.1524,
+   "year": 2004,
+   "leaf_off": null,
+   "credit": "FDOR, FDOT, FDEP; the county property appraisers",
+   "terms_class": "no-terms-stated",
+   "terms_quote": "none stated (the service's licence and access fields are empty)",
+   "terms_url": "https://ca.dep.state.fl.us/image/rest/services/FDOT_Yearly_Aerials/Aerial_Imagery_2021/ImageServer/info/iteminfo?f=json",
+   "notes": "The counties flown that cycle only (about a three-year rotation).",
+   "states": [
+    "FL"
+   ],
+   "bbox": [
+    -87.63,
+    24.4,
+    -79.97,
+    31.0
+   ],
+   "kind": "imagery",
+   "status": "available",
+   "checked_on": "2026-11-23",
+   "retest": {
+    "service_wkid": 3087,
+    "service_pixel": 0.2438404876809754,
+    "ok": true,
+    "point": [
+     30.43811,
+     -84.2816
+    ],
+    "blank": true,
+    "bytes": 334,
+    "content_type": "image/png",
+    "size": [
+     256,
+     256
+    ],
+    "request_seconds": 43.44,
+    "seconds": 57.83
+   }
+  },
+  {
+   "kind": "parcels",
+   "id": "fl-parcels",
+   "name": "Florida statewide parcels (FDOR cadastral, FloridaGIO)",
+   "protocol": "arcgis-feature",
+   "url": "https://services9.arcgis.com/Gh9awoU677aKree0/arcgis/rest/services/Florida_Statewide_Cadastral/FeatureServer/0",
+   "terms_class": "no-terms-stated",
+   "terms_quote": "should not be relied on to replace an accurate professional survey",
+   "terms_url": "https://www.arcgis.com/sharing/rest/content/items/efa909d6b1c841d298b0a649e7f71cf2?f=json",
+   "credit": "Florida's county property appraisers; Florida Department of Revenue, Property Tax Oversight",
+   "fields": {
+    "id": "PARCEL_ID",
+    "owner": "OWN_NAME",
+    "area_sqft": "LND_SQFOOT",
+    "land": "LND_VAL",
+    "total": "JV",
+    "year_built": "ACT_YR_BLT",
+    "building_area": "TOT_LVG_AR",
+    "address": "PHY_ADDR1"
+   },
+   "states": [
+    "FL"
+   ],
+   "bbox": [
+    -87.63,
+    24.4,
+    -79.97,
+    31.0
+   ],
+   "status": "available",
+   "checked_on": "2026-11-23",
+   "retest": {
+    "ok": true,
+    "point": [
+     30.43811,
+     -84.2816
+    ],
+    "under_pin": 1,
+    "adjacent_same_owner": 0,
+    "seconds": 2.83,
+    "polygon_acres": 11.7369,
+    "layer_acres": 10.87001836547291,
+    "polygon_vs_layer_pct": 7.98,
+    "fields_present": [
+     "address",
+     "building_area_sqft",
+     "land_value",
+     "owner",
+     "total_value",
+     "year_built"
+    ]
+   }
+  },
+  {
+   "id": "ct-2023",
+   "name": "Connecticut orthoimagery 2023 (CT ECO)",
+   "protocol": "arcgis-imageserver",
+   "url": "https://cteco.uconn.edu/ctraster/rest/services/images/Ortho_2023/ImageServer",
+   "native_pixel_m": 0.0762,
+   "year": 2023,
+   "leaf_off": true,
+   "credit": "CT State GIS Office / CT ECO (2023). Aerial imagery.",
+   "terms_class": "open-with-credit",
+   "terms_quote": "None. However, users should be aware that temporal changes may have occurred since this dataset was collected",
+   "terms_url": "https://cteco.uconn.edu/download/metadata/CT_ortho_2023_metadata.htm",
+   "states": [
+    "CT"
+   ],
+   "bbox": [
+    -73.7389,
+    40.9738,
+    -71.7784,
+    42.0598
+   ],
+   "kind": "imagery",
+   "status": "available",
+   "checked_on": "2026-11-23",
+   "retest": {
+    "service_wkid": 3857,
+    "service_pixel": 0.0762001524003014,
+    "extent_lonlat": [
+     -73.7389,
+     40.9738,
+     -71.7784,
+     42.0598
+    ],
+    "ok": true,
+    "point": [
+     41.76416667,
+     -72.68222222
+    ],
+    "blank": false,
+    "bytes": 12482,
+    "content_type": "image/jpeg",
+    "size": [
+     256,
+     256
+    ],
+    "request_seconds": 5.95,
+    "seconds": 6.41
+   }
+  },
+  {
+   "id": "ct-2019",
+   "name": "Connecticut orthoimagery 2019 (CT ECO)",
+   "protocol": "arcgis-imageserver",
+   "url": "https://cteco.uconn.edu/ctraster/rest/services/images/Ortho_2019/ImageServer",
+   "native_pixel_m": 0.1524,
+   "year": 2019,
+   "leaf_off": true,
+   "credit": "CT State GIS Office / CT ECO (2019). Aerial imagery.",
+   "terms_class": "open-with-credit",
+   "terms_quote": "None. However, users should be aware that temporal changes may have occurred since this dataset was collected",
+   "terms_url": "https://cteco.uconn.edu/download/metadata/CT_ortho_2023_metadata.htm",
+   "states": [
+    "CT"
+   ],
+   "bbox": [
+    -73.7389,
+    40.9738,
+    -71.7784,
+    42.0598
+   ],
+   "kind": "imagery",
+   "status": "available",
+   "checked_on": "2026-11-23",
+   "retest": {
+    "service_wkid": 3857,
+    "service_pixel": 0.15240030480060954,
+    "extent_lonlat": [
+     -73.7389,
+     40.9738,
+     -71.7784,
+     42.0598
+    ],
+    "ok": true,
+    "point": [
+     41.76416667,
+     -72.68222222
+    ],
+    "blank": false,
+    "bytes": 13703,
+    "content_type": "image/jpeg",
+    "size": [
+     256,
+     256
+    ],
+    "request_seconds": 6.13,
+    "seconds": 7.46
+   }
+  },
+  {
+   "id": "ct-2016",
+   "name": "Connecticut orthoimagery 2016 (CT ECO)",
+   "protocol": "arcgis-imageserver",
+   "url": "https://cteco.uconn.edu/ctraster/rest/services/images/Ortho_2016/ImageServer",
+   "native_pixel_m": 0.0762,
+   "year": 2016,
+   "leaf_off": true,
+   "credit": "CT State GIS Office / CT ECO (2016). Aerial imagery.",
+   "terms_class": "open-with-credit",
+   "terms_quote": "None. However, users should be aware that temporal changes may have occurred since this dataset was collected",
+   "terms_url": "https://cteco.uconn.edu/download/metadata/CT_ortho_2023_metadata.htm",
+   "states": [
+    "CT"
+   ],
+   "bbox": [
+    -73.7389,
+    40.9738,
+    -71.7784,
+    42.0598
+   ],
+   "kind": "imagery",
+   "status": "available",
+   "checked_on": "2026-11-23",
+   "retest": {
+    "service_wkid": 3857,
+    "service_pixel": 0.07620015240030466,
+    "extent_lonlat": [
+     -73.7389,
+     40.9738,
+     -71.7784,
+     42.0598
+    ],
+    "ok": true,
+    "point": [
+     41.76416667,
+     -72.68222222
+    ],
+    "blank": false,
+    "bytes": 15619,
+    "content_type": "image/jpeg",
+    "size": [
+     256,
+     256
+    ],
+    "request_seconds": 6.03,
+    "seconds": 8.65
+   }
+  },
+  {
+   "id": "ct-2012",
+   "name": "Connecticut orthoimagery 2012 (CT ECO)",
+   "protocol": "arcgis-imageserver",
+   "url": "https://cteco.uconn.edu/ctraster/rest/services/images/Ortho_2012/ImageServer",
+   "native_pixel_m": 0.3048,
+   "year": 2012,
+   "leaf_off": true,
+   "credit": "CT State GIS Office / CT ECO (2012). Aerial imagery.",
+   "terms_class": "open-with-credit",
+   "terms_quote": "None. However, users should be aware that temporal changes may have occurred since this dataset was collected",
+   "terms_url": "https://cteco.uconn.edu/download/metadata/CT_ortho_2023_metadata.htm",
+   "states": [
+    "CT"
+   ],
+   "bbox": [
+    -73.7382,
+    40.9669,
+    -71.7673,
+    42.0598
+   ],
+   "kind": "imagery",
+   "status": "available",
+   "checked_on": "2026-11-23",
+   "retest": {
+    "service_wkid": 3857,
+    "service_pixel": 0.30480060960121913,
+    "extent_lonlat": [
+     -73.7382,
+     40.9669,
+     -71.7673,
+     42.0598
+    ],
+    "ok": true,
+    "point": [
+     41.76416667,
+     -72.68222222
+    ],
+    "blank": false,
+    "bytes": 12567,
+    "content_type": "image/jpeg",
+    "size": [
+     256,
+     256
+    ],
+    "request_seconds": 6.37,
+    "seconds": 9.59
+   }
+  },
+  {
+   "id": "ct-2004",
+   "name": "Connecticut orthoimagery 2004 (CT ECO)",
+   "protocol": "arcgis-imageserver",
+   "url": "https://cteco.uconn.edu/ctraster/rest/services/images/Ortho_2004/ImageServer",
+   "native_pixel_m": 0.3048,
+   "year": 2004,
+   "leaf_off": null,
+   "credit": "CT State GIS Office / CT ECO (2004). Aerial imagery.",
+   "terms_class": "open-with-credit",
+   "terms_quote": "None. However, users should be aware that temporal changes may have occurred since this dataset was collected",
+   "terms_url": "https://cteco.uconn.edu/download/metadata/CT_ortho_2023_metadata.htm",
+   "states": [
+    "CT"
+   ],
+   "bbox": [
+    -73.7296,
+    40.9787,
+    -71.786,
+    42.0632
+   ],
+   "kind": "imagery",
+   "status": "available",
+   "checked_on": "2026-11-23",
+   "retest": {
+    "service_wkid": 3857,
+    "service_pixel": 0.25298450596900796,
+    "extent_lonlat": [
+     -73.7296,
+     40.9787,
+     -71.786,
+     42.0632
+    ],
+    "ok": true,
+    "point": [
+     41.76416667,
+     -72.68222222
+    ],
+    "blank": false,
+    "bytes": 11168,
+    "content_type": "image/jpeg",
+    "size": [
+     256,
+     256
+    ],
+    "request_seconds": 6.41,
+    "seconds": 10.62
+   }
+  },
+  {
+   "id": "ct-1990",
+   "name": "Connecticut orthoimagery 1990 (CT ECO)",
+   "protocol": "arcgis-imageserver",
+   "url": "https://cteco.uconn.edu/ctraster/rest/services/images/Ortho_1990/ImageServer",
+   "native_pixel_m": 1.0,
+   "year": 1990,
+   "leaf_off": null,
+   "credit": "CT State GIS Office / CT ECO (1990). Aerial imagery.",
+   "terms_class": "open-with-credit",
+   "terms_quote": "None. However, users should be aware that temporal changes may have occurred since this dataset was collected",
+   "terms_url": "https://cteco.uconn.edu/download/metadata/CT_ortho_2023_metadata.htm",
+   "states": [
+    "CT"
+   ],
+   "bbox": [
+    -73.751,
+    40.937,
+    -71.749,
+    42.063
+   ],
+   "kind": "imagery",
+   "status": "available",
+   "checked_on": "2026-11-23",
+   "retest": {
+    "service_wkid": 3857,
+    "service_pixel": 0.999494784093471,
+    "extent_lonlat": [
+     -73.751,
+     40.937,
+     -71.749,
+     42.063
+    ],
+    "ok": true,
+    "point": [
+     41.76416667,
+     -72.68222222
+    ],
+    "blank": false,
+    "bytes": 1658,
+    "content_type": "image/jpeg",
+    "size": [
+     80,
+     80
+    ],
+    "request_seconds": 6.27,
+    "seconds": 11.48
+   }
+  },
+  {
+   "kind": "parcels",
+   "id": "ct-parcels",
+   "name": "Connecticut CAMA and parcel layer",
+   "protocol": "arcgis-feature",
+   "url": "https://services3.arcgis.com/3FL1kr7L4LvwA2Kb/ArcGIS/rest/services/Connecticut_CAMA_and_Parcel_Layer/FeatureServer/0",
+   "terms_class": "public-domain",
+   "terms_quote": "CC0",
+   "terms_url": "https://www.arcgis.com/sharing/rest/content/items/82a733423a244c43a9d4bf552954cea9?f=json",
+   "credit": "State of Connecticut, Office of Policy and Management; the municipalities",
+   "fields": {
+    "id": "Parcel_ID",
+    "owner": "Owner",
+    "acres": [
+     "Land_Acres"
+    ],
+    "land": "Assessed_Land",
+    "improvements": "Assessed_Building",
+    "total": "Assessed_Total",
+    "year_built": "AYB",
+    "building_area": "Living_Area",
+    "address": "Location_1"
+   },
+   "states": [
+    "CT"
+   ],
+   "bbox": [
+    -73.73,
+    40.95,
+    -71.79,
+    42.05
+   ],
+   "status": "available",
+   "checked_on": "2026-11-23",
+   "retest": {
+    "ok": true,
+    "point": [
+     41.76416667,
+     -72.68222222
+    ],
+    "under_pin": 1,
+    "adjacent_same_owner": 0,
+    "seconds": 4.68,
+    "polygon_acres": 9.7728,
+    "layer_acres": 12.0,
+    "polygon_vs_layer_pct": -18.56,
+    "fields_present": [
+     "address",
+     "land_value",
+     "owner",
+     "total_value"
+    ]
+   }
+  },
+  {
+   "id": "ma-2025",
+   "name": "MassGIS aerial imagery 2025",
+   "protocol": "tiles",
+   "url": "https://tiles.arcgis.com/tiles/hGdibHYSPO59RG1h/arcgis/rest/services/Massachusetts_Aerial_Imagery_2025/MapServer/tile/{z}/{y}/{x}",
+   "params": {
+    "max_zoom": "20"
+   },
+   "native_pixel_m": 0.15,
+   "year": 2025,
+   "leaf_off": true,
+   "terms_url": "https://www.arcgis.com/sharing/rest/content/items/a3bbd504c80746ac9aedc7b5ca4e0d00?f=json",
+   "credit": "MassGIS (Bureau of Geographic Information)",
+   "terms_class": "open-with-credit",
+   "terms_quote": "No restrictions apply to these data.",
+   "states": [
+    "MA"
+   ],
+   "bbox": [
+    -73.51,
+    41.24,
+    -69.93,
+    42.89
+   ],
+   "kind": "imagery",
+   "status": "available",
+   "checked_on": "2026-11-23",
+   "retest": {
+    "ok": true,
+    "point": [
+     42.35816667,
+     -71.06369444
+    ],
+    "blank": false,
+    "bytes": 21012,
+    "content_type": "image/jpeg",
+    "size": [
+     256,
+     256
+    ],
+    "request_seconds": 12.17,
+    "seconds": 12.18
+   }
+  },
+  {
+   "id": "ma-2023",
+   "name": "MassGIS aerial imagery 2023",
+   "protocol": "tiles",
+   "url": "https://tiles.arcgis.com/tiles/hGdibHYSPO59RG1h/arcgis/rest/services/orthos2023/MapServer/tile/{z}/{y}/{x}",
+   "params": {
+    "max_zoom": "20"
+   },
+   "native_pixel_m": 0.15,
+   "year": 2023,
+   "leaf_off": true,
+   "terms_url": "https://www.arcgis.com/sharing/rest/content/items/6c7009c789354573a42af7251fb768a4?f=json",
+   "credit": "MassGIS (Bureau of Geographic Information)",
+   "terms_class": "open-with-credit",
+   "terms_quote": "No restrictions apply to these data.",
+   "states": [
+    "MA"
+   ],
+   "bbox": [
+    -73.51,
+    41.24,
+    -69.93,
+    42.89
+   ],
+   "kind": "imagery",
+   "status": "available",
+   "checked_on": "2026-11-23",
+   "retest": {
+    "ok": true,
+    "point": [
+     42.35816667,
+     -71.06369444
+    ],
+    "blank": false,
+    "bytes": 23735,
+    "content_type": "image/jpeg",
+    "size": [
+     256,
+     256
+    ],
+    "request_seconds": 13.29,
+    "seconds": 13.3
+   }
+  },
+  {
+   "id": "ma-2021",
+   "name": "MassGIS aerial imagery 2021",
+   "protocol": "tiles",
+   "url": "https://tiles.arcgis.com/tiles/hGdibHYSPO59RG1h/arcgis/rest/services/orthos2021/MapServer/tile/{z}/{y}/{x}",
+   "params": {
+    "max_zoom": "20"
+   },
+   "native_pixel_m": 0.15,
+   "year": 2021,
+   "leaf_off": null,
+   "terms_url": "https://www.arcgis.com/sharing/rest/content/items/bd1ea555a71649508cb215edcc73feaa?f=json",
+   "credit": "MassGIS (Bureau of Geographic Information)",
+   "terms_class": "open-with-credit",
+   "terms_quote": "No restrictions apply to these data.",
+   "states": [
+    "MA"
+   ],
+   "bbox": [
+    -73.51,
+    41.24,
+    -69.93,
+    42.89
+   ],
+   "kind": "imagery",
+   "status": "available",
+   "checked_on": "2026-11-23",
+   "retest": {
+    "ok": true,
+    "point": [
+     42.35816667,
+     -71.06369444
+    ],
+    "blank": false,
+    "bytes": 20912,
+    "content_type": "image/jpeg",
+    "size": [
+     256,
+     256
+    ],
+    "request_seconds": 14.31,
+    "seconds": 14.31
+   }
+  },
+  {
+   "id": "ma-2019",
+   "name": "MassGIS aerial imagery 2019",
+   "protocol": "tiles",
+   "url": "https://tiles.arcgis.com/tiles/hGdibHYSPO59RG1h/arcgis/rest/services/USGS_Orthos_2019/MapServer/tile/{z}/{y}/{x}",
+   "params": {
+    "max_zoom": "20"
+   },
+   "native_pixel_m": 0.15,
+   "year": 2019,
+   "leaf_off": null,
+   "terms_url": "https://www.arcgis.com/sharing/rest/content/items/b85d8ef7f09c49bd9170f00b3ce3b11e?f=json",
+   "credit": "MassGIS (Bureau of Geographic Information)",
+   "terms_class": "open-with-credit",
+   "terms_quote": "No restrictions apply to these data.",
+   "states": [
+    "MA"
+   ],
+   "bbox": [
+    -73.51,
+    41.24,
+    -69.93,
+    42.89
+   ],
+   "kind": "imagery",
+   "status": "available",
+   "checked_on": "2026-11-23",
+   "retest": {
+    "ok": true,
+    "point": [
+     42.35816667,
+     -71.06369444
+    ],
+    "blank": false,
+    "bytes": 22444,
+    "content_type": "image/jpeg",
+    "size": [
+     256,
+     256
+    ],
+    "request_seconds": 15.34,
+    "seconds": 15.34
+   }
+  },
+  {
+   "kind": "parcels",
+   "id": "ma-parcels",
+   "name": "Massachusetts property tax parcels (MassGIS level 3)",
+   "protocol": "arcgis-feature",
+   "url": "https://services1.arcgis.com/hGdibHYSPO59RG1h/arcgis/rest/services/Massachusetts_Property_Tax_Parcels/FeatureServer/0",
+   "terms_class": "no-terms-stated",
+   "terms_quote": "Assessor's parcel mapping is a representation of property boundaries, not an authoritative source.",
+   "terms_url": "https://www.arcgis.com/sharing/rest/content/items/73d4c766167848b795f1048cad3919c7?f=json",
+   "credit": "Commonwealth of Massachusetts Bureau of Geographic Information (MassGIS)",
+   "fields": {
+    "id": "MAP_PAR_ID",
+    "owner": "OWNER1",
+    "acres": [
+     "LOT_SIZE"
+    ],
+    "acres_unit": "LOT_UNITS",
+    "land": "LAND_VAL",
+    "improvements": "BLDG_VAL",
+    "total": "TOTAL_VAL",
+    "year_built": "YEAR_BUILT",
+    "building_area": "BLD_AREA",
+    "stories": "STORIES",
+    "address": "SITE_ADDR"
+   },
+   "states": [
+    "MA"
+   ],
+   "bbox": [
+    -73.51,
+    41.24,
+    -69.93,
+    42.89
+   ],
+   "status": "available",
+   "checked_on": "2026-11-23",
+   "retest": {
+    "ok": true,
+    "point": [
+     42.35816667,
+     -71.06369444
+    ],
+    "under_pin": 1,
+    "adjacent_same_owner": 0,
+    "seconds": 2.1,
+    "polygon_acres": 6.1441,
+    "layer_acres": 5.73,
+    "polygon_vs_layer_pct": 7.23,
+    "fields_present": [
+     "address",
+     "building_area_sqft",
+     "improvement_value",
+     "land_value",
+     "owner",
+     "stories",
+     "total_value",
+     "year_built"
+    ]
+   }
+  },
+  {
+   "id": "nj-2020",
+   "name": "New Jersey natural color 2020 (NJOGIS WMS)",
+   "protocol": "wms",
+   "url": "https://img.nj.gov/imagerywms/Natural2020",
+   "params": {
+    "VERSION": "1.1.1",
+    "LAYERS": "Natural2020"
+   },
+   "native_pixel_m": 0.3048,
+   "year": 2020,
+   "leaf_off": true,
+   "terms_class": "open-with-credit",
+   "terms_quote": "Acknowledgement of NJ Office of Information Technology, Office of GIS as the data source would be appreciated.",
+   "terms_url": "https://www.arcgis.com/sharing/rest/content/items/b86657d214234c989f3383316d3dc695?f=json",
+   "credit": "NJ Office of Information Technology, Office of GIS (NJOGIS), 2020",
+   "states": [
+    "NJ"
+   ],
+   "bbox": [
+    -75.56,
+    38.93,
+    -73.89,
+    41.36
+   ],
+   "kind": "imagery",
+   "status": "available",
+   "checked_on": "2026-11-23",
+   "retest": {
+    "ok": true,
+    "point": [
+     40.220437,
+     -74.769902
+    ],
+    "blank": false,
+    "bytes": 17622,
+    "content_type": "image/jpeg",
+    "size": [
+     256,
+     256
+    ],
+    "request_seconds": 0.45,
+    "seconds": 0.53
+   }
+  },
+  {
+   "id": "nj-2015",
+   "name": "New Jersey natural color 2015 (NJOGIS WMS)",
+   "protocol": "wms",
+   "url": "https://img.nj.gov/imagerywms/Natural2015",
+   "params": {
+    "VERSION": "1.1.1",
+    "LAYERS": "Natural2015"
+   },
+   "native_pixel_m": 0.3048,
+   "year": 2015,
+   "leaf_off": true,
+   "terms_class": "open-with-credit",
+   "terms_quote": "Acknowledgement of NJ Office of Information Technology, Office of GIS as the data source would be appreciated.",
+   "terms_url": "https://www.arcgis.com/sharing/rest/content/items/3c1090054fee4a498514659d57bfe4ae?f=json",
+   "credit": "NJ Office of Information Technology, Office of GIS (NJOGIS), 2015",
+   "states": [
+    "NJ"
+   ],
+   "bbox": [
+    -75.56,
+    38.93,
+    -73.89,
+    41.36
+   ],
+   "kind": "imagery",
+   "status": "available",
+   "checked_on": "2026-11-23",
+   "retest": {
+    "ok": true,
+    "point": [
+     40.220437,
+     -74.769902
+    ],
+    "blank": false,
+    "bytes": 16391,
+    "content_type": "image/jpeg",
+    "size": [
+     256,
+     256
+    ],
+    "request_seconds": 1.64,
+    "seconds": 1.64
+   }
+  },
+  {
+   "id": "nj-2012",
+   "name": "New Jersey natural color 2012 (NJOGIS WMS)",
+   "protocol": "wms",
+   "url": "https://img.nj.gov/imagerywms/Natural2012",
+   "params": {
+    "VERSION": "1.1.1",
+    "LAYERS": "Natural2012"
+   },
+   "native_pixel_m": 0.3048,
+   "year": 2012,
+   "leaf_off": true,
+   "terms_class": "open-with-credit",
+   "terms_quote": "Acknowledgement of NJ Office of Information Technology, Office of GIS as the data source would be appreciated.",
+   "terms_url": "https://www.arcgis.com/sharing/rest/content/items/153e2820ad454ffcbfddd9fda4ec3d7e?f=json",
+   "credit": "NJ Office of Information Technology, Office of GIS (NJOGIS), 2012",
+   "states": [
+    "NJ"
+   ],
+   "bbox": [
+    -75.56,
+    38.93,
+    -73.89,
+    41.36
+   ],
+   "kind": "imagery",
+   "status": "available",
+   "checked_on": "2026-11-23",
+   "retest": {
+    "ok": true,
+    "point": [
+     40.220437,
+     -74.769902
+    ],
+    "blank": false,
+    "bytes": 18669,
+    "content_type": "image/jpeg",
+    "size": [
+     256,
+     256
+    ],
+    "request_seconds": 3.01,
+    "seconds": 3.01
+   }
+  },
+  {
+   "id": "nj-2007",
+   "name": "New Jersey natural color 2007 (NJOGIS WMS)",
+   "protocol": "wms",
+   "url": "https://img.nj.gov/imagerywms/Natural2007",
+   "params": {
+    "VERSION": "1.1.1",
+    "LAYERS": "Natural2007"
+   },
+   "native_pixel_m": 0.3048,
+   "year": 2007,
+   "leaf_off": true,
+   "terms_class": "open-with-credit",
+   "terms_quote": "Acknowledgement of NJ Office of Information Technology, Office of GIS as the data source would be appreciated.",
+   "terms_url": "https://www.arcgis.com/sharing/rest/content/items/1149a594baa045f2ada44b8291c24aa1?f=json",
+   "credit": "NJ Office of Information Technology, Office of GIS (NJOGIS), 2007",
+   "states": [
+    "NJ"
+   ],
+   "bbox": [
+    -75.56,
+    38.93,
+    -73.89,
+    41.36
+   ],
+   "kind": "imagery",
+   "status": "available",
+   "checked_on": "2026-11-23",
+   "retest": {
+    "ok": true,
+    "point": [
+     40.220437,
+     -74.769902
+    ],
+    "blank": false,
+    "bytes": 21460,
+    "content_type": "image/jpeg",
+    "size": [
+     256,
+     256
+    ],
+    "request_seconds": 3.6,
+    "seconds": 3.6
+   }
+  },
+  {
+   "id": "nj-2025",
+   "name": "New Jersey 2025 6-inch leaf-off (Cloud-Optimized GeoTIFFs on AWS)",
+   "protocol": "unsupported",
+   "url": "https://njogis-imagery.s3.amazonaws.com/2025/cog/",
+   "native_pixel_m": 0.1524,
+   "year": 2025,
+   "leaf_off": true,
+   "terms_class": "open-with-credit",
+   "terms_quote": "The State of New Jersey provides the service \"as is\".",
+   "terms_url": "https://registry.opendata.aws/nj-imagery/",
+   "credit": "New Jersey Statewide Digital Aerial Imagery Catalog (NJOGIS)",
+   "status": "unavailable",
+   "checked_on": "2026-11-23",
+   "status_reason": "files only (210 MB tiles in NJ State Plane, no map service); reading them needs a reprojecting COG reader this client does not have",
+   "states": [
+    "NJ"
+   ],
+   "bbox": [
+    -75.56,
+    38.93,
+    -73.89,
+    41.36
+   ],
+   "kind": "imagery"
+  },
+  {
+   "kind": "parcels",
+   "id": "nj-parcels",
+   "name": "Parcels and MOD-IV composite of New Jersey (NJOGIS)",
+   "protocol": "arcgis-feature",
+   "url": "https://services2.arcgis.com/XVOqAjTOJ5P6ngMu/arcgis/rest/services/Parcels_Composite_NJ_WM/FeatureServer/0",
+   "terms_class": "open-with-credit",
+   "terms_quote": "Acknowledgement of the service provider, NJ Office of Information Technology, Office of GIS (NJOGIS), is requested",
+   "terms_url": "https://www.arcgis.com/sharing/rest/content/items/533599bbfbaa4748bf39faf1375a8a9c?f=json",
+   "credit": "NJOGIS and the counties",
+   "fields": {
+    "id": "PAMS_PIN",
+    "owner": "OWNER_NAME",
+    "acres": [
+     "CALC_ACRE"
+    ],
+    "land": "LAND_VAL",
+    "improvements": "IMPRVT_VAL",
+    "total": "NET_VALUE",
+    "year_built": "YR_CONSTR",
+    "address": "PROP_LOC"
+   },
+   "notes": "OWNER_NAME is empty in every record, so adjacent parcels of one owner cannot be found.",
+   "states": [
+    "NJ"
+   ],
+   "bbox": [
+    -75.56,
+    38.93,
+    -73.89,
+    41.36
+   ],
+   "status": "available",
+   "checked_on": "2026-11-23",
+   "retest": {
+    "ok": true,
+    "point": [
+     40.220437,
+     -74.769902
+    ],
+    "under_pin": 1,
+    "adjacent_same_owner": 0,
+    "seconds": 0.5,
+    "polygon_acres": 26.7729,
+    "layer_acres": 26.0,
+    "polygon_vs_layer_pct": 2.97,
+    "fields_present": [
+     "address",
+     "improvement_value",
+     "land_value",
+     "total_value"
+    ]
+   }
+  },
+  {
+   "id": "pa-2021-2023",
+   "name": "PEMA orthoimagery cycle 2, 2021-2023 (PASDA)",
+   "protocol": "arcgis-mapserver",
+   "url": "https://imagery.pasda.psu.edu/arcgis/rest/services/PEMAImagery2021_2023/MapServer",
+   "params": {
+    "layers": "show:3"
+   },
+   "native_pixel_m": 0.1524,
+   "year": 2022,
+   "year_label": "2021-2023 by region",
+   "leaf_off": null,
+   "credit": "Pennsylvania Emergency Management Agency (PEMA); PASDA",
+   "terms_class": "open-with-credit",
+   "terms_quote": "No restrictions apply to these data.",
+   "terms_url": "https://www.pasda.psu.edu/uci/FullMetadataDisplay.aspx?file=PEMA_Cycle2_2022.xml",
+   "states": [
+    "PA"
+   ],
+   "bbox": [
+    -80.6646,
+    39.6494,
+    -74.6031,
+    42.3073
+   ],
+   "kind": "imagery",
+   "status": "available",
+   "checked_on": "2026-11-23",
+   "retest": {
+    "service_wkid": 3857,
+    "extent_lonlat": [
+     -80.6646,
+     39.6494,
+     -74.6031,
+     42.3073
+    ],
+    "ok": true,
+    "point": [
+     40.26444444,
+     -76.88361111
+    ],
+    "blank": false,
+    "bytes": 20793,
+    "content_type": "image/jpeg",
+    "size": [
+     256,
+     256
+    ],
+    "request_seconds": 4.66,
+    "seconds": 4.98
+   }
+  },
+  {
+   "id": "pa-2018-2020",
+   "name": "PEMA orthoimagery cycle 1, 2018-2020 (PASDA)",
+   "protocol": "arcgis-mapserver",
+   "url": "https://imagery.pasda.psu.edu/arcgis/rest/services/PEMAImagery2018_2020/MapServer",
+   "params": {
+    "layers": "show:3"
+   },
+   "native_pixel_m": 0.1524,
+   "year": 2019,
+   "year_label": "2018-2020 by region",
+   "leaf_off": null,
+   "credit": "Pennsylvania Emergency Management Agency (PEMA); PASDA",
+   "terms_class": "open-with-credit",
+   "terms_quote": "No restrictions apply to these data.",
+   "terms_url": "https://www.pasda.psu.edu/uci/FullMetadataDisplay.aspx?file=PEMA_Cycle2_2022.xml",
+   "states": [
+    "PA"
+   ],
+   "bbox": [
+    -80.5753,
+    39.6799,
+    -74.6462,
+    42.2904
+   ],
+   "kind": "imagery",
+   "status": "available",
+   "checked_on": "2026-11-23",
+   "retest": {
+    "service_wkid": 3857,
+    "extent_lonlat": [
+     -80.5753,
+     39.6799,
+     -74.6462,
+     42.2904
+    ],
+    "ok": true,
+    "point": [
+     40.26444444,
+     -76.88361111
+    ],
+    "blank": false,
+    "bytes": 23327,
+    "content_type": "image/jpeg",
+    "size": [
+     256,
+     256
+    ],
+    "request_seconds": 4.08,
+    "seconds": 5.41
+   }
+  },
+  {
+   "id": "md-sixinch",
+   "name": "Maryland six-inch imagery, current (2023-2025 by region)",
+   "protocol": "arcgis-imageserver",
+   "url": "https://mdgeodata.md.gov/imagery/rest/services/SixInch/SixInchImagery/ImageServer",
+   "native_pixel_m": 0.1524,
+   "year": 2024,
+   "year_label": "2023-2025 by region",
+   "leaf_off": null,
+   "credit": "State of Maryland, MD iMAP, DoIT",
+   "terms_class": "open-with-credit",
+   "terms_quote": "The Data can be freely distributed as long as the metadata entry is not modified or deleted.",
+   "terms_url": "https://www.arcgis.com/sharing/rest/content/items/7ff8fee809dd4afcab7fbea0916e4ebe?f=json",
+   "states": [
+    "MD"
+   ],
+   "bbox": [
+    -79.5074,
+    37.8809,
+    -75.0314,
+    39.7373
+   ],
+   "kind": "imagery",
+   "status": "available",
+   "checked_on": "2026-11-23",
+   "retest": {
+    "service_wkid": 3857,
+    "service_pixel": 0.15240030480060954,
+    "extent_lonlat": [
+     -79.5074,
+     37.8809,
+     -75.0314,
+     39.7373
+    ],
+    "ok": true,
+    "point": [
+     38.97888889,
+     -76.49111111
+    ],
+    "blank": false,
+    "bytes": 15161,
+    "content_type": "image/jpeg",
+    "size": [
+     256,
+     256
+    ],
+    "request_seconds": 6.15,
+    "seconds": 9.61
+   }
+  },
+  {
+   "id": "md-2020-2022",
+   "name": "Maryland six-inch imagery 2020-2022",
+   "protocol": "arcgis-mapserver",
+   "url": "https://mdgeodata.md.gov/imagery/rest/services/SixInch/SixInchImagery2020_2022/MapServer",
+   "native_pixel_m": 0.1524,
+   "year": 2021,
+   "year_label": "2020-2022 by region",
+   "leaf_off": null,
+   "credit": "State of Maryland, MD iMAP, DoIT",
+   "terms_class": "open-with-credit",
+   "terms_quote": "The Data can be freely distributed as long as the metadata entry is not modified or deleted.",
+   "terms_url": "https://www.arcgis.com/sharing/rest/content/items/7ff8fee809dd4afcab7fbea0916e4ebe?f=json",
+   "states": [
+    "MD"
+   ],
+   "bbox": [
+    -79.5254,
+    37.8632,
+    -75.0091,
+    39.7577
+   ],
+   "kind": "imagery",
+   "status": "available",
+   "checked_on": "2026-11-23",
+   "retest": {
+    "service_wkid": 3857,
+    "finest_cached_level_m": 0.14929107082380833,
+    "extent_lonlat": [
+     -79.5254,
+     37.8632,
+     -75.0091,
+     39.7577
+    ],
+    "ok": true,
+    "point": [
+     38.97888889,
+     -76.49111111
+    ],
+    "blank": false,
+    "bytes": 19371,
+    "content_type": "image/jpeg",
+    "size": [
+     256,
+     256
+    ],
+    "request_seconds": 6.48,
+    "seconds": 10.03
+   }
+  },
+  {
+   "id": "md-2017-2019",
+   "name": "Maryland six-inch imagery 2017-2019",
+   "protocol": "arcgis-mapserver",
+   "url": "https://mdgeodata.md.gov/imagery/rest/services/SixInch/SixInchImagery2017_2019/MapServer",
+   "native_pixel_m": 0.1524,
+   "year": 2018,
+   "year_label": "2017-2019 by region",
+   "leaf_off": null,
+   "credit": "State of Maryland, MD iMAP, DoIT",
+   "terms_class": "open-with-credit",
+   "terms_quote": "The Data can be freely distributed as long as the metadata entry is not modified or deleted.",
+   "terms_url": "https://www.arcgis.com/sharing/rest/content/items/7ff8fee809dd4afcab7fbea0916e4ebe?f=json",
+   "states": [
+    "MD"
+   ],
+   "bbox": [
+    -79.5254,
+    37.8632,
+    -75.0091,
+    39.7577
+   ],
+   "kind": "imagery",
+   "status": "available",
+   "checked_on": "2026-11-23",
+   "retest": {
+    "service_wkid": 3857,
+    "finest_cached_level_m": 0.14929107082380833,
+    "extent_lonlat": [
+     -79.5254,
+     37.8632,
+     -75.0091,
+     39.7577
+    ],
+    "ok": true,
+    "point": [
+     38.97888889,
+     -76.49111111
+    ],
+    "blank": false,
+    "bytes": 20329,
+    "content_type": "image/jpeg",
+    "size": [
+     256,
+     256
+    ],
+    "request_seconds": 6.68,
+    "seconds": 11.25
+   }
+  },
+  {
+   "id": "md-2014-2016",
+   "name": "Maryland six-inch imagery 2014-2016",
+   "protocol": "arcgis-mapserver",
+   "url": "https://mdgeodata.md.gov/imagery/rest/services/SixInch/SixInchImagery2014_2016/MapServer",
+   "native_pixel_m": 0.1524,
+   "year": 2015,
+   "year_label": "2014-2016 by region",
+   "leaf_off": null,
+   "credit": "State of Maryland, MD iMAP, DoIT",
+   "terms_class": "open-with-credit",
+   "terms_quote": "The Data can be freely distributed as long as the metadata entry is not modified or deleted.",
+   "terms_url": "https://www.arcgis.com/sharing/rest/content/items/7ff8fee809dd4afcab7fbea0916e4ebe?f=json",
+   "states": [
+    "MD"
+   ],
+   "bbox": [
+    -79.5254,
+    37.8632,
+    -75.0091,
+    39.7577
+   ],
+   "kind": "imagery",
+   "status": "available",
+   "checked_on": "2026-11-23",
+   "retest": {
+    "service_wkid": 3857,
+    "finest_cached_level_m": 0.14929107082380833,
+    "extent_lonlat": [
+     -79.5254,
+     37.8632,
+     -75.0091,
+     39.7577
+    ],
+    "ok": true,
+    "point": [
+     38.97888889,
+     -76.49111111
+    ],
+    "blank": false,
+    "bytes": 21057,
+    "content_type": "image/jpeg",
+    "size": [
+     256,
+     256
+    ],
+    "request_seconds": 6.54,
+    "seconds": 12.11
+   }
+  },
+  {
+   "id": "md-2011-2013",
+   "name": "Maryland six-inch imagery 2011-2013",
+   "protocol": "arcgis-mapserver",
+   "url": "https://mdgeodata.md.gov/imagery/rest/services/SixInch/SixInchImagery2011_2013/MapServer",
+   "native_pixel_m": 0.1524,
+   "year": 2012,
+   "year_label": "2011-2013 by region",
+   "leaf_off": null,
+   "credit": "State of Maryland, MD iMAP, DoIT",
+   "terms_class": "open-with-credit",
+   "terms_quote": "The Data can be freely distributed as long as the metadata entry is not modified or deleted.",
+   "terms_url": "https://www.arcgis.com/sharing/rest/content/items/7ff8fee809dd4afcab7fbea0916e4ebe?f=json",
+   "states": [
+    "MD"
+   ],
+   "bbox": [
+    -79.5254,
+    37.8632,
+    -75.0091,
+    39.7577
+   ],
+   "kind": "imagery",
+   "status": "available",
+   "checked_on": "2026-11-23",
+   "retest": {
+    "service_wkid": 3857,
+    "finest_cached_level_m": 0.29858214164761665,
+    "extent_lonlat": [
+     -79.5254,
+     37.8632,
+     -75.0091,
+     39.7577
+    ],
+    "ok": true,
+    "point": [
+     38.97888889,
+     -76.49111111
+    ],
+    "blank": false,
+    "bytes": 19259,
+    "content_type": "image/jpeg",
+    "size": [
+     256,
+     256
+    ],
+    "request_seconds": 6.5,
+    "seconds": 13.06
+   }
+  },
+  {
+   "kind": "parcels",
+   "id": "md-parcels",
+   "name": "Maryland parcel boundaries (MD iMAP, MDP, SDAT)",
+   "protocol": "arcgis-feature",
+   "url": "https://mdgeodata.md.gov/imap/rest/services/PlanningCadastre/MD_ParcelBoundaries/MapServer/0",
+   "terms_class": "open-with-credit",
+   "terms_quote": "The Data can be freely distributed as long as the metadata entry is not modified or deleted.",
+   "terms_url": "https://www.arcgis.com/sharing/rest/content/items/b33e5f03d50844b8819a4046ecfe0d97?f=json",
+   "credit": "State of Maryland: MD iMAP, Maryland Department of Planning, SDAT",
+   "fields": {
+    "id": "ACCTID",
+    "acres": [
+     "ACRES"
+    ],
+    "land": "NFMLNDVL",
+    "improvements": "NFMIMPVL",
+    "total": "NFMTTLVL",
+    "year_built": "YEARBLT",
+    "building_area": "SQFTSTRC",
+    "stories": "BLDG_STORY",
+    "address": "ADDRESS"
+   },
+   "notes": "No owner name (only the owner's mailing address), so adjacent parcels of one owner cannot be found.",
+   "states": [
+    "MD"
+   ],
+   "bbox": [
+    -79.49,
+    37.89,
+    -75.05,
+    39.72
+   ],
+   "status": "available",
+   "checked_on": "2026-11-23",
+   "retest": {
+    "ok": true,
+    "point": [
+     38.97888889,
+     -76.49111111
+    ],
+    "under_pin": 1,
+    "adjacent_same_owner": 0,
+    "seconds": 7.66,
+    "polygon_acres": 2.9809,
+    "layer_acres": 3.04,
+    "polygon_vs_layer_pct": -1.95,
+    "fields_present": [
+     "improvement_value",
+     "land_value",
+     "total_value"
+    ]
+   }
+  },
+  {
+   "id": "oh-current",
+   "name": "Ohio OSIP most current imagery (OGRIP)",
+   "protocol": "arcgis-imageserver",
+   "url": "https://maps.ohio.gov/image/rest/services/osip_most_current/ImageServer",
+   "native_pixel_m": 0.1524,
+   "year_label": "2017-2026 by county",
+   "year_query": {
+    "url": "https://maps.ohio.gov/image/rest/services/osip_most_current/ImageServer/query",
+    "field": "Name",
+    "where": "Category=1"
+   },
+   "leaf_off": null,
+   "credit": "Ohio Statewide Imagery Program (OSIP), OGRIP",
+   "terms_class": "open-with-credit",
+   "terms_quote": "imagery data are available for public use at the user's own risk and provided for informational purposes only",
+   "terms_url": "https://maps.ohio.gov/image/rest/services/osip_most_current/ImageServer/info/iteminfo?f=pjson",
+   "notes": "3 to 6 inch by county; the catalog item's name carries the year.",
+   "states": [
+    "OH"
+   ],
+   "bbox": [
+    -84.82,
+    38.4,
+    -80.52,
+    41.98
+   ],
+   "kind": "imagery",
+   "status": "available",
+   "checked_on": "2026-11-23",
+   "retest": {
+    "service_wkid": 3753,
+    "service_pixel": 0.08,
+    "ok": true,
+    "point": [
+     39.96138889,
+     -82.99888889
+    ],
+    "blank": false,
+    "bytes": 9262,
+    "content_type": "image/jpeg",
+    "size": [
+     256,
+     256
+    ],
+    "request_seconds": 1.97,
+    "year_at_point": 2025,
+    "seconds": 5.87
+   }
+  },
+  {
+   "id": "oh-osip3",
+   "name": "Ohio OSIP III leaf-off 2017-2024",
+   "protocol": "arcgis-mapserver",
+   "url": "https://maps.ohio.gov/image/rest/services/osip_3_cache/MapServer",
+   "native_pixel_m": 0.1524,
+   "year": 2020,
+   "year_label": "2017-2024 by county",
+   "leaf_off": true,
+   "credit": "Ohio Statewide Imagery Program (OSIP III), OGRIP",
+   "terms_class": "open-with-credit",
+   "terms_quote": "imagery data are available for public use at the user's own risk and provided for informational purposes only",
+   "terms_url": "https://maps.ohio.gov/image/rest/services/osip_most_current/ImageServer/info/iteminfo?f=pjson",
+   "states": [
+    "OH"
+   ],
+   "bbox": [
+    -84.9418,
+    38.3739,
+    -80.4714,
+    42.0065
+   ],
+   "kind": "imagery",
+   "status": "available",
+   "checked_on": "2026-11-23",
+   "retest": {
+    "service_wkid": 3857,
+    "finest_cached_level_m": 0.01866138385297604,
+    "extent_lonlat": [
+     -84.9418,
+     38.3739,
+     -80.4714,
+     42.0065
+    ],
+    "ok": true,
+    "point": [
+     39.96138889,
+     -82.99888889
+    ],
+    "blank": false,
+    "bytes": 18950,
+    "content_type": "image/jpeg",
+    "size": [
+     256,
+     256
+    ],
+    "request_seconds": 4.52,
+    "seconds": 5.78
+   }
+  },
+  {
+   "id": "oh-2006",
+   "name": "Ohio OSIP I 2006",
+   "protocol": "arcgis-imageserver",
+   "url": "https://gis.ohiodnr.gov/image/rest/services/OIT_Services/OSIP_MOS_2006_IS/ImageServer",
+   "native_pixel_m": 0.3048,
+   "year": 2006,
+   "leaf_off": null,
+   "terms_class": "no-terms-stated",
+   "terms_quote": "none found on the service",
+   "terms_url": "https://gis.ohiodnr.gov/image/rest/services/OIT_Services/OSIP_MOS_2006_IS/ImageServer",
+   "credit": "Ohio Statewide Imagery Program (OSIP), OGRIP",
+   "states": [
+    "OH"
+   ],
+   "bbox": [
+    -84.8482,
+    38.3839,
+    -80.4865,
+    42.0038
+   ],
+   "kind": "imagery",
+   "status": "available",
+   "checked_on": "2026-11-23",
+   "retest": {
+    "service_wkid": 3857,
+    "service_pixel": 1,
+    "extent_lonlat": [
+     -84.8482,
+     38.3839,
+     -80.4865,
+     42.0038
+    ],
+    "ok": true,
+    "point": [
+     39.96138889,
+     -82.99888889
+    ],
+    "blank": false,
+    "bytes": 9950,
+    "content_type": "image/jpeg",
+    "size": [
+     256,
+     256
+    ],
+    "request_seconds": 13.77,
+    "seconds": 14.16
+   }
+  },
+  {
+   "kind": "parcels",
+   "id": "oh-parcels",
+   "name": "Ohio statewide parcels (ODNR land base)",
+   "protocol": "arcgis-feature",
+   "url": "https://gis.ohiodnr.gov/arcgis/rest/services/OIT_Services/odnr_landbase_v2/MapServer/4",
+   "terms_class": "no-terms-stated",
+   "terms_quote": "none stated (licence field empty)",
+   "terms_url": "https://gis.ohiodnr.gov/arcgis/rest/services/OIT_Services/odnr_landbase_v2/MapServer/4",
+   "credit": "Ohio Department of Natural Resources; the county auditors",
+   "fields": {
+    "id": "PIN",
+    "owner": "OWNER1",
+    "acres": [
+     "ASSR_ACRES",
+     "CALC_ACRES"
+    ]
+   },
+   "notes": "No values or building fields.",
+   "states": [
+    "OH"
+   ],
+   "bbox": [
+    -84.82,
+    38.4,
+    -80.52,
+    41.98
+   ],
+   "status": "available",
+   "checked_on": "2026-11-23",
+   "retest": {
+    "ok": true,
+    "point": [
+     39.96138889,
+     -82.99888889
+    ],
+    "under_pin": 1,
+    "adjacent_same_owner": 0,
+    "seconds": 14.26,
+    "polygon_acres": 9.9379,
+    "layer_acres": 9.93759274,
+    "polygon_vs_layer_pct": 0.0,
+    "fields_present": [
+     "owner"
+    ]
+   }
+  },
+  {
+   "id": "in-current",
+   "name": "Indiana current imagery (IGIO)",
+   "protocol": "arcgis-imageserver",
+   "url": "https://di-ingov.img.arcgis.com/arcgis/rest/services/DynamicWebMercator/Indiana_Current_Imagery/ImageServer",
+   "native_pixel_m": 0.1524,
+   "year_label": "2022-2025 by area",
+   "year_query": {
+    "url": "https://di-ingov.img.arcgis.com/arcgis/rest/services/DynamicWebMercator/Indiana_Current_Imagery/ImageServer/query",
+    "field": "Image_Year",
+    "where": "Category=1"
+   },
+   "leaf_off": null,
+   "credit": "Indiana Geographic Information Office (IGIO)",
+   "terms_class": "public-domain",
+   "terms_quote": "Access to Indiana Geographic Information Office Orthoimagery is governed by Creative Commons 0 (CC0)",
+   "terms_url": "https://di-ingov.img.arcgis.com/arcgis/rest/services/DynamicWebMercator/Indiana_Current_Imagery/ImageServer?f=json",
+   "states": [
+    "IN"
+   ],
+   "bbox": [
+    -88.2505,
+    37.7418,
+    -84.734,
+    41.8286
+   ],
+   "kind": "imagery",
+   "status": "available",
+   "checked_on": "2026-11-23",
+   "retest": {
+    "service_wkid": 3857,
+    "service_pixel": 0.07620015240030467,
+    "extent_lonlat": [
+     -88.2505,
+     37.7418,
+     -84.734,
+     41.8286
+    ],
+    "ok": true,
+    "point": [
+     39.76861111,
+     -86.16277778
+    ],
+    "blank": false,
+    "bytes": 10399,
+    "content_type": "image/jpeg",
+    "size": [
+     256,
+     256
+    ],
+    "request_seconds": 9.07,
+    "year_at_point": null,
+    "seconds": 18.38
+   }
+  },
+  {
+   "id": "in-2025",
+   "name": "Indiana imagery 2025 (IGIO)",
+   "protocol": "arcgis-imageserver",
+   "url": "https://di-ingov.img.arcgis.com/arcgis/rest/services/DynamicWebMercator/Indiana_2025_Imagery/ImageServer",
+   "native_pixel_m": 0.0762,
+   "year": 2025,
+   "year_label": "2025",
+   "leaf_off": null,
+   "credit": "Indiana Geographic Information Office (IGIO)",
+   "terms_class": "public-domain",
+   "terms_quote": "Access to Indiana Geographic Information Office Orthoimagery is governed by Creative Commons 0 (CC0)",
+   "terms_url": "https://di-ingov.img.arcgis.com/arcgis/rest/services/DynamicWebMercator/Indiana_Current_Imagery/ImageServer?f=json",
+   "states": [
+    "IN"
+   ],
+   "bbox": [
+    -87.6401,
+    37.9455,
+    -85.6302,
+    41.8299
+   ],
+   "kind": "imagery",
+   "status": "available",
+   "checked_on": "2026-11-23",
+   "retest": {
+    "service_wkid": 3857,
+    "service_pixel": 0.07620015240030491,
+    "extent_lonlat": [
+     -87.6401,
+     37.9455,
+     -85.6302,
+     41.8299
+    ],
+    "ok": true,
+    "point": [
+     39.76861111,
+     -86.16277778
+    ],
+    "blank": false,
+    "bytes": 10399,
+    "content_type": "image/jpeg",
+    "size": [
+     256,
+     256
+    ],
+    "request_seconds": 9.4,
+    "seconds": 10.66
+   }
+  },
+  {
+   "id": "in-2024",
+   "name": "Indiana imagery 2024 (IGIO)",
+   "protocol": "arcgis-imageserver",
+   "url": "https://di-ingov.img.arcgis.com/arcgis/rest/services/DynamicWebMercator/Indiana_2024_Imagery/ImageServer",
+   "native_pixel_m": 0.0762,
+   "year": 2024,
+   "year_label": "2024",
+   "leaf_off": null,
+   "credit": "Indiana Geographic Information Office (IGIO)",
+   "terms_class": "public-domain",
+   "terms_quote": "Access to Indiana Geographic Information Office Orthoimagery is governed by Creative Commons 0 (CC0)",
+   "terms_url": "https://di-ingov.img.arcgis.com/arcgis/rest/services/DynamicWebMercator/Indiana_Current_Imagery/ImageServer?f=json",
+   "states": [
+    "IN"
+   ],
+   "bbox": [
+    -87.6217,
+    38.9712,
+    -84.7774,
+    41.8289
+   ],
+   "kind": "imagery",
+   "status": "available",
+   "checked_on": "2026-11-23",
+   "retest": {
+    "service_wkid": 3857,
+    "service_pixel": 0.07620015240030463,
+    "extent_lonlat": [
+     -87.6217,
+     38.9712,
+     -84.7774,
+     41.8289
+    ],
+    "ok": true,
+    "point": [
+     40.40005,
+     -86.19955
+    ],
+    "blank": true,
+    "bytes": 334,
+    "content_type": "image/png",
+    "size": [
+     256,
+     256
+    ],
+    "request_seconds": 8.05,
+    "seconds": 19.38
+   }
+  },
+  {
+   "id": "in-2023",
+   "name": "Indiana imagery 2023 (IGIO)",
+   "protocol": "arcgis-imageserver",
+   "url": "https://di-ingov.img.arcgis.com/arcgis/rest/services/DynamicWebMercator/Indiana_2023_Imagery/ImageServer",
+   "native_pixel_m": 0.1524,
+   "year": 2023,
+   "year_label": "2023",
+   "leaf_off": null,
+   "credit": "Indiana Geographic Information Office (IGIO)",
+   "terms_class": "public-domain",
+   "terms_quote": "Access to Indiana Geographic Information Office Orthoimagery is governed by Creative Commons 0 (CC0)",
+   "terms_url": "https://di-ingov.img.arcgis.com/arcgis/rest/services/DynamicWebMercator/Indiana_Current_Imagery/ImageServer?f=json",
+   "states": [
+    "IN"
+   ],
+   "bbox": [
+    -88.1656,
+    37.7628,
+    -86.3786,
+    41.813
+   ],
+   "kind": "imagery",
+   "status": "available",
+   "checked_on": "2026-11-23",
+   "retest": {
+    "service_wkid": 3857,
+    "service_pixel": 0.07620015240030505,
+    "extent_lonlat": [
+     -88.1656,
+     37.7628,
+     -86.3786,
+     41.813
+    ],
+    "ok": true,
+    "point": [
+     39.7879,
+     -87.2721
+    ],
+    "blank": false,
+    "bytes": 7497,
+    "content_type": "image/jpeg",
+    "size": [
+     256,
+     256
+    ],
+    "request_seconds": 9.04,
+    "seconds": 21.37
+   }
+  },
+  {
+   "id": "in-2022",
+   "name": "Indiana imagery 2022 (IGIO)",
+   "protocol": "arcgis-imageserver",
+   "url": "https://di-ingov.img.arcgis.com/arcgis/rest/services/DynamicWebMercator/Indiana_2022_Imagery/ImageServer",
+   "native_pixel_m": 0.1524,
+   "year": 2022,
+   "year_label": "2022",
+   "leaf_off": null,
+   "credit": "Indiana Geographic Information Office (IGIO)",
+   "terms_class": "public-domain",
+   "terms_quote": "Access to Indiana Geographic Information Office Orthoimagery is governed by Creative Commons 0 (CC0)",
+   "terms_url": "https://di-ingov.img.arcgis.com/arcgis/rest/services/DynamicWebMercator/Indiana_Current_Imagery/ImageServer?f=json",
+   "states": [
+    "IN"
+   ],
+   "bbox": [
+    -86.0521,
+    38.1689,
+    -84.7594,
+    41.7753
+   ],
+   "kind": "imagery",
+   "status": "available",
+   "checked_on": "2026-11-23",
+   "retest": {
+    "service_wkid": 3857,
+    "service_pixel": 0.07620015240030467,
+    "extent_lonlat": [
+     -86.0521,
+     38.1689,
+     -84.7594,
+     41.7753
+    ],
+    "ok": true,
+    "point": [
+     39.9721,
+     -85.40575
+    ],
+    "blank": false,
+    "bytes": 7668,
+    "content_type": "image/jpeg",
+    "size": [
+     256,
+     256
+    ],
+    "request_seconds": 9.14,
+    "seconds": 22.44
+   }
+  },
+  {
+   "id": "in-2021",
+   "name": "Indiana imagery 2021 (IGIO)",
+   "protocol": "arcgis-imageserver",
+   "url": "https://di-ingov.img.arcgis.com/arcgis/rest/services/DynamicWebMercator/Indiana_2021_Imagery/ImageServer",
+   "native_pixel_m": 0.1524,
+   "year": 2021,
+   "year_label": "2021",
+   "leaf_off": null,
+   "credit": "Indiana Geographic Information Office (IGIO)",
+   "terms_class": "public-domain",
+   "terms_quote": "Access to Indiana Geographic Information Office Orthoimagery is governed by Creative Commons 0 (CC0)",
+   "terms_url": "https://di-ingov.img.arcgis.com/arcgis/rest/services/DynamicWebMercator/Indiana_Current_Imagery/ImageServer?f=json",
+   "states": [
+    "IN"
+   ],
+   "bbox": [
+    -87.5611,
+    37.9277,
+    -84.6986,
+    41.8131
+   ],
+   "kind": "imagery",
+   "status": "available",
+   "checked_on": "2026-11-23",
+   "retest": {
+    "service_wkid": 3857,
+    "service_pixel": 0.07620015240030467,
+    "extent_lonlat": [
+     -87.5611,
+     37.9277,
+     -84.6986,
+     41.8131
+    ],
+    "ok": true,
+    "point": [
+     39.76861111,
+     -86.16277778
+    ],
+    "blank": false,
+    "bytes": 12262,
+    "content_type": "image/jpeg",
+    "size": [
+     256,
+     256
+    ],
+    "request_seconds": 9.85,
+    "seconds": 15.06
+   }
+  },
+  {
+   "id": "in-2016-2019",
+   "name": "Indiana imagery 2016-2019 (IGIO)",
+   "protocol": "arcgis-imageserver",
+   "url": "https://di-ingov.img.arcgis.com/arcgis/rest/services/DynamicWebMercator/Indiana_2016_2019_Imagery/ImageServer",
+   "native_pixel_m": 0.1524,
+   "year": 2018,
+   "year_label": "2016-2019",
+   "leaf_off": null,
+   "credit": "Indiana Geographic Information Office (IGIO)",
+   "terms_class": "public-domain",
+   "terms_quote": "Access to Indiana Geographic Information Office Orthoimagery is governed by Creative Commons 0 (CC0)",
+   "terms_url": "https://di-ingov.img.arcgis.com/arcgis/rest/services/DynamicWebMercator/Indiana_Current_Imagery/ImageServer?f=json",
+   "states": [
+    "IN"
+   ],
+   "bbox": [
+    -88.1297,
+    37.7558,
+    -84.6483,
+    41.7886
+   ],
+   "kind": "imagery",
+   "status": "available",
+   "checked_on": "2026-11-23",
+   "retest": {
+    "service_wkid": 3857,
+    "service_pixel": 0.07620015240030481,
+    "extent_lonlat": [
+     -88.1297,
+     37.7558,
+     -84.6483,
+     41.7886
+    ],
+    "ok": true,
+    "point": [
+     39.76861111,
+     -86.16277778
+    ],
+    "blank": false,
+    "bytes": 10452,
+    "content_type": "image/jpeg",
+    "size": [
+     256,
+     256
+    ],
+    "request_seconds": 9.12,
+    "seconds": 15.34
+   }
+  },
+  {
+   "id": "in-2011-2013",
+   "name": "Indiana imagery 2011-2013 (IGIO)",
+   "protocol": "arcgis-imageserver",
+   "url": "https://di-ingov.img.arcgis.com/arcgis/rest/services/DynamicWebMercator/Indiana_2011_2013_Imagery/ImageServer",
+   "native_pixel_m": 0.3048,
+   "year": 2012,
+   "year_label": "2011-2013",
+   "leaf_off": true,
+   "credit": "Indiana Geographic Information Office (IGIO)",
+   "terms_class": "public-domain",
+   "terms_quote": "Access to Indiana Geographic Information Office Orthoimagery is governed by Creative Commons 0 (CC0)",
+   "terms_url": "https://di-ingov.img.arcgis.com/arcgis/rest/services/DynamicWebMercator/Indiana_Current_Imagery/ImageServer?f=json",
+   "states": [
+    "IN"
+   ],
+   "bbox": [
+    -88.2406,
+    37.7348,
+    -84.6501,
+    41.7868
+   ],
+   "kind": "imagery",
+   "status": "available",
+   "checked_on": "2026-11-23",
+   "retest": {
+    "service_wkid": 3857,
+    "service_pixel": 0.07620015240030475,
+    "extent_lonlat": [
+     -88.2406,
+     37.7348,
+     -84.6501,
+     41.7868
+    ],
+    "ok": true,
+    "point": [
+     39.76861111,
+     -86.16277778
+    ],
+    "blank": false,
+    "bytes": 9974,
+    "content_type": "image/jpeg",
+    "size": [
+     256,
+     256
+    ],
+    "request_seconds": 9.2,
+    "seconds": 16.42
+   }
+  },
+  {
+   "id": "in-2005",
+   "name": "Indiana imagery 2005 (IGIO)",
+   "protocol": "arcgis-imageserver",
+   "url": "https://di-ingov.img.arcgis.com/arcgis/rest/services/DynamicWebMercator/Indiana_2005_Imagery/ImageServer",
+   "native_pixel_m": 0.3048,
+   "year": 2005,
+   "year_label": "2005",
+   "leaf_off": true,
+   "credit": "Indiana Geographic Information Office (IGIO)",
+   "terms_class": "public-domain",
+   "terms_quote": "Access to Indiana Geographic Information Office Orthoimagery is governed by Creative Commons 0 (CC0)",
+   "terms_url": "https://di-ingov.img.arcgis.com/arcgis/rest/services/DynamicWebMercator/Indiana_Current_Imagery/ImageServer?f=json",
+   "states": [
+    "IN"
+   ],
+   "bbox": [
+    -88.1706,
+    37.7586,
+    -84.6473,
+    41.7946
+   ],
+   "kind": "imagery",
+   "status": "available",
+   "checked_on": "2026-11-23",
+   "retest": {
+    "service_wkid": 3857,
+    "service_pixel": 0.15240030480060943,
+    "extent_lonlat": [
+     -88.1706,
+     37.7586,
+     -84.6473,
+     41.7946
+    ],
+    "ok": true,
+    "point": [
+     39.76861111,
+     -86.16277778
+    ],
+    "blank": false,
+    "bytes": 11125,
+    "content_type": "image/jpeg",
+    "size": [
+     256,
+     256
+    ],
+    "request_seconds": 9.28,
+    "seconds": 17.49
+   }
+  },
+  {
+   "kind": "parcels",
+   "id": "in-parcels",
+   "name": "Parcel boundaries of Indiana, current (IGIO Data Harvest)",
+   "protocol": "arcgis-feature",
+   "url": "https://gisdata.in.gov/server/rest/services/Hosted/Parcel_Boundaries_of_Indiana_Current/FeatureServer/0",
+   "terms_class": "open-with-credit",
+   "terms_quote": "It is requested, but not required, that the Indiana GIS Data Harvest Program be cited",
+   "terms_url": "https://gisdata.in.gov/server/rest/services/Hosted/Parcel_Boundaries_of_Indiana_Current/FeatureServer/info/iteminfo?f=json",
+   "credit": "Indiana GIS Data Harvest Program (IGIO)",
+   "fields": {
+    "id": "parcel_id",
+    "address": "prop_add"
+   },
+   "notes": "No owner, acres or values.",
+   "states": [
+    "IN"
+   ],
+   "bbox": [
+    -88.1,
+    37.77,
+    -84.78,
+    41.76
+   ],
+   "status": "available",
+   "checked_on": "2026-11-23",
+   "retest": {
+    "ok": true,
+    "point": [
+     39.76861111,
+     -86.16277778
+    ],
+    "under_pin": 1,
+    "adjacent_same_owner": 0,
+    "seconds": 0.53,
+    "polygon_acres": 8.967,
+    "layer_acres": null,
+    "fields_present": [
+     "address"
+    ]
+   }
+  },
+  {
+   "id": "il-2025-blk1-east",
+   "name": "Illinois 911 aerial acquisition 2025, block 1 east",
+   "protocol": "arcgis-imageserver",
+   "url": "https://data.isgs.illinois.edu/arcgis/rest/services/Imagery/IL_Blk1_East_2025/ImageServer",
+   "native_pixel_m": 0.1524,
+   "year": 2025,
+   "leaf_off": null,
+   "credit": "State of Illinois and the University of Illinois (Illinois State Geological Survey)",
+   "terms_class": "public-domain",
+   "terms_quote": "This data set is in the public domain, and the recipient may not assert any proprietary rights thereto",
+   "terms_url": "https://clearinghouse.isgs.illinois.edu/data/imagery/illinois-911-aerial-acquisition",
+   "notes": "About 75 % of the state; not Cook and the collar counties.",
+   "states": [
+    "IL"
+   ],
+   "bbox": [
+    -89.1899,
+    40.9334,
+    -87.5117,
+    42.5
+   ],
+   "kind": "imagery",
+   "status": "available",
+   "checked_on": "2026-11-23",
+   "retest": {
+    "service_wkid": 3857,
+    "service_pixel": 0.15240030480060948,
+    "extent_lonlat": [
+     -89.1899,
+     40.9334,
+     -87.5117,
+     42.5
+    ],
+    "ok": true,
+    "point": [
+     41.7167,
+     -88.35079999999999
+    ],
+    "blank": true,
+    "bytes": 334,
+    "content_type": "image/png",
+    "size": [
+     256,
+     256
+    ],
+    "request_seconds": 94.93,
+    "seconds": 126.13
+   }
+  },
+  {
+   "id": "il-2025-blk1-west",
+   "name": "Illinois 911 aerial acquisition 2025, block 1 west",
+   "protocol": "arcgis-imageserver",
+   "url": "https://data.isgs.illinois.edu/arcgis/rest/services/Imagery/IL_Blk1_West_2025/ImageServer",
+   "native_pixel_m": 0.1524,
+   "year": 2025,
+   "leaf_off": null,
+   "credit": "State of Illinois and the University of Illinois (Illinois State Geological Survey)",
+   "terms_class": "public-domain",
+   "terms_quote": "This data set is in the public domain, and the recipient may not assert any proprietary rights thereto",
+   "terms_url": "https://clearinghouse.isgs.illinois.edu/data/imagery/illinois-911-aerial-acquisition",
+   "notes": "About 75 % of the state; not Cook and the collar counties.",
+   "states": [
+    "IL"
+   ],
+   "bbox": [
+    -91.1183,
+    40.931,
+    -88.9261,
+    42.5145
+   ],
+   "kind": "imagery",
+   "status": "available",
+   "checked_on": "2026-11-23",
+   "retest": {
+    "service_wkid": 3857,
+    "service_pixel": 0.1524003048006101,
+    "extent_lonlat": [
+     -91.1183,
+     40.931,
+     -88.9261,
+     42.5145
+    ],
+    "ok": true,
+    "point": [
+     41.72275,
+     -90.0222
+    ],
+    "blank": false,
+    "bytes": 6611,
+    "content_type": "image/jpeg",
+    "size": [
+     256,
+     256
+    ],
+    "request_seconds": 82.39,
+    "seconds": 128.07
+   }
+  },
+  {
+   "id": "il-2025-blk2-east",
+   "name": "Illinois 911 aerial acquisition 2025, block 2 east",
+   "protocol": "arcgis-imageserver",
+   "url": "https://data.isgs.illinois.edu/arcgis/rest/services/Imagery/IL_Blk2_East_2025/ImageServer",
+   "native_pixel_m": 0.1524,
+   "year": 2025,
+   "leaf_off": null,
+   "credit": "State of Illinois and the University of Illinois (Illinois State Geological Survey)",
+   "terms_class": "public-domain",
+   "terms_quote": "This data set is in the public domain, and the recipient may not assert any proprietary rights thereto",
+   "terms_url": "https://clearinghouse.isgs.illinois.edu/data/imagery/illinois-911-aerial-acquisition",
+   "notes": "About 75 % of the state; not Cook and the collar counties.",
+   "states": [
+    "IL"
+   ],
+   "bbox": [
+    -89.285,
+    39.9171,
+    -87.5163,
+    40.9363
+   ],
+   "kind": "imagery",
+   "status": "available",
+   "checked_on": "2026-11-23",
+   "retest": {
+    "service_wkid": 3857,
+    "service_pixel": 0.15240030480060998,
+    "extent_lonlat": [
+     -89.285,
+     39.9171,
+     -87.5163,
+     40.9363
+    ],
+    "ok": true,
+    "point": [
+     40.4267,
+     -88.40065
+    ],
+    "blank": false,
+    "bytes": 9245,
+    "content_type": "image/jpeg",
+    "size": [
+     256,
+     256
+    ],
+    "request_seconds": 50.08,
+    "seconds": 129.27
+   }
+  },
+  {
+   "id": "il-2025-blk2-west",
+   "name": "Illinois 911 aerial acquisition 2025, block 2 west",
+   "protocol": "arcgis-imageserver",
+   "url": "https://data.isgs.illinois.edu/arcgis/rest/services/Imagery/IL_Blk2_West_2025/ImageServer",
+   "native_pixel_m": 0.1524,
+   "year": 2025,
+   "leaf_off": null,
+   "credit": "State of Illinois and the University of Illinois (Illinois State Geological Survey)",
+   "terms_class": "public-domain",
+   "terms_quote": "This data set is in the public domain, and the recipient may not assert any proprietary rights thereto",
+   "terms_url": "https://clearinghouse.isgs.illinois.edu/data/imagery/illinois-911-aerial-acquisition",
+   "notes": "About 75 % of the state; not Cook and the collar counties.",
+   "states": [
+    "IL"
+   ],
+   "bbox": [
+    -91.5159,
+    39.9138,
+    -88.9238,
+    40.9364
+   ],
+   "kind": "imagery",
+   "status": "available",
+   "checked_on": "2026-11-23",
+   "retest": {
+    "service_wkid": 3857,
+    "service_pixel": 0.15240030480060934,
+    "extent_lonlat": [
+     -91.5159,
+     39.9138,
+     -88.9238,
+     40.9364
+    ],
+    "ok": true,
+    "point": [
+     40.4251,
+     -90.21985000000001
+    ],
+    "blank": false,
+    "bytes": 7969,
+    "content_type": "image/jpeg",
+    "size": [
+     256,
+     256
+    ],
+    "request_seconds": 34.52,
+    "seconds": 131.03
+   }
+  },
+  {
+   "id": "il-2025-blk3-east",
+   "name": "Illinois 911 aerial acquisition 2025, block 3 east",
+   "protocol": "arcgis-imageserver",
+   "url": "https://data.isgs.illinois.edu/arcgis/rest/services/Imagery/IL_Blk3_East_2025/ImageServer",
+   "native_pixel_m": 0.1524,
+   "year": 2025,
+   "leaf_off": null,
+   "credit": "State of Illinois and the University of Illinois (Illinois State Geological Survey)",
+   "terms_class": "public-domain",
+   "terms_quote": "This data set is in the public domain, and the recipient may not assert any proprietary rights thereto",
+   "terms_url": "https://clearinghouse.isgs.illinois.edu/data/imagery/illinois-911-aerial-acquisition",
+   "notes": "About 75 % of the state; not Cook and the collar counties.",
+   "states": [
+    "IL"
+   ],
+   "bbox": [
+    -89.2809,
+    38.9559,
+    -87.5042,
+    39.9206
+   ],
+   "kind": "imagery",
+   "status": "available",
+   "checked_on": "2026-11-23",
+   "retest": {
+    "service_wkid": 3857,
+    "service_pixel": 0.1524003048006093,
+    "extent_lonlat": [
+     -89.2809,
+     38.9559,
+     -87.5042,
+     39.9206
+    ],
+    "ok": true,
+    "point": [
+     39.43825,
+     -88.39255
+    ],
+    "blank": false,
+    "bytes": 5850,
+    "content_type": "image/jpeg",
+    "size": [
+     256,
+     256
+    ],
+    "request_seconds": 28.92,
+    "seconds": 134.2
+   }
+  },
+  {
+   "id": "il-2025-blk3-west",
+   "name": "Illinois 911 aerial acquisition 2025, block 3 west",
+   "protocol": "arcgis-imageserver",
+   "url": "https://data.isgs.illinois.edu/arcgis/rest/services/Imagery/IL_Blk3_West_2025/ImageServer",
+   "native_pixel_m": 0.1524,
+   "year": 2025,
+   "leaf_off": null,
+   "credit": "State of Illinois and the University of Illinois (Illinois State Geological Survey)",
+   "terms_class": "public-domain",
+   "terms_quote": "This data set is in the public domain, and the recipient may not assert any proprietary rights thereto",
+   "terms_url": "https://clearinghouse.isgs.illinois.edu/data/imagery/illinois-911-aerial-acquisition",
+   "notes": "About 75 % of the state; not Cook and the collar counties.",
+   "states": [
+    "IL"
+   ],
+   "bbox": [
+    -91.4555,
+    38.9563,
+    -89.0178,
+    39.9208
+   ],
+   "kind": "imagery",
+   "status": "available",
+   "checked_on": "2026-11-23",
+   "retest": {
+    "service_wkid": 3857,
+    "service_pixel": 0.15240030480060981,
+    "extent_lonlat": [
+     -91.4555,
+     38.9563,
+     -89.0178,
+     39.9208
+    ],
+    "ok": true,
+    "point": [
+     39.79833333,
+     -89.65472222
+    ],
+    "blank": false,
+    "bytes": 12995,
+    "content_type": "image/jpeg",
+    "size": [
+     256,
+     256
+    ],
+    "request_seconds": 100.88,
+    "seconds": 106.06
+   }
+  },
+  {
+   "id": "il-2025-blk4-east",
+   "name": "Illinois 911 aerial acquisition 2025, block 4 east",
+   "protocol": "arcgis-imageserver",
+   "url": "https://data.isgs.illinois.edu/arcgis/rest/services/Imagery/IL_Blk4_East_2025/ImageServer",
+   "native_pixel_m": 0.1524,
+   "year": 2025,
+   "leaf_off": null,
+   "credit": "State of Illinois and the University of Illinois (Illinois State Geological Survey)",
+   "terms_class": "public-domain",
+   "terms_quote": "This data set is in the public domain, and the recipient may not assert any proprietary rights thereto",
+   "terms_url": "https://clearinghouse.isgs.illinois.edu/data/imagery/illinois-911-aerial-acquisition",
+   "notes": "About 75 % of the state; not Cook and the collar counties.",
+   "states": [
+    "IL"
+   ],
+   "bbox": [
+    -89.2801,
+    37.0647,
+    -87.4885,
+    38.9597
+   ],
+   "kind": "imagery",
+   "status": "available",
+   "checked_on": "2026-11-23",
+   "retest": {
+    "service_wkid": 3857,
+    "service_pixel": 0.1524003048006096,
+    "extent_lonlat": [
+     -89.2801,
+     37.0647,
+     -87.4885,
+     38.9597
+    ],
+    "ok": true,
+    "point": [
+     38.0122,
+     -88.3843
+    ],
+    "blank": false,
+    "bytes": 8097,
+    "content_type": "image/jpeg",
+    "size": [
+     256,
+     256
+    ],
+    "request_seconds": 23.68,
+    "seconds": 136.38
+   }
+  },
+  {
+   "id": "il-2025-blk4-west",
+   "name": "Illinois 911 aerial acquisition 2025, block 4 west",
+   "protocol": "arcgis-imageserver",
+   "url": "https://data.isgs.illinois.edu/arcgis/rest/services/Imagery/IL_Blk4_West_2025/ImageServer",
+   "native_pixel_m": 0.1524,
+   "year": 2025,
+   "leaf_off": null,
+   "credit": "State of Illinois and the University of Illinois (Illinois State Geological Survey)",
+   "terms_class": "public-domain",
+   "terms_quote": "This data set is in the public domain, and the recipient may not assert any proprietary rights thereto",
+   "terms_url": "https://clearinghouse.isgs.illinois.edu/data/imagery/illinois-911-aerial-acquisition",
+   "notes": "About 75 % of the state; not Cook and the collar counties.",
+   "states": [
+    "IL"
+   ],
+   "bbox": [
+    -90.6822,
+    36.9644,
+    -88.9169,
+    38.9598
+   ],
+   "kind": "imagery",
+   "status": "available",
+   "checked_on": "2026-11-23",
+   "retest": {
+    "service_wkid": 3857,
+    "service_pixel": 0.1524003048006096,
+    "extent_lonlat": [
+     -90.6822,
+     36.9644,
+     -88.9169,
+     38.9598
+    ],
+    "ok": true,
+    "point": [
+     37.9621,
+     -89.79955
+    ],
+    "blank": false,
+    "bytes": 9331,
+    "content_type": "image/jpeg",
+    "size": [
+     256,
+     256
+    ],
+    "request_seconds": 21.85,
+    "seconds": 138.02
+   }
+  },
+  {
+   "id": "il-idot-2017",
+   "name": "IDOT orthophotography 2017",
+   "protocol": "arcgis-imageserver",
+   "url": "https://data.isgs.illinois.edu/arcgis/rest/services/Imagery/IDOT_2017/ImageServer",
+   "native_pixel_m": 0.3048,
+   "year": 2017,
+   "leaf_off": null,
+   "terms_class": "no-terms-stated",
+   "terms_quote": "Any hard copies using the information found on our website shall clearly indicate the source.",
+   "terms_url": "https://clearinghouse.isgs.illinois.edu/about/terms",
+   "credit": "Illinois Department of Transportation; Illinois State Geological Survey",
+   "states": [
+    "IL"
+   ],
+   "bbox": [
+    -91.3996,
+    36.9368,
+    -87.469,
+    41.0314
+   ],
+   "kind": "imagery",
+   "status": "available",
+   "checked_on": "2026-11-23",
+   "retest": {
+    "service_wkid": 3857,
+    "service_pixel": 0.30480060960121896,
+    "extent_lonlat": [
+     -91.3996,
+     36.9368,
+     -87.469,
+     41.0314
+    ],
+    "ok": true,
+    "point": [
+     39.79833333,
+     -89.65472222
+    ],
+    "blank": false,
+    "bytes": 13150,
+    "content_type": "image/jpeg",
+    "size": [
+     256,
+     256
+    ],
+    "request_seconds": 109.26,
+    "seconds": 117.45
+   }
+  },
+  {
+   "id": "il-idot-2014",
+   "name": "IDOT orthophotography 2014",
+   "protocol": "arcgis-imageserver",
+   "url": "https://data.isgs.illinois.edu/arcgis/rest/services/Imagery/IDOT_2014/ImageServer",
+   "native_pixel_m": 0.3048,
+   "year": 2014,
+   "leaf_off": null,
+   "terms_class": "no-terms-stated",
+   "terms_quote": "Any hard copies using the information found on our website shall clearly indicate the source.",
+   "terms_url": "https://clearinghouse.isgs.illinois.edu/about/terms",
+   "credit": "Illinois Department of Transportation; Illinois State Geological Survey",
+   "states": [
+    "IL"
+   ],
+   "bbox": [
+    -91.5518,
+    39.3574,
+    -87.5114,
+    42.5419
+   ],
+   "kind": "imagery",
+   "status": "available",
+   "checked_on": "2026-11-23",
+   "retest": {
+    "service_wkid": 3857,
+    "service_pixel": 0.3048006096012195,
+    "extent_lonlat": [
+     -91.5518,
+     39.3574,
+     -87.5114,
+     42.5419
+    ],
+    "ok": true,
+    "point": [
+     40.94965,
+     -89.5316
+    ],
+    "blank": false,
+    "bytes": 6809,
+    "content_type": "image/jpeg",
+    "size": [
+     256,
+     256
+    ],
+    "request_seconds": 20.73,
+    "seconds": 141.94
+   }
+  },
+  {
+   "id": "il-idot-2011",
+   "name": "IDOT orthophotography 2011",
+   "protocol": "arcgis-imageserver",
+   "url": "https://data.isgs.illinois.edu/arcgis/rest/services/Imagery/IDOT_2011/ImageServer",
+   "native_pixel_m": 0.1524,
+   "year": 2011,
+   "leaf_off": null,
+   "terms_class": "no-terms-stated",
+   "terms_quote": "Any hard copies using the information found on our website shall clearly indicate the source.",
+   "terms_url": "https://clearinghouse.isgs.illinois.edu/about/terms",
+   "credit": "Illinois Department of Transportation; Illinois State Geological Survey",
+   "states": [
+    "IL"
+   ],
+   "bbox": [
+    -91.5518,
+    36.9368,
+    -87.469,
+    42.5419
+   ],
+   "kind": "imagery",
+   "status": "available",
+   "checked_on": "2026-11-23",
+   "retest": {
+    "service_wkid": 3857,
+    "service_pixel": 0.15240030480060965,
+    "extent_lonlat": [
+     -91.5518,
+     36.9368,
+     -87.469,
+     42.5419
+    ],
+    "ok": true,
+    "point": [
+     39.79833333,
+     -89.65472222
+    ],
+    "blank": false,
+    "bytes": 5825,
+    "content_type": "image/jpeg",
+    "size": [
+     256,
+     256
+    ],
+    "request_seconds": 112.61,
+    "seconds": 122.8
+   }
+  },
+  {
+   "id": "ky-phase3",
+   "name": "KyFromAbove phase 3, 3-inch leaf-off 2022-2024",
+   "protocol": "arcgis-imageserver",
+   "url": "https://kyraster.ky.gov/arcgis/rest/services/ImageServices/Ky_KYAPED_Phase3_3IN_WGS84WM/ImageServer",
+   "native_pixel_m": 0.0762,
+   "year": 2023,
+   "year_label": "2022-2024",
+   "leaf_off": true,
+   "credit": "KyFromAbove",
+   "terms_class": "public-domain",
+   "terms_quote": "All basemap data acquired through this effort is made available in the public domain.",
+   "terms_url": "https://raw.githubusercontent.com/awslabs/open-data-registry/main/datasets/kyfromabove.yaml",
+   "states": [
+    "KY"
+   ],
+   "bbox": [
+    -89.7044,
+    36.457,
+    -81.8842,
+    39.1519
+   ],
+   "kind": "imagery",
+   "status": "available",
+   "checked_on": "2026-11-23",
+   "retest": {
+    "service_wkid": 3857,
+    "service_pixel": 0.0762001524003048,
+    "extent_lonlat": [
+     -89.7044,
+     36.457,
+     -81.8842,
+     39.1519
+    ],
+    "ok": true,
+    "point": [
+     38.1867,
+     -84.8753
+    ],
+    "blank": false,
+    "bytes": 12856,
+    "content_type": "image/jpeg",
+    "size": [
+     256,
+     256
+    ],
+    "request_seconds": 2.92,
+    "seconds": 3.51
+   }
+  },
+  {
+   "id": "ky-phase2",
+   "name": "KyFromAbove phase 2, 6-inch 2019-2022",
+   "protocol": "arcgis-imageserver",
+   "url": "https://kyraster.ky.gov/arcgis/rest/services/ImageServices/Ky_KYAPED_Phase2_6IN_WGS84WM/ImageServer",
+   "native_pixel_m": 0.1524,
+   "year": 2020,
+   "year_label": "2019-2022",
+   "leaf_off": true,
+   "credit": "KyFromAbove, LOJIC",
+   "terms_class": "public-domain",
+   "terms_quote": "All basemap data acquired through this effort is made available in the public domain.",
+   "terms_url": "https://raw.githubusercontent.com/awslabs/open-data-registry/main/datasets/kyfromabove.yaml",
+   "states": [
+    "KY"
+   ],
+   "bbox": [
+    -89.7187,
+    36.4461,
+    -81.8803,
+    39.1596
+   ],
+   "kind": "imagery",
+   "status": "available",
+   "checked_on": "2026-11-23",
+   "retest": {
+    "service_wkid": 3857,
+    "service_pixel": 0.07620015240030484,
+    "extent_lonlat": [
+     -89.7187,
+     36.4461,
+     -81.8803,
+     39.1596
+    ],
+    "ok": true,
+    "point": [
+     38.1867,
+     -84.8753
+    ],
+    "blank": false,
+    "bytes": 13114,
+    "content_type": "image/jpeg",
+    "size": [
+     256,
+     256
+    ],
+    "request_seconds": 2.9,
+    "seconds": 4.25
+   }
+  },
+  {
+   "id": "ky-phase1",
+   "name": "KYAPED phase 1, 2012-2014",
+   "protocol": "arcgis-imageserver",
+   "url": "https://kyraster.ky.gov/arcgis/rest/services/ImageServices/Ky_KYAPED_Imagery_WGS84WM/ImageServer",
+   "native_pixel_m": 0.3048,
+   "year": 2013,
+   "year_label": "2012-2014",
+   "leaf_off": true,
+   "credit": "KyFromAbove",
+   "terms_class": "public-domain",
+   "terms_quote": "All basemap data acquired through this effort is made available in the public domain.",
+   "terms_url": "https://raw.githubusercontent.com/awslabs/open-data-registry/main/datasets/kyfromabove.yaml",
+   "states": [
+    "KY"
+   ],
+   "bbox": [
+    -89.7183,
+    36.4461,
+    -83.939,
+    39.152
+   ],
+   "kind": "imagery",
+   "status": "available",
+   "checked_on": "2026-11-23",
+   "retest": {
+    "service_wkid": 3857,
+    "service_pixel": 0.15240030480060981,
+    "extent_lonlat": [
+     -89.7183,
+     36.4461,
+     -83.939,
+     39.152
+    ],
+    "ok": true,
+    "point": [
+     38.1867,
+     -84.8753
+    ],
+    "blank": false,
+    "bytes": 13855,
+    "content_type": "image/jpeg",
+    "size": [
+     256,
+     256
+    ],
+    "request_seconds": 2.8,
+    "seconds": 5.28
+   }
+  },
+  {
+   "id": "mo-2023-2024",
+   "name": "Missouri 6-inch statewide leaf-off 2023-2024 (MSDIS)",
+   "protocol": "arcgis-imageserver",
+   "url": "https://stateimagery.msdis.missouri.edu/arcgis/rest/services/Missouri_6inch_Statewide_2023_2024_Dynamic/ImageServer",
+   "native_pixel_m": 0.15,
+   "year": 2024,
+   "year_label": "2023 north, 2024 south",
+   "leaf_off": true,
+   "credit": "Missouri Spatial Data Information Service (MSDIS)",
+   "terms_class": "open-with-credit",
+   "terms_quote": "Access to Missouri aerial imagery distributed by ... (MSDIS) is governed by Creative Commons BY 4.0",
+   "terms_url": "https://raw.githubusercontent.com/awslabs/open-data-registry/main/datasets/mo-gis-imagery.yaml",
+   "states": [
+    "MO"
+   ],
+   "bbox": [
+    -95.77,
+    35.99,
+    -89.1,
+    40.61
+   ],
+   "kind": "imagery",
+   "status": "available",
+   "checked_on": "2026-11-23",
+   "retest": {
+    "service_wkid": 26915,
+    "service_pixel": 0.15,
+    "ok": true,
+    "point": [
+     38.57916667,
+     -92.17277778
+    ],
+    "blank": false,
+    "bytes": 14902,
+    "content_type": "image/jpeg",
+    "size": [
+     256,
+     256
+    ],
+    "request_seconds": 0.94,
+    "seconds": 1.37
+   }
+  },
+  {
+   "id": "mo-2022",
+   "name": "Missouri imagery 2022 (MSDIS)",
+   "protocol": "arcgis-imageserver",
+   "url": "https://imagery.msdis.missouri.edu/arcgis/rest/services/StatewideServices/Missouri_2022_South_12inch/ImageServer",
+   "native_pixel_m": 0.3,
+   "year": 2022,
+   "leaf_off": null,
+   "credit": "Missouri Spatial Data Information Service (MSDIS)",
+   "terms_class": "open-with-credit",
+   "terms_quote": "Access to Missouri aerial imagery distributed by ... (MSDIS) is governed by Creative Commons BY 4.0",
+   "terms_url": "https://raw.githubusercontent.com/awslabs/open-data-registry/main/datasets/mo-gis-imagery.yaml",
+   "states": [
+    "MO"
+   ],
+   "bbox": [
+    -95.77,
+    35.99,
+    -89.1,
+    40.61
+   ],
+   "kind": "imagery",
+   "status": "available",
+   "checked_on": "2026-11-23",
+   "retest": {
+    "service_wkid": 26915,
+    "service_pixel": 0.3,
+    "ok": true,
+    "point": [
+     38.57916667,
+     -92.17277778
+    ],
+    "blank": false,
+    "bytes": 12845,
+    "content_type": "image/jpeg",
+    "size": [
+     256,
+     256
+    ],
+    "request_seconds": 2.86,
+    "seconds": 3.26
+   }
+  },
+  {
+   "id": "mo-2015",
+   "name": "Missouri imagery 2015 (MSDIS)",
+   "protocol": "arcgis-imageserver",
+   "url": "https://imagery.msdis.missouri.edu/arcgis/rest/services/StatewideServices/Missouri_2015_Statewide/ImageServer",
+   "native_pixel_m": 0.15,
+   "year": 2015,
+   "leaf_off": null,
+   "credit": "Missouri Spatial Data Information Service (MSDIS)",
+   "terms_class": "open-with-credit",
+   "terms_quote": "Access to Missouri aerial imagery distributed by ... (MSDIS) is governed by Creative Commons BY 4.0",
+   "terms_url": "https://raw.githubusercontent.com/awslabs/open-data-registry/main/datasets/mo-gis-imagery.yaml",
+   "states": [
+    "MO"
+   ],
+   "bbox": [
+    -95.77,
+    35.99,
+    -89.1,
+    40.61
+   ],
+   "kind": "imagery",
+   "status": "available",
+   "checked_on": "2026-11-23",
+   "retest": {
+    "service_wkid": 6344,
+    "service_pixel": 0.14999999999995642,
+    "ok": true,
+    "point": [
+     38.57916667,
+     -92.17277778
+    ],
+    "blank": false,
+    "bytes": 11965,
+    "content_type": "image/jpeg",
+    "size": [
+     256,
+     256
+    ],
+    "request_seconds": 3.14,
+    "seconds": 4.43
+   }
+  },
+  {
+   "id": "mo-2008",
+   "name": "Missouri imagery 2008 (MSDIS)",
+   "protocol": "arcgis-imageserver",
+   "url": "https://imagery.msdis.missouri.edu/arcgis/rest/services/StatewideServices/Missouri_2008_Statewide/ImageServer",
+   "native_pixel_m": 0.1524,
+   "year": 2008,
+   "leaf_off": null,
+   "credit": "Missouri Spatial Data Information Service (MSDIS)",
+   "terms_class": "open-with-credit",
+   "terms_quote": "Access to Missouri aerial imagery distributed by ... (MSDIS) is governed by Creative Commons BY 4.0",
+   "terms_url": "https://raw.githubusercontent.com/awslabs/open-data-registry/main/datasets/mo-gis-imagery.yaml",
+   "states": [
+    "MO"
+   ],
+   "bbox": [
+    -95.77,
+    35.99,
+    -89.1,
+    40.61
+   ],
+   "kind": "imagery",
+   "status": "available",
+   "checked_on": "2026-11-23",
+   "retest": {
+    "service_wkid": 26915,
+    "service_pixel": 0.15240030449580666,
+    "ok": true,
+    "point": [
+     38.57916667,
+     -92.17277778
+    ],
+    "blank": false,
+    "bytes": 8917,
+    "content_type": "image/jpeg",
+    "size": [
+     256,
+     256
+    ],
+    "request_seconds": 3.2,
+    "seconds": 5.41
+   }
+  },
+  {
+   "id": "nc-latest",
+   "name": "North Carolina orthoimagery, latest (NC OneMap)",
+   "protocol": "arcgis-imageserver",
+   "url": "https://services.nconemap.gov/secure/rest/services/Imagery/Orthoimagery_Latest/ImageServer",
+   "native_pixel_m": 0.1524,
+   "year": 2024,
+   "year_label": "latest of the four-year cycle",
+   "leaf_off": null,
+   "credit": "NC Center for Geographic Information and Analysis, NC 911 Board",
+   "terms_class": "open-with-credit",
+   "terms_quote": "all partner organizations understand this free and unrestricted use policy",
+   "terms_url": "https://www.nconemap.gov/pages/terms",
+   "states": [
+    "NC"
+   ],
+   "bbox": [
+    -84.32,
+    33.84,
+    -75.46,
+    36.59
+   ],
+   "kind": "imagery",
+   "status": "available",
+   "checked_on": "2026-11-23",
+   "retest": {
+    "service_wkid": 6543,
+    "service_pixel": 0.5,
+    "ok": true,
+    "point": [
+     35.78036111,
+     -78.63911111
+    ],
+    "blank": false,
+    "bytes": 13027,
+    "content_type": "image/jpeg",
+    "size": [
+     256,
+     256
+    ],
+    "request_seconds": 7.36,
+    "seconds": 7.81
+   }
+  },
+  {
+   "id": "nc-2020-2023",
+   "name": "North Carolina orthoimagery 2020-2023",
+   "protocol": "arcgis-imageserver",
+   "url": "https://services.nconemap.gov/secure/rest/services/Imagery/Orthoimagery_2020_2023/ImageServer",
+   "native_pixel_m": 0.1524,
+   "year": 2021,
+   "year_label": "2020-2023",
+   "leaf_off": null,
+   "credit": "NC Center for Geographic Information and Analysis, NC 911 Board",
+   "terms_class": "open-with-credit",
+   "terms_quote": "all partner organizations understand this free and unrestricted use policy",
+   "terms_url": "https://www.nconemap.gov/pages/terms",
+   "states": [
+    "NC"
+   ],
+   "bbox": [
+    -84.32,
+    33.84,
+    -75.46,
+    36.59
+   ],
+   "kind": "imagery",
+   "status": "available",
+   "checked_on": "2026-11-23",
+   "retest": {
+    "service_wkid": 6543,
+    "service_pixel": 0.5,
+    "ok": true,
+    "point": [
+     35.78036111,
+     -78.63911111
+    ],
+    "blank": false,
+    "bytes": 15619,
+    "content_type": "image/jpeg",
+    "size": [
+     256,
+     256
+    ],
+    "request_seconds": 8.57,
+    "seconds": 9.87
+   }
+  },
+  {
+   "id": "nc-2016-2019",
+   "name": "North Carolina orthoimagery 2016-2019",
+   "protocol": "arcgis-imageserver",
+   "url": "https://services.nconemap.gov/secure/rest/services/Imagery/Orthoimagery_2016_2019/ImageServer",
+   "native_pixel_m": 0.1524,
+   "year": 2017,
+   "year_label": "2016-2019",
+   "leaf_off": null,
+   "credit": "NC Center for Geographic Information and Analysis, NC 911 Board",
+   "terms_class": "open-with-credit",
+   "terms_quote": "all partner organizations understand this free and unrestricted use policy",
+   "terms_url": "https://www.nconemap.gov/pages/terms",
+   "states": [
+    "NC"
+   ],
+   "bbox": [
+    -84.32,
+    33.84,
+    -75.46,
+    36.59
+   ],
+   "kind": "imagery",
+   "status": "available",
+   "checked_on": "2026-11-23",
+   "retest": {
+    "service_wkid": 6543,
+    "service_pixel": 0.5,
+    "ok": true,
+    "point": [
+     35.78036111,
+     -78.63911111
+    ],
+    "blank": false,
+    "bytes": 14738,
+    "content_type": "image/jpeg",
+    "size": [
+     256,
+     256
+    ],
+    "request_seconds": 9.72,
+    "seconds": 11.92
+   }
+  },
+  {
+   "id": "nc-2012-2015",
+   "name": "North Carolina orthoimagery 2012-2015",
+   "protocol": "arcgis-imageserver",
+   "url": "https://services.nconemap.gov/secure/rest/services/Imagery/Orthoimagery_2012_2015/ImageServer",
+   "native_pixel_m": 0.1524,
+   "year": 2013,
+   "year_label": "2012-2015",
+   "leaf_off": null,
+   "credit": "NC Center for Geographic Information and Analysis, NC 911 Board",
+   "terms_class": "open-with-credit",
+   "terms_quote": "all partner organizations understand this free and unrestricted use policy",
+   "terms_url": "https://www.nconemap.gov/pages/terms",
+   "states": [
+    "NC"
+   ],
+   "bbox": [
+    -84.32,
+    33.84,
+    -75.46,
+    36.59
+   ],
+   "kind": "imagery",
+   "status": "available",
+   "checked_on": "2026-11-23",
+   "retest": {
+    "service_wkid": 6543,
+    "service_pixel": 0.5,
+    "ok": true,
+    "point": [
+     35.78036111,
+     -78.63911111
+    ],
+    "blank": false,
+    "bytes": 15570,
+    "content_type": "image/jpeg",
+    "size": [
+     256,
+     256
+    ],
+    "request_seconds": 8.96,
+    "seconds": 12.17
+   }
+  },
+  {
+   "id": "nc-2010",
+   "name": "North Carolina orthoimagery 2010",
+   "protocol": "arcgis-imageserver",
+   "url": "https://services.nconemap.gov/secure/rest/services/Imagery/Orthoimagery_2010/ImageServer",
+   "native_pixel_m": 0.1524,
+   "year": 2010,
+   "year_label": "2010",
+   "leaf_off": null,
+   "credit": "NC Center for Geographic Information and Analysis, NC 911 Board",
+   "terms_class": "open-with-credit",
+   "terms_quote": "all partner organizations understand this free and unrestricted use policy",
+   "terms_url": "https://www.nconemap.gov/pages/terms",
+   "states": [
+    "NC"
+   ],
+   "bbox": [
+    -84.32,
+    33.84,
+    -75.46,
+    36.59
+   ],
+   "kind": "imagery",
+   "status": "available",
+   "checked_on": "2026-11-23",
+   "retest": {
+    "service_wkid": 6543,
+    "service_pixel": 0.5,
+    "ok": true,
+    "point": [
+     35.78036111,
+     -78.63911111
+    ],
+    "blank": false,
+    "bytes": 12880,
+    "content_type": "image/jpeg",
+    "size": [
+     256,
+     256
+    ],
+    "request_seconds": 8.96,
+    "seconds": 13.17
+   }
+  },
+  {
+   "kind": "parcels",
+   "id": "nc-parcels",
+   "name": "North Carolina statewide parcels (NC OneMap)",
+   "protocol": "arcgis-feature",
+   "url": "https://services.nconemap.gov/secure/rest/services/NC1Map_Parcels/FeatureServer/1",
+   "credit": "NC Center for Geographic Information and Analysis (NCCGIA), NC county governments",
+   "terms_class": "open-with-credit",
+   "terms_quote": "all partner organizations understand this free and unrestricted use policy",
+   "terms_url": "https://www.nconemap.gov/pages/terms",
+   "fields": {
+    "id": "parno",
+    "owner": "ownname",
+    "acres": [
+     "gisacres"
+    ],
+    "land": "landval",
+    "improvements": "improvval",
+    "total": "parval",
+    "year_built": "structyear",
+    "address": "siteadd"
+   },
+   "states": [
+    "NC"
+   ],
+   "bbox": [
+    -84.32,
+    33.84,
+    -75.46,
+    36.59
+   ],
+   "status": "available",
+   "checked_on": "2026-11-23",
+   "retest": {
+    "ok": true,
+    "point": [
+     35.78036111,
+     -78.63911111
+    ],
+    "under_pin": 1,
+    "adjacent_same_owner": 0,
+    "seconds": 14.05,
+    "polygon_acres": 6.2043,
+    "layer_acres": 6.20321031,
+    "polygon_vs_layer_pct": 0.02,
+    "fields_present": [
+     "address",
+     "improvement_value",
+     "land_value",
+     "owner",
+     "total_value",
+     "year_built"
+    ]
+   }
+  }
+ ]
+}

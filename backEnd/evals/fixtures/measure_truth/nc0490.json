@@ -1,0 +1,322 @@
+{
+ "schema": "measure_truth/v1",
+ "id": "nc0490",
+ "name": "Carl Sandburg Home, Farm Manager's House",
+ "loc_url": "https://www.loc.gov/pictures/item/nc0490/",
+ "survey_number": "HABS NC-392-A",
+ "drawing_date": "1974",
+ "address": "Carl Sandburg Home National Historic Site, Flat Rock, Henderson County, NC",
+ "location": {
+  "lat": 35.2712927,
+  "lon": -82.4491013,
+  "how": "APPROXIMATE, not the building: the barn complex of the Sandburg farm (Connemara Farms on Google's view), between two candidate buildings east of it, from the drawing's site map (sheet 1, building 3 north of the barns, item 4). The farm manager's house could not be told apart on the public ortho (nc-latest 2024) or Google's view (8/21/2023): the candidates are under tree canopy"
+ },
+ "standing": {
+  "status": "unknown",
+  "source": "public ortho nc-latest (2024); Google aerial 8/21/2023",
+  "year": 2024,
+  "note": "NPS-owned and likely standing, but not identified from above; no change check possible. The 3DEP read failed on this point because the parcel under it is the whole 264-acre site (BASIS-GEO-011, more than 64 tiles). Usable for methods that read the appraisal (M0) only, until the building is placed."
+ },
+ "sheets": {
+  "1": "title, history, site map of the Sandburg estate",
+  "2": "first floor plan (1/4\" = 1'-0\") with dimension strings all round, roof line dashed",
+  "3": "second floor plan (1/4\" = 1'-0\"), the half story under the main roof",
+  "5": "roof plan (1/4\" = 1'-0\"), undimensioned, with wall-corner marks",
+  "6": "south and north elevations (1/4\" = 1'-0\"), no levels printed",
+  "7": "west elevation (1/4\" = 1'-0\"), no levels printed",
+  "8": "east elevation (1/4\" = 1'-0\"), no levels printed"
+ },
+ "stories": 1.5,
+ "roof_shape": "cross-gable (main gable, ridge east-west, with a lower gabled north wing; shed porch roof on the wing's west side, hipped porch roof on the south)",
+ "plan": {
+  "sheet": "2",
+  "scale": "1/4\" = 1'-0\"",
+  "north": "sheet right (E on the sheet). The arrow glyph has the letter N at its left end, but its filled half-head points right, the second-floor plan labels the sheet-top wall WEST WALL and the sheet-bottom wall EAST WALL, and the elevations agree (west elevation sees the wing and its porch on the viewer's left)",
+  "note": "Start at the main block's sheet-top-left corner, walk clockwise. L-shaped: main block 28'-3\" x 34'-10\" (sheet left) and the north wing 26'-7\" x 14'-0\" at its lower right; overall 54'-10\" x 34'-10\". The wing's sheet-top side carries an open porch (excluded).",
+  "chain": [
+   {
+    "dir": "E",
+    "length": {
+     "ft": 28.25,
+     "text": "28'-3\"",
+     "how": "printed",
+     "sheet": "2",
+     "note": "segments 6'-8\" + 2'-5\" + 10'-1\" + 2'-5\" + 6'-8\" = 28'-3\""
+    },
+    "label": "west wall of the main block (sheet top)"
+   },
+   {
+    "dir": "S",
+    "length": {
+     "ft": 20.8333,
+     "text": "20'-10\"",
+     "how": "derived",
+     "sheet": "2",
+     "note": "right string 6'-9\" + 3'-0\" + 7'-4\" + 2'-4\" + 1'-5\" from the main block's corner to the wing's porch-side wall"
+    },
+    "label": "main block's north wall above the wing (behind the wing porch)"
+   },
+   {
+    "dir": "E",
+    "length": {
+     "ft": 26.5833,
+     "text": "26'-7\"",
+     "how": "printed",
+     "sheet": "2",
+     "note": "54'-10\" - 28'-3\" = 26'-7\" agrees; the window segments under it (2'-8\" + 3'-0\" + 2'-10\" + 2'-10\" + 3'-8\" + 2'-10\" + 9'-0\") sum to 26'-10\" (see flags)"
+    },
+    "label": "wing's west wall, behind the porch"
+   },
+   {
+    "dir": "S",
+    "length": {
+     "ft": 14.0,
+     "text": "14'-0\"",
+     "how": "derived",
+     "sheet": "2",
+     "note": "right string 5'-6\" + 2'-6\" + 6'-0\""
+    },
+    "label": "wing's north end wall"
+   },
+   {
+    "dir": "W",
+    "length": {
+     "ft": 54.8333,
+     "text": "54'-10\"",
+     "how": "printed",
+     "sheet": "2",
+     "note": "segments 7'-2\" + 2'-5\" + 8'-0\" + 2'-5\" + 15'-6\" + 2'-5\" + 7'-6\" + 2'-8\" + 6'-9\" = 54'-10\""
+    },
+    "label": "east wall, wing and main block"
+   },
+   {
+    "dir": "N",
+    "length": {
+     "ft": 34.8333,
+     "text": "34'-10\"",
+     "how": "printed",
+     "sheet": "2",
+     "note": "left segments 8'-8\" + 2'-5\" + 5'-2\" + 3'-0\" + 5'-6\" + 2'-5\" + 7'-8\" = 34'-10\"; right string also 34'-10\""
+    },
+    "label": "south wall of the main block (front, behind the porch)"
+   }
+  ],
+  "overall": {
+   "ew": {
+    "ft": 54.8333,
+    "text": "54'-10\"",
+    "how": "printed",
+    "sheet": "2"
+   },
+   "ns": {
+    "ft": 34.8333,
+    "text": "34'-10\"",
+    "how": "printed",
+    "sheet": "2"
+   }
+  },
+  "excluded": [
+   "south front porch (sheet left), 5'-8 1/2\" deep x about 25 ft, hipped roof, stone steps beyond",
+   "west porch on the wing (sheet top of the wing), about 5'-10\" x 25'-11\", open on its long side",
+   "concrete curb around the wing"
+  ]
+ },
+ "floors": [
+  {
+   "level": "first",
+   "finished": true,
+   "same_as_ground": true,
+   "sheet": "2"
+  },
+  {
+   "level": "second (half story)",
+   "finished": true,
+   "sheet": "3",
+   "note": "A half story under the main gable with its own walls drawn, the full 34'-10\" length of the main block but only 12'-9\" wide at the west wall and 12'-5\" at the east wall (room widths printed 11'-10\"/11'-8\" and 11'-6\"/11'-5\"); the sheet-right wall is slightly skewed (scaled tick positions 4494 vs 4454 px, the left wall straight). Start at the top-left corner, clockwise.",
+   "chain": [
+    {
+     "dir": "E",
+     "length": {
+      "ft": 12.75,
+      "text": "12'-9\"",
+      "how": "printed",
+      "sheet": "3",
+      "note": "5'-0\" + 2'-6\" + 5'-3\""
+     },
+     "label": "west wall"
+    },
+    {
+     "bearing_deg": 180.548,
+     "length": {
+      "ft": 34.835,
+      "how": "derived",
+      "sheet": "3",
+      "note": "the printed 34'-10\" north-south with the 4\" taper (12'-9\" vs 12'-5\"): hypot(34.833, 0.333), bearing 180 + atan(0.333/34.833)"
+     },
+     "label": "north side wall (skewed)"
+    },
+    {
+     "dir": "W",
+     "length": {
+      "ft": 12.4167,
+      "text": "12'-5\"",
+      "how": "printed",
+      "sheet": "3",
+      "note": "6'-0\" + 2'-3\" + 4'-2\""
+     },
+     "label": "east wall"
+    },
+    {
+     "dir": "N",
+     "length": {
+      "ft": 34.8333,
+      "text": "34'-10\"",
+      "how": "printed",
+      "sheet": "3",
+      "note": "inside 13'-9\" + 6\" + 3'-2\" + 6\" + 15'-11\" = 33'-10\" plus two 6\" end walls"
+     },
+     "label": "south side wall"
+    }
+   ]
+  }
+ ],
+ "heights": {
+  "eave": {
+   "above_grade_ft": 10.15,
+   "how": "scaled",
+   "scale": "1/4\" = 1'-0\"",
+   "sheet": "6",
+   "elevation": "south",
+   "note": "mean of the two passes' scaled readings, 10.15 and 10.15 ft. no levels printed on any elevation. Lower edge of the main roof at sheet y 4490, the drawn grade at 5506 (level along the south front): 1016 px at 100.07 px/ft, calibrated on the main block's wall length 34'-10\" = 3486 px on the same elevation. Rafter tails hang to 4531 (9.75 ft). The site falls to the north and east: the wing's eave stands about 17 ft above the drawn grade on the north elevation and about 13 ft on the east."
+  },
+  "ridge": {
+   "above_grade_ft": 25.195,
+   "how": "scaled",
+   "scale": "1/4\" = 1'-0\"",
+   "sheet": "6",
+   "elevation": "south",
+   "note": "mean of the two passes, 25.2 and 25.19 ft. top of the main roof (ridge line) at sheet y 2984 over grade 5506: 2522 px at 100.07 px/ft"
+  },
+  "readings": [
+   {
+    "what": "main eave (roof edge), scaled",
+    "text": "10.15 ft above grade",
+    "datum_text": "drawn grade, south front",
+    "sheet": "6",
+    "elevation": "south"
+   },
+   {
+    "what": "main ridge, scaled",
+    "text": "25.20 ft above grade",
+    "datum_text": "drawn grade, south front",
+    "sheet": "6",
+    "elevation": "south"
+   },
+   {
+    "what": "front porch floor, scaled",
+    "text": "about 1.5 ft above grade",
+    "datum_text": "drawn grade, south front",
+    "sheet": "6",
+    "elevation": "south"
+   },
+   {
+    "what": "wing gable eave, scaled",
+    "text": "about 17.1 ft above grade",
+    "datum_text": "drawn grade at the wing's north end (basement exposed)",
+    "sheet": "6",
+    "elevation": "north"
+   },
+   {
+    "what": "wing gable apex, scaled",
+    "text": "about 25.3 ft above grade",
+    "datum_text": "drawn grade at the wing's north end",
+    "sheet": "6",
+    "elevation": "north"
+   }
+  ]
+ },
+ "roof": {
+  "overhang": {
+   "ft": 0.975,
+   "how": "scaled",
+   "scale": "1/4\" = 1'-0\"",
+   "sheet": "5",
+   "note": "mean of the two passes' scaled readings, 1.0 and 0.95 ft"
+  },
+  "eaves": [
+   "W",
+   "E"
+  ],
+  "note": "main gable ridge runs east-west (sheet vertical), so the main eaves are the sheet-left (south) and sheet-right (north) sides; the north wing's own eaves face east and west (sheet bottom and top, the top one under the porch shed). The eaves list names the main roof's sides only.",
+  "derive": false,
+  "derive_note": "L-shaped cross gable of two pitches with porch roofs"
+ },
+ "porches": [
+  {
+   "name": "south front porch",
+   "a": {
+    "ft": 5.7083,
+    "text": "5'-8 1/2\"",
+    "how": "printed",
+    "sheet": "2"
+   },
+   "b": {
+    "ft": 25.0,
+    "how": "scaled",
+    "scale": "1/4\" = 1'-0\"",
+    "sheet": "2",
+    "note": "porch floor edge sheet y 2245 to 4745 at 100 px/ft"
+   }
+  },
+  {
+   "name": "west porch on the north wing",
+   "a": {
+    "ft": 25.9,
+    "how": "scaled",
+    "scale": "1/4\" = 1'-0\"",
+    "sheet": "2",
+    "note": "main block wall (x 5825) to the end post line (8417)"
+   },
+   "b": {
+    "ft": 5.9,
+    "how": "scaled",
+    "scale": "1/4\" = 1'-0\"",
+    "sheet": "2",
+    "note": "porch edge y 3255 to the wing wall 3840"
+   }
+  }
+ ],
+ "passes": {
+  "a": "pass A: an independent reader of the 400 dpi sheets (2026-11-25), chain and heights read from crops",
+  "b": "pass B: a second independent reader of the same sheets (2026-11-25), not shown pass A",
+  "disagreements": [
+   {
+    "what": "everything scored",
+    "pass_a": "identical chain and heights to 0.01 ft",
+    "pass_b": "identical",
+    "resolved": "A"
+   },
+   {
+    "what": "overhang",
+    "pass_a": "1.0 ft scaled",
+    "pass_b": "0.95 ft scaled",
+    "resolved": "not scored (roof.derive false); the mean 0.975 ft is recorded"
+   }
+  ]
+ },
+ "flags": [
+  {
+   "code": "note",
+   "note": "The window string under the wing's 26'-7\" (2'-8\" + 3'-0\" + 2'-10\" + 2'-10\" + 3'-8\" + 2'-10\" + 9'-0\") sums to 26'-10\", 3\" over; by scale the second 2'-10\" is 2.67 ft and the 3'-8\" 3.58 ft. The chain keeps 26'-7\", which the 54'-10\" overall confirms."
+  },
+  {
+   "code": "note",
+   "note": "North arrow glyph is ambiguous (N lettered at the left end, filled head at the right); north = sheet right was fixed from the WEST WALL / EAST WALL labels on sheet 3 and the elevations."
+  },
+  {
+   "code": "note",
+   "note": "Heights are scaled (no levels printed) on a steep site; the south front is the only side with level grade. Eave above grade ranges about 10 ft (south) to 17 ft (north end of the wing)."
+  }
+ ],
+ "note": "Kept from pass A, with the resolutions in passes.disagreements."
+}
