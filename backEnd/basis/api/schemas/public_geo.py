@@ -107,6 +107,13 @@ class LidarBuildingOut(ResponseModel):
         "may be cut, or be a block of attached roofs. Merges well inside the area are not "
         "flagged.",
     )
+    outline: list[list[float]] = Field(
+        default_factory=list,
+        description="The roof outline from the lidar, including the overhangs; not the walls. "
+        "`[longitude, latitude]` corners counter-clockwise, the first not repeated at the end, "
+        "simplified to about one 0.5 m cell's diagonal (EVAL_REPORT 104.2). Empty for a gather "
+        "made before the outline was kept.",
+    )
 
 
 class LidarOut(ResponseModel):
