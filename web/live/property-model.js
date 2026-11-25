@@ -99,10 +99,48 @@
   else{rel=2*pixelFt*lines/lengthFt;if(scalePx)rel+=2/scalePx}
   return round2(rel*100);
  }
+ // Provenance (traced.py, EVAL_REPORT 104): who drew it, whether it was verified, the picture,
+ // the measurement it replaced. The same keys and the same words as the server.
+ const TOP_KEYS=['unit','space','shapes','scale','image','height_ft','drawn_by','verified','view','original'];
+ const VIEW_KEYS=['kind','id','label','width','height'],VIEW_KINDS=['capture','public','document'];
+ const MODEL_RE=/^model:[A-Za-z0-9][A-Za-z0-9._/-]{0,99}@[A-Za-z0-9][A-Za-z0-9._+-]{0,49}$/;
+ // Python's repr of a JSON value, shortened as traced._short does (for the messages).
+ function pyRepr(v){
+  if(v===null||v===undefined)return 'None';if(v===true)return 'True';if(v===false)return 'False';
+  if(typeof v==='string'){const q=v.includes("'")&&!v.includes('"')?'"':"'";return q+v.replace(/\\/g,'\\\\').replace(/\u0000/g,'\\x00').split(q).join('\\'+q)+q}
+  if(typeof v==='number')return String(v);
+  if(Array.isArray(v))return '['+v.map(pyRepr).join(', ')+']';
+  return '{'+Object.entries(v).map(([k,x])=>pyRepr(k)+': '+pyRepr(x)).join(', ')+'}';
+ }
+ const short=v=>{const t=pyRepr(v);return t.length<=60?t:t.slice(0,57)+'...'};
+ function provenance(m,add,nested,prefix){
+  const out={};
+  if(m.drawn_by!=null){if(typeof m.drawn_by==='string'&&(m.drawn_by==='engineer'||MODEL_RE.test(m.drawn_by)))out.drawn_by=m.drawn_by;else add('.drawn_by',`must be engineer or model:<name>@<version> (letters, digits and . _ - / +), got ${short(m.drawn_by)}`)}
+  if(m.verified!=null){if(typeof m.verified==='boolean')out.verified=m.verified;else add('.verified',`must be true or false, got ${short(m.verified)}`)}
+  const v=m.view;
+  if(v!=null){
+   if(typeof v!=='object'||Array.isArray(v))add('.view','must be an object with kind and an id or a label');
+   else{
+    const unknown=Object.keys(v).filter(k=>!VIEW_KEYS.includes(k)).sort();if(unknown.length)add('.view',`has unknown keys: ${unknown.join(', ')}`);
+    if(!VIEW_KINDS.includes(v.kind))add('.view.kind',`must be capture, public or document, got ${short(v.kind)}`);
+    for(const k of ['id','label'])if(v[k]!=null&&!(typeof v[k]==='string'&&v[k].trim()&&v[k].trim().length<=200&&!v[k].includes('\u0000')))add(`.view.${k}`,`must be text of 1 to 200 characters, got ${short(v[k])}`);
+    if(v.id==null&&v.label==null)add('.view','must name the picture by its id or its label');
+    if((v.width!=null)!==(v.height!=null))add('.view','takes width and height together (the pixel frame of the points)');
+    else if(v.width!=null)for(const k of ['width','height']){const x=v[k];if(typeof x!=='number'||!Number.isFinite(x))add(`.view.${k}`,`must be a number, got ${short(x)}`);else if(!(x>0&&x<=100000))add(`.view.${k}`,`must be above 0 and at most 100000, got ${short(x)}`)}
+    out.view=v;
+   }
+  }
+  if(m.original!=null){
+   if(nested)add('.original','cannot hold an original of its own: an edit keeps the first original only');
+   else{try{out.original=measure(m.original,prefix+'.original',true)}catch(e){if(!(e instanceof MeasurementError))throw e;out.originalProblems=e.problems}}
+  }
+  return out;
+ }
  // measure(body) -> the computed record the server stores beside the shape, or throws with every problem.
- function measure(m){
-  const problems=[],add=(w,t)=>problems.push(`measurement${w} ${t}`);
-  if(!m||typeof m!=='object'||Array.isArray(m))throw new MeasurementError(['measurement must be an object (unit, space, shapes, image)']);
+ function measure(m,prefix='measurement',nested=false){
+  const problems=[],add=(w,t)=>problems.push(`${prefix}${w} ${t}`);
+  if(!m||typeof m!=='object'||Array.isArray(m))throw new MeasurementError([`${prefix} must be an object (unit, space, shapes, image)`]);
+  const unknownTop=Object.keys(m).filter(k=>!TOP_KEYS.includes(k)).sort();if(unknownTop.length)add('',`has unknown keys: ${unknownTop.join(', ')}`);
   const {unit,space}=m;
   if(!UNITS.includes(unit))add('.unit',`must be SF, SY or LF (EA is counted, not traced), got ${JSON.stringify(unit)}`);
   if(!['lonlat','image'].includes(space))add('.space',`must be lonlat or image, got ${JSON.stringify(space)}`);
@@ -130,6 +168,7 @@
   if((unit==='SF'||unit==='SY')&&kind==='line'&&height===null)add('.height_ft',`is required to measure ${unit} with lines (a wall face: length x height)`);
   if((unit==='SF'||unit==='SY')&&kind==='area'&&height!==null)add('.height_ft','goes with line shapes (a wall face), not with areas');
   if(space==='lonlat')for(const s of shapes)for(const r of [s.ring||s.path||[],...(s.cutouts||[])])for(const [lon,lat] of r)if(!(lon>=-180&&lon<=180&&lat>=-85&&lat<=85)){add('.shapes','hold a point outside longitude -180 to 180 or latitude -85 to 85');break}
+  const prov=provenance(m,add,nested,prefix);if(prov.originalProblems)problems.push(...prov.originalProblems);
   if(problems.length)throw new MeasurementError(problems);
   const ref=(shapes[0].ring||shapes[0].path)[0][0];
   let areaSf=null,lengthFt=null,edges=0,corners=0,cutouts=0;
@@ -160,18 +199,27 @@
   if(problems.length)throw new MeasurementError(problems);
   const raw=areaSf!==null?(unit==='SY'?areaSf/SF_PER_SY:areaSf):lengthFt*(height||1)/(unit==='SY'?SF_PER_SY:1);
   const quantity=round2(raw);
-  if(!(Number(quantity)>0)||Number(quantity)>MAX_QUANTITY)throw new MeasurementError([`measurement comes to ${raw.toFixed(4)} ${unit}; the quantity must be above 0 and at most 10,000,000 (after rounding to 0.01)`]);
+  if(!(Number(quantity)>0)||Number(quantity)>MAX_QUANTITY)throw new MeasurementError([`${prefix} comes to ${raw.toFixed(4)} ${unit}; the quantity must be above 0 and at most 10,000,000 (after rounding to 0.01)`]);
   const pixelFt=space==='image'?feetPerPx:pixelSizeM===null?null:pixelSizeM*FT_PER_M;
-  return {unit,quantity,area_sf:areaSf===null?null:round2(areaSf),length_ft:lengthFt===null?null:round2(lengthFt),method:space==='image'?'image_scale':'local_tangent_plane_wgs84',
+  const out={unit,quantity,area_sf:areaSf===null?null:round2(areaSf),length_ft:lengthFt===null?null:round2(lengthFt),method:space==='image'?'image_scale':'local_tangent_plane_wgs84',
    expected_error_pct:expectedErrorPct({areaSf,lengthFt,edgesFt:edges,lines:shapes.length,pixelFt,scalePx}),shape_count:shapes.length,corner_count:corners,cutout_count:cutouts,scale_ft_per_px:feetPerPx};
+  // The original's record is its body with what it computes (traced.Traced.record()).
+  if(prov.original)out.original={...JSON.parse(JSON.stringify(m.original)),...prov.original};
+  return out;
  }
  function problems(m){try{measure(m);return []}catch(e){if(e instanceof MeasurementError)return e.problems;throw e}}
- // The takeoff's sentence (traced.py formula), for the row before the server answers.
- function formula(r,{source,captured_on,height_ft}={}){
+ // The takeoff's sentence (traced.py formula), for the row before the server answers. A model's
+ // draft reads "drafted by Basis" (the model's name is the record's, not the sentence's).
+ const whoDrew=d=>d!=null&&d!=='engineer'?'drafted by Basis':'traced by the engineer';
+ const qtext=q=>Number(q).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2});
+ function formula(r,{source,captured_on,height_ft,drawn_by,verified}={}){
   const n=r.shape_count,kind=r.area_sf!==null?'area':'line',noun=kind+(n!==1?'s':'');
   let counts=kind==='area'?`${n} ${noun} of ${r.corner_count} corners${r.cutout_count?` (${r.cutout_count} cut out)`:''}`:`${n} ${noun} of ${r.corner_count} points${height_ft!=null?` x ${height_ft} ft high`:''}`;
-  const q=Number(r.quantity).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2});
-  return `${q} ${r.unit} traced by the engineer on ${source} (${captured_on?'captured '+captured_on:'undated'}), ${counts}; ${r.expected_error_pct===null?'expected error unknown (no pixel size)':`expected error up to ${r.expected_error_pct} %`}`;
+  // Image space names its scale as the server does (`:.4g`: four significant digits, no trailing zeros).
+  const scale=r.scale_ft_per_px!=null?`, scale ${Number(Number(r.scale_ft_per_px).toPrecision(4))} ft per pixel`:'';
+  let tail='';if(verified!=null)tail+=verified?'; verified by the engineer':'; not verified';
+  if(r.original)tail+=`; replaces ${qtext(r.original.quantity)} ${r.original.unit} ${whoDrew(r.original.drawn_by)}`;
+  return `${qtext(r.quantity)} ${r.unit} ${whoDrew(drawn_by)} on ${source} (${captured_on?'captured '+captured_on:'undated'}), ${counts}${scale}; ${r.expected_error_pct===null?'expected error unknown (no pixel size)':`expected error up to ${r.expected_error_pct} %`}${tail}`;
  }
  // The review flags the server will write (traced.review_flags): never a refusal.
  function reviewFlags(r,{captured_on,placedInService,afterServiceDays=365,errorFlagPct=10}={}){
@@ -224,6 +272,17 @@
   const outside=(!a?.room||a.room.room_type==='exterior'||a.room.room_type==='parking')&&!!a?.label&&!a?.takeoff?.inputs?.measured_with_asset;
   const unit=measureUnit(a);
   return {needed:!!hit&&!!unit&&outside,offer:!!unit&&outside,reason:hit,unit};
+ }
+ // Measuring, widened (EVAL_REPORT 104): needsMeasurement's aerial answer unchanged (`aerial`,
+ // `needed`), plus any component with an area or a length, inside or out, on one of the study's
+ // photos scaled by a known length (`photo`), `photoNeeded` for a row held for a quantity that
+ // only a photo can size (inside the building), `any` for a row that should be measured at all,
+ // and `stored`, the measurement a sent correction (or, later, a model's draft) left on the row.
+ function measureOffer(a){
+  const n=needsMeasurement(a),own=!!a?.label&&!a?.takeoff?.inputs?.measured_with_asset,photo=!!n.unit&&own;
+  const raw=a?.takeoff?.inputs?.measurement,stored=raw&&typeof raw==='object'&&!Array.isArray(raw)&&Array.isArray(raw.shapes)?raw:null;
+  const photoNeeded=!!n.reason&&photo&&!n.offer;
+  return {...n,aerial:n.offer,photo,photoNeeded,any:n.offer||photo,anyNeeded:n.needed||photoNeeded,stored};
  }
 
  /* ---------- capture status (docs/api/PROPERTY_CAPTURE.md section 2; basis/capture/messages.py) ---------- */
@@ -336,6 +395,223 @@
   return image;
  }
 
+ /* ---------- the measure tool (EVAL_REPORT 104; docs/review_2026-10-15/AI_MEASUREMENT_PLAN.md section 3) ----------
+  * Shapes are drawn in the picture's own pixels. A frame says how two pixels become feet, the
+  * way the server measures the body the tool sends:
+  *   {space:'lonlat', toLonLat}  a georeferenced view: each segment on the tangent plane at its own
+  *                                middle latitude (traced.lonlat_path_length_ft), on the lon/lat the
+  *                                body carries (rounded to 1e-9 degree, as measurementBody rounds);
+  *   {space:'image', feetPerPx}  a photo or plan with a scale: planar pixels times the scale.
+  * So a line's labels sum to the server's length_ft exactly, and a ring's to its perimeter (the
+  * closed path measured the same way). Labels are feet and inches to the nearest inch; totals come
+  * from the unrounded values (EagleView: totals "based on the non-rounded values"). */
+ const LL_DIGITS=1e9;
+ const roundLL=v=>Math.round(v*LL_DIGITS)/LL_DIGITS;
+ function frameOf(view,{scale}={}){
+  if(scale){const s=scaleFeetPerPx(scale);return s?{space:'image',feetPerPx:s}:null}
+  const g=georef(view);if(!g)return null;
+  return {space:'lonlat',toLonLat:(x,y)=>g.toLonLat(x,y).map(roundLL),toPixel:g.toPixel};
+ }
+ // {points:[[x,y],[x,y]], length, unit:'ft'|'m'} -> feet per pixel, or null.
+ function scaleFeetPerPx(s){
+  const p=s?.points;if(!Array.isArray(p)||p.length!==2)return null;
+  const d=dist(p[0],p[1]),L=Number(s.length);if(!(d>=2)||!(L>0))return null;
+  return (s.unit==='m'?L*FT_PER_M:L)/d;
+ }
+ function segmentFt(a,b,frame){
+  if(frame.space==='image')return dist(a,b)*frame.feetPerPx;
+  return lonlatPathFt([frame.toLonLat(a[0],a[1]),frame.toLonLat(b[0],b[1])]);
+ }
+ // The length of every edge, in order: a ring's closing edge last.
+ function edgeLengths(points,closed,frame){
+  const n=points.length,out=[];
+  for(let i=0;i<(closed?n:n-1);i++)out.push(segmentFt(points[i],points[(i+1)%n],frame));
+  return out;
+ }
+ const sum=a=>a.reduce((t,x)=>t+x,0);
+
+ /* ----- lengths as people write them ----- */
+ // 54'-3" (the nearest inch); short: 54' (the nearest foot).
+ function ftIn(ft,{short=false}={}){
+  if(!Number.isFinite(ft))return '—';
+  if(short)return `${Math.round(ft).toLocaleString('en-US')}'`;
+  const inches=Math.round(ft*12),f=Math.floor(inches/12),i=inches-f*12;
+  return `${f.toLocaleString('en-US')}'-${i}"`;
+ }
+ const ftInWords=ft=>{const inches=Math.round(ft*12),f=Math.floor(inches/12),i=inches-f*12;return `${f.toLocaleString('en-US')} feet ${i} ${i===1?'inch':'inches'}`};
+ const MAX_TYPED_FT=100000;
+ // A typed length -> {ft} or {error}. Accepts 54'3", 54' 3", 54'-3", 54 ft 3 in, 54.25, 54.25 ft,
+ // 54.25', 36", 36 in, 16.5 m, 1650 cm; curly quotes and primes; commas in thousands.
+ function parseLength(raw){
+  const s=String(raw??'').trim().toLowerCase().replace(/[’′‘`´]/g,"'").replace(/[”″“]/g,'"').replace(/''/g,'"').replace(/(\d),(?=\d{3}\b)/g,'$1').replace(/\s+/g,' ');
+  const HINT='Type a length such as 54\'-3", 54.25 ft or 16.5 m.';
+  if(!s)return {error:HINT};
+  const N='(\\d+(?:\\.\\d*)?|\\.\\d+)';
+  let ft=null,m;
+  if((m=s.match(new RegExp(`^${N} ?(?:'|ft\\.?|feet|foot)(?: ?-? ?${N} ?(?:"|in\\.?|inch|inches)?)?$`)))){
+   const inch=m[2]===undefined?0:Number(m[2]);
+   if(inch>=12)return {error:`${m[2]} inches is a foot or more: write ${Number(m[1])+Math.floor(inch/12)}'-${+(inch%12).toFixed(4)}" instead.`};
+   ft=Number(m[1])+inch/12;
+  }
+  else if((m=s.match(new RegExp(`^${N} ?(?:"|in\\.?|inch|inches)$`))))ft=Number(m[1])/12;
+  else if((m=s.match(new RegExp(`^${N} ?(?:m|meters?|metres?)$`))))ft=Number(m[1])*FT_PER_M;
+  else if((m=s.match(new RegExp(`^${N} ?(?:cm|centimeters?|centimetres?)$`))))ft=Number(m[1])*FT_PER_M/100;
+  else if((m=s.match(new RegExp(`^${N}$`))))ft=Number(m[1]);
+  else return {error:`“${String(raw).trim().slice(0,40)}” is not a length. ${HINT}`};
+  if(!(ft>0))return {error:'A length is above zero.'};
+  if(ft>MAX_TYPED_FT)return {error:`A length is at most ${MAX_TYPED_FT.toLocaleString('en-US')} ft.`};
+  return {ft};
+ }
+ // Area as SF (SY too when the unit is SY), length as LF.
+ const areaText=(sf,unit)=>unit==='SY'?`${(sf/SF_PER_SY).toLocaleString('en-US',{maximumFractionDigits:1})} SY`:`${sf.toLocaleString('en-US',{maximumFractionDigits:sf<100?1:0})} SF`;
+ const lfText=ft=>`${ft.toLocaleString('en-US',{maximumFractionDigits:ft<100?1:0})} LF`;
+
+ /* ----- where the labels go ----- */
+ // One label per edge at its middle, outside the shape (a ring's outward normal; a line's left
+ // side), turned along the edge but never upside down (the angle in (-90, 90]), in full when the
+ // edge is long enough on screen, as whole feet when only that fits, else hidden (the edge list
+ // in the panel still has it). k: picture pixels per screen pixel; font: the label's size in
+ // screen pixels.
+ const CHAR_EM=0.62,LABEL_PAD=10,LABEL_GAP=6;
+ const labelWidth=(text,font)=>text.length*CHAR_EM*font+LABEL_PAD;
+ function edgeLabels(points,closed,lengthsFt,{k=1,font=12}={}){
+  const n=points.length,edges=closed?n:n-1,sign=closed&&shoelace(points)<0?-1:1,out=[];
+  for(let i=0;i<edges;i++){
+   const a=points[i],b=points[(i+1)%n],dx=b[0]-a[0],dy=b[1]-a[1],len=Math.hypot(dx,dy)||1e-12;
+   const full=ftIn(lengthsFt[i]),shortText=ftIn(lengthsFt[i],{short:true}),onScreen=len/k;
+   const mode=onScreen>=labelWidth(full,font)+LABEL_GAP?'full':onScreen>=labelWidth(shortText,font)+LABEL_GAP?'short':'hidden';
+   // y grows downwards: with a positive shoelace the right-hand normal (dy, -dx) points out.
+   const nx=dy/len*sign,ny=-dx/len*sign,off=font*0.95*k;
+   let angle=Math.atan2(dy,dx)*180/Math.PI;if(angle>90)angle-=180;else if(angle<=-90)angle+=180;
+   out.push({i,x:(a[0]+b[0])/2+nx*off,y:(a[1]+b[1])/2+ny*off,mx:(a[0]+b[0])/2,my:(a[1]+b[1])/2,angle,mode,text:mode==='full'?full:mode==='short'?shortText:'',full,words:ftInWords(lengthsFt[i]),ft:lengthsFt[i]});
+  }
+  return out;
+ }
+ // A point inside a ring for its area label: the centroid, or (a concave ring whose centroid is
+ // outside) the middle of the widest stretch of the horizontal through it.
+ function labelPoint(ring){
+  const a=shoelace(ring);let cx=0,cy=0;
+  if(Math.abs(a)>1e-12){const [x0,y0]=ring[0];for(let i=0;i<ring.length;i++){const [x1,y1]=ring[i],[x2,y2]=ring[(i+1)%ring.length],c=(x1-x0)*(y2-y0)-(x2-x0)*(y1-y0);cx+=(x1-x0+x2-x0)*c;cy+=(y1-y0+y2-y0)*c}cx=x0+cx/(6*a);cy=y0+cy/(6*a)}
+  else{cx=sum(ring.map(p=>p[0]))/ring.length;cy=sum(ring.map(p=>p[1]))/ring.length}
+  if(insideOrOn([cx,cy],ring))return [cx,cy];
+  const xs=[];for(let i=0;i<ring.length;i++){const p=ring[i],q=ring[(i+1)%ring.length];if((p[1]>cy)!==(q[1]>cy))xs.push(p[0]+(cy-p[1])*(q[0]-p[0])/(q[1]-p[1]))}
+  xs.sort((u,v)=>u-v);let best=null;for(let i=0;i+1<xs.length;i+=2)if(!best||xs[i+1]-xs[i]>best[1]-best[0])best=[xs[i],xs[i+1]];
+  return best?[(best[0]+best[1])/2,cy]:[cx,cy];
+ }
+ // What a shape says at its middle (areas: area and perimeter; a wall face: length x height).
+ function shapeSummary(shape,frame,{unit,heightFt=null}={}){
+  if(shape.kind==='line'){const ft=sum(edgeLengths(shape.path,false,frame));return {lengthFt:ft,text:heightFt>0?`${ftIn(ft)} × ${ftIn(heightFt)} = ${areaText(ft*heightFt,unit)}`:lfText(ft)}}
+  // The area as the server computes it: one tangent plane per shape (the ring's middle latitude,
+  // from its first corner), the cutouts on the same plane; image space planar.
+  const rings=[shape.ring,...(shape.cutouts||[])];let flat;
+  if(frame.space==='image')flat=rings.map(r=>r.map(([x,y])=>[x*frame.feetPerPx,y*frame.feetPerPx]));
+  else{const ll=rings.map(r=>r.map(([x,y])=>frame.toLonLat(x,y))),la=ll[0].map(p=>p[1]),lat0=(Math.min(...la)+Math.max(...la))/2;flat=ll.map(r=>plane(r,ll[0][0],lat0))}
+  const areaSf=Math.abs(shoelace(flat[0]))-sum(flat.slice(1).map(c=>Math.abs(shoelace(c)))),perimeterFt=sum(edgeLengths(shape.ring,true,frame));
+  return {areaSf,perimeterFt,text:`${areaText(areaSf,unit)} · ${lfText(perimeterFt)}`,area:areaText(areaSf,unit),perimeter:`${lfText(perimeterFt)} perimeter`};
+ }
+
+ /* ----- editing (every edit returns new points; the caller checks and records it) ----- */
+ const movePoint=(points,i,p)=>points.map((q,j)=>j===i?[p[0],p[1]]:q);
+ // A corner added in the middle of edge i (between corner i and the next).
+ const insertPoint=(points,i,p)=>[...points.slice(0,i+1),[p[0],p[1]],...points.slice(i+1)];
+ const removePoint=(points,i)=>points.filter((_,j)=>j!==i);
+ const minPoints=closed=>closed?3:2;
+ // Fusion's sketch dimension: edge i gets exactly `ft` by moving its far corner (the next one)
+ // along the edge's own direction; the edge after it stretches. Iterated on the frame's own
+ // length (lon/lat is not exactly linear in pixels); image space is exact in one step.
+ function setEdgeLength(points,i,ft,closed,frame){
+  const n=points.length,j=(i+1)%n;if(i<0||i>=(closed?n:n-1))throw new Error('No such edge.');
+  const a=points[i],b=points[j],len=dist(a,b),now=segmentFt(a,b,frame);if(!(len>0)||!(now>0))throw new Error('This edge has no length to change.');
+  const u=[(b[0]-a[0])/len,(b[1]-a[1])/len];let s=len*ft/now;
+  for(let it=0;it<6;it++){const L=segmentFt(a,[a[0]+u[0]*s,a[1]+u[1]*s],frame);if(Math.abs(L-ft)<=1e-9*ft)break;s*=ft/L}
+  return movePoint(points,j,[a[0]+u[0]*s,a[1]+u[1]*s]);
+ }
+ // The nearest of the shape's own corners, the parcel's corners, then the parcel's edges, within
+ // `radius` picture pixels (a few screen pixels times k). Corners win over edges.
+ function nearestOnSegment(p,a,b){const dx=b[0]-a[0],dy=b[1]-a[1],L=dx*dx+dy*dy;let t=L?((p[0]-a[0])*dx+(p[1]-a[1])*dy)/L:0;t=Math.max(0,Math.min(1,t));return [a[0]+t*dx,a[1]+t*dy]}
+ function snapPoint(p,{corners=[],segments=[],radius=0}={}){
+  let best=null;
+  for(const c of corners){const d=dist(p,c);if(d<=radius&&(!best||d<best.d))best={point:[c[0],c[1]],d,to:'corner'}}
+  if(best)return best;
+  for(const [a,b] of segments){const q=nearestOnSegment(p,a,b),d=dist(p,q);if(d<=radius&&(!best||d<best.d))best={point:q,d,to:'edge'}}
+  return best||{point:[p[0],p[1]],d:0,to:null};
+ }
+ const ringSegments=rings=>rings.flatMap(r=>r.map((a,i)=>[a,r[(i+1)%r.length]]));
+ // A point off the picture cannot be seen or edited; the server refuses negative pixels too.
+ const onPicture=(p,w,h)=>p[0]>=0&&p[1]>=0&&p[0]<=w&&p[1]<=h;
+
+ /* ----- undo and redo: snapshots of what the engineer drew ----- */
+ const HISTORY_LIMIT=200;
+ const snapshotOf=t=>JSON.stringify({shapes:t.shapes,draft:t.draft,scale:t.scale?{points:t.scale.points,length:t.scale.length,unit:t.scale.unit}:null});
+ function restoreSnapshot(t,snap){const o=JSON.parse(snap);t.shapes=o.shapes;t.draft=o.draft;if(o.scale&&t.scale)Object.assign(t.scale,o.scale);else if(o.scale)t.scale=o.scale}
+ function remember(t){t.hist||={past:[],future:[]};t.hist.past.push(snapshotOf(t));if(t.hist.past.length>HISTORY_LIMIT)t.hist.past.shift();t.hist.future=[]}
+ function undoTrace(t){if(!t.hist?.past.length)return false;t.hist.future.push(snapshotOf(t));restoreSnapshot(t,t.hist.past.pop());t.sel=null;return true}
+ function redoTrace(t){if(!t.hist?.future.length)return false;t.hist.past.push(snapshotOf(t));restoreSnapshot(t,t.hist.future.pop());t.sel=null;return true}
+
+ /* ----- the record, read back ----- */
+ const COMPUTED=['quantity','method','expected_error_pct','shape_count','corner_count','cutout_count','area_sf','length_ft','scale_ft_per_px'];
+ // A stored takeoff.inputs.measurement (the body plus what the server computed) -> the body
+ // again, as the server would take it (an original keeps its body, without its own computed keys).
+ function bodyOfRecord(rec){
+  if(!rec||typeof rec!=='object')return null;
+  const out={};for(const [k,v] of Object.entries(rec))if(!COMPUTED.includes(k))out[k]=k==='original'?bodyOfRecord(v):JSON.parse(JSON.stringify(v));
+  return out;
+ }
+ // A body's shapes in a view's pixels: lon/lat through the view's georeference (any georeferenced
+ // view: lon/lat is the ground), image pixels scaled from the frame they were drawn in (view.width).
+ function pixelShapes(body,view,{width,height}={}){
+  if(!body?.shapes)return null;
+  let to;
+  if(body.space==='lonlat'){const g=georef(view);if(!g)return null;to=([lon,lat])=>g.toPixel(lon,lat)}
+  else{const fw=Number(body.view?.width)||width,fh=Number(body.view?.height)||height,sx=width&&fw?width/fw:1,sy=height&&fh?height/fh:sx;to=([x,y])=>[x*sx,y*sy]}
+  const shapes=body.shapes.map(s=>s.kind==='line'?{kind:'line',path:s.path.map(to)}:{kind:'area',ring:dropClosing(s.ring).map(to),...(s.cutouts?.length?{cutouts:s.cutouts.map(c=>dropClosing(c).map(to))}:{})});
+  const scale=body.scale?{points:body.scale.points.map(to),length:body.scale.length,unit:body.scale.unit}:null;
+  return {shapes,scale};
+ }
+ // Who drew it, in words for the engineer (the model's name stays in the record).
+ const drawnByText=d=>d&&d!=='engineer'?'Drafted by Basis':'Traced by an engineer';
+ // The body the tool sends, with its provenance: an edit of a stored measurement keeps that
+ // measurement (or its own original, the first one) as `original`.
+ function withProvenance(body,{drawnBy='engineer',verified=null,view=null,replaces=null}={}){
+  const out={...body,drawn_by:drawnBy};
+  if(verified!==null)out.verified=!!verified;
+  if(view)out.view=view;
+  if(replaces){const first=replaces.original||replaces,clean={...first};delete clean.original;out.original=clean}
+  return out;
+ }
+ // Two bodies draw the same shapes (an unchanged draft is not an edit).
+ const sameShapes=(a,b)=>!!a&&!!b&&a.space===b.space&&a.unit===b.unit&&JSON.stringify(a.shapes)===JSON.stringify(b.shapes)&&JSON.stringify(a.scale||null)===JSON.stringify(b.scale||null)&&(a.height_ft??null)===(b.height_ft??null);
+ // The view a measurement records: which picture, so it can be drawn again.
+ function viewRef(view,{width,height}={}){
+  if(!view)return null;
+  if(view.kind==='document')return {kind:'document',id:String(view.id),...(view.label?{label:String(view.label).slice(0,200)}:{}),...(width&&height?{width,height}:{})};
+  if(view.source_id)return {kind:'public',id:String(view.id),...(view.year_label||view.year?{label:String(view.year_label||view.year)}:{})};
+  return {kind:'capture',id:String(view.id),...(view.label?{label:String(view.label)}:{})};
+ }
+ // A photo measured with a known length (space image): the body.
+ function imageBody({unit,shapes,scale,doc,width,height,heightFt=null}){
+  const r=p=>[Math.round(p[0]*1000)/1000,Math.round(p[1]*1000)/1000],R=pts=>pts.map(r);
+  const out={unit,space:'image',shapes:shapes.map(s=>s.kind==='line'?{kind:'line',path:R(s.path)}:{kind:'area',ring:R(s.ring),...(s.cutouts?.length?{cutouts:s.cutouts.map(R)}:{})}),
+   scale:{points:R(scale.points),length:Number(scale.length),unit:scale.unit==='m'?'m':'ft'},
+   image:{source:`Photo ${String(doc.filename||doc.id).slice(0,200)} of this study, scaled from a known length`,document_id:doc.id}};
+  if(heightFt!=null&&heightFt!=='')out.height_ft=Number(heightFt);
+  return out;
+ }
+ // Known lengths for scaling a photo (Basis's hint list; the engineer types what they know).
+ const KNOWN_LENGTHS=[
+  {label:'Door, height',length:80,unit:'in',note:'a standard interior or entry door (6\'-8")'},
+  {label:'Door, width',length:36,unit:'in',note:'an entry door; interior doors are often 30 or 32 in'},
+  {label:'Base cabinet, height',length:34.5,unit:'in',note:'without the countertop'},
+  {label:'Counter, height',length:36,unit:'in',note:'floor to the top of the countertop'},
+  {label:'Base cabinet, depth',length:24,unit:'in',note:'front to the wall'},
+ ];
+ // The per-edge comparison with the original (Basis's addition: AI 54'-3", engineer 54'-0").
+ // Edges are matched by position when both have the same count, else only the totals compare.
+ function edgeComparison(now,was){
+  if(!was||now.length!==was.length)return null;
+  return now.map((ft,i)=>({i,now:ft,was:was[i],change:ft-was[i]}));
+ }
+
  /* ---------- parcels, site check, lidar ---------- */
  function polygons(geometry){if(!geometry)return [];return geometry.type==='Polygon'?[geometry.coordinates]:geometry.type==='MultiPolygon'?geometry.coordinates:[]}
  // Every ring of a parcel as pixel points on a view (outer rings and holes).
@@ -384,7 +660,9 @@
  const anyProperty=c=>!!(c&&(c.propertyCapture||c.publicGeo));
 
  const api={FT_PER_M,radii,round2,measure,problems,formula,reviewFlags,expectedErrorPct,MeasurementError,georef,measurable,toMercator,fromMercator,
-  needsMeasurement,measureUnit,captureStatus,gatherStatus,noteText,clock,viewsOf,historyStrip,defaultMeasureView,leafText,dateText,yearOnly,dateOf,SIDE_TEXT,LOOKING,compass,
+  frameOf,scaleFeetPerPx,segmentFt,edgeLengths,ftIn,ftInWords,parseLength,areaText,lfText,edgeLabels,labelPoint,shapeSummary,movePoint,insertPoint,removePoint,minPoints,setEdgeLength,snapPoint,nearestOnSegment,ringSegments,onPicture,
+  remember,undoTrace,redoTrace,snapshotOf,bodyOfRecord,pixelShapes,drawnByText,withProvenance,sameShapes,viewRef,imageBody,KNOWN_LENGTHS,edgeComparison,lonlatPathFt,shoelace,insideOrOn,
+  needsMeasurement,measureOffer,measureUnit,captureStatus,gatherStatus,noteText,clock,viewsOf,historyStrip,defaultMeasureView,leafText,dateText,yearOnly,dateOf,SIDE_TEXT,LOOKING,compass,
   publicSeries,creditLine,measurementBody,imageOf,parcelRings,siteCheckText,lidarFacts,bracket,withBracket,caps,anyProperty,ringProblem,CAPTURE_FAILED,CAPTURE_PART};
  if(typeof module==='object'&&module.exports)module.exports=api;else scope.BasisPropertyModel=api;
 })(typeof globalThis==='object'?globalThis:this);
