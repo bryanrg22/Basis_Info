@@ -30,7 +30,15 @@
   - roof peak: the 99th percentile of the building's points above ground (the percentile
     rejects a chimney or a stray bird return; the maximum is reported beside it); eave: the
     5th percentile (the lowest roof points are the eaves; on a gable roof rising 3 m the
-    percentile reads about 0.15 m above them). A flat roof reads peak and eave alike.
+    percentile reads about 0.15 m above them). A flat roof reads peak and eave alike;
+  - the roof outline as a polygon (EVAL_REPORT 104.2): the building's cells' boundary traced
+    along the cell edges into one closed ring (counter-clockwise, no closing point repeated),
+    the straight runs merged to their corners, then simplified by Douglas-Peucker at
+    ``OUTLINE_TOLERANCE_M``, one cell's diagonal (a stair-stepped wall becomes one edge; a
+    rectangle keeps its four corners), and turned into lon/lat by the exact inverse of the cell
+    mapping (ground metres over ``cos(lat)`` to Mercator, then :func:`from_mercator`). It is
+    the roof as flown, overhangs included, not the walls. A simplification that would cross
+    itself is not used: the unsimplified corners are.
 """
 
 from __future__ import annotations
@@ -63,6 +71,16 @@ GROUND_RING_M: Final = (2.0, 15.0)
 EDGE_CELLS: Final = 2  # a footprint this close to the box's edge (1 m) is cut by it
 PEAK_PERCENTILE: Final = 99.0
 EAVE_PERCENTILE: Final = 5.0
+# Douglas-Peucker tolerance for the roof outline, in ground metres: one cell's diagonal (0.71 m).
+# EVAL_REPORT 104.2 (evals/lidar_outline_tolerance.py) measured 0, 0.25, 0.5, 0.71 and 1 m on
+# rasterized buildings of known shape: up to 0.25 m every stair step of a turned wall stays a
+# corner (30 to 110 corners on a rectangle); 0.5 m still leaves 6 to 8 corners and up to 3.3 %
+# more area than the cells; 0.71 m gives a turned rectangle its 4 corners at 10 to 45 degrees
+# and an L or a T its own (7 for the L at 30 degrees), within 1 % of the cells' area except the
+# rectangle at 45 degrees (3.3 % under the cells, 1.6 % under the true area); 1 m takes 2 % off
+# the turned L. A jog of 1 m or less is smoothed away from 0.5 m up (Douglas-Peucker measures it
+# from the line across it, half its depth).
+OUTLINE_TOLERANCE_M: Final = CELL_M * math.sqrt(2)
 CREDIT: Final = "U.S. Geological Survey, 3D Elevation Program (3DEP) lidar"
 TERMS_URL: Final = (
     "https://www.usgs.gov/information-policies-and-instructions/copyrights-and-credits"
@@ -237,6 +255,9 @@ class Building:
     # block of attached roofs that runs to it (EVAL_REPORT 101.5). Cautious: a building that
     # just fits is flagged too, and attached roofs merged well inside the area are not.
     reaches_box_edge: bool = False
+    # The roof outline, (lon, lat) corners counter-clockwise, the first not repeated at the end
+    # (EVAL_REPORT 104.2). Empty for a summary stored before it existed.
+    outline: tuple[tuple[float, float], ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -255,6 +276,130 @@ class LidarSummary:
     # Newer projects over the point that had no point in the box, passed over (EVAL_REPORT
     # 101.5: an index outline can be coarser than the project's data).
     skipped: tuple[str, ...] = ()
+
+
+Vertex = tuple[int, int]
+
+
+def trace_outline(mask: NDArray[np.bool_]) -> list[Vertex]:
+    """The outer boundary of a hole-free, 4-connected mask (``mask[i, j]``: ``i`` east, ``j``
+    north) along its cell edges: the corners ``(i, j)`` (cell-edge coordinates) of one closed
+    ring, counter-clockwise, starting at the lowest then leftmost corner, the first not repeated.
+    Each cell side that borders an empty cell is a directed edge with the cell on its left; the
+    edges are walked from vertex to vertex and the straight runs merged to their ends. A vertex
+    with two ways on (two cells meeting only at a corner) takes the left turn."""
+    m = np.pad(np.asarray(mask, dtype=bool), 1)
+    inner = m[1:-1, 1:-1]
+    if not inner.any():
+        return []
+    sides = (
+        (inner & ~m[1:-1, :-2], (0, 0), (1, 0)),  # south side, walked east
+        (inner & ~m[2:, 1:-1], (1, 0), (1, 1)),  # east side, walked north
+        (inner & ~m[1:-1, 2:], (1, 1), (0, 1)),  # north side, walked west
+        (inner & ~m[:-2, 1:-1], (0, 1), (0, 0)),  # west side, walked south
+    )
+    out_edges: dict[Vertex, list[Vertex]] = {}
+    for found, a, b in sides:
+        for i, j in zip(*np.nonzero(found), strict=True):
+            start = (int(i) + a[0], int(j) + a[1])
+            out_edges.setdefault(start, []).append((int(i) + b[0], int(j) + b[1]))
+    start = min(out_edges, key=lambda v: (v[1], v[0]))
+    ring = [start]
+    here, heading = start, (1, 0)
+    for _ in range(sum(len(v) for v in out_edges.values()) + 1):
+        ways = out_edges[here]
+        nxt = ways[0] if len(ways) == 1 else _left_turn(here, heading, ways)
+        ways.remove(nxt)
+        heading = (nxt[0] - here[0], nxt[1] - here[1])
+        if nxt == start:
+            break
+        ring.append(nxt)
+        here = nxt
+    # Only the corners: a vertex whose way in and way out are the same direction is dropped.
+    n = len(ring)
+    step = [
+        (ring[(k + 1) % n][0] - ring[k][0], ring[(k + 1) % n][1] - ring[k][1]) for k in range(n)
+    ]
+    return [v for k, v in enumerate(ring) if step[k - 1] != step[k]]
+
+
+def _left_turn(here: Vertex, heading: Vertex, ways: list[Vertex]) -> Vertex:
+    """Of two ways on from a corner two cells share, the one turning most counter-clockwise."""
+
+    def turn(v: Vertex) -> float:
+        d = (v[0] - here[0], v[1] - here[1])
+        return math.atan2(
+            heading[0] * d[1] - heading[1] * d[0], heading[0] * d[0] + heading[1] * d[1]
+        )
+
+    return max(ways, key=turn)
+
+
+def simplify_ring(
+    points: Sequence[tuple[float, float]], tolerance: float
+) -> list[tuple[float, float]]:
+    """Douglas-Peucker on a closed ring (D. H. Douglas and T. K. Peucker, 1973): split at the
+    first corner and the corner farthest from it, simplify each half, keep the order. A ring of
+    four or fewer corners, or a tolerance of 0, comes back as it is."""
+    pts = [(float(x), float(y)) for x, y in points]
+    if tolerance <= 0 or len(pts) <= 4:
+        return pts
+    far = max(range(len(pts)), key=lambda k: math.dist(pts[0], pts[k]))
+    first = _douglas_peucker(pts[: far + 1], tolerance)
+    second = _douglas_peucker([*pts[far:], pts[0]], tolerance)
+    return first[:-1] + second[:-1]
+
+
+def _douglas_peucker(
+    path: list[tuple[float, float]], tolerance: float
+) -> list[tuple[float, float]]:
+    keep = [False] * len(path)
+    keep[0] = keep[-1] = True
+    stack = [(0, len(path) - 1)]
+    while stack:
+        lo, hi = stack.pop()
+        if hi - lo < 2:
+            continue
+        (ax, ay), (bx, by) = path[lo], path[hi]
+        length = math.hypot(bx - ax, by - ay)
+        best, at = -1.0, -1
+        for k in range(lo + 1, hi):
+            px, py = path[k]
+            d = (
+                abs((bx - ax) * (ay - py) - (ax - px) * (by - ay)) / length
+                if length > 0
+                else math.hypot(px - ax, py - ay)
+            )
+            if d > best:
+                best, at = d, k
+        if best > tolerance:
+            keep[at] = True
+            stack += [(lo, at), (at, hi)]
+    return [p for p, k in zip(path, keep, strict=True) if k]
+
+
+def outline_of(
+    mask: NDArray[np.bool_],
+    *,
+    west_m: float,
+    south_m: float,
+    cx: float,
+    cy: float,
+    k: float,
+    tolerance: float = OUTLINE_TOLERANCE_M,
+) -> tuple[tuple[float, float], ...]:
+    """The roof outline in (lon, lat): the traced corners in ground metres east and north of
+    the pin, simplified, then through the exact inverse of :func:`measure`'s cell mapping."""
+    from basis.domain.traced import ring_problem
+
+    corners = trace_outline(mask)
+    if len(corners) < 3:
+        return ()
+    metres = [(west_m + i * CELL_M, south_m + j * CELL_M) for i, j in corners]
+    simple = simplify_ring(metres, tolerance)
+    if len(simple) < 3 or ring_problem(simple) is not None:
+        simple = metres
+    return tuple(from_mercator(cx + e / k, cy + n / k) for e, n in simple)
 
 
 def measure(
@@ -338,6 +483,7 @@ def measure(
             distance_m=distance,
             outline_cells=int(edge.sum()),
             reaches_box_edge=reaches_edge,
+            outline=outline_of(mask, west_m=west_m, south_m=south_m, cx=cx, cy=cy, k=k),
         ),
     )
 

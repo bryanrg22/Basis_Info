@@ -519,6 +519,14 @@ Measure is offered on every row with an area or a length; the dialog's photos ar
 own as thumbnails and the rest in one list. Found in passing: in sample mode the error capture posts
 to the static server (`/sample/v1/client-errors`, 501) when a gitignored sample photo is missing.
 
+**Photo | Diagram** (EVAL_REPORT 104.1): on a georeferenced top-down view the picture can be swapped
+for a clean plan in the same pixels (lot lines from `public.parcels`, the study's lon/lat
+measurements from `takeoff.inputs.measurement` and the pending assets draft, a legend, north, a
+scale bar from `pixel_size_m`), under the unchanged overlay; kept per browser. It also draws
+`lidar.building.outline` (EVAL_REPORT 104.2: the roof outline, overhangs included), which the measure
+tool snaps to in both modes; north arrow, scale bar and source sit in the stage's corners (labels kept
+clear of them), the key in a strip under the picture.
+
 **Not built (open):** the other three gates' drafts (section 2: their corrections need titles
 rebuilt from rows); showing another engineer's draft (`others`) and a stale draft to carry over;
 a 422 at save time placed next to its correction (it is a toast); cut-outs drawn on a photo are

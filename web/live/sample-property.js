@@ -180,7 +180,10 @@
    message:status==='agree'?`The parcel’s area agrees with the appraisal’s site area (within 5 %).`:status==='adjacent_match'?'The owner’s adjacent parcels together match the appraisal’s site area: the site is these parcels.':`The parcel under the pin is ${Math.round(under.area_sqft).toLocaleString('en-US')} SF; the appraisal’s site area is ${appraisal.toLocaleString('en-US')} SF (${diff>=0?'+':''}${diff.toFixed(1)} %). Check the appraisal’s site area or the pin.`,
    appraisal_sqft:appraisal,parcel_sqft:under.area_sqft,layer_sqft:Math.round(under.layer_acres*43560),polygon_sqft:under.area_sqft,difference_pct:Math.round(diff*10)/10,parcels:status==='adjacent_match'?ps.map(x=>x.parcel_id):[under.parcel_id],combined_sqft:status==='adjacent_match'?combined:null,tolerance_pct:5};
  }
- const LIDAR={project:'Sample statewide lidar (synthetic)',year:2021,points:4812,density_per_m2:8.2,building:{footprint_m2:205.3,footprint_sqft:2209.9,peak_m:8.9,max_m:10.2,eave_m:5.6,ground_elevation_m:177.0,points:1684,distance_m:0},code:null,credit:'Sample elevation program (synthetic)',terms_class:'public-domain',terms_url:'https://sample.basis.invalid/terms/lidar'};
+ // The lidar's roof outline (EVAL_REPORT 104.2): the house and the garage as one roof, 0.2 m of
+ // overhang beyond their walls (205.6 m2, the footprint's 205.3 within a cell's rounding).
+ const ROOF_OUTLINE=[[-7.2,-5.2],[12.2,-5.2],[12.2,2.2],[5.2,2.2],[5.2,7.2],[-7.2,7.2]].map(([e,n])=>toLonLat(e,n).map(v=>Math.round(v*1e9)/1e9));
+ const LIDAR={project:'Sample statewide lidar (synthetic)',year:2021,points:4812,density_per_m2:8.2,building:{footprint_m2:205.3,footprint_sqft:2209.9,peak_m:8.9,max_m:10.2,eave_m:5.6,ground_elevation_m:177.0,points:1684,distance_m:0,outline:ROOF_OUTLINE},code:null,credit:'Sample elevation program (synthetic)',terms_class:'public-domain',terms_url:'https://sample.basis.invalid/terms/lidar'};
  function publicOut(S,I){
   const P=stateOf(S,I),g=P.gathers[P.gathers.length-1];
   if(!g||!P.pin||P.pin.lat==null)return {enabled:true,gather:g?gatherOut(S,g):null,current:null,history:[],parcels:[],site_check:null,lidar:null};

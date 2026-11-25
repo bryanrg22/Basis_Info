@@ -49,6 +49,19 @@ to redirect.
   length and its length typed or picked from the hints; the area and line tools wait for it. The scale line is drawn with its length.
 * **Zoom.** A small shape opens zoomed onto it (2x or 4x); the zoomed picture keeps its scroll
   across renders.
+* **Photo | Diagram.** A switch beside the zoom on every georeferenced top-down view (not on
+  photos) swaps the picture for a clean plan in the same pixels: light ground, lot lines (adjacent
+  dashed), each measured item in its type's colour with its lengths and total, a key, north, a scale
+  bar in round feet and the picture's date and source. The overlay is the same in both, so a shape
+  can be traced on the photo and checked on the plan. Photo by default; the choice is kept in this
+  browser. The lidar's roof outline is drawn grey with its edge lengths and in the key, and the
+  tool snaps to it (in photo mode too): the shape's own corners first, then the building's corners
+  and edges, then the parcel's. The north arrow, scale bar and source sit in the stage's corners
+  over the picture, so they stay on screen when zoomed (the scale bar a round length chosen for the
+  current zoom); no length or name is placed under them, at any zoom or scroll. The key is a strip
+  at the top of the bar under the picture, one line per item, so it never covers the drawing. A
+  name sits inside its shape or outside every other, with a leader that crosses no label, lot line
+  or other shape; else it is left out and named in the title (it stays in the key). Captures 40 to 47 (sample) and 50 to 59 (live).
 
 Headless captures at 1440 x 900 on the sample (`?mode=live&api=sample&sample=assets&property=confirmed&measure=draft`),
 kept with the private work files (`$BASIS_EVAL_DATA_DIR/work/measure_tool/`): 01 to 27 on the

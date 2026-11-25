@@ -16293,3 +16293,165 @@ the existing property tests unchanged (backEnd/tests/LEDGER.md).
   maintainer's decision (plan section 8.3); no review flag is raised for one.
 * Not built: the other gates' drafts, snapping to a building outline and to right angles, slope,
   colour by asset type, the diagram in the report, phones.
+
+### 104.1 Photo | Diagram: a clean plan under the same overlay (2026-11-25)
+
+**Question.** Bryan asked to switch the measure picture between the real picture and a clean, simple
+diagram with "the lines and everything" staying put. Can a plan drawn from data the study already
+has (no model call) sit under the measure tool's overlay at exactly the same place?
+
+**Method.** On a georeferenced top-down view (capture views, public orthos; not study photos) the
+picture is replaced by an SVG with the view's own width, height and viewBox, so the overlay needs no
+change. It draws, EagleView-style: the lot lines from the parcels (`parcelRings`, adjacent ones
+dashed); every lon/lat measurement of the study on that picture (stored `takeoff.inputs.measurement`,
+or the pending one in the assets review), projected with the view's `georef` (the inverse of what the
+tool traces with); a colour per asset type (eight strokes, each 6.0:1 to 8.1:1 on the diagram's
+ground, WCAG AA) with edge lengths and a total; a legend with each type once; a north arrow from
+the view's heading; a scale bar in round feet (1, 2 or 5 x 10^n, at most a quarter of the picture)
+from `pixel_size_m`; the picture's date and source. Image-space measurements, ones off the picture
+and the asset being edited (drawn by the tool on top) are left out.
+
+| Check | Result |
+|---|---|
+| A parcel corner and a measured corner, diagram vs overlay | the same pixel (`georef.toPixel`); back through the tool's frame to the lon/lat within 1e-9 degree |
+| Scale bar on the close aerial (8.41 cm a pixel) | 50 ft = 181.2128 px; px x pixel size = 50 ft to 1e-9 |
+| Headless (sample, 1440 x 900): the patio's corners on screen, photo vs diagram | identical to the pixel; a length typed in diagram mode applies as in photo mode |
+| Live (Lincoln Home capture, pin moved back to its point and confirmed, no new capture): a gutter traced on the real close aerial, 93.75 LF | the three corners at the same screen pixels in photo and diagram; the Property page's diagram lists "Gutter · 93.75 LF"; the trace then removed (draft deleted) |
+
+**Verdict.** The diagram is a different background, not a different drawing: the overlay, editing
+and snapping are untouched. Nothing is priced or stored by it. The choice is kept per browser
+(Photo by default) and still works for the session with storage blocked.
+
+Tests: `measure-diagram.test.cjs` 8; the web suite 555.
+
+**Open.** The legend, north arrow and scale bar sit at the picture's corners, so a zoomed-in view
+scrolls them out of sight; the building outline is not drawn (no outline polygon is stored); on the
+live study the public records were gathered around an earlier pin, so there is no lot line there;
+the diagram is not in the report.
+
+### 104.2 The lidar roof outline as a polygon, drawn in the diagram (2026-11-25)
+
+**Question.** The diagram (104.1) on a study with no parcel and nothing measured was an empty sheet:
+the lidar gave the building's footprint area but no polygon. Can the outline the lidar already
+finds be kept as a polygon, with corners an engineer would recognise and an area true to the cells?
+
+**Method.** `basis/geo/lidar.py` traces the building's cells (0.5 m, closed and hole-filled, one
+component, as before) along their edges into one ring (counter-clockwise, the first corner not
+repeated), merges straight runs to their corners, simplifies by Douglas-Peucker and maps back to
+lon/lat through the exact inverse of the cell mapping. The tolerance was chosen on buildings of
+known shape rasterized at the lidar grid (`uv run python -m evals.lidar_outline_tolerance`), then
+checked on the real lidar at the Lincoln Home (USGS_LPC_IL_WestCentral_2017_LAS_2019, read again from
+the public tiles):
+
+| Shape | 0 m (cell corners) | 0.25 m | 0.5 m | **0.71 m (chosen)** | 1 m |
+|---|---|---|---|---|---|
+| rectangle 12 x 8 m at 0 deg (4) | 4 · 0.0 % | 4 · 0.0 % | 4 · 0.0 % | **4 · 0.0 %** | 4 · 0.0 % |
+| rectangle at 10 deg (4) | 30 · 0.0 % | 30 · 0.0 % | 4 · +0.3 % | **4 · +0.3 %** | 4 · +0.3 % |
+| rectangle at 22.5 deg (4) | 62 · 0.0 % | 58 · 0.0 % | 7 · +3.3 % | **4 · +0.5 %** | 4 · +0.5 % |
+| rectangle at 30 deg (4) | 78 · 0.0 % | 42 · 0.0 % | 8 · +1.0 % | **4 · +0.3 %** | 4 · +0.3 % |
+| rectangle at 45 deg (4) | 110 · 0.0 % | 102 · 0.0 % | 6 · +3.3 % | **4 · -3.3 %** | 4 · -3.3 % |
+| L 10 x 10 m less 5 x 5 at 0 deg (6) | 6 · 0.0 % | 6 · 0.0 % | 6 · 0.0 % | **6 · 0.0 %** | 6 · 0.0 % |
+| L at 30 deg (6) | 78 · 0.0 % | 46 · 0.0 % | 8 · -0.5 % | **7 · +1.0 %** | 6 · -2.0 % |
+| T (8) | 8 · 0.0 % | 8 · 0.0 % | 8 · 0.0 % | **8 · 0.0 %** | 8 · 0.0 % |
+| house 14 x 9 m with a 1 m jog (6) | 6 · 0.0 % | 6 · 0.0 % | 4 · 0.0 % | **4 · 0.0 %** | 4 · 0.0 % |
+| **Lincoln Home, real lidar** | 36 · 0.0 % | 34 · 0.0 % | 6 · -5.0 % | **6 · -5.0 %** | 4 · -6.2 % |
+
+Each cell: corners kept · the outline's area against the cells' area (the reported footprint). The
+true corner count in parentheses. Every ring stayed simple.
+
+**Verdict.** One cell's diagonal (0.71 m) gives every turned rectangle its 4 corners and an L or a T
+its own, within 1 % of the cells' area on the synthetic shapes except the 45 degree rectangle
+(-3.3 % against the cells, -1.6 % against the true area). On the real roof the outline keeps 6
+corners and reads 5.0 % under the cells (190.3 against 200.5 m²): the real edge is ragged by a cell,
+and Douglas-Peucker keeps the inner stair corners as often as the outer ones, so the line sits about
+a third of a cell inside. The footprint figure is unchanged (the cells' area); the polygon is for
+seeing and snapping, never a quantity. A jog of 1 m or less is smoothed away from 0.5 m up. The
+summary's heights, footprint, counts and flags are byte-identical to main's on the synthetic tests;
+a gather stored before the outline reads with `outline: []`. No migration: the summary is stored as
+JSON.
+
+**The diagram.** The outline is drawn grey with its edge lengths and in the key ("Building · roof
+outline from 2019 lidar · 2,158 SF"); the measure tool snaps to it after the shape's own corners and
+before the parcel, in photo mode too. The key, north arrow, scale bar and source now sit in the
+stage's corners over the zoomed picture, and the scale bar is chosen for the screen (a round length,
+at most 140 px, from the pixel size times the picture pixels per screen pixel), so it stays true
+when zoomed.
+
+**Live check** (API, worker and geo worker restarted on this branch): the pin moved from the capture
+centre (a street intersection) to a point inside the Lincoln Home's roof and confirmed; Gather them
+again (public sources only) found the lidar building under the pin (distance 0, 6 outline corners)
+and no parcel (`BASIS-GEO-009`, as before: no parcel layer answered for the county). The captured
+views now read as taken around an earlier pin and are still offered for measuring. A gutter traced
+on the close aerial in diagram mode with clicks 3 px off three outline corners landed exactly on
+them; the trace was removed (draft deleted, no decision sent).
+
+Tests: `test_lidar_outline.py` 8 (rectangle 4 corners with the cells' area, L 6, T 8, a stair-stepped
+wall within tolerance, a pinch, the lon/lat round trip within 1 cm, the synthetic building's outline
+area within 0.5 % of its footprint, the regression against main's values, an old body without
+`outline`); `measure-diagram.test.cjs` 10; the backend unit suite 6,325, the geo tests 64, the web
+suite 557.
+
+**Found in the lead's live check, fixed the same day.** Zoom on the Property page kept the scroll in
+pixels, so 200 % slid the view to the top left and the building left it (the dialog measured the
+middle against the pane, not the picture). Both now keep the picture point at the middle of the view:
+live, 100 to 200 % kept (0.5, 0.5), and a view scrolled to the building kept (0.6798, 0.2877) through
+400 % and back, in diagram and photo mode. The pin covered the building's label; every diagram label
+is now placed clear of the pin (the building's below the outline when the pin is inside it). Web
+suite 561. No wheel or pinch zoom exists to fix. A second live check found the building's name, moved
+below the outline, sitting on the bottom edge's length label: names are now placed after every edge
+label, tested against each label already placed and the pin (inside the shape first, then below or
+above, then beside). Live, at 100 % and 200 %, no name meets an edge label or the pin's halo and no
+edge label meets the pin (measured on the rendered boxes). Web suite 564.
+
+A third check found edge labels of different shapes meeting: on the sample's Property page at 100 %
+the patio's bottom length and the building's top length overlapped (one overlap among 14 labels).
+Every label is now placed against every label already placed and the pin, in a fixed order: the
+active trace's labels first (never moved or hidden), then each measured item's lengths and name, then
+the building's. A colliding length tries the other side of its edge, then slides along it (within the
+edge's middle half), then a smaller offset; if nothing fits it is left out and named in the diagram's
+title and aria text ("Not drawn for lack of room: ..."), its length still in the edge list. Rendered
+boxes, all labels and the pin's halo: the sample at 100, 200 and 400 % (10, 12, 12 labels; one
+building length left out at 100 %, none at 200 and 400 %) and the live roof at the same zooms (6, 7,
+7 labels): zero overlaps. Unit tests add the same for the sample and live geometry at three scales
+and a fence traced across the patio and the garage. Web suite 569.
+
+A fourth check, in the Measure dialog, found the patio's name drawn inside the building's outline below
+it, so the building read as the patio. A name now sits inside its own shape or outside every other
+shape (the building, each measured shape, the trace's areas; never over another's area), on the
+picture; outside its shape and apart from it, a short leader runs to the shape's nearest edge; if no
+place qualifies the name is left out of the drawing and named in the title and aria text (it stays in
+the key). Tests: the patio-above-building geometry at the dialog's scale with the patio's inside taken
+(the name goes outside, clear of the building, with a leader ending on the patio's edge), and every
+name against every other shape's polygon (a 9 x 9 grid of the box) on the sample and live geometry at
+the Property page's and the dialog's scales for 100, 200 and 400 %, with and without a fence traced
+across. Removing the area check fails two tests; removing the leader fails one. Rendered, in the
+dialog (Fence, Close aerial, Diagram, 1440 x 900) at 100, 200 and 400 %, without and with a fence
+drawn across the patio and the building: zero label overlaps and no name over another shape (with the
+fence at 100 % the patio's name goes outside with a leader); the Property page still zero. Web suite
+574.
+
+A fifth check found the patio's name under the key (HTML over the stage's corner). The key is now a
+strip at the top of the bar under the picture (one line per item, wrapping), never over the drawing.
+The north arrow, scale bar and source note stay over the picture; their screen rectangles, mapped
+into the diagram's picture pixels at the current zoom and scroll (`PM.furnitureObstacles`), are taken
+before any label is placed, recomputed after every render and 60 ms after a pan. The trace's own
+labels, drawn by the tool, never move and may sit under them (seen once: the fence's 47'-5" under the
+source note at 200 % panned to the top-left corner). Measured furniture at 1440 x 900: north 36 x 43,
+scale bar 132 (page) or 142 (dialog) x 36, source 482 or 548 x 38. Placing names around the others
+showed two more faults, fixed with the same check: a leader drawn through a length label, and the
+patio's name below the building with its leader through the building. A leader now crosses no label
+and no other shape's edge (a place that needs one does not qualify), and a name and its leader keep
+to their side of the lot lines where they can (else anywhere that qualifies). Unit tests: the
+furniture mapping; every label and name against the furniture on both stages, sample and live, at
+100, 200 and 400 % panned to two corners and the middle (over 500 label-furniture pairs; without the
+furniture taken some would be under it); no leader crosses a label or another shape, with and without
+the fence and the furniture; names and leaders on their side of the lot lines; the key outside the
+stage's view. Mutations (furniture ignored, leader check off, shapes left out of the leader check,
+lot lines off) each fail a test. Rendered, both stages (sample, the dialog with a fence drawn by hand,
+live), 100, 200 and 400 %, panned: zero label overlaps, zero lengths or names under furniture, no
+name over another shape, the key outside the stage's view. Web suite 578.
+
+**Open.** No lot line on the live study (no parcel); the outline is the roof, not the walls; the
+building is not drawn in photo mode (only snapped to); the outline is not checked against a surveyed
+footprint.
+
