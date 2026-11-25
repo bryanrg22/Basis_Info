@@ -341,9 +341,10 @@
 .mt-stage .mt-stage-view{display:grid}
 .mt-furniture{position:absolute;inset:0;pointer-events:none;font:500 12px/1.35 Inter,system-ui,sans-serif;color:#1d3328}
 .mt-furniture>*{position:absolute;background:rgba(255,255,255,.92);border:1px solid #cfd8d2;border-radius:8px;box-shadow:0 1px 3px rgba(16,30,23,.12)}
-.mt-f-key{top:10px;left:10px;padding:6px 10px;max-width:min(320px,45%)}
-.mt-f-key strong{font-weight:700}.mt-f-key ul{list-style:none;margin:2px 0 0;padding:0;display:grid;gap:2px}
-.mt-f-key li{display:flex;align-items:center;gap:6px}.mt-f-key p{margin:4px 0 0;color:#4f6258;font-style:italic}
+/* The key: a strip at the top of the bar under the picture, never over the drawing */
+.mt-f-key{flex:1 0 100%;display:flex;flex-wrap:wrap;align-items:center;gap:2px 14px;padding:5px 10px;background:rgba(255,255,255,.94);color:#1d3328;border-radius:8px;font:500 12px/1.35 Inter,system-ui,sans-serif}
+.mt-f-key strong{font-weight:700}.mt-f-key ul{display:contents;list-style:none;margin:0;padding:0}
+.mt-f-key li{display:flex;align-items:center;gap:6px;min-width:0}.mt-f-key p{margin:0;color:#4f6258;font-style:italic}
 .mt-f-swatch{width:11px;height:11px;border-radius:2px;flex:0 0 auto;background:color-mix(in srgb,var(--c) 30%,#fff);border:1.5px solid var(--c)}
 .mt-f-swatch.is-building{--c:#4b5563}
 .mt-f-north{top:10px;right:10px;padding:4px 6px}.mt-f-north path{fill:#1d3328}.mt-f-north text{fill:#1d3328;text-anchor:middle;font-weight:700}

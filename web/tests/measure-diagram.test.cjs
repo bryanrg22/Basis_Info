@@ -98,10 +98,14 @@ test('the Property page draws the diagram in place of the picture, under the sam
  assert.match(html,/<svg class="mt-diagram" viewBox="0 0 1440 900"/);assert.ok(vb.filter(v=>v==='0 0 1440 900').length>=2,'diagram and overlay share the box');
  assert.match(html,/<div class="pa-canvas is-diagram"[^>]*><svg class="mt-diagram"/,'the picture is replaced by the diagram');
  assert.match(html,/class="mt-d-lot"/);assert.match(html,/class="mt-d-lot is-adjacent"/);assert.doesNotMatch(html,/class="pa-parcel/,'the overlay leaves the lot lines to the diagram');
- // the key, north and the scale bar sit in the stage's corners, outside the zoomed picture
+ // north, the scale bar and the source sit in the stage's corners, outside the zoomed picture
  const furniture=/<div class="mt-furniture" data-mt-furniture="property">[\s\S]*?<\/div><\/div><\/div>/.exec(html)?.[0]||'';
  assert.match(html,/<\/div><\/div><div class="mt-furniture" data-mt-furniture="property">/,'after the zoom pane, not inside it');
- assert.match(furniture,/Building · roof outline from 2021 lidar · 2,210 SF/);assert.match(furniture,/Patio · 845\.4 SF/);assert.match(furniture,/mt-f-north/);
+ assert.match(furniture,/mt-f-north/);assert.doesNotMatch(furniture,/mt-f-key|Patio · /,'the key is not over the picture');
+ // the key: the first row of the bar under the picture, outside the stage's view
+ const view=/<div class="mt-stage-view">[\s\S]*?<div class="pa-stage-tools">/.exec(html)[0];assert.doesNotMatch(view,/mt-f-key/);
+ const key=/<div class="pa-stage-tools"><div class="mt-f-key" data-mt-key="property">([\s\S]*?)<\/div>/.exec(html)?.[1]||'';
+ assert.match(key,/Building · roof outline from 2021 lidar · 2,210 SF/);assert.match(key,/Patio · 845\.4 SF/);
  const bar=/data-scale-px="([^"]+)" data-scale-ft="([^"]+)" data-k="([^"]+)"/.exec(html);
  assert.ok(Math.abs(Number(bar[1])*Number(bar[3])*0.0841*PM.FT_PER_M-Number(bar[2]))<1e-9,'screen pixels x picture pixels per screen pixel x pixel size = the length');
  assert.ok(Number(bar[1])<=140);
@@ -246,14 +250,16 @@ test('the building’s name is placed after the edge labels, clear of every one 
  const at04=layout(0.4,pin);const fits=[[-1,-1],[1,-1],[1,1],[-1,1]].every(([sx,sy])=>PM.insideOrOn([at04.name[0]+sx*at04.box.w/2,at04.name[1]+sy*at04.box.h/2],ROOF));
  assert.ok(fits,'zoomed in, it fits inside the outline away from the pin');
  // with no pin and nothing in the way it stays at the outline's label point
- const free=PM.placeName(ROOF,{w:20,h:10},{boxes:[]});assert.deepEqual(free,{at:PM.labelPoint(ROOF),inside:true});
+ const free=PM.placeName(ROOF,{w:20,h:10},{boxes:[]});assert.deepEqual(free,{at:PM.labelPoint(ROOF),inside:true,leader:null});
 });
 test('placeName tries inside, then below and above sliding past what is in the way, then beside',()=>{
  const sq=[[0,0],[100,0],[100,100],[0,100]],big={w:150,h:20};
- assert.deepEqual(PM.placeName(sq,big,{pin:{at:[50,50],r:10}}),{at:[50,100+4+10],inside:false},'too wide for the inside: below');
+ const under=PM.placeName(sq,big,{pin:{at:[50,50],r:10}});assert.deepEqual([under.at,under.inside],[[50,100+4+10],false],'too wide for the inside: below');assert.deepEqual(under.leader,{from:[50,104],to:[50,100],crosses:false},'4 px off the square: a short leader');
  const below={at:[50,114],w:200,h:20};
  const p=PM.placeName(sq,big,{pin:{at:[50,50],r:10},boxes:[below]}).at;assert.ok(!PM.boxesMeet({at:p,...big},below,4)&&p[1]<0,'below is taken: above');
- const p2=PM.placeName(sq,big,{pin:{at:[50,50],r:10},boxes:[{at:[50,40],w:400,h:400}]}).at;assert.ok(!PM.boxesMeet({at:p2,...big},{at:[50,40],w:400,h:400},4));
+ // the shape buried under a label: any place outside needs a leader through that label, so none
+ assert.equal(PM.placeName(sq,big,{pin:{at:[50,50],r:10},boxes:[{at:[50,40],w:400,h:400}]}),null);
+ const p2=PM.placeName(sq,big,{pin:{at:[50,50],r:10},boxes:[{at:[50,150],w:400,h:60}]}).at;assert.ok(!PM.boxesMeet({at:p2,...big},{at:[50,150],w:400,h:60},4)&&p2[1]<0,'below is taken and above is free');
  const small={w:20,h:10},q=PM.placeName(sq,small,{pin:{at:[50,50],r:10}});
  assert.ok(q.inside&&PM.insideOrOn(q.at,sq)&&!PM.boxMeetsCircle(q.at,small,[50,50],14),'small enough: inside, away from the pin');
 });
@@ -284,7 +290,7 @@ test('leaderFor: none when the name touches its shape; else from the box’s sid
  const sq=[[0,0],[100,0],[100,100],[0,100]],box={w:40,h:20};
  assert.equal(PM.leaderFor([50,50],box,sq,true),null,'inside');
  assert.equal(PM.leaderFor([50,105],box,sq,true),null,'over its edge');
- const l=PM.leaderFor([50,140],box,sq,true);assert.deepEqual(l,{from:[50,130],to:[50,100]});
+ const l=PM.leaderFor([50,140],box,sq,true);assert.deepEqual(l,{from:[50,130],to:[50,100],crosses:false});
  assert.equal(PM.leaderFor([50,112],box,[[0,100],[100,100]],false,4),null,'a line: near enough needs none');
  assert.ok(PM.leaderFor([50,140],box,[[0,100],[100,100]],false,4),'a line: apart, a leader');
 });
@@ -414,4 +420,67 @@ test('placeEdgeLabel: its own side, the other side, slid along the middle half, 
  const other=PM.placeEdgeLabel(l,sq,true,box,{boxes:[{at:[l.x,l.y],w:60,h:18}]});assert.ok(other.at[1]>0,'inside, the other side');
  const slid=PM.placeEdgeLabel(l,sq,true,box,{boxes:[{at:[100,0],w:20,h:60}]});assert.ok(Math.abs(slid.at[0]-100)<=50+1e-9&&Math.abs(slid.at[0]-100)>0,'slid, within the middle half');
  assert.equal(PM.placeEdgeLabel(l,sq,true,box,{boxes:[{at:[100,0],w:400,h:200}]}),null);
+});
+// The furniture over the picture (north, scale bar, source note), at the sizes measured on the
+// rendered stages at 1440 x 900 (EVAL_REPORT 104.2), in the pane's corners, 10 px in.
+const STAGES={page:{W:900,H:562.5,scale:132,credit:482},dialog:{W:996,H:622.5,scale:142,credit:548}};
+function furnitureRects({W,H,scale,credit}){const R=(l,t,w,h)=>({left:l,top:t,width:w,height:h,right:l+w,bottom:t+h});
+ return [R(W-10-36,10,36,43),R(10,H-10-36,scale,36),R(W-10-credit,H-10-38,credit,38)]}
+test('furnitureObstacles: screen rectangles into the diagram’s picture pixels, at the zoom and scroll; off the diagram dropped',()=>{
+ const svg={left:-100,top:-50,width:1800,height:1125,right:1700,bottom:1075};// 1440 x 900 shown at 1.25 x, scrolled
+ const [a,b]=PM.furnitureObstacles(svg,[{left:10,top:10,width:36,height:43,right:46,bottom:53},{left:-500,top:0,width:20,height:20,right:-480,bottom:20}],[1440,900]).concat([undefined]);
+ assert.deepEqual(a,{at:[(28+100)/1.25,(31.5+50)/1.25],w:36/1.25,h:43/1.25});assert.equal(b,undefined,'wholly off the diagram');
+ assert.deepEqual(PM.furnitureObstacles({width:0,height:0},[],[1,1]),[]);
+});
+test('no length or name goes under the north arrow, scale bar or source note: both stages, sample and live, 100, 200 and 400 %, panned to each corner and the middle',async()=>{
+ const x=await boot({storage:memory()});const {model,v,pin}=await sampleModel(x);
+ const g=PM.georef(LIVE_VIEW),view={...LIVE_VIEW,id:'live'};
+ const live=PM.diagramModel({view,building:PM.buildingOnView({year:2019,building:{footprint_m2:200.5,outline:ROOF.map(p=>g.toLonLat(...p))}},view)}),livePin={at:[980,195],r:Math.max(7,1440/110)*1.9};
+ let checked=0,wouldBeUnder=0;
+ for(const [where,st] of Object.entries(STAGES))for(const z of [1,2,4])for(const [fx,fy] of [[0,0],[0.5,0.5],[1,1]]){
+  const svg={left:-(st.W*z-st.W)*fx,top:-(st.H*z-st.H)*fy,width:st.W*z,height:st.H*z};svg.right=svg.left+svg.width;svg.bottom=svg.top+svg.height;
+  for(const [m,vv,p] of [[model,v,pin],[live,view,livePin]]){
+   const k=m.w/svg.width,obstacles=PM.furnitureObstacles(svg,furnitureRects(st),[m.w,m.h]),pp=where==='page'?p:null;
+   const {html}=x.Live.diagramBodyFor(m,vv,{k,pin:pp,obstacles});
+   for(const b of labelBoxes(html,k))for(const o of obstacles){checked++;assert.ok(!PM.boxesMeet(b,o),`${where} ${z*100} % pan ${fx},${fy}: a ${b.kind} at ${b.at.map(Math.round)} under the furniture`)}
+   const bare=x.Live.diagramBodyFor(m,vv,{k,pin:pp});for(const b of labelBoxes(bare.html,k))if(obstacles.some(o=>PM.boxesMeet(b,o)))wouldBeUnder++;
+  }
+ }
+ assert.ok(checked>500,`labels checked against the furniture (${checked})`);
+ assert.ok(wouldBeUnder>0,`without the furniture taken, some label would be under it (${wouldBeUnder}): the test has teeth`);
+});
+test('a leader goes round a label in its way, to the nearest edge point it can reach; no leader crosses a label on the sample and live diagrams',async()=>{
+ const sq=[[0,0],[100,0],[100,100],[0,100]],box={w:40,h:20},label={at:[50,110],w:30,h:16};
+ const l=PM.leaderFor([50,140],box,sq,true,0,[label]);assert.ok(l&&!PM.segmentMeetsBox(l.from,l.to,{at:label.at,w:label.w-2,h:label.h-2})&&Math.abs(l.to[1]-100)<1e-9,'to the bottom edge, past the label');
+ assert.ok(PM.segmentMeetsBox([50,130],[50,100],label)&&!PM.segmentMeetsBox([0,130],[10,130],label));
+ const x=await boot({storage:memory()});const {model,v,pin}=await sampleModel(x);
+ const g=PM.georef(LIVE_VIEW),view={...LIVE_VIEW,id:'live'};
+ const live=PM.diagramModel({view,building:PM.buildingOnView({year:2019,building:{footprint_m2:200.5,outline:ROOF.map(p=>g.toLonLat(...p))}},view)});
+ x.Live.measurePicture.set('diagram');const fence=x.items.find(a=>a.label==='fence');x.Live.state.docId=fence.id;await x.page(()=>x.Live.screens.property());
+ const t=x.Live.state.property[x.study.id].trace,px=([e,n])=>[720+e/0.0841,450-n/0.0841];t.shapes=[{kind:'line',path:[[-14,12],[8,12],[8,-2]].map(px)}];
+ let leaders=0;
+ for(const [where,ks] of [['page',PAGE_K],['dialog',DIALOG_K]])for(const k of ks)for(const [m,vv,p,trace] of [[model,v,pin,null],[model,v,pin,t],[live,view,{at:[980,195],r:Math.max(7,1440/110)*1.9},null]]){
+  const st=STAGES[where],z=m.w/k/st.W,svg={left:-(st.W*z-st.W)/2,top:-(st.H*z-st.H)/2,width:st.W*z,height:st.H*z};svg.right=svg.left+svg.width;svg.bottom=svg.top+svg.height;
+  const {html}=x.Live.diagramBodyFor(m,vv,{k,pin:where==='page'?p:null,trace,obstacles:PM.furnitureObstacles(svg,furnitureRects(st),[m.w,m.h])}),boxes=labelBoxes(html,k);
+  for(const ln of html.matchAll(/<line class="mt-d-leader[^"]*" x1="([-\d.]+)" y1="([-\d.]+)" x2="([-\d.]+)" y2="([-\d.]+)"[^>]*data-own="([^"]+)"/g)){leaders++;const [a,b,c,d]=ln.slice(1,5).map(Number);
+   for(const bx of boxes)if(bx.kind!=='name')assert.ok(!PM.segmentMeetsBox([a,b],[c,d],{at:bx.at,w:bx.w-2,h:bx.h-2}),`k ${k}: a leader crosses the ${bx.kind} at ${bx.at.map(Math.round)}`);
+   // nor runs across another shape (the patio's leader through the building would make it the building's)
+   for(const ar of areasOf(m,trace))if(ar.own!==ln[5])for(let i=0;i<ar.p.length;i++)assert.ok(!PM.segmentsCross([a,b],[c,d],ar.p[i],ar.p[(i+1)%ar.p.length]),`${where} k ${k}: the leader of ${ln[5]} crosses ${ar.own}`)}
+ }
+ assert.ok(leaders>0,'some names stand apart with a leader');
+});
+test('segmentsCross; a name and its leader keep to their side of the lot lines when they can (sample, both stages, three zooms, with the fence)',async()=>{
+ assert.ok(PM.segmentsCross([0,0],[10,10],[0,10],[10,0]));assert.ok(!PM.segmentsCross([0,0],[10,0],[10,0],[20,5]),'touching at an end');assert.ok(!PM.segmentsCross([0,0],[10,0],[0,1],[10,1]));
+ const x=await boot({storage:memory()});const {model,v,pin}=await sampleModel(x);
+ x.Live.measurePicture.set('diagram');const fence=x.items.find(a=>a.label==='fence');x.Live.state.docId=fence.id;await x.page(()=>x.Live.screens.property());
+ const t=x.Live.state.property[x.study.id].trace,px=([e,n])=>[720+e/0.0841,450-n/0.0841];t.shapes=[{kind:'line',path:[[-14,12],[8,12],[8,-2]].map(px)}];
+ const lots=model.lots.flatMap(l=>l.points.map((p,i)=>[p,l.points[(i+1)%l.points.length]]));assert.ok(lots.length>=8);
+ let n=0;
+ for(const [where,ks] of [['page',PAGE_K],['dialog',DIALOG_K]])for(const k of ks)for(const trace of [null,t]){
+  const st=STAGES[where],z=model.w/k/st.W,svg={left:-(st.W*z-st.W)/2,top:-(st.H*z-st.H)/2,width:st.W*z,height:st.H*z};svg.right=svg.left+svg.width;svg.bottom=svg.top+svg.height;
+  const {html}=x.Live.diagramBodyFor(model,v,{k,pin:where==='page'?pin:null,trace,obstacles:PM.furnitureObstacles(svg,furnitureRects(st),[model.w,model.h])});
+  for(const b of nameBoxes(html,k)){n++;for(const [p,q] of lots)assert.ok(!PM.segmentMeetsBox(p,q,b),`${where} k ${k}${trace?' fence':''}: the name of ${b.own} crosses a lot line`)}
+  for(const ln of html.matchAll(/<line class="mt-d-leader[^"]*" x1="([-\d.]+)" y1="([-\d.]+)" x2="([-\d.]+)" y2="([-\d.]+)"/g)){const [a,b,c,d]=ln.slice(1).map(Number);for(const [p,q] of lots)assert.ok(!PM.segmentsCross([a,b],[c,d],p,q),`${where} k ${k}: a leader crosses a lot line`)}
+ }
+ assert.ok(n>=20);
 });

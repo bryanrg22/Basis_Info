@@ -138,7 +138,7 @@
   if(tracing){scopes.property={s,t:u.trace,v,w,h,parcels:parcelPx,building:buildingPx,doc:null};parts.push(toolLayer(u.trace,v))}
   else if(u.saved?.viewId===v.id&&u.saved.assetId===L.docId)parts.push(toolLayer({shapes:u.saved.shapes,draft:[],tool:'area',unit:u.saved.unit,space:'lonlat',k:u.trace?.k||null},v,{readOnly:true}));
   const zoom=u.zoom||1,mode=u.mode==='pin'?'is-pin':u.mode==='measure'?'is-measure':'';
-  return `<div class="pa-stage ${mode}" data-zoom="${zoom}"><div class="mt-stage-view"><div class="pa-zoom" tabindex="0" aria-label="Picture; scroll to pan when zoomed"><div class="pa-canvas${diagram?' is-diagram':''}" style="width:${zoom*100}%;aspect-ratio:${w}/${h}">${diagram?diagramFor('property',s,v,{except:tracing?u.trace.assetId:null,trace:tracing?u.trace:null,pin:g&&u.layers.pin&&prop.pin?.lat!=null?{at:g.toPixel(prop.pin.lon,prop.pin.lat),r:Math.max(7,w/110)*1.9}:null}):img(s,v,v.label||'Property picture','pa-photo')}<svg class="pa-overlay" viewBox="0 0 ${w} ${h}" preserveAspectRatio="none" data-pa-stage="${esc(v.id)}" data-mt-scope="property" role="img" aria-label="${esc(overlayLabel(prop,pub,u))}">${parts.join('')}</svg>${tracing?editBox(u.trace,v,w,h,'property'):''}</div></div>${diagram?furnitureHtml('property'):''}</div><div class="pa-stage-tools"><div class="pa-zoom-tools" role="group" aria-label="Zoom"><button class="pa-icon-btn" data-live="pa-zoom" data-value="out" aria-label="Zoom out" ${zoom<=1?'disabled':''}>−</button><span>${zoom*100}%</span><button class="pa-icon-btn" data-live="pa-zoom" data-value="in" aria-label="Zoom in" ${zoom>=4?'disabled':''}>+</button></div>${pictureToggle(v)}${g?`<label class="pa-toggle"><input type="checkbox" data-pa-layer="pin" ${u.layers.pin?'checked':''}> Pin</label>${pub?.parcels?.length&&!diagram?`<label class="pa-toggle"><input type="checkbox" data-pa-layer="parcel" ${u.layers.parcel?'checked':''}> Parcel</label>`:''}`:''}</div>${caption(v)}</div>`;
+  return `<div class="pa-stage ${mode}" data-zoom="${zoom}"><div class="mt-stage-view"><div class="pa-zoom" tabindex="0" aria-label="Picture; scroll to pan when zoomed"><div class="pa-canvas${diagram?' is-diagram':''}" style="width:${zoom*100}%;aspect-ratio:${w}/${h}">${diagram?diagramFor('property',s,v,{except:tracing?u.trace.assetId:null,trace:tracing?u.trace:null,pin:g&&u.layers.pin&&prop.pin?.lat!=null?{at:g.toPixel(prop.pin.lon,prop.pin.lat),r:Math.max(7,w/110)*1.9}:null}):img(s,v,v.label||'Property picture','pa-photo')}<svg class="pa-overlay" viewBox="0 0 ${w} ${h}" preserveAspectRatio="none" data-pa-stage="${esc(v.id)}" data-mt-scope="property" role="img" aria-label="${esc(overlayLabel(prop,pub,u))}">${parts.join('')}</svg>${tracing?editBox(u.trace,v,w,h,'property'):''}</div></div>${diagram?furnitureHtml('property'):''}</div><div class="pa-stage-tools">${diagram?keyHtml('property'):''}<div class="pa-zoom-tools" role="group" aria-label="Zoom"><button class="pa-icon-btn" data-live="pa-zoom" data-value="out" aria-label="Zoom out" ${zoom<=1?'disabled':''}>−</button><span>${zoom*100}%</span><button class="pa-icon-btn" data-live="pa-zoom" data-value="in" aria-label="Zoom in" ${zoom>=4?'disabled':''}>+</button></div>${pictureToggle(v)}${g?`<label class="pa-toggle"><input type="checkbox" data-pa-layer="pin" ${u.layers.pin?'checked':''}> Pin</label>${pub?.parcels?.length&&!diagram?`<label class="pa-toggle"><input type="checkbox" data-pa-layer="parcel" ${u.layers.parcel?'checked':''}> Parcel</label>`:''}`:''}</div>${caption(v)}</div>`;
  }
  const overlayLabel=(prop,pub,u)=>[u.mode==='pin'?'Click the house to move the pin.':u.mode==='measure'?'Click corners to trace.':'',prop.pin?'The pin marks the house.':'',pub?.parcels?.length?'The parcel outline is drawn.':''].filter(Boolean).join(' ');
  const marker=(x,y,w,cls)=>{const r=Math.max(7,w/110);return `<g class="${cls}" transform="translate(${x.toFixed(1)} ${y.toFixed(1)})"><g class="pa-pin-mark"><circle r="${r*1.9}" class="pa-pin-halo"/><circle r="${r}" class="pa-pin-dot"/></g></g>`};
@@ -565,7 +565,7 @@ ${toolPanel('property',s,a,t,v,{})}
   // A small shape opens zoomed in on it (a patio on a 120 m wide aerial is a few dozen pixels).
   if(!D.zoom){const box=shapesBox(t);D.zoom=box&&box.w<w/8&&box.h<h/8?4:box&&box.w<w/4&&box.h<h/4?2:1;D.centre=D.zoom>1}
   const zoom=D.zoom;
-  return wrap(`<div class="mt-dialog-body"><div class="mt-dialog-main">${chips(views,pick)}<div class="pa-stage is-measure mt-stage"><div class="mt-stage-view"><div class="pa-zoom" tabindex="0" aria-label="Picture to measure on; scroll to pan when zoomed">${toolCanvas('dialog',t,v,{w,h,imgHtml,extraSvg:extra,label:`Measuring ${title} on ${on}`,zoom})}</div>${diagramOn(v)?furnitureHtml('dialog'):''}</div><div class="pa-stage-tools"><div class="pa-zoom-tools" role="group" aria-label="Zoom"><button class="pa-icon-btn" data-live="mt-zoom" data-value="out" aria-label="Zoom out" ${zoom<=1?'disabled':''}>−</button><span>${zoom*100}%</span><button class="pa-icon-btn" data-live="mt-zoom" data-value="in" aria-label="Zoom in" ${zoom>=8?'disabled':''}>+</button></div>${pictureToggle(v)}<p class="pa-caption">${esc(on)}</p></div></div></div><aside class="mt-dialog-side" data-mt-root="dialog">${toolPanel('dialog',s,a,t,v,{doc,w,h})}</aside></div>`);
+  return wrap(`<div class="mt-dialog-body"><div class="mt-dialog-main">${chips(views,pick)}<div class="pa-stage is-measure mt-stage"><div class="mt-stage-view"><div class="pa-zoom" tabindex="0" aria-label="Picture to measure on; scroll to pan when zoomed">${toolCanvas('dialog',t,v,{w,h,imgHtml,extraSvg:extra,label:`Measuring ${title} on ${on}`,zoom})}</div>${diagramOn(v)?furnitureHtml('dialog'):''}</div><div class="pa-stage-tools">${diagramOn(v)?keyHtml('dialog'):''}<div class="pa-zoom-tools" role="group" aria-label="Zoom"><button class="pa-icon-btn" data-live="mt-zoom" data-value="out" aria-label="Zoom out" ${zoom<=1?'disabled':''}>−</button><span>${zoom*100}%</span><button class="pa-icon-btn" data-live="mt-zoom" data-value="in" aria-label="Zoom in" ${zoom>=8?'disabled':''}>+</button></div>${pictureToggle(v)}<p class="pa-caption">${esc(on)}</p></div></div></div><aside class="mt-dialog-side" data-mt-root="dialog">${toolPanel('dialog',s,a,t,v,{doc,w,h})}</aside></div>`);
  };
  // The picture picker: the top-down views as chips; the asset's own photos (where it was seen,
  // then its room's) as a few thumbnails; every other photo behind one "All photos" list.
@@ -602,7 +602,8 @@ ${toolPanel('property',s,a,t,v,{})}
  function diagramFor(scope,s,v,{except=null,pin=null,trace=null}={}){
   const pub=pubEntry(s)?.data,items=assetsEntry(s).data?.items||[],pending=L.corrections?.assets_review||null;
   const model=PM.diagramModel({view:v,parcels:pub?.parcels||[],measured:PM.measuredOnView(items,v,{pending,except}),editing:!!except,building:PM.buildingOnView(pub?.lidar,v)});
-  diagrams[scope]={model,view:v,frame:PM.frameOf(v),pin,trace,k:diagrams[scope]?.model?.w===model.w?diagrams[scope].k:null};
+  const prev=diagrams[scope]?.model?.w===model.w?diagrams[scope]:null;
+  diagrams[scope]={model,view:v,frame:PM.frameOf(v),pin,trace,k:prev?.k||null,obstacles:prev?.obstacles||[]};
   const body=diagramBody(diagrams[scope]),m=model,what=[m.lots.length?`${m.lots.length} lot ${m.lots.length===1?'line':'lines'}`:'no lot line',m.legend.length?`measured: ${m.legend.map(x=>`${x.name} ${x.quantity}`).join(', ')}`:'nothing measured'].join('; ');
   return `<svg class="mt-diagram" viewBox="0 0 ${m.w} ${m.h}" preserveAspectRatio="none" data-mt-diagram="${scope}" role="img" aria-label="${esc(`Diagram of the property: ${what}. North is up; scale bar ${m.scale?.label||'unknown'}.${droppedText(diagrams[scope])}`)}">${body}</svg>`;
  }
@@ -626,6 +627,7 @@ ${toolPanel('property',s,a,t,v,{})}
   const {model:m,frame,pin=null,trace=null,view=null}=d,k=d.k||m.w/900;
   const font=MT_FONT*k,P=pts=>pts.map(q=>q.map(n=>n.toFixed(1)).join(',')).join(' '),out=[],labels=[],dropped=[],droppedNames=[];
   const taken=[...(trace&&view?traceBoxes(trace,view,k):[]),...(d.obstacles||[])];
+  const lotLines=m.lots.flatMap(l=>l.points.map((p,i)=>[p,l.points[(i+1)%l.points.length]]));
   // Every area on the diagram, by owner: a name keeps out of every area but its own.
   const areas=[...(m.building?[{own:'b',p:m.building.points}]:[]),...m.shapes.flatMap((sh,i)=>sh.shapes.map((one,j)=>one.kind==='line'?null:{own:`s${i}-${j}`,p:one.ring}).filter(Boolean)),
    ...((trace&&view&&frameFor(trace,view))?(trace.shapes||[]).filter(sh=>sh.kind==='area').map((sh,i)=>({own:`t${i}`,p:sh.ring})):[])];
@@ -637,11 +639,13 @@ ${toolPanel('property',s,a,t,v,{})}
   const nameBox=(a,b,fa,fb)=>({w:Math.max(a.length*0.62*fa,b.length*0.62*fb)+8*k,h:font*2.7});
   const name=(n)=>{const box=nameBox(n.lines[0],n.lines[1],n.sizes[0],n.sizes[1]);
    const start=n.start?[n.start[0]+box.w/2,n.start[1]]:(()=>{const q=PM.labelPoint(n.points);return [q[0],q[1]+font*0.35]})();
-   const spot=PM.placeName(n.points,box,{pin,boxes:taken,start,within:n.within,avoid:areas.filter(x=>x.own!==n.own).map(x=>x.p),bounds:[m.w,m.h]});
+   const opts={pin,boxes:taken,start,within:n.within,avoid:areas.filter(x=>x.own!==n.own).map(x=>x.p),bounds:[m.w,m.h],near:4*k};
+   // across no lot line where it can (the name stays on its shape's side of the line), else anywhere it qualifies
+   const spot=PM.placeName(n.points,box,{...opts,lines:lotLines})||PM.placeName(n.points,box,opts);
    if(!spot){droppedNames.push(n.what);return}
    const c=spot.at;taken.push({at:c,w:box.w,h:box.h});
    // outside its shape and apart from it: a short leader to the shape's nearest edge
-   const lead=spot.inside?null:PM.leaderFor(c,box,n.points,!n.line,4*k);
+   const lead=spot.leader;
    if(lead)labels.push(`<line class="mt-d-leader${n.cls}" x1="${f1(lead.from[0])}" y1="${f1(lead.from[1])}" x2="${f1(lead.to[0])}" y2="${f1(lead.to[1])}"${n.colour?` style="--c:${n.colour}"`:''} data-own="${n.own}"/>`);
    const ax=n.line?c[0]-box.w/2:c[0],ay=c[1]-font*0.35;
    labels.push(`<g class="mt-d-total${n.cls}" transform="translate(${f1(ax)} ${f1(ay)})"${n.colour?` style="--c:${n.colour}"`:''} data-box="${f1(box.w)} ${f1(box.h)}" data-own="${n.own}"><text font-size="${f1(n.sizes[0])}">${esc(n.lines[0])}</text><text y="${f1(n.gap2)}" font-size="${f1(n.sizes[1])}">${esc(n.lines[1])}</text></g>`)};
@@ -676,10 +680,30 @@ ${toolPanel('property',s,a,t,v,{})}
  function furnitureHtml(scope){
   const d=diagrams[scope];if(!d)return '';const m=d.model,k=d.k||m.w/900;
   const bar=PM.scaleBar(m.pixelSizeM*k,{maxPx:SCALE_MAX_PX});
-  const rows=[...(m.building?[`<li><span class="mt-f-swatch is-building"></span>${esc(m.building.label)}${m.building.footprintSqft?` · ${fmt(m.building.footprintSqft)} SF`:''}</li>`]:[]),...m.legend.map(x=>`<li><span class="mt-f-swatch" style="--c:${x.colour}"></span>${esc(x.name)}${x.count>1?` (${x.count})`:''} · ${esc(x.quantity)}</li>`)];
-  return `<div class="mt-furniture" data-mt-furniture="${scope}">${rows.length||m.note?`<div class="mt-f-key">${rows.length?`<strong>Key</strong><ul>${rows.join('')}</ul>`:''}${m.note?`<p>${esc(m.note)}</p>`:''}</div>`:''}<div class="mt-f-north" aria-label="North is up" role="img"><svg viewBox="-12 -24 24 36" width="22" height="33" aria-hidden="true"><g transform="rotate(${m.north.angle})"><path d="M0 -18 L8 10 L0 4 L-8 10 Z"/></g><text y="-19" font-size="9">N</text></svg></div>${bar?`<div class="mt-f-scale" data-scale-px="${bar.px}" data-scale-ft="${bar.ft}" data-k="${k}"><span>${esc(bar.label)}</span><i style="width:${bar.px.toFixed(2)}px"></i></div>`:''}<div class="mt-f-credit">Diagram · ${esc(m.credit)}</div></div>`;
+  return `<div class="mt-furniture" data-mt-furniture="${scope}"><div class="mt-f-north" aria-label="North is up" role="img"><svg viewBox="-12 -24 24 36" width="22" height="33" aria-hidden="true"><g transform="rotate(${m.north.angle})"><path d="M0 -18 L8 10 L0 4 L-8 10 Z"/></g><text y="-19" font-size="9">N</text></svg></div>${bar?`<div class="mt-f-scale" data-scale-px="${bar.px}" data-scale-ft="${bar.ft}" data-k="${k}"><span>${esc(bar.label)}</span><i style="width:${bar.px.toFixed(2)}px"></i></div>`:''}<div class="mt-f-credit">Diagram · ${esc(m.credit)}</div></div>`;
  }
- Live.diagramFurniture=furnitureHtml;
+ // The key is not over the picture (it would cover the drawing): a strip at the top of the bar under
+ // it, one line per item, wrapping. Every name drawn and every name left out is in it.
+ function keyHtml(scope){
+  const d=diagrams[scope];if(!d)return '';const m=d.model;
+  const rows=[...(m.building?[`<li><span class="mt-f-swatch is-building"></span>${esc(m.building.label)}${m.building.footprintSqft?` · ${fmt(m.building.footprintSqft)} SF`:''}</li>`]:[]),...m.legend.map(x=>`<li><span class="mt-f-swatch" style="--c:${x.colour}"></span>${esc(x.name)}${x.count>1?` (${x.count})`:''} · ${esc(x.quantity)}</li>`)];
+  return rows.length||m.note?`<div class="mt-f-key" data-mt-key="${scope}"><strong>Key</strong>${rows.length?`<ul>${rows.join('')}</ul>`:''}${m.note?`<p>${esc(m.note)}</p>`:''}</div>`:'';
+ }
+ Live.diagramFurniture=furnitureHtml;Live.diagramKey=keyHtml;
+ // The north arrow, scale bar and source note stay over the picture: their rectangles on screen, in
+ // the diagram's picture pixels at the current zoom and scroll, are taken before any label is placed,
+ // so no length or name goes under them (the trace's own labels, drawn by the tool, never move).
+ function avoidFurniture(){
+  if(typeof document.querySelectorAll!=='function')return;
+  for(const svg of document.querySelectorAll('svg[data-mt-diagram]')){
+   const scope=svg.dataset.mtDiagram,d=diagrams[scope],box=svg.getBoundingClientRect?.();if(!d||!box?.width)continue;
+   const parts=[...(document.querySelector(`[data-mt-furniture="${scope}"]`)?.querySelectorAll('.mt-f-north,.mt-f-scale,.mt-f-credit')||[])].map(e=>e.getBoundingClientRect());
+   const next=PM.furnitureObstacles(box,parts,[svg.viewBox.baseVal.width,svg.viewBox.baseVal.height]),key=o=>JSON.stringify(o.map(b=>[b.at,b.w,b.h].flat().map(n=>Math.round(n))));
+   if(key(next)===key(d.obstacles||[]))continue;
+   d.obstacles=next;svg.innerHTML=diagramBody(d);svg.setAttribute('aria-label',(svg.getAttribute('aria-label')||'').replace(/ (Names not drawn|Not drawn) for lack of room:.*$/,'')+droppedText(d));
+  }
+ }
+ Live.avoidFurniture=avoidFurniture;
 
  /* ---------- the stored measurement, read-only, on the asset page ---------- */
  const cards=new Map();// asset id -> the read-only trace drawn on the asset page
@@ -970,7 +994,7 @@ ${noViews?'':`<section class="pa-history" aria-label="Dated views">${strips(s,ca
  // After a render: the screen's scale (picture pixels per screen pixel) for the labels, and focus.
  function measureLabels(){
   if(typeof document.querySelectorAll!=='function')return;
-  for(const svg of document.querySelectorAll('svg[data-mt-diagram]')){const d=diagrams[svg.dataset.mtDiagram],box=svg.getBoundingClientRect?.();if(!d||!box?.width)continue;const k=svg.viewBox.baseVal.width/box.width;if(!d.k||Math.abs(d.k-k)/k>0.03){d.k=k;svg.innerHTML=diagramBody(d);svg.setAttribute('aria-label',(svg.getAttribute('aria-label')||'').replace(/ Not drawn for lack of room:.*$/,'')+droppedText(d));const f=document.querySelector(`[data-mt-furniture="${svg.dataset.mtDiagram}"]`);if(f)f.outerHTML=furnitureHtml(svg.dataset.mtDiagram)}}
+  for(const svg of document.querySelectorAll('svg[data-mt-diagram]')){const d=diagrams[svg.dataset.mtDiagram],box=svg.getBoundingClientRect?.();if(!d||!box?.width)continue;const k=svg.viewBox.baseVal.width/box.width;if(!d.k||Math.abs(d.k-k)/k>0.03){d.k=k;svg.innerHTML=diagramBody(d);svg.setAttribute('aria-label',(svg.getAttribute('aria-label')||'').replace(/ (Names not drawn|Not drawn) for lack of room:.*$/,'')+droppedText(d));const f=document.querySelector(`[data-mt-furniture="${svg.dataset.mtDiagram}"]`);if(f)f.outerHTML=furnitureHtml(svg.dataset.mtDiagram)}}
   for(const svg of document.querySelectorAll('svg[data-mt-scope],svg[data-mt-card]')){
    const box=svg.getBoundingClientRect?.();if(!box?.width)continue;const k=svg.viewBox.baseVal.width/box.width;
    const card=svg.dataset.mtCard?cards.get(svg.dataset.mtCard):null,t=card?card.t:traceOf(svg.dataset.mtScope);if(!t)continue;
@@ -990,9 +1014,12 @@ ${noViews?'':`<section class="pa-history" aria-label="Dated views">${strips(s,ca
   const stagePane=Live.screen?.()==='property'&&L.study&&document.querySelector('.pa-main .pa-stage .pa-zoom'),u=L.study&&L.property?.[L.study.id];
   if(stagePane&&u?.keep){centreOn(stagePane,u.keep);u.keep=null}
   else if(stagePane&&u?.scroll){stagePane.scrollLeft=u.scroll[0];stagePane.scrollTop=u.scroll[1]}
+  avoidFurniture();
  }
  Live.afterRender.push(measureLabels);
- if(typeof addEventListener==='function'){let timer=null;addEventListener('resize',()=>{clearTimeout(timer);timer=setTimeout(measureLabels,120)})}
+ if(typeof addEventListener==='function'){let timer=null,pan=null;addEventListener('resize',()=>{clearTimeout(timer);timer=setTimeout(measureLabels,120)});
+  // panning a zoomed diagram moves the furniture over other parts of it
+  addEventListener('scroll',e=>{if(e.target?.classList?.contains?.('pa-zoom')&&e.target.querySelector?.('svg[data-mt-diagram]')){clearTimeout(pan);pan=setTimeout(avoidFurniture,60)}},true)}
  // The dialog belongs to the Assets and asset pages of its study.
  // A render rebuilds the page: a zoomed picture's scroll is kept across it.
  (Live.beforeRender||=[]).push(()=>{if(typeof document.querySelector!=='function')return;const D=L.mtDialog,pane=D&&document.querySelector('.mt-stage .pa-zoom');if(pane)D.scroll=[pane.scrollLeft,pane.scrollTop];

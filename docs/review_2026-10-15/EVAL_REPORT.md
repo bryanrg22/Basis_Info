@@ -16057,6 +16057,27 @@ drawn across the patio and the building: zero label overlaps and no name over an
 fence at 100 % the patio's name goes outside with a leader); the Property page still zero. Web suite
 574.
 
+A fifth check found the patio's name under the key (HTML over the stage's corner). The key is now a
+strip at the top of the bar under the picture (one line per item, wrapping), never over the drawing.
+The north arrow, scale bar and source note stay over the picture; their screen rectangles, mapped
+into the diagram's picture pixels at the current zoom and scroll (`PM.furnitureObstacles`), are taken
+before any label is placed, recomputed after every render and 60 ms after a pan. The trace's own
+labels, drawn by the tool, never move and may sit under them (seen once: the fence's 47'-5" under the
+source note at 200 % panned to the top-left corner). Measured furniture at 1440 x 900: north 36 x 43,
+scale bar 132 (page) or 142 (dialog) x 36, source 482 or 548 x 38. Placing names around the others
+showed two more faults, fixed with the same check: a leader drawn through a length label, and the
+patio's name below the building with its leader through the building. A leader now crosses no label
+and no other shape's edge (a place that needs one does not qualify), and a name and its leader keep
+to their side of the lot lines where they can (else anywhere that qualifies). Unit tests: the
+furniture mapping; every label and name against the furniture on both stages, sample and live, at
+100, 200 and 400 % panned to two corners and the middle (over 500 label-furniture pairs; without the
+furniture taken some would be under it); no leader crosses a label or another shape, with and without
+the fence and the furniture; names and leaders on their side of the lot lines; the key outside the
+stage's view. Mutations (furniture ignored, leader check off, shapes left out of the leader check,
+lot lines off) each fail a test. Rendered, both stages (sample, the dialog with a fence drawn by hand,
+live), 100, 200 and 400 %, panned: zero label overlaps, zero lengths or names under furniture, no
+name over another shape, the key outside the stage's view. Web suite 578.
+
 **Open.** No lot line on the live study (no parcel); the outline is the roof, not the walls; the
 building is not drawn in photo mode (only snapped to); the outline is not checked against a surveyed
 footprint.

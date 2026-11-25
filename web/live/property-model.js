@@ -717,6 +717,14 @@
  }
  // Two upright boxes {at, w, h} overlap (with a gap between them)?
  const boxesMeet=(a,b,gap=0)=>Math.abs(a.at[0]-b.at[0])*2<a.w+b.w+2*gap&&Math.abs(a.at[1]-b.at[1])*2<a.h+b.h+2*gap;
+ // Screen rectangles (getBoundingClientRect) of things drawn over a diagram, as upright boxes in its
+ // picture pixels: `svg` the diagram's own screen rectangle, `size` its viewBox [w, h]. Those wholly
+ // off the diagram are dropped.
+ function furnitureObstacles(svg,rects,size){
+  if(!(svg?.width>0&&svg?.height>0))return [];const sx=size[0]/svg.width,sy=size[1]/svg.height;
+  return rects.filter(r=>r&&r.width>0&&r.height>0&&r.right>svg.left&&r.left<svg.right&&r.bottom>svg.top&&r.top<svg.bottom)
+   .map(r=>({at:[(r.left+r.width/2-svg.left)*sx,(r.top+r.height/2-svg.top)*sy],w:r.width*sx,h:r.height*sy}));
+ }
  // Does an upright box {at, w, h} (grown by `gap`) touch a polygon's area? A corner of either inside
  // the other, or an edge of the polygon crossing the box (segment against box, Liang-Barsky).
  function boxMeetsPolygon(at,{w,h},poly,gap=0){
@@ -734,16 +742,19 @@
  // (`avoid`: the other shapes' polygons; never inside or over another shape's area, so a name is
  // never read as another shape's), clear of every label and of the pin, and on the picture
  // (`bounds` [w, h]). Tried in order: where it starts (the label point); the nearest place inside
- // the shape where the whole box fits; then around the shape (below, above, left, right, then the
- // corners), sliding outwards up to ten name heights. Returns {at, inside} (`at` the box's centre;
- // `inside` when the whole box is inside its shape), or null when nothing qualifies: the caller
+ // the shape where the whole box fits; then around the shape, sliding outwards up to ten name
+ // heights: below or above, then left or right, then the corners. Returns {at, inside} (`at` the box's centre;
+ // `inside` when the whole box is inside its shape; `leader` the line to it from outside, or null; a
+ // place whose leader would have to cross a label or another shape's edge does not qualify; `lines`, segments [p, q] such as lot lines, are crossed by neither box nor leader), or null when nothing qualifies: the caller
  // leaves the name out of the drawing (it stays in the key and the title), never misplaces it.
  // `within: false` for a line (it has no inside).
- function placeName(points,box,{pin=null,boxes=[],gap=4,start=null,within=true,avoid=[],bounds=null}={}){
+ function placeName(points,box,{pin=null,boxes=[],gap=4,start=null,within=true,avoid=[],bounds=null,near=0,lines=[]}={}){
   const onPic=at=>!bounds||(at[0]-box.w/2>=0&&at[1]-box.h/2>=0&&at[0]+box.w/2<=bounds[0]&&at[1]+box.h/2<=bounds[1]);
-  const clear=at=>onPic(at)&&!(pin&&boxMeetsCircle(at,box,pin.at,pin.r+gap))&&!boxes.some(b=>boxesMeet({at,w:box.w,h:box.h},b,gap))&&!avoid.some(q=>boxMeetsPolygon(at,box,q,gap/2));
+  const clear=at=>onPic(at)&&!(pin&&boxMeetsCircle(at,box,pin.at,pin.r+gap))&&!boxes.some(b=>boxesMeet({at,w:box.w,h:box.h},b,gap))&&!avoid.some(q=>boxMeetsPolygon(at,box,q,gap/2))&&!lines.some(([p,q])=>segmentMeetsBox(p,q,{at,w:box.w+gap,h:box.h+gap}))&&!leaderFor(at,box,points,within,near,boxes,fences)?.crosses;
+  // a leader crosses no label, no line given and no other shape's edge
+  const fences=[...lines,...avoid.flatMap(q=>q.map((p,i)=>[p,q[(i+1)%q.length]]))];
   const fits=at=>within&&[[-1,-1],[1,-1],[1,1],[-1,1]].every(([sx,sy])=>insideOrOn([at[0]+sx*box.w/2,at[1]+sy*box.h/2],points));
-  const found=at=>({at,inside:fits(at)});
+  const found=at=>({at,inside:fits(at),leader:fits(at)?null:leaderFor(at,box,points,within,near,boxes,fences)});
   const first=start||labelPoint(points);
   if(clear(first))return found(first);
   const xs=points.map(q=>q[0]),ys=points.map(q=>q[1]),x0=Math.min(...xs),x1=Math.max(...xs),y0=Math.min(...ys),y1=Math.max(...ys),cx=(x0+x1)/2,cy=(y0+y1)/2;
@@ -753,21 +764,37 @@
    for(const q of inside)if(clear(q))return found(q);
   }
   const step=Math.max(1,box.h/4),reach=40,bw=box.w/2+gap,bh=box.h/2+gap;
-  for(let i=0;i<reach;i++){const d=i*step;
-   for(const q of [[cx,y1+bh+d],[cx,y0-bh-d],[x0-bw-d,cy],[x1+bw+d,cy],[x0-bw-d,y1+bh+d],[x1+bw+d,y1+bh+d],[x0-bw-d,y0-bh-d],[x1+bw+d,y0-bh-d]])if(clear(q))return found(q)}
+  // below or above (nearest first), then left or right, then the corners
+  for(const side of [d=>[[cx,y1+bh+d],[cx,y0-bh-d]],d=>[[x0-bw-d,cy],[x1+bw+d,cy]],d=>[[x0-bw-d,y1+bh+d],[x1+bw+d,y1+bh+d],[x0-bw-d,y0-bh-d],[x1+bw+d,y0-bh-d]]])
+   for(let i=0;i<reach;i++)for(const q of side(i*step))if(clear(q))return found(q);
   return null;
  }
- // The short line from a name placed outside its shape to the shape's nearest edge: null when the
- // name's box already touches the shape (or, for a line, comes within `near` of it).
- function leaderFor(at,box,points,closed,near=0){
+ // Do segments a-b and c-d cross (strictly: touching at an end does not count)?
+ function segmentsCross(a,b,c,d){
+  const o=(p,q,r)=>Math.sign((q[0]-p[0])*(r[1]-p[1])-(q[1]-p[1])*(r[0]-p[0]));
+  const d1=o(c,d,a),d2=o(c,d,b),d3=o(a,b,c),d4=o(a,b,d);
+  return d1*d2<0&&d3*d4<0;
+ }
+ // Does the segment a-b cross an upright box {at, w, h}? (Liang-Barsky clipping.)
+ function segmentMeetsBox(a,b,{at,w,h}){
+  const x0=at[0]-w/2,x1=at[0]+w/2,y0=at[1]-h/2,y1=at[1]+h/2,dx=b[0]-a[0],dy=b[1]-a[1];let t0=0,t1=1;
+  for(const [pp,q] of [[-dx,a[0]-x0],[dx,x1-a[0]],[-dy,a[1]-y0],[dy,y1-a[1]]]){if(pp===0){if(q<0)return false;continue}const r=q/pp;if(pp<0){if(r>t1)return false;if(r>t0)t0=r}else{if(r<t0)return false;if(r<t1)t1=r}}
+  return t0<=t1;
+ }
+ // The short line from a name placed outside its shape to the shape's edge: null when the name's
+ // box already touches the shape (or, for a line, comes within `near` of it). It runs from the
+ // name's box to the nearest point of the shape's edge that it can reach without crossing a label
+ // (`boxes`: the labels on the diagram); the nearest point, marked `crosses`, when every way is.
+ function leaderFor(at,box,points,closed,near=0,boxes=[],lines=[]){
   if(closed&&boxMeetsPolygon(at,box,points))return null;
-  let best=null;const n=points.length;
-  for(let i=0;i<(closed?n:n-1);i++){const q=nearestOnSegment(at,points[i],points[(i+1)%n]),d=dist(at,q);if(!best||d<best.d)best={q,d}}
-  if(!best)return null;
-  const dx=best.q[0]-at[0],dy=best.q[1]-at[1],t=Math.min(box.w/2/Math.max(Math.abs(dx),1e-9),box.h/2/Math.max(Math.abs(dy),1e-9));
-  if(t>=1)return null;
-  const from=[at[0]+dx*t,at[1]+dy*t];
-  return dist(from,best.q)<=near?null:{from,to:best.q};
+  const n=points.length,targets=[];
+  for(let i=0;i<(closed?n:n-1);i++){const p=points[i],q=points[(i+1)%n];targets.push(nearestOnSegment(at,p,q));for(let j=0;j<=16;j++)targets.push([p[0]+(q[0]-p[0])*j/16,p[1]+(q[1]-p[1])*j/16])}
+  const line=to=>{const dx=to[0]-at[0],dy=to[1]-at[1],t=Math.min(box.w/2/Math.max(Math.abs(dx),1e-9),box.h/2/Math.max(Math.abs(dy),1e-9));return t>=1?null:{from:[at[0]+dx*t,at[1]+dy*t],to}};
+  const all=targets.map(line).filter(Boolean).sort((u,v)=>dist(u.from,u.to)-dist(v.from,v.to));if(!all.length)return null;
+  // a leader may end on a label's border, not pass through it
+  const inner=boxes.map(o=>({at:o.at,w:Math.max(0,o.w-2),h:Math.max(0,o.h-2)}));
+  const clearWay=all.find(l=>!inner.some(o=>segmentMeetsBox(l.from,l.to,o))&&!lines.some(([p,q])=>segmentsCross(l.from,l.to,p,q))),best=clearWay?{...clearWay,crosses:false}:{...all[0],crosses:true};
+  return dist(best.from,best.to)<=near?null:best;
  }
  // Where an edge's length label goes so it meets no label already placed (upright boxes) and not
  // the pin: its own place outside the edge; the other side of the edge; slid along the edge, its
@@ -832,7 +859,7 @@
  const anyProperty=c=>!!(c&&(c.propertyCapture||c.publicGeo));
 
  const api={FT_PER_M,radii,round2,measure,problems,formula,reviewFlags,expectedErrorPct,MeasurementError,georef,measurable,toMercator,fromMercator,
-  frameOf,scaleFeetPerPx,segmentFt,viewCentre,scrollToCentre,boxMeetsCircle,boxesMeet,boxMeetsPolygon,leaderFor,placeName,placeEdgeLabel,turnedBox,clearOfPin,pointsBox,buildingOnView,scaleBar,measuredOnView,diagramModel,DIAGRAM_COLOURS,DIAGRAM_GROUND,angleAt,isSquare,RIGHT_TOL_DEG,edgeLengths,ftIn,ftInWords,parseLength,areaText,lfText,edgeLabels,labelPoint,shapeSummary,movePoint,insertPoint,removePoint,minPoints,setEdgeLength,snapPoint,nearestOnSegment,ringSegments,onPicture,
+  frameOf,scaleFeetPerPx,segmentFt,viewCentre,scrollToCentre,boxMeetsCircle,boxesMeet,boxMeetsPolygon,segmentMeetsBox,segmentsCross,leaderFor,furnitureObstacles,placeName,placeEdgeLabel,turnedBox,clearOfPin,pointsBox,buildingOnView,scaleBar,measuredOnView,diagramModel,DIAGRAM_COLOURS,DIAGRAM_GROUND,angleAt,isSquare,RIGHT_TOL_DEG,edgeLengths,ftIn,ftInWords,parseLength,areaText,lfText,edgeLabels,labelPoint,shapeSummary,movePoint,insertPoint,removePoint,minPoints,setEdgeLength,snapPoint,nearestOnSegment,ringSegments,onPicture,
   remember,undoTrace,redoTrace,snapshotOf,bodyOfRecord,pixelShapes,drawnByText,withProvenance,sameShapes,viewRef,imageBody,KNOWN_LENGTHS,edgeComparison,lonlatPathFt,shoelace,insideOrOn,
   needsMeasurement,measureOffer,measureUnit,captureStatus,gatherStatus,noteText,clock,viewsOf,historyStrip,defaultMeasureView,leafText,dateText,yearOnly,dateOf,SIDE_TEXT,LOOKING,compass,
   publicSeries,creditLine,measurementBody,imageOf,parcelRings,siteCheckText,lidarFacts,bracket,withBracket,caps,anyProperty,ringProblem,CAPTURE_FAILED,CAPTURE_PART};
