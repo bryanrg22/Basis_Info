@@ -515,6 +515,10 @@ read-only card), `live/property-model.js` (its geometry, tested against the serv
   traced measurement survives a reload. A stale draft is not restored. An API without the route
   (404) leaves the corrections on the page as before.
 
+Measure is offered on every row with an area or a length; the dialog's photos are the asset's
+own as thumbnails and the rest in one list. Found in passing: in sample mode the error capture posts
+to the static server (`/sample/v1/client-errors`, 501) when a gitignored sample photo is missing.
+
 **Not built (open):** the other three gates' drafts (section 2: their corrections need titles
 rebuilt from rows); showing another engineer's draft (`others`) and a stale draft to carry over;
 a 422 at save time placed next to its correction (it is a toast); cut-outs drawn on a photo are

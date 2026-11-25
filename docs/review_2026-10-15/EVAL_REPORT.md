@@ -15887,21 +15887,34 @@ lines and closed paths, and in a headless Chromium (Playwright, 1440 x 900) on t
 | Headless: a corner dragged across the ring | undone: "The shape crosses or touches itself (two of its edges meet). The change was undone." |
 | Headless: a counter line on a photo scaled by a 36 in door width | 8.39 LF, flagged undated after the send (`measure:IMAGE_UNDATED`, the server's rule) |
 
+**Live check (2026-11-25, the local stack running this branch, study 8c2d6de0, revision 2, assets
+review open, 388 assets, pin not confirmed).** Four findings from the lead's walk, fixed the same day:
+Measure was offered on 0 of 388 rows (it needed a measurement reason; formula-priced roof, siding
+and floors carry none): now 71 rows (every area or length); 52 photo chips pushed the picture below
+the fold: now thumbnails of the asset's own photos and one list; the dialog scrolled as one column:
+now picture and controls side by side at full height; a typed length on a rectangle skewed it
+(21'-0" became 21'-6"): now the far side slides when both corners are square within 3 degrees.
+Persistence on the real API: a counter traced on its photo (an area, scale from a 36 in counter
+height) was saved (`PUT .../drafts/assets_review` 200, version 1), the page reloaded, `GET` returned
+the draft (version 1, revision 2, not stale, the measurement in it) and the page showed "1 correction
+ready to send" with the traced quantity on the row; Remove deleted it (`DELETE` 200) and a second
+reload found no draft. No decision was sent; the study was left as it was.
+
 **Verdict.** The labels are the server's numbers, so what the engineer reads on an edge is what the
 schedule will carry; typed lengths move the geometry and the label never disagrees with it; an
 unverified draft is priced exactly as a trace (no pricing change). Default choices to confirm: the
 Verified box starts on for an engineer's own trace and off for a draft; snapping is on, 8 screen
 pixels; a shape under an eighth of the picture opens at 4x.
 
-Tests: `test_traced_provenance.py` 56, one API test (Postgres), `measure-tool.test.cjs` 21,
-`measure-screen.test.cjs` 9, `assets-draft.test.cjs` 4; the web suite 543 (509 before), the
-existing property tests unchanged (backEnd/tests/LEDGER.md).
+Tests: `test_traced_provenance.py` 56, one API test (Postgres), `measure-tool.test.cjs` 23,
+`measure-screen.test.cjs` 9, `assets-draft.test.cjs` 4, `measure-assets-list.test.cjs` 2
+(mutation-checked: offering Measure only where needed fails it); the web suite 547 (509 before),
+the existing property tests unchanged (backEnd/tests/LEDGER.md).
 
 **Open.**
 
-* Not verified in a real browser by a person, on a tablet's touch, in Safari, or against a live
-  stack: the drafts route was exercised through the sample API and the backend's API test, not the
-  app against the real API. The sample's photos are placeholders (the real sample photos are not in
+* Not verified by a person on a tablet's touch or in Safari. Against the live stack only the
+  photo path and persistence were run (the study's pin is not confirmed, so no aerial). The sample's photos are placeholders (the real sample photos are not in
   the repository), so the photo flow was checked on a placeholder.
 * No model drafts measurements yet; whether an unverified draft may price the report is the
   maintainer's decision (plan section 8.3); no review flag is raised for one.

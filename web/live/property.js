@@ -335,8 +335,9 @@
   return `<form class="mt-edit" data-mt-form="edge" data-mt-scope="${scope}" style="left:${(l.x/w*100).toFixed(3)}%;top:${(l.y/h*100).toFixed(3)}%"><label class="sr-only" for="mt-edit-input">Length of edge ${l.i+1}</label><input id="mt-edit-input" name="edge_length" autocomplete="off" spellcheck="false" value="${esc(t.edit.value??l.full)}" aria-describedby="mt-edit-help"><button class="button small primary" type="submit">Set</button><small id="mt-edit-help">${t.edit.error?`<span class="pa-problem">${esc(t.edit.error)}</span>`:`54'-3", 54.25 or 16.5 m · Enter sets it, Esc cancels`}</small></form>`;
  }
  // The picture with the tool over it (the Property page's stage builds its own frame around it).
+ // The dialog's picture fits the height it is given (CSS container units: --mt-ar is its aspect).
  function toolCanvas(scope,t,v,{w,h,imgHtml,extraSvg='',label='Picture to measure on',zoom=1}){
-  return `<div class="pa-canvas mt-canvas" style="width:${zoom*100}%;aspect-ratio:${w}/${h}">${imgHtml}<svg class="pa-overlay mt-overlay" viewBox="0 0 ${w} ${h}" preserveAspectRatio="none" data-pa-stage="${esc(v.id)}" data-mt-scope="${scope}" role="img" aria-label="${esc(label)}">${extraSvg}${toolLayer(t,v)}</svg>${editBox(t,v,w,h,scope)}</div>`;
+  return `<div class="pa-canvas mt-canvas" style="--mt-zoom:${zoom};--mt-ar:${(w/h).toFixed(6)};aspect-ratio:${w}/${h}">${imgHtml}<svg class="pa-overlay mt-overlay" viewBox="0 0 ${w} ${h}" preserveAspectRatio="none" data-pa-stage="${esc(v.id)}" data-mt-scope="${scope}" role="img" aria-label="${esc(label)}">${extraSvg}${toolLayer(t,v)}</svg>${editBox(t,v,w,h,scope)}</div>`;
  }
 
  /* ----- the panel ----- */
@@ -375,7 +376,7 @@
   return `${prov}<div class="pa-measure-row"><label>Unit <select data-mt-input="unit" data-mt-scope="${scope}">${['SF','SY','LF'].map(x=>`<option ${x===unit?'selected':''}>${x}</option>`).join('')}</select></label><div class="pa-seg" role="group" aria-label="Tool">${tools.map(([k,l])=>`<button data-live="pa-tool" data-value="${k}" data-mt-scope="${scope}" aria-pressed="${t.tool===k}" ${(unit==='LF'&&(k==='area'||k==='cutout'))||(!scaled&&k!=='scale')?'disabled':''}>${l}</button>`).join('')}</div><label class="pa-toggle mt-snap-toggle"><input type="checkbox" data-mt-input="snap" data-mt-scope="${scope}" ${t.snap!==false?'checked':''}> Snap</label></div>
 ${scaleBlock}
 ${t.tool==='line'&&unit!=='LF'?`<label class="pa-height">Wall height (ft) <input data-mt-input="height" data-mt-scope="${scope}" inputmode="decimal" value="${esc(t.height||'')}" placeholder="for a wall face"></label>`:''}
-<p class="pa-hint">${hint} Esc cancels the shape being drawn. Drag a corner to move it, or the dot in an edge’s middle to add one; click a length to type it.</p>
+<p class="pa-hint">${hint} Drag a corner or an edge’s middle dot; click a length to type it; Esc cancels.</p>
 <div class="pa-readout" aria-live="polite" data-mt-readout="${scope}">${html}</div>
 ${edgeTable(t,v,scope,c)}
 <label class="mt-verified"><input type="checkbox" data-mt-input="verified" data-mt-scope="${scope}" ${t.verified?'checked':''} ${r||t.fromBase?'':'disabled'}> <span><strong>Verified</strong> I checked this measurement against the picture</span></label>
@@ -426,6 +427,8 @@ ${toolPanel('property',s,a,t,v,{})}
     t.verified=start.verified??!stored;
    }
   }
+  // A photo is scaled before anything is drawn on it.
+  if(space==='image'&&!(t.scale?.points?.length===2&&Number(t.scale.length)>0))t.tool='scale';
   originalPixels(t,v,w,h);
   return t;
  }
@@ -507,8 +510,11 @@ ${toolPanel('property',s,a,t,v,{})}
   }
   if(off.photo){
    const ev=Live.load(`evidence:${s.id}:${s.revision}:${a.id}`,()=>api.evidence(s.id,a.id)).data?.items?.[0],seen=new Set();
+   // Its own photos first: where it was seen (the evidence), then its room's, then the rest.
    const photos=(s.documents||[]).filter(d=>d.kind==='photo'),first=(ev?.photos||[]).map(p=>p.document_id);
-   for(const d of [...first.map(id=>photos.find(p=>p.id===id)).filter(Boolean),...photos])if(!seen.has(d.id)){seen.add(d.id);out.push({key:'doc:'+d.id,kind:'photo',doc:d,label:d.filename,evidence:first.includes(d.id)})}
+   const room=a.room?.id?(Live.roomsEntry?.(s)?.data?.items||[]).find(r=>r.id===a.room.id):null,inRoom=(room?.photos||[]).map(p=>p.document_id);
+   const put=(d,group)=>{if(d&&!seen.has(d.id)){seen.add(d.id);out.push({key:'doc:'+d.id,kind:'photo',doc:d,label:d.filename,evidence:group==='evidence',group})}};
+   for(const id of first)put(photos.find(p=>p.id===id),'evidence');for(const id of inRoom)put(photos.find(p=>p.id===id),'room');for(const d of photos)put(d,'other');
   }
   return out;
  }
@@ -556,7 +562,16 @@ ${toolPanel('property',s,a,t,v,{})}
   const zoom=D.zoom;
   return wrap(`<div class="mt-dialog-body"><div class="mt-dialog-main">${chips(views,pick)}<div class="pa-stage is-measure mt-stage"><div class="pa-zoom" tabindex="0" aria-label="Picture to measure on; scroll to pan when zoomed">${toolCanvas('dialog',t,v,{w,h,imgHtml,extraSvg:extra,label:`Measuring ${title} on ${on}`,zoom})}</div><div class="pa-stage-tools"><div class="pa-zoom-tools" role="group" aria-label="Zoom"><button class="pa-icon-btn" data-live="mt-zoom" data-value="out" aria-label="Zoom out" ${zoom<=1?'disabled':''}>−</button><span>${zoom*100}%</span><button class="pa-icon-btn" data-live="mt-zoom" data-value="in" aria-label="Zoom in" ${zoom>=8?'disabled':''}>+</button></div><p class="pa-caption">${esc(on)}</p></div></div></div><aside class="mt-dialog-side" data-mt-root="dialog">${toolPanel('dialog',s,a,t,v,{doc,w,h})}</aside></div>`);
  };
- const chips=(views,pick)=>`<nav class="pa-chips mt-views" aria-label="Pictures to measure on">${views.map(x=>`<button class="pa-chip" data-live="mt-view" data-value="${esc(x.key)}" aria-pressed="${x.key===pick.key}">${x.kind==='photo'?'Photo · ':''}${esc(x.label)}</button>`).join('')}</nav>`;
+ // The picture picker: the top-down views as chips; the asset's own photos (where it was seen,
+ // then its room's) as a few thumbnails; every other photo behind one "All photos" list.
+ const MAX_THUMBS=8;
+ function chips(views,pick){
+  const aerial=views.filter(x=>x.kind==='view'),photos=views.filter(x=>x.kind==='photo');
+  const own=photos.filter(x=>x.group!=='other').slice(0,MAX_THUMBS);if(pick.kind==='photo'&&!own.includes(pick))own.push(pick);
+  const thumb=x=>`<button class="mt-thumb" data-live="mt-view" data-value="${esc(x.key)}" aria-pressed="${x.key===pick.key}" title="${esc(x.label)}${x.evidence?' · where it was seen':x.group==='room'?' · its room':''}">${Live.photo(x.doc.id,'','mt-thumb-img')}<span>${esc(x.label)}</span></button>`;
+  const all=photos.length>own.length?`<label class="mt-all">All photos (${photos.length}) <select data-mt-pick aria-label="Choose any of the study’s ${photos.length} photos"><option value="">Choose a photo…</option>${photos.map(x=>`<option value="${esc(x.key)}" ${x.key===pick.key?'selected':''}>${esc(x.label)}${x.evidence?' (where it was seen)':x.group==='room'?' (its room)':''}</option>`).join('')}</select></label>`:'';
+  return `<nav class="mt-views" aria-label="Pictures to measure on">${aerial.length?`<div class="mt-aerials">${aerial.map(x=>`<button class="pa-chip" data-live="mt-view" data-value="${esc(x.key)}" aria-pressed="${x.key===pick.key}">${esc(x.label)}</button>`).join('')}</div>`:''}${photos.length?`<div class="mt-photo-row"><span class="mt-views-label">Photos</span>${own.map(thumb).join('')}${all}</div>`:''}</nav>`;
+ }
  // A Measure button for an asset (the Assets list, the asset page).
  Live.measureButton=(s,a,{primary=false,label=null}={})=>{
   if(!caps().tracedMeasurement||!Live.gateOpen('assets_review'))return '';
@@ -819,6 +834,7 @@ ${noViews?'':`<section class="pa-history" aria-label="Dated views">${strips(s,ca
  const svgFor=scope=>document.querySelector?.(`svg[data-mt-scope="${scope}"]`)||{closest:()=>null,dataset:{mtScope:scope}};
  document.addEventListener('change',ev=>{
   const el=ev.target;
+  if(el.dataset&&'mtPick' in el.dataset){if(el.value&&L.mtDialog){L.mtDialog.key=el.value;L.mtDialog.zoom=null;L.mtDialog.scroll=null;Live.render()}return}
   if(el.dataset?.mtInput){
    const c=ctxOf(scopeOf(el)),t=c?.t;if(!t)return;const k=el.dataset.mtInput;
    if(k==='unit'){PM.remember(t);t.unit=el.value;if(el.value==='LF')t.tool='line';t.shapes=t.shapes.filter(x=>x.kind===(t.tool==='line'?'line':'area'));t.fromBase=false}

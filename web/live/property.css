@@ -258,7 +258,7 @@
 .mt-scale-box label{display:flex;align-items:center;gap:6px;font-weight:600}
 .mt-scale-box input{font:inherit;font-size:13px;width:8em;padding:5px 8px;border:1px solid var(--pa-line);border-radius:8px}
 .mt-scale-box p{margin:4px 0}
-.mt-known{display:flex;flex-wrap:wrap;gap:6px;margin-top:4px}.mt-known .pa-chip{font-size:12px;padding:4px 9px}
+.mt-known{display:flex;flex-wrap:wrap;gap:4px;margin-top:4px}.mt-known .pa-chip{font-size:11.5px;padding:3px 8px}
 .mt-edges{margin:8px 0;font-size:13px}
 .mt-edges summary{cursor:pointer;font-weight:600}
 .mt-edges table{width:100%;border-collapse:collapse;margin-top:4px;font-variant-numeric:tabular-nums}
@@ -272,18 +272,34 @@
 .mt-verified input:disabled+span{opacity:.6}
 /* The dialog */
 .mt-dialog-backdrop{position:fixed;inset:0;z-index:60;background:rgba(16,30,23,.55);display:grid;place-items:center;padding:16px}
-.mt-dialog{width:min(1320px,100%);max-height:calc(100vh - 32px);overflow:auto;background:#fff;color:var(--pa-ink);border-radius:16px;box-shadow:0 24px 64px rgba(0,0,0,.35);padding:16px 18px;display:grid;gap:12px}
+.mt-dialog{width:min(1400px,100%);height:calc(100vh - 32px);overflow:hidden;background:#fff;color:var(--pa-ink);border-radius:16px;box-shadow:0 24px 64px rgba(0,0,0,.35);padding:14px 18px;display:grid;grid-template-rows:auto minmax(0,1fr);gap:10px}
 .mt-dialog:focus{outline:none}
 .mt-dialog-head{display:flex;align-items:flex-start;justify-content:space-between;gap:12px}
 #app .mt-dialog-head h2,.mt-dialog-head h2{margin:0;font-size:18px;font-weight:650;letter-spacing:-.01em}
 .mt-dialog-head p{margin:2px 0 0}
-.mt-dialog-body{display:grid;grid-template-columns:minmax(0,1fr) 360px;gap:16px;align-items:start}
-.mt-dialog-main{display:grid;gap:8px;min-width:0}
-.mt-dialog-side{font-size:13.5px}
+/* The picture takes the height left; the controls sit beside it and scroll on their own, with the
+   actions pinned at their foot, so the picture and Save are on screen together. */
+.mt-dialog-body{display:grid;grid-template-columns:minmax(0,1fr) 340px;gap:16px;min-height:0;height:100%}
+.mt-dialog-main{display:grid;grid-template-rows:auto minmax(0,1fr);gap:8px;min-width:0;min-height:0}
+.mt-dialog-side{font-size:13.5px;min-height:0;overflow:auto;display:flex;flex-direction:column;padding-right:4px}
+.mt-dialog-side .pa-measure-actions{position:sticky;bottom:0;background:#fff;margin-top:auto;padding:8px 0 2px;border-top:1px solid var(--pa-line)}
+.mt-dialog-side .mt-verified{margin-top:8px}
 .mt-dialog-note{margin:8px 0;font-size:14px}
-.mt-views{display:flex;gap:6px;overflow-x:auto;padding-bottom:2px}
-.mt-stage .pa-zoom{max-height:min(68vh,760px)}
-@media (max-width:1000px){.mt-dialog-body{grid-template-columns:minmax(0,1fr)}}
+.mt-views{display:grid;gap:6px;min-width:0}
+.mt-aerials{display:flex;gap:6px;overflow-x:auto;padding-bottom:2px}
+.mt-photo-row{display:flex;align-items:center;gap:6px;overflow-x:auto;padding-bottom:2px}
+.mt-views-label{font-size:12px;font-weight:600;color:var(--pa-muted);margin-right:2px}
+.mt-thumb{flex:0 0 auto;display:grid;grid-template-columns:44px auto;align-items:center;gap:6px;max-width:190px;font:inherit;font-size:12px;color:var(--pa-ink);background:#fff;border:1px solid var(--pa-line);border-radius:10px;padding:3px 8px 3px 3px;cursor:pointer}
+.mt-thumb[aria-pressed="true"]{border-color:var(--pa-green);box-shadow:0 0 0 2px rgba(47,107,74,.25);background:#eef6f1}
+.mt-thumb span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.mt-thumb-img{width:44px;height:33px;object-fit:cover;border-radius:6px;background:#dfe7e2;display:block}
+.mt-all{flex:0 0 auto;font-size:12.5px;color:var(--pa-muted);display:flex;align-items:center;gap:6px;white-space:nowrap}
+.mt-all select{font:inherit;font-size:12.5px;max-width:220px;padding:5px 8px;border:1px solid var(--pa-line);border-radius:8px;background:#fff;color:var(--pa-ink)}
+.mt-stage{display:grid;grid-template-rows:minmax(0,1fr) auto;min-height:0;padding:6px}
+.mt-stage .pa-zoom{max-height:none;min-height:0;height:100%;container-type:size}
+.mt-stage .pa-stage-tools{padding-top:6px}.mt-stage .pa-caption{margin:0}
+.pa-canvas.mt-canvas{min-width:0;width:min(calc(var(--mt-zoom,1)*100%),calc(var(--mt-zoom,1)*100cqh*var(--mt-ar,1.5)));margin:0 auto}
+@media (max-width:1000px){.mt-dialog{height:auto;max-height:calc(100vh - 32px);overflow:auto}.mt-dialog-body{grid-template-columns:minmax(0,1fr);height:auto}.mt-stage .pa-zoom{height:60vh}.mt-dialog-side{overflow:visible}}
 /* The stored measurement on the asset page */
 .mt-card{margin-top:18px;border:1px solid var(--pa-line);border-radius:14px;padding:14px 16px;background:#fff;color:var(--pa-ink)}
 #app .mt-card h3,.mt-card h3{margin:0 0 4px;font-size:15px}

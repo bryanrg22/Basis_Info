@@ -151,9 +151,10 @@ test('an inside item is measured on its photo: a scale from two points and a kno
  const x=await boot({screen:'asset-detail'}),ct=x.asset('countertop');
  x.Live.measurePhotoDims.set('5a310001-0000-4000-8000-000000000002',[1200,800]);
  x.Live.openMeasure(ct,'asset-detail');let html=await x.page(()=>x.Live.measureDialog());
- assert.match(text(html),/Photo · kitchen\.webp/);assert.match(text(html),/Door, height 80 in/);assert.match(text(html),/Base cabinet, height 34\.5 in/);assert.match(text(html),/Counter, height 36 in/);
+ assert.match(html,/class="mt-thumb" data-live="mt-view" data-value="doc:5a310001-0000-4000-8000-000000000002" aria-pressed="true" title="kitchen\.webp · where it was seen"/);assert.match(text(html),/Door, height 80 in/);assert.match(text(html),/Base cabinet, height 34\.5 in/);assert.match(text(html),/Counter, height 36 in/);
  const t=x.Live.state.mtDialog.trace,v={id:'doc:5a310001-0000-4000-8000-000000000002',width:1200,height:800},svg=stageSvg('dialog',v);
- assert.equal(t.space,'image');assert.equal(t.tool,'line');
+ assert.equal(t.space,'image');assert.equal(t.tool,'scale','a photo opens on the scale tool');
+ x.Live.actions['pa-tool']({closest:()=>({dataset:{mtScope:'dialog'}})},'line');
  x.fire('click',at(svg,[100,100]));assert.match(t.msg,/Set the scale first/);assert.equal(t.draft.length,0);
  x.Live.actions['pa-tool']({closest:()=>({dataset:{mtScope:'dialog'}})},'scale');
  x.fire('click',at(svg,[200,500]));x.fire('click',at(svg,[500,500]));

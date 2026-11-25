@@ -518,14 +518,24 @@
  const removePoint=(points,i)=>points.filter((_,j)=>j!==i);
  const minPoints=closed=>closed?3:2;
  // Fusion's sketch dimension: edge i gets exactly `ft` by moving its far corner (the next one)
- // along the edge's own direction; the edge after it stretches. Iterated on the frame's own
- // length (lon/lat is not exactly linear in pixels); image space is exact in one step.
+ // along the edge's own direction. Iterated on the frame's own length (lon/lat is not exactly
+ // linear in pixels); image space is exact in one step. When the edge meets both its neighbours
+ // at right angles (within RIGHT_TOL_DEG), the far side slides with the corner (the corner after
+ // it moves by the same amount), so a rectangle stays a rectangle, as a constrained sketch keeps
+ // its perpendicular constraints; otherwise only the far corner moves and the next edge stretches.
+ // 3 degrees: a hand or model trace of a square corner is often 2 degrees off (the sample draft, 2.05).
+ const RIGHT_TOL_DEG=3;
+ function angleAt(prev,at,next){const a=[prev[0]-at[0],prev[1]-at[1]],b=[next[0]-at[0],next[1]-at[1]],d=Math.hypot(...a)*Math.hypot(...b);if(!d)return NaN;return Math.acos(Math.max(-1,Math.min(1,(a[0]*b[0]+a[1]*b[1])/d)))*180/Math.PI}
+ const isSquare=(p,q,r)=>Math.abs(angleAt(p,q,r)-90)<=RIGHT_TOL_DEG;
  function setEdgeLength(points,i,ft,closed,frame){
   const n=points.length,j=(i+1)%n;if(i<0||i>=(closed?n:n-1))throw new Error('No such edge.');
   const a=points[i],b=points[j],len=dist(a,b),now=segmentFt(a,b,frame);if(!(len>0)||!(now>0))throw new Error('This edge has no length to change.');
   const u=[(b[0]-a[0])/len,(b[1]-a[1])/len];let s=len*ft/now;
   for(let it=0;it<6;it++){const L=segmentFt(a,[a[0]+u[0]*s,a[1]+u[1]*s],frame);if(Math.abs(L-ft)<=1e-9*ft)break;s*=ft/L}
-  return movePoint(points,j,[a[0]+u[0]*s,a[1]+u[1]*s]);
+  const to=[a[0]+u[0]*s,a[1]+u[1]*s],out=movePoint(points,j,to);
+  if(closed&&n>=4){const h=(i-1+n)%n,k=(j+1)%n;
+   if(k!==i&&h!==j&&isSquare(points[h],a,b)&&isSquare(a,b,points[k])){const d=[to[0]-b[0],to[1]-b[1]];out[k]=[points[k][0]+d[0],points[k][1]+d[1]]}}
+  return out;
  }
  // The nearest of the shape's own corners, the parcel's corners, then the parcel's edges, within
  // `radius` picture pixels (a few screen pixels times k). Corners win over edges.
@@ -661,7 +671,7 @@
  const anyProperty=c=>!!(c&&(c.propertyCapture||c.publicGeo));
 
  const api={FT_PER_M,radii,round2,measure,problems,formula,reviewFlags,expectedErrorPct,MeasurementError,georef,measurable,toMercator,fromMercator,
-  frameOf,scaleFeetPerPx,segmentFt,edgeLengths,ftIn,ftInWords,parseLength,areaText,lfText,edgeLabels,labelPoint,shapeSummary,movePoint,insertPoint,removePoint,minPoints,setEdgeLength,snapPoint,nearestOnSegment,ringSegments,onPicture,
+  frameOf,scaleFeetPerPx,segmentFt,angleAt,isSquare,RIGHT_TOL_DEG,edgeLengths,ftIn,ftInWords,parseLength,areaText,lfText,edgeLabels,labelPoint,shapeSummary,movePoint,insertPoint,removePoint,minPoints,setEdgeLength,snapPoint,nearestOnSegment,ringSegments,onPicture,
   remember,undoTrace,redoTrace,snapshotOf,bodyOfRecord,pixelShapes,drawnByText,withProvenance,sameShapes,viewRef,imageBody,KNOWN_LENGTHS,edgeComparison,lonlatPathFt,shoelace,insideOrOn,
   needsMeasurement,measureOffer,measureUnit,captureStatus,gatherStatus,noteText,clock,viewsOf,historyStrip,defaultMeasureView,leafText,dateText,yearOnly,dateOf,SIDE_TEXT,LOOKING,compass,
   publicSeries,creditLine,measurementBody,imageOf,parcelRings,siteCheckText,lidarFacts,bracket,withBracket,caps,anyProperty,ringProblem,CAPTURE_FAILED,CAPTURE_PART};

@@ -10,8 +10,18 @@ to redirect.
 
 * **One tool, two places.** The Property page's side panel (as before) and a dialog opened by
   Measure on the Assets list and Measure or Edit measurement on the asset page, so a row is
-  measured where it is reviewed. The dialog offers the property's top-down pictures (outside
-  items, the pin confirmed) and the study's photos (any item; the evidence's first).
+  measured where it is reviewed. Every row with an area or a length offers Measure (the engineer
+  can measure and change any such quantity, not only one the takeoff could not size: roof,
+  siding, flooring are priced by formulas); it is the primary button only on a row held for a
+  measured quantity. On the live study (2026-11-25) 71 of 388 rows offer it.
+* **The picker.** The property's top-down pictures (outside items, the pin confirmed) as chips;
+  then the asset's own photos as up to eight thumbnails (where it was seen, then its room's); every
+  other photo behind one "All photos (52)" list. A study with 52 photos had pushed the picture
+  below the fold as 52 chips.
+* **Picture and controls together.** The dialog fills the window: the picture takes the height
+  left (CSS container units fit it to the pane), the controls sit beside it and scroll on their
+  own with Undo to Save pinned at their foot. Checked at 1440 x 900 and 1280 x 800: the picture
+  and Save are both on screen with no page scroll. Below 1000 px wide it stacks.
 * **Labels.** Feet and inches to the nearest inch at each edge's middle, outside the shape, turned
   along the edge but never upside down; whole feet when the full text does not fit on screen,
   none when nothing fits (the Edges table lists every edge). Area and perimeter (SY when the unit
@@ -25,23 +35,28 @@ to redirect.
   the parcel's corners, then its edges, within 8 screen pixels. An edit that makes a ring cross
   itself, or puts a corner off the picture, is undone with the server's words.
 * **Typed lengths.** Click a label (or Enter on it, or a length in the Edges table) and type
-  54'-3", 54' 3", 54.25, 54.25 ft, 36 in or 16.5 m: the far corner moves along the edge, the next
-  edge stretches, and the label always matches the geometry (Fusion's driving dimension, never
-  AutoCAD's text override).
+  54'-3", 54' 3", 54.25, 54.25 ft, 36 in or 16.5 m: the far corner moves along the edge and the
+  label always matches the geometry (Fusion's driving dimension, never AutoCAD's text override).
+  When both corners of the edge are square (within 3 degrees: the sample's model draft has corners
+  2.05 degrees off), the far side slides with it and a rectangle stays a rectangle, as a sketch
+  with perpendicular constraints would; otherwise the next edge stretches.
 * **The original.** A stored measurement (a model's draft; there are none yet, the sample has one
   with `&measure=draft`) opens as it is with "Drafted by Basis · not verified". Once changed, the
   draft stays dashed yellow beside the new shape, changed labels turn amber, and the Edges table
   shows the draft's length and the change per edge. Verified is a checkbox: on by default for an
   engineer's own trace, off for a draft until the engineer ticks it.
-* **Photos.** Scale first: two clicks on something of known length and its length typed or picked
-  from the hints; the area and line tools wait for it. The scale line is drawn with its length.
+* **Photos.** Scale first (a photo opens on the Scale tool): two clicks on something of known
+  length and its length typed or picked from the hints; the area and line tools wait for it. The scale line is drawn with its length.
 * **Zoom.** A small shape opens zoomed onto it (2x or 4x); the zoomed picture keeps its scroll
   across renders.
 
 Headless captures at 1440 x 900 on the sample (`?mode=live&api=sample&sample=assets&property=confirmed&measure=draft`),
-kept with the private work files (`$BASIS_EVAL_DATA_DIR/work/measure_tool/`, 22 PNGs): the list,
-the fence traced and typed, a drag, the patio draft edited with its original, a refused crossing,
-the photo with its scale, the send, the asset page's read-only card, the Property page zoomed.
+kept with the private work files (`$BASIS_EVAL_DATA_DIR/work/measure_tool/`): 01 to 27 on the
+sample (the list, the fence traced and typed, a drag, the patio draft edited with its original, a
+refused crossing, the photo with its scale, the send, the read-only card, the Property page
+zoomed, Measure on every row, the picker and layout at both sizes, a rectangle typed and still
+square), 30 to 35 on the live study (the list, the picker over 52 photos, a counter measured on its
+photo, restored after a reload from the server's draft, removed again).
 
 ## November 2026: Property
 

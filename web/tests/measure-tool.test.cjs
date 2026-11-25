@@ -95,15 +95,37 @@ test('the area label sits inside even a concave ring',()=>{
 });
 
 /* ---------- typed lengths: the far corner moves along the edge ---------- */
-test('a typed length gives the edge exactly that length in image space; the next edge stretches',()=>{
- const f=image(),ring=[[0,0],[100,0],[100,200],[0,200]];
+test('a typed length on a rectangle slides the far side, so it stays a rectangle (both corners square)',()=>{
+ const f=image(),ring=[[0,0],[100,0],[100,200],[0,200]],angles=r=>r.map((_,i)=>PM.angleAt(r[(i-1+r.length)%r.length],r[i],r[(i+1)%r.length]));
  const out=PM.setEdgeLength(ring,0,30,true,f);
- assert.deepEqual(out[1],[150,0]);assert.deepEqual(out[0],ring[0]);assert.deepEqual(out.slice(2),ring.slice(2));
+ assert.deepEqual(out,[[0,0],[150,0],[150,200],[0,200]],'the corner after the far one moves with it');
+ const len=PM.edgeLengths(out,true,f);assert.equal(len[0],30);assert.equal(len[1],40,'the adjacent side keeps its length');assert.equal(len[2],30);
+ for(const a of angles(out))assert.ok(Math.abs(a-90)<1e-9);
+ // the lead's case: 45'-6" typed on a 40'-2" side of a 40'-2" x 21' rectangle: 21' stays 21'
+ const s=PM.frameOf(null,{scale:{points:[[0,0],[12,0]],length:1,unit:'ft'}}),r=[[100,100],[100+12*(40+2/12),100],[100+12*(40+2/12),100+12*21],[100,100+12*21]];
+ const typed=PM.setEdgeLength(r,0,45.5,true,s),L=PM.edgeLengths(typed,true,s);
+ assert.equal(PM.ftIn(L[0]),`45'-6"`);assert.equal(PM.ftIn(L[1]),`21'-0"`);assert.equal(PM.ftIn(L[2]),`45'-6"`);
+ // a corner within 3 degrees of square counts as square; the closing edge slides the corner before the first
+ const nearly=[[0,0],[100,0],[101.5,200],[0,200]];assert.ok(PM.isSquare(nearly[0],nearly[1],nearly[2]));
+ const closing=PM.setEdgeLength(ring,3,50,true,f);assert.deepEqual(closing[0],[0,-50]);assert.deepEqual(closing[1],[100,-50]);assert.equal(PM.edgeLengths(closing,true,f)[3],50);
+});
+test('a typed length where a corner is not square moves only the far corner; the next edge stretches',()=>{
+ const f=image(),trap=[[0,0],[100,0],[150,200],[0,200]];// 76 degrees at corner 1: not square
+ const out=PM.setEdgeLength(trap,0,30,true,f);
+ assert.deepEqual(out[1],[150,0]);assert.deepEqual(out[0],trap[0]);assert.deepEqual(out.slice(2),trap.slice(2));
  assert.equal(PM.edgeLengths(out,true,f)[0],30);
- // the closing edge moves the first corner
- const closing=PM.setEdgeLength(ring,3,50,true,f);assert.equal(PM.edgeLengths(closing,true,f)[3],50);assert.deepEqual(closing[0],[0,-50]);
- // shorter, on a slanted edge: along the edge, not towards an axis
- const slant=PM.setEdgeLength([[0,0],[300,400]],0,50,false,f);assert.ok(Math.abs(slant[1][0]-150)<1e-9&&Math.abs(slant[1][1]-200)<1e-9);
+ assert.ok(!PM.isSquare(trap[0],trap[1],trap[2]));assert.ok(!PM.isSquare([0,0],[100,0],[114,200]),'4 degrees off is not square');assert.ok(PM.isSquare([0,0],[100,0],[110,200]),'2.9 degrees off is');
+ // a triangle and a line never slide another corner
+ assert.deepEqual(PM.setEdgeLength([[0,0],[100,0],[0,100]],0,30,true,f)[2],[0,100]);
+ const slant=PM.setEdgeLength([[0,0],[300,400]],0,50,false,f);assert.ok(Math.abs(slant[1][0]-150)<1e-9&&Math.abs(slant[1][1]-200)<1e-9,'along the edge, not towards an axis');
+});
+test('on an aerial a rectangle typed to a length keeps its other side to under an inch',()=>{
+ const r=[[400,300],[800,300],[800,500],[400,500]],before=PM.edgeLengths(r,true,frame),out=PM.setEdgeLength(r,0,150,true,frame),after=PM.edgeLengths(out,true,frame);
+ assert.ok(Math.abs(after[0]-150)<0.001);assert.ok(Math.abs(after[1]-before[1])<0.01);assert.ok(Math.abs(after[2]-150)<0.01);
+ // the lead's live case on the sample's model draft of the patio (corners 88 to 92 degrees): 45'-6" on its 40'-2" side
+ const PS=require('../live/sample-property.js'),draft=PM.pixelShapes(PS.patioDraft(),VIEW).shapes[0].ring,was=PM.edgeLengths(draft,true,frame).map(f=>PM.ftIn(f));
+ const typed=PM.edgeLengths(PM.setEdgeLength(draft,2,45.5,true,frame),true,frame).map(f=>PM.ftIn(f));
+ assert.deepEqual(was,[`40'-4"`,`21'-0"`,`40'-2"`,`21'-0"`]);assert.equal(typed[2],`45'-6"`);assert.equal(typed[1],was[1]);assert.equal(typed[3],was[3],'the adjacent side is not skewed');
 });
 test('a typed length on an aerial lands on the server’s length to well under an inch',()=>{
  for(const [i,ft] of [[0,54.25],[1,100],[2,12+7/12],[4,300]]){
