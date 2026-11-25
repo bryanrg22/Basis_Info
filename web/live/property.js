@@ -138,7 +138,7 @@
   if(tracing){scopes.property={s,t:u.trace,v,w,h,parcels:parcelPx,building:buildingPx,doc:null};parts.push(toolLayer(u.trace,v))}
   else if(u.saved?.viewId===v.id&&u.saved.assetId===L.docId)parts.push(toolLayer({shapes:u.saved.shapes,draft:[],tool:'area',unit:u.saved.unit,space:'lonlat',k:u.trace?.k||null},v,{readOnly:true}));
   const zoom=u.zoom||1,mode=u.mode==='pin'?'is-pin':u.mode==='measure'?'is-measure':'';
-  return `<div class="pa-stage ${mode}" data-zoom="${zoom}"><div class="mt-stage-view"><div class="pa-zoom" tabindex="0" aria-label="Picture; scroll to pan when zoomed"><div class="pa-canvas${diagram?' is-diagram':''}" style="width:${zoom*100}%;aspect-ratio:${w}/${h}">${diagram?diagramFor('property',s,v,{except:tracing?u.trace.assetId:null}):img(s,v,v.label||'Property picture','pa-photo')}<svg class="pa-overlay" viewBox="0 0 ${w} ${h}" preserveAspectRatio="none" data-pa-stage="${esc(v.id)}" data-mt-scope="property" role="img" aria-label="${esc(overlayLabel(prop,pub,u))}">${parts.join('')}</svg>${tracing?editBox(u.trace,v,w,h,'property'):''}</div></div>${diagram?furnitureHtml('property'):''}</div><div class="pa-stage-tools"><div class="pa-zoom-tools" role="group" aria-label="Zoom"><button class="pa-icon-btn" data-live="pa-zoom" data-value="out" aria-label="Zoom out" ${zoom<=1?'disabled':''}>−</button><span>${zoom*100}%</span><button class="pa-icon-btn" data-live="pa-zoom" data-value="in" aria-label="Zoom in" ${zoom>=4?'disabled':''}>+</button></div>${pictureToggle(v)}${g?`<label class="pa-toggle"><input type="checkbox" data-pa-layer="pin" ${u.layers.pin?'checked':''}> Pin</label>${pub?.parcels?.length&&!diagram?`<label class="pa-toggle"><input type="checkbox" data-pa-layer="parcel" ${u.layers.parcel?'checked':''}> Parcel</label>`:''}`:''}</div>${caption(v)}</div>`;
+  return `<div class="pa-stage ${mode}" data-zoom="${zoom}"><div class="mt-stage-view"><div class="pa-zoom" tabindex="0" aria-label="Picture; scroll to pan when zoomed"><div class="pa-canvas${diagram?' is-diagram':''}" style="width:${zoom*100}%;aspect-ratio:${w}/${h}">${diagram?diagramFor('property',s,v,{except:tracing?u.trace.assetId:null,pin:g&&u.layers.pin&&prop.pin?.lat!=null?{at:g.toPixel(prop.pin.lon,prop.pin.lat),r:Math.max(7,w/110)*1.9}:null}):img(s,v,v.label||'Property picture','pa-photo')}<svg class="pa-overlay" viewBox="0 0 ${w} ${h}" preserveAspectRatio="none" data-pa-stage="${esc(v.id)}" data-mt-scope="property" role="img" aria-label="${esc(overlayLabel(prop,pub,u))}">${parts.join('')}</svg>${tracing?editBox(u.trace,v,w,h,'property'):''}</div></div>${diagram?furnitureHtml('property'):''}</div><div class="pa-stage-tools"><div class="pa-zoom-tools" role="group" aria-label="Zoom"><button class="pa-icon-btn" data-live="pa-zoom" data-value="out" aria-label="Zoom out" ${zoom<=1?'disabled':''}>−</button><span>${zoom*100}%</span><button class="pa-icon-btn" data-live="pa-zoom" data-value="in" aria-label="Zoom in" ${zoom>=4?'disabled':''}>+</button></div>${pictureToggle(v)}${g?`<label class="pa-toggle"><input type="checkbox" data-pa-layer="pin" ${u.layers.pin?'checked':''}> Pin</label>${pub?.parcels?.length&&!diagram?`<label class="pa-toggle"><input type="checkbox" data-pa-layer="parcel" ${u.layers.parcel?'checked':''}> Parcel</label>`:''}`:''}</div>${caption(v)}</div>`;
  }
  const overlayLabel=(prop,pub,u)=>[u.mode==='pin'?'Click the house to move the pin.':u.mode==='measure'?'Click corners to trace.':'',prop.pin?'The pin marks the house.':'',pub?.parcels?.length?'The parcel outline is drawn.':''].filter(Boolean).join(' ');
  const marker=(x,y,w,cls)=>{const r=Math.max(7,w/110);return `<g class="${cls}" transform="translate(${x.toFixed(1)} ${y.toFixed(1)})"><g class="pa-pin-mark"><circle r="${r*1.9}" class="pa-pin-halo"/><circle r="${r}" class="pa-pin-dot"/></g></g>`};
@@ -598,28 +598,34 @@ ${toolPanel('property',s,a,t,v,{})}
  const diagramOn=v=>georeferenced(v)&&pictureModeOf()==='diagram';
  const pictureToggle=v=>georeferenced(v)?`<div class="pa-seg mt-picture-toggle" role="group" aria-label="Show the picture or a diagram">${[['photo','Photo'],['diagram','Diagram']].map(([k,l])=>`<button data-live="mt-picture" data-value="${k}" aria-pressed="${pictureModeOf()===k}">${l}</button>`).join('')}</div>`:'';
  const diagrams={};// scope -> {model, frame, k} as last drawn
- function diagramFor(scope,s,v,{except=null}={}){
+ function diagramFor(scope,s,v,{except=null,pin=null}={}){
   const pub=pubEntry(s)?.data,items=assetsEntry(s).data?.items||[],pending=L.corrections?.assets_review||null;
   const model=PM.diagramModel({view:v,parcels:pub?.parcels||[],measured:PM.measuredOnView(items,v,{pending,except}),editing:!!except,building:PM.buildingOnView(pub?.lidar,v)});
-  diagrams[scope]={model,frame:PM.frameOf(v),k:diagrams[scope]?.model?.w===model.w?diagrams[scope].k:null};
+  diagrams[scope]={model,frame:PM.frameOf(v),pin,k:diagrams[scope]?.model?.w===model.w?diagrams[scope].k:null};
   const m=model,what=[m.lots.length?`${m.lots.length} lot ${m.lots.length===1?'line':'lines'}`:'no lot line',m.legend.length?`measured: ${m.legend.map(x=>`${x.name} ${x.quantity}`).join(', ')}`:'nothing measured'].join('; ');
   return `<svg class="mt-diagram" viewBox="0 0 ${m.w} ${m.h}" preserveAspectRatio="none" data-mt-diagram="${scope}" role="img" aria-label="${esc(`Diagram of the property: ${what}. North is up; scale bar ${m.scale?.label||'unknown'}.`)}">${diagramBody(diagrams[scope])}</svg>`;
  }
- function diagramBody({model:m,frame,k}){
+ // Every label is placed clear of the pin, which the overlay draws over the diagram.
+ function diagramBody({model:m,frame,k,pin=null}){
   k=k||m.w/900;const font=MT_FONT*k,P=pts=>pts.map(q=>q.map(n=>n.toFixed(1)).join(',')).join(' '),out=[],labels=[];
+  const edgeAt=(l,b)=>PM.clearOfPin([l.x,l.y],PM.turnedBox(b,l.angle),pin);
+  const totalBox=(lines,f1x)=>({w:Math.max(...lines.map(t=>t.length))*0.62*f1x+8*k,h:font*2.7});// two lines, the first at the anchor
+  const totalAt=(at,box,shape)=>{const c=[at[0],at[1]+font*0.35],p=PM.clearOfPin(c,box,pin,{shape});return [p[0],p[1]-font*0.35]};
   out.push(`<rect class="mt-d-ground" x="0" y="0" width="${m.w}" height="${m.h}" fill="${m.ground}"/>`);
   for(const lot of m.lots)out.push(`<polygon class="mt-d-lot${lot.adjacent?' is-adjacent':''}" points="${P(lot.points)}"/>`);
   // The building: the lidar's roof outline (overhangs included), grey, with its edge lengths.
   if(m.building){const bp=m.building.points;out.push(`<polygon class="mt-d-building" points="${P(bp)}"/>`);
-   if(frame)for(const l of PM.edgeLabels(bp,true,PM.edgeLengths(bp,true,frame),{k,font:MT_FONT}))if(l.mode!=='hidden'){const b=labelBox(l.text,k);labels.push(`<g class="mt-d-label is-building" transform="translate(${f1(l.x)} ${f1(l.y)}) rotate(${f1(l.angle)})"><rect x="${f1(-b.w/2)}" y="${f1(-b.h/2)}" width="${f1(b.w)}" height="${f1(b.h)}" rx="${f1(4*k)}"/><text y="${f1(0.36*font)}" font-size="${f1(font)}">${esc(l.text)}</text></g>`)}
-   const at=PM.labelPoint(bp);labels.push(`<g class="mt-d-total is-building" transform="translate(${f1(at[0])} ${f1(at[1])})"><text font-size="${f1(font)}">Building</text><text y="${f1(font*1.25)}" font-size="${f1(font*0.85)}">roof outline</text></g>`)}
+   if(frame)for(const l of PM.edgeLabels(bp,true,PM.edgeLengths(bp,true,frame),{k,font:MT_FONT}))if(l.mode!=='hidden'){const b=labelBox(l.text,k),[lx,ly]=edgeAt(l,b);labels.push(`<g class="mt-d-label is-building" transform="translate(${f1(lx)} ${f1(ly)}) rotate(${f1(l.angle)})"><rect x="${f1(-b.w/2)}" y="${f1(-b.h/2)}" width="${f1(b.w)}" height="${f1(b.h)}" rx="${f1(4*k)}"/><text y="${f1(0.36*font)}" font-size="${f1(font)}">${esc(l.text)}</text></g>`)}
+   const at=totalAt(PM.labelPoint(bp),totalBox(['roof outline'],font),PM.pointsBox(bp));labels.push(`<g class="mt-d-total is-building" transform="translate(${f1(at[0])} ${f1(at[1])})"><text font-size="${f1(font)}">Building</text><text y="${f1(font*1.25)}" font-size="${f1(font*0.85)}">roof outline</text></g>`)}
   for(const sh of m.shapes)for(const one of sh.shapes){
    const rings=one.kind==='line'?[{p:one.path,closed:false}]:[{p:one.ring,closed:true},...(one.cutouts||[]).map(c=>({p:c,closed:true,cut:true}))];
    for(const r of rings)out.push(r.closed?`<polygon class="mt-d-shape${r.cut?' is-cut':''}" points="${P(r.p)}" style="--c:${sh.colour}"/>`:`<polyline class="mt-d-shape is-line" points="${P(r.p)}" style="--c:${sh.colour}"/>`);
-   if(frame)for(const r of rings)for(const l of PM.edgeLabels(r.p,r.closed,PM.edgeLengths(r.p,r.closed,frame),{k,font:MT_FONT}))if(l.mode!=='hidden'){const b=labelBox(l.text,k);
-    labels.push(`<g class="mt-d-label" transform="translate(${f1(l.x)} ${f1(l.y)}) rotate(${f1(l.angle)})" style="--c:${sh.colour}"><rect x="${f1(-b.w/2)}" y="${f1(-b.h/2)}" width="${f1(b.w)}" height="${f1(b.h)}" rx="${f1(4*k)}"/><text y="${f1(0.36*font)}" font-size="${f1(font)}">${esc(l.text)}</text></g>`)}
+   if(frame)for(const r of rings)for(const l of PM.edgeLabels(r.p,r.closed,PM.edgeLengths(r.p,r.closed,frame),{k,font:MT_FONT}))if(l.mode!=='hidden'){const b=labelBox(l.text,k),[lx,ly]=edgeAt(l,b);
+    labels.push(`<g class="mt-d-label" transform="translate(${f1(lx)} ${f1(ly)}) rotate(${f1(l.angle)})" style="--c:${sh.colour}"><rect x="${f1(-b.w/2)}" y="${f1(-b.h/2)}" width="${f1(b.w)}" height="${f1(b.h)}" rx="${f1(4*k)}"/><text y="${f1(0.36*font)}" font-size="${f1(font)}">${esc(l.text)}</text></g>`)}
    // A line's name and length at its end (as the tool puts a line's total), an area's inside it.
-   if(frame){const sum=PM.shapeSummary(one,frame,{unit:sh.unit,heightFt:sh.heightFt}),line=one.kind==='line',end=line?one.path[one.path.length-1]:null,at=line?[end[0]+10*k,end[1]-10*k]:PM.labelPoint(one.ring);
+   if(frame){const sum=PM.shapeSummary(one,frame,{unit:sh.unit,heightFt:sh.heightFt}),line=one.kind==='line',end=line?one.path[one.path.length-1]:null,lines=[typeName(sh.label),line?sum.text:sum.area];
+    let at=line?[end[0]+10*k,end[1]-10*k]:PM.labelPoint(one.ring);const box=totalBox(lines,font*1.1);
+    at=line?(()=>{const c=[at[0]+box.w/2,at[1]+font*0.35],p=PM.clearOfPin(c,box,pin);return [p[0]-box.w/2,p[1]-font*0.35]})():totalAt(at,box,PM.pointsBox(one.ring));
     labels.push(`<g class="mt-d-total${line?' is-line':''}" transform="translate(${f1(at[0])} ${f1(at[1])})" style="--c:${sh.colour}"><text font-size="${f1(font*1.1)}">${esc(typeName(sh.label))}</text><text y="${f1(font*1.3)}" font-size="${f1(font*0.95)}">${esc(one.kind==='line'?sum.text:sum.area)}</text></g>`)}
   }
   return out.join('')+labels.join('');
@@ -714,7 +720,13 @@ ${noViews?'':`<section class="pa-history" aria-label="Dated views">${strips(s,ca
  const reload=s=>{Live.invalidate('property:'+s.id);Live.invalidate('property-public:'+s.id);Live.invalidate('property-captures:'+s.id);Live.render()};
  A['pa-reload']=()=>reload(L.study);
  A['pa-view']=(el,id)=>{const u=ui(L.study);u.view=id;if(u.mode==='pin'){u.mode=null;u.candidate=null}Live.render()};
- A['pa-zoom']=(el,dir)=>{const u=ui(L.study);u.zoom=Math.max(1,Math.min(4,dir==='in'?u.zoom*2:u.zoom/2));Live.render()};
+ // Zoom keeps the picture point at the middle of the view in the middle (it used to keep the
+ // scroll in pixels, so the view slid to the top left).
+ function paneGeometry(pane){const canvas=pane?.querySelector?.('.pa-canvas');if(!canvas)return null;const pr=pane.getBoundingClientRect(),cr=canvas.getBoundingClientRect();
+  return {scrollLeft:pane.scrollLeft,scrollTop:pane.scrollTop,clientWidth:pane.clientWidth,clientHeight:pane.clientHeight,canvasLeft:cr.left-pr.left-(pane.clientLeft||0)+pane.scrollLeft,canvasTop:cr.top-pr.top-(pane.clientTop||0)+pane.scrollTop,canvasWidth:cr.width,canvasHeight:cr.height,scrollWidth:pane.scrollWidth,scrollHeight:pane.scrollHeight}}
+ const centreOf=pane=>{const g=paneGeometry(pane);return g&&g.canvasWidth&&g.canvasHeight?PM.viewCentre(g):null};
+ function centreOn(pane,f){const g=paneGeometry(pane);if(!g||!f)return;const s=PM.scrollToCentre(f,g);pane.scrollLeft=s.scrollLeft;pane.scrollTop=s.scrollTop}
+ A['pa-zoom']=(el,dir)=>{const u=ui(L.study),pane=document.querySelector?.('.pa-main .pa-stage .pa-zoom');u.keep=centreOf(pane);u.zoom=Math.max(1,Math.min(4,dir==='in'?u.zoom*2:u.zoom/2));Live.render()};
  A['pa-compare-mode']=(el,m)=>{ui(L.study).compare.mode=m;Live.render()};
  A['pa-pin-move']=()=>{const u=ui(L.study);u.mode='pin';u.candidate=null;Live.render()};
  A['pa-pin-cancel']=()=>{const u=ui(L.study);u.mode=null;u.candidate=null;Live.render()};
@@ -771,7 +783,7 @@ ${noViews?'':`<section class="pa-history" aria-label="Dated views">${strips(s,ca
  A['mt-picture']=(el,m)=>{setPictureMode(m);Live.render()};
  A['mt-view']=(el,key)=>{if(!L.mtDialog)return;L.mtDialog.key=key;L.mtDialog.zoom=null;L.mtDialog.scroll=null;Live.render()};
  // Zooming keeps the middle of what is on screen in the middle.
- A['mt-zoom']=(el,dir)=>{const D=L.mtDialog;if(!D)return;const box=document.querySelector?.('.mt-stage .pa-zoom'),c=box?[(box.scrollLeft+box.clientWidth/2)/box.scrollWidth,(box.scrollTop+box.clientHeight/2)/box.scrollHeight]:null;
+ A['mt-zoom']=(el,dir)=>{const D=L.mtDialog;if(!D)return;const c=centreOf(document.querySelector?.('.mt-stage .pa-zoom'));
   D.zoom=Math.max(1,Math.min(8,dir==='in'?(D.zoom||1)*2:(D.zoom||1)/2));D.keep=c;if(D.trace)D.trace.k=null;Live.render()};
  function setScale(t,text){
   if(!t.scale)return;const p=PM.parseLength(text);t.scale.text=text;
@@ -935,11 +947,12 @@ ${noViews?'':`<section class="pa-history" aria-label="Dated views">${strips(s,ca
   // Scroll the zoomed picture: onto the shape when it opens, onto the same middle after a zoom.
   const pane=D&&document.querySelector('.mt-stage .pa-zoom');
   if(pane&&(D.centre||D.keep)){const c=scopes.dialog,box=D.centre&&c?shapesBox(c.t):null,at=box?[(box.x+box.w/2)/c.w,(box.y+box.h/2)/c.h]:D.keep;D.centre=false;D.keep=null;
-   if(at){pane.scrollLeft=at[0]*pane.scrollWidth-pane.clientWidth/2;pane.scrollTop=at[1]*pane.scrollHeight-pane.clientHeight/2}}
+   if(at)centreOn(pane,at)}
   else if(pane&&D.scroll){pane.scrollLeft=D.scroll[0];pane.scrollTop=D.scroll[1]}
   // The Property page's zoomed picture keeps its place too.
   const stagePane=Live.screen?.()==='property'&&L.study&&document.querySelector('.pa-main .pa-stage .pa-zoom'),u=L.study&&L.property?.[L.study.id];
-  if(stagePane&&u?.scroll){stagePane.scrollLeft=u.scroll[0];stagePane.scrollTop=u.scroll[1]}
+  if(stagePane&&u?.keep){centreOn(stagePane,u.keep);u.keep=null}
+  else if(stagePane&&u?.scroll){stagePane.scrollLeft=u.scroll[0];stagePane.scrollTop=u.scroll[1]}
  }
  Live.afterRender.push(measureLabels);
  if(typeof addEventListener==='function'){let timer=null;addEventListener('resize',()=>{clearTimeout(timer);timer=setTimeout(measureLabels,120)})}

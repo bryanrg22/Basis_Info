@@ -151,3 +151,70 @@ test('a dragged corner snaps to the shape’s own corners first, then the buildi
  drag(t.shapes[0].ring[0],[mid[0],mid[1]+4]);
  assert.ok(Math.abs(t.shapes[0].ring[0][1]-mid[1])<0.01,'onto the building’s edge');
 });
+
+/* ---------- zoom keeps the middle of the view; labels stay clear of the pin ---------- */
+// A pane of the Property page (the canvas is zoom x the pane's width) or of the dialog (a canvas
+// narrower than the pane is centred in it), as the browser lays them out.
+function pane(zoom,{clientWidth=900,clientHeight=560,fit=false}={}){
+ const base=fit?Math.min(clientWidth,clientHeight*1440/900):clientWidth,canvasWidth=base*zoom,canvasHeight=canvasWidth*900/1440;
+ const canvasLeft=Math.max(0,(clientWidth-canvasWidth)/2),canvasTop=fit?Math.max(0,(clientHeight-canvasHeight)/2):0;
+ return {clientWidth,clientHeight,canvasWidth,canvasHeight,canvasLeft,canvasTop,scrollWidth:Math.max(clientWidth,canvasLeft*2+canvasWidth),scrollHeight:Math.max(clientHeight,canvasTop*2+canvasHeight),scrollLeft:0,scrollTop:0};
+}
+function zoomTo(from,zoom,opts){const f=PM.viewCentre(from),g=pane(zoom,opts),s=PM.scrollToCentre(f,g);return {...g,...s,f}}
+test('zooming keeps the picture point at the middle of the view in the middle, at every level, on both stages',()=>{
+ for(const opts of [{},{fit:true}]){
+  // start zoomed in on a point inside the picture (the building, not the top left)
+  let g=pane(4,opts);Object.assign(g,PM.scrollToCentre([0.62,0.3],g));
+  for(const z of [2,1,2,4,8,4,2,4]){
+   const next=zoomTo(g,z,opts),after=PM.viewCentre(next);
+   const maxL=next.scrollWidth-next.clientWidth,maxT=next.scrollHeight-next.clientHeight;
+   const clampedX=next.scrollLeft===0||Math.abs(next.scrollLeft-maxL)<1e-9,clampedY=next.scrollTop===0||Math.abs(next.scrollTop-maxT)<1e-9;
+   if(!clampedX)assert.ok(Math.abs((after[0]-next.f[0])*next.canvasWidth)<=1,`x at ${z}x`);
+   if(!clampedY)assert.ok(Math.abs((after[1]-next.f[1])*next.canvasHeight)<=1,`y at ${z}x`);
+   assert.ok(next.scrollLeft>=0&&next.scrollLeft<=Math.max(0,maxL)&&next.scrollTop>=0&&next.scrollTop<=Math.max(0,maxT),'inside what the pane can scroll');
+   g=next;
+  }
+ }
+ // the old behaviour (the scroll kept in pixels) moved the middle: the reason for the fix
+ const at4=pane(4);Object.assign(at4,PM.scrollToCentre([0.5,0.5],at4));
+ const kept={...pane(2),scrollLeft:Math.min(at4.scrollLeft,pane(2).scrollWidth-900),scrollTop:Math.min(at4.scrollTop,pane(2).scrollHeight-560)};
+ assert.ok(Math.abs(PM.viewCentre(kept)[0]-0.5)*kept.canvasWidth>100);
+});
+test('at an edge the scroll clamps there, and zooming in and out again does not drift',()=>{
+ let g=pane(2);Object.assign(g,PM.scrollToCentre([0.02,0.98],g));// the bottom-left corner
+ assert.equal(g.scrollLeft,0);assert.equal(g.scrollTop,g.scrollHeight-g.clientHeight);
+ const seen=new Set();
+ for(let i=0;i<10;i++){g=zoomTo(g,4);const at4=`${g.scrollLeft.toFixed(6)},${g.scrollTop.toFixed(6)}`;g=zoomTo(g,2);seen.add(`${at4}|${g.scrollLeft.toFixed(6)},${g.scrollTop.toFixed(6)}`)}
+ assert.equal(seen.size,1,'the same views every time');
+ assert.equal(g.scrollLeft,0);assert.equal(g.scrollTop,g.scrollHeight-g.clientHeight);
+});
+test('no label of the diagram sits under the pin; the building’s label moves below the outline when the pin is inside it',async()=>{
+ const x=await boot({storage:memory()});x.Live.measurePicture.set('diagram');
+ const html=await x.page(()=>x.Live.screens.property());
+ const pinAt=/class="pa-pin" transform="translate\(([\d.]+) ([\d.]+)\)"/.exec(html).slice(1).map(Number),pin={at:pinAt,r:Math.max(7,1440/110)*1.9};
+ const k=1440/900,font=12*k;// the first render's scale (the browser re-measures it)
+ const outline=PM.buildingOnView({year:2021,building:{outline:[[-7.2,-5.2],[12.2,-5.2],[12.2,2.2],[5.2,2.2],[5.2,7.2],[-7.2,7.2]].map(([e,n])=>PS.toLonLat(e,n))}},{width:1440,height:900,lat:43.5,lon:-87,pixel_size_m:0.0841}).points;
+ assert.ok(PM.insideOrOn(pinAt,outline),'the sample’s pin is inside the roof outline');
+ const centre=PM.labelPoint(outline),box={w:12*0.62*font+8*k,h:font*2.7};
+ assert.ok(PM.boxMeetsCircle([centre[0],centre[1]+font*0.35],box,pin.at,pin.r),'where the label used to go, the pin covered it');
+ const b=/mt-d-total is-building" transform="translate\(([\d.]+) ([\d.]+)\)"/.exec(html).slice(1).map(Number);
+ assert.ok(!PM.boxMeetsCircle([b[0],b[1]+font*0.35],box,pin.at,pin.r),'clear of the pin');
+ assert.ok(b[1]>Math.max(...outline.map(p=>p[1])),'below the outline');
+ for(const m of html.matchAll(/class="mt-d-label[^"]*" transform="translate\(([\d.]+) ([\d.]+)\) rotate\(([-\d.]+)\)"[^>]*><rect x="[-\d.]+" y="[-\d.]+" width="([\d.]+)" height="([\d.]+)"/g)){
+  const [lx,ly,a,w,h]=m.slice(1).map(Number);assert.ok(!PM.boxMeetsCircle([lx,ly],PM.turnedBox({w,h},a),pin.at,pin.r),`edge label at ${lx},${ly}`);
+ }
+ // without the pin (the layer off) the label stays in the middle of the outline
+ x.Live.state.property[x.study.id].layers.pin=false;const off=await x.page(()=>x.Live.screens.property());
+ const c=/mt-d-total is-building" transform="translate\(([\d.]+) ([\d.]+)\)"/.exec(off).slice(1).map(Number);
+ assert.ok(Math.abs(c[0]-centre[0])<0.1&&Math.abs(c[1]-centre[1])<0.1);
+});
+test('clearOfPin: clear labels stay; covered ones go below the shape, above it, or straight away from the pin',()=>{
+ const pin={at:[100,100],r:20},box={w:60,h:20};
+ assert.deepEqual(PM.clearOfPin([300,300],box,pin),[300,300]);
+ const shape={cx:100,minY:60,maxY:140},below=PM.clearOfPin([100,100],box,pin,{shape});
+ assert.deepEqual(below,[100,140+4+10]);assert.ok(!PM.boxMeetsCircle(below,box,pin.at,pin.r));
+ const above=PM.clearOfPin([100,140],box,{at:[100,150],r:20},{shape});assert.deepEqual(above,[100,60-4-10],'below is under the pin too: above');
+ const pushed=PM.clearOfPin([110,100],box,pin);assert.ok(!PM.boxMeetsCircle(pushed,box,pin.at,pin.r+4)&&pushed[0]>110&&Math.abs(pushed[1]-100)<1e-9,'straight away, to the right');
+ assert.deepEqual(PM.clearOfPin([100,100],box,null),[100,100]);
+ assert.deepEqual(PM.turnedBox({w:60,h:20},90).w.toFixed(6),'20.000000');
+});

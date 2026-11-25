@@ -686,6 +686,37 @@
   return {w,h,ground:DIAGRAM_GROUND,lots,building,shapes:measured.map(m=>({...m,colour:colourOf(m.label)})),legend,scale,north:{angle:-(Number(view.heading_deg)||0)},note,credit,pixelSizeM:Number(view.pixel_size_m)};
  }
 
+ /* ---------- zoom about the middle of the view ----------
+  * A zoomed picture is a canvas inside a scrolled pane. The picture point at the pane's middle,
+  * as fractions of the picture, is read before a zoom and put back at the middle after it, the
+  * scroll clamped to what the pane can scroll (at an edge the view stops there; the next zoom
+  * starts from where the view really is, so nothing drifts). canvasLeft/Top: the canvas's offset in
+  * the pane's scrolled content (a canvas narrower than the pane is centred in it). */
+ function viewCentre({scrollLeft,scrollTop,clientWidth,clientHeight,canvasLeft=0,canvasTop=0,canvasWidth,canvasHeight}){
+  return [(scrollLeft+clientWidth/2-canvasLeft)/canvasWidth,(scrollTop+clientHeight/2-canvasTop)/canvasHeight];
+ }
+ function scrollToCentre(f,{clientWidth,clientHeight,canvasLeft=0,canvasTop=0,canvasWidth,canvasHeight,scrollWidth,scrollHeight}){
+  const clamp=(v,max)=>Math.max(0,Math.min(Math.max(0,max),v));
+  return {scrollLeft:clamp(canvasLeft+f[0]*canvasWidth-clientWidth/2,scrollWidth-clientWidth),scrollTop:clamp(canvasTop+f[1]*canvasHeight-clientHeight/2,scrollHeight-clientHeight)};
+ }
+
+ /* ---------- labels clear of the pin ---------- */
+ // A label box {w, h} centred at `at` meets the pin's circle (its halo, radius r)?
+ function boxMeetsCircle(at,{w,h},c,r){const dx=Math.max(Math.abs(c[0]-at[0])-w/2,0),dy=Math.max(Math.abs(c[1]-at[1])-h/2,0);return dx*dx+dy*dy<r*r}
+ // The box of a label turned by `angle` degrees, upright (for the test above).
+ const turnedBox=({w,h},angle)=>{const a=angle*Math.PI/180,c=Math.abs(Math.cos(a)),s=Math.abs(Math.sin(a));return {w:w*c+h*s,h:w*s+h*c}};
+ // Where a label goes so the pin never covers it: where it is when clear; else below the shape
+ // (then above it) when the shape's box is given; else pushed straight away from the pin.
+ function clearOfPin(at,box,pin,{gap=4,shape=null}={}){
+  if(!pin||!boxMeetsCircle(at,box,pin.at,pin.r+gap))return at;
+  if(shape)for(const c of [[shape.cx,shape.maxY+gap+box.h/2],[shape.cx,shape.minY-gap-box.h/2]])if(!boxMeetsCircle(c,box,pin.at,pin.r+gap))return c;
+  let dx=at[0]-pin.at[0],dy=at[1]-pin.at[1],d=Math.hypot(dx,dy);if(d<1e-9){dx=0;dy=1;d=1}
+  let t=pin.r+gap,p=[pin.at[0]+dx/d*t,pin.at[1]+dy/d*t];
+  for(let i=0;i<200&&boxMeetsCircle(p,box,pin.at,pin.r+gap);i++){t+=1;p=[pin.at[0]+dx/d*t,pin.at[1]+dy/d*t]}
+  return p;
+ }
+ const pointsBox=pts=>{const xs=pts.map(p=>p[0]),ys=pts.map(p=>p[1]);return {cx:(Math.min(...xs)+Math.max(...xs))/2,minY:Math.min(...ys),maxY:Math.max(...ys)}};
+
  /* ---------- parcels, site check, lidar ---------- */
  function polygons(geometry){if(!geometry)return [];return geometry.type==='Polygon'?[geometry.coordinates]:geometry.type==='MultiPolygon'?geometry.coordinates:[]}
  // Every ring of a parcel as pixel points on a view (outer rings and holes).
@@ -734,7 +765,7 @@
  const anyProperty=c=>!!(c&&(c.propertyCapture||c.publicGeo));
 
  const api={FT_PER_M,radii,round2,measure,problems,formula,reviewFlags,expectedErrorPct,MeasurementError,georef,measurable,toMercator,fromMercator,
-  frameOf,scaleFeetPerPx,segmentFt,buildingOnView,scaleBar,measuredOnView,diagramModel,DIAGRAM_COLOURS,DIAGRAM_GROUND,angleAt,isSquare,RIGHT_TOL_DEG,edgeLengths,ftIn,ftInWords,parseLength,areaText,lfText,edgeLabels,labelPoint,shapeSummary,movePoint,insertPoint,removePoint,minPoints,setEdgeLength,snapPoint,nearestOnSegment,ringSegments,onPicture,
+  frameOf,scaleFeetPerPx,segmentFt,viewCentre,scrollToCentre,boxMeetsCircle,turnedBox,clearOfPin,pointsBox,buildingOnView,scaleBar,measuredOnView,diagramModel,DIAGRAM_COLOURS,DIAGRAM_GROUND,angleAt,isSquare,RIGHT_TOL_DEG,edgeLengths,ftIn,ftInWords,parseLength,areaText,lfText,edgeLabels,labelPoint,shapeSummary,movePoint,insertPoint,removePoint,minPoints,setEdgeLength,snapPoint,nearestOnSegment,ringSegments,onPicture,
   remember,undoTrace,redoTrace,snapshotOf,bodyOfRecord,pixelShapes,drawnByText,withProvenance,sameShapes,viewRef,imageBody,KNOWN_LENGTHS,edgeComparison,lonlatPathFt,shoelace,insideOrOn,
   needsMeasurement,measureOffer,measureUnit,captureStatus,gatherStatus,noteText,clock,viewsOf,historyStrip,defaultMeasureView,leafText,dateText,yearOnly,dateOf,SIDE_TEXT,LOOKING,compass,
   publicSeries,creditLine,measurementBody,imageOf,parcelRings,siteCheckText,lidarFacts,bracket,withBracket,caps,anyProperty,ringProblem,CAPTURE_FAILED,CAPTURE_PART};
