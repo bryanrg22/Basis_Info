@@ -105,6 +105,7 @@ class Rig:
             holder="w1",
             settle_s=0,
             source_text="Aerial imagery",
+            street_source_text="Street-level imagery",
             clock=self.clock,
             sleep=self.clock.sleep,
             rng=random.Random(3),
@@ -325,6 +326,17 @@ async def test_a_panorama_is_aimed_at_the_pin_and_stored_with_where_it_stood() -
     # The street-level page is never "dismissed": its Close leaves the panorama.
     assert rig.browser.settles[-2:] == [(0, False), (0, False)]
     assert rig.row.notes == ()
+
+
+async def test_a_street_view_carries_the_street_level_source_and_the_aerials_keep_theirs() -> None:
+    """The walkthrough of 2026-11-24 found the street picture labelled as aerial imagery: each
+    view's provenance line names what it is."""
+    rig = Rig(FakeBrowser(street_landing=LANDING, street_png=map_png(seed=9)), street_view=True)
+    assert await rig.run() == Done(7)
+    (street_view,) = rig.views("street")
+    assert street_view.source == "Street-level imagery"
+    others = [v for v in rig.store.views if v.kind != "street"]
+    assert len(others) == 6 and {v.source for v in others} == {"Aerial imagery"}
 
 
 @pytest.mark.parametrize(

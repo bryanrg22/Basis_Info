@@ -70,6 +70,7 @@ async def run_capture_worker(settings: Settings, stop: asyncio.Event) -> None:
             holder=holder,
             settle_s=settings.capture_settle_s,
             source_text=settings.capture_source_text,
+            street_source_text=settings.capture_street_source_text,
             heartbeat=heartbeat,
             options=options,
         )

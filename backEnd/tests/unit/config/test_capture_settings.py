@@ -32,6 +32,8 @@ def test_the_defaults_are_off_and_gentle() -> None:
     assert s.capture_profile_dir is None and s.capture_chromium_args is None
     assert s.capture_headless is True and s.capture_street_view is False
     assert "google" not in s.capture_source_text.lower()
+    assert "google" not in s.capture_street_source_text.lower()
+    assert s.capture_street_source_text.startswith("Street-level imagery")
 
 
 def test_the_spacing_and_the_load_caps_must_be_ordered() -> None:
@@ -51,10 +53,16 @@ def test_the_chromium_flags_are_a_comma_list(monkeypatch: pytest.MonkeyPatch) ->
 def test_empty_text_settings_are_the_defaults(monkeypatch: pytest.MonkeyPatch) -> None:
     """``.env.example`` ships every value empty; empty must mean the default, never "" (an
     empty source line under every view, an empty task queue)."""
-    for name in ("CAPTURE_SOURCE_TEXT", "CAPTURE_TASK_QUEUE", "CAPTURE_PROFILE_DIR"):
+    for name in (
+        "CAPTURE_SOURCE_TEXT",
+        "CAPTURE_STREET_SOURCE_TEXT",
+        "CAPTURE_TASK_QUEUE",
+        "CAPTURE_PROFILE_DIR",
+    ):
         monkeypatch.setenv(name, " ")
     s = settings()
     assert s.capture_source_text.startswith("Aerial imagery")
+    assert s.capture_street_source_text.startswith("Street-level imagery")
     assert s.capture_task_queue == "basis-capture" and s.capture_profile_dir is None
 
 
