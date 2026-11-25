@@ -17,6 +17,9 @@
   the clock with ``env.sleep``. Observed: after a test stops its worker while a workflow
   is mid-activity, the shared test server stops skipping time and ``env.sleep`` times out
   (even once that workflow is terminated), so clock-driven tests do not share a server.
+* Every test here is rerun once if, and only if, it failed with Temporal's deadlock timer
+  (``TMPRL1101``), which a CPU-starved runner trips with no code at fault
+  (``deadlock_rerun.py`` has the measurements and why not ``debug_mode`` or a query retry).
 """
 
 from __future__ import annotations
@@ -26,8 +29,10 @@ from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from pathlib import Path
 
+import pytest
 import pytest_asyncio
 from dbtest_support import db_settings, truncate_all
+from deadlock_rerun import mark_deadlock_reruns
 from lifecycle_support import Harness
 from lifecycletest_support import make_deps, seed_reference_corpus
 from sqlalchemy.ext.asyncio import AsyncEngine
@@ -45,6 +50,10 @@ from basis.worker.search_attributes import ensure_search_attributes
 API_TESTS = str(Path(__file__).resolve().parents[1] / "api")
 if API_TESTS not in sys.path:
     sys.path.insert(0, API_TESTS)
+
+
+def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item]) -> None:
+    mark_deadlock_reruns(items)
 
 
 @pytest_asyncio.fixture(scope="session", loop_scope="session")
