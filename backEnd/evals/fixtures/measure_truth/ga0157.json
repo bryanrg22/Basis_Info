@@ -1,0 +1,522 @@
+{
+ "schema": "measure_truth/v1",
+ "id": "ga0157",
+ "name": "Jimmy Carter Boyhood Home",
+ "loc_url": "https://www.loc.gov/pictures/item/ga0157/",
+ "survey_number": "HABS GA-245",
+ "drawing_date": "1989",
+ "address": "Old Plains Highway (Lebanon Cemetery Road), Plains (Archery), Sumter County, GA",
+ "location": {
+  "lat": 32.026175,
+  "lon": -84.433762,
+  "how": "the white farmhouse beside the railroad south of the visitor parking on Google's wide view of the 'Jimmy Carter Boyhood Farm' search (pixel 530, 830 of aerial-wide, 0.245 m/px), converted from the view's centre; 3DEP lidar finds a building under this point (distance 0 m). Approximate to a few metres: the public ortho here is NAIP at 0.6 m and the house sits under trees"
+ },
+ "standing": {
+  "status": "unknown",
+  "source": "Google aerial 10/16/2023 (wide view); 3DEP USGS_LPC_GA_Georgia_A1_2016_LAS_2018",
+  "year": 2023,
+  "note": "Identified, not checked for changes: the lidar building at the point covers 297.75 m2 (3,205 SF) with its eaves 2.81 m and peak 6.52 m above the ground ring; the drawing's house with its two porches under the roof and the 2 ft overhang is about 3,240 SF in plan, eave 9.9 ft (3.0 m), ridge 20.8 ft (6.3 m). NPS restored the farm after the 1989 drawings; whether anything outside the drawn walls changed is not known."
+ },
+ "sheets": {
+  "1": "site plan (1/16\" = 1'-0\") and vicinity map",
+  "2": "floor plan (1/4\" = 1'-0\") with dimension strings all round, building section with levels",
+  "3": "north and south elevations (1/4\" = 1'-0\") with levels",
+  "4": "west and east elevations (1/4\" = 1'-0\") with levels"
+ },
+ "stories": 1,
+ "roof_shape": "hip with cross gables (main hip roof; a gabled bay on the west and on the east side)",
+ "plan": {
+  "sheet": "2",
+  "scale": "1/4\" = 1'-0\"",
+  "north": "sheet right (E on the sheet); the arrow glyph on sheet 2 is an ambiguous triangle, so this is fixed from the elevations: the screened porch with rubble piers (sheet left) is on the south elevation, the lattice porch with steps (sheet right) on the north elevation, and the west/east elevations show them at the matching ends",
+  "note": "Start at the main block's sheet-top-left corner (outside face), walk clockwise. The outline is the main block 56'-3 1/2\" x 34'-2\" with a 16'-0 1/4\" wide gabled bay projecting 3'-9 1/2\" at sheet top (west) and 2'-0\" at sheet bottom (east), both bays between the same 18'-3\"+2'-0\" and 2'-0\"+18'-0 1/4\" runs. Main-block walls checked by scaling: 56.28 ft x 33.8-34.1 ft at 100 px/ft.",
+  "chain": [
+   {
+    "dir": "E",
+    "length": {
+     "ft": 20.25,
+     "text": "20'-3\"",
+     "how": "derived",
+     "sheet": "2",
+     "note": "top string, middle line: 18'-3\" + 2'-0\" (the 2'-0\" runs from the bay-gable roof line to the bay face). The window string below sums 6'-9 1/2\" + 2'-8 1/4\" + 10'-9 1/4\" = 20'-2 3/4\" (1/4\" short)."
+    },
+    "label": "west-facing main wall, sheet-left part, to the west bay"
+   },
+   {
+    "dir": "N",
+    "length": {
+     "ft": 3.7917,
+     "text": "3'-9 1/2\"",
+     "how": "printed",
+     "sheet": "2",
+     "note": "left and right strings, middle line; the inner segments 10 3/4\" + 2'-4\" + 6 1/2\" sum to 3'-9 1/4\" on both sides"
+    },
+    "label": "west bay, sheet-left side"
+   },
+   {
+    "dir": "E",
+    "length": {
+     "ft": 16.0208,
+     "text": "16'-0 1/4\"",
+     "how": "printed",
+     "sheet": "2",
+     "note": "printed 16' 1/4\"; window segments 5'-0 1/2\" + 2'-8 1/4\" + 6 1/2\" + 2'-8 1/4\" + 5'-0 3/4\" = 16'-0 1/4\""
+    },
+    "label": "west bay face"
+   },
+   {
+    "dir": "S",
+    "length": {
+     "ft": 3.7917,
+     "text": "3'-9 1/2\"",
+     "how": "printed",
+     "sheet": "2"
+    },
+    "label": "west bay, sheet-right side"
+   },
+   {
+    "dir": "E",
+    "length": {
+     "ft": 20.0208,
+     "text": "20'-0 1/4\"",
+     "how": "derived",
+     "sheet": "2",
+     "note": "top string, middle line: 2'-0\" + 18'-0 1/4\". The window string 3'-5 3/4\" + 2'-8\" + 4'-7 1/2\" + 2'-8 1/4\" + 6'-6 1/2\" sums to 20'-0\" (1/4\" short)."
+    },
+    "label": "west-facing main wall, sheet-right part"
+   },
+   {
+    "dir": "S",
+    "length": {
+     "ft": 34.1667,
+     "text": "34'-2\"",
+     "how": "printed",
+     "sheet": "2",
+     "note": "printed on the left string; the right string's middle line 8'-1 1/2\" + 3'-0 1/4\" + 2'-11\" + 11'-0 3/4\" + 9'-0 1/2\" also sums to 34'-2\""
+    },
+    "label": "north wall (sheet right), behind the open north porch"
+   },
+   {
+    "dir": "W",
+    "length": {
+     "ft": 20.0208,
+     "text": "20'-0 1/4\"",
+     "how": "derived",
+     "sheet": "2",
+     "note": "bottom string: 18'-0 1/4\" + 2'-0\"; window string 1'-9 1/2\" + 2'-6\" + 7'-5 1/4\" + 2'-8\" + 5'-7 1/2\" = 20'-0 1/4\""
+    },
+    "label": "east-facing main wall, sheet-right part"
+   },
+   {
+    "dir": "S",
+    "length": {
+     "ft": 2.0,
+     "text": "2'-0\"",
+     "how": "printed",
+     "sheet": "2",
+     "note": "left string, inner and middle lines, from the main wall to the east bay face; the overall 39'-11 1/2\" = 3'-9 1/2\" + 34'-2\" + 2'-0\""
+    },
+    "label": "east bay, sheet-right side"
+   },
+   {
+    "dir": "W",
+    "length": {
+     "ft": 16.0208,
+     "text": "16'-0 1/4\"",
+     "how": "printed",
+     "sheet": "2"
+    },
+    "label": "east bay face"
+   },
+   {
+    "dir": "N",
+    "length": {
+     "ft": 2.0,
+     "text": "2'-0\"",
+     "how": "printed",
+     "sheet": "2"
+    },
+    "label": "east bay, sheet-left side"
+   },
+   {
+    "dir": "W",
+    "length": {
+     "ft": 20.25,
+     "text": "20'-3\"",
+     "how": "derived",
+     "sheet": "2",
+     "note": "bottom string: 2'-0\" + 18'-3\"; window string 6'-9 1/2\" + 2'-8\" + 10'-9 1/4\" = 20'-2 3/4\" (1/4\" short)"
+    },
+    "label": "east-facing main wall, sheet-left part"
+   },
+   {
+    "dir": "N",
+    "length": {
+     "ft": 34.1667,
+     "text": "34'-2\"",
+     "how": "printed",
+     "sheet": "2",
+     "note": "left string middle line; the porch-side segments 6'-0 1/4\" + 3'-4\" + 6'-2 3/4\" + 3'-0\" + 6'-2 3/4\" + 3'-4\" + 6'-0 1/4\" = 34'-2\""
+    },
+    "label": "south wall (sheet left), behind the screened porch"
+   }
+  ],
+  "overall": {
+   "ew": {
+    "ft": 56.2917,
+    "text": "56'-3 1/2\"",
+    "how": "printed",
+    "sheet": "2",
+    "note": "top string, main block wall to wall"
+   },
+   "ns": {
+    "ft": 39.9583,
+    "text": "39'-11 1/2\"",
+    "how": "printed",
+    "sheet": "2",
+    "note": "left and right strings, west bay face to east bay face"
+   }
+  },
+  "excluded": [
+   "screened south porch (sheet left), 9'-10\" deep x 34'-2\" along the wall, rubble piers and screens: not walled",
+   "open north porch (sheet right) with lattice skirt and steps, about 7'-8 1/2\" x 25'-1 1/2\"",
+   "steps on the south and north porches",
+   "chimneys (both inside the wall line)"
+  ]
+ },
+ "floors": [
+  {
+   "level": "first",
+   "finished": true,
+   "same_as_ground": true,
+   "sheet": "2"
+  }
+ ],
+ "heights": {
+  "eave": {
+   "above_grade_ft": 9.875,
+   "text": "8'-6 1/4\"",
+   "datum_text": "-1'-4 1/4\"",
+   "how": "printed",
+   "sheet": "3",
+   "elevation": "north",
+   "note": "the eave is printed as SOFFIT (underside of the boxed eave) 8'-6 1/4\" above floor 0'-0\"; no gutter drawn. Grade is printed -1'-4 1/4\" on the north and west elevations, -1'-3 1/2\" east, -1'-2 1/2\" south, 1'-9 3/4\" and 2'-3 1/2\" below floor on the section, so eave above grade is 9.71 to 10.81 ft by place; 9'-10 1/2\" on the north elevation."
+  },
+  "ridge": {
+   "above_grade_ft": 20.7917,
+   "text": "19'-5 1/4\"",
+   "datum_text": "-1'-4 1/4\"",
+   "how": "printed",
+   "sheet": "3",
+   "elevation": "north",
+   "note": "ridge 19'-5 1/4\" above floor on N, W, E elevations and the section"
+  },
+  "readings": [
+   {
+    "what": "ridge",
+    "text": "19'-5 1/4\"",
+    "datum_text": "0'-0\" floor",
+    "sheet": "3",
+    "elevation": "north"
+   },
+   {
+    "what": "gable (bay gable apex)",
+    "text": "14'-5 1/2\"",
+    "datum_text": "0'-0\" floor",
+    "sheet": "3",
+    "elevation": "north"
+   },
+   {
+    "what": "soffit",
+    "text": "8'-6 1/4\"",
+    "datum_text": "0'-0\" floor",
+    "sheet": "3",
+    "elevation": "north"
+   },
+   {
+    "what": "grade",
+    "text": "-1'-4 1/4\"",
+    "datum_text": "0'-0\" floor",
+    "sheet": "3",
+    "elevation": "north"
+   },
+   {
+    "what": "gable",
+    "text": "14'-5 1/2\"",
+    "datum_text": "0'-0\" floor",
+    "sheet": "3",
+    "elevation": "south"
+   },
+   {
+    "what": "top of capital (porch)",
+    "text": "6'-9\"",
+    "datum_text": "0'-0\" floor",
+    "sheet": "3",
+    "elevation": "south"
+   },
+   {
+    "what": "top of cap (porch pier)",
+    "text": "2'-4\"",
+    "datum_text": "0'-0\" floor",
+    "sheet": "3",
+    "elevation": "south"
+   },
+   {
+    "what": "porch floor",
+    "text": "-3\"",
+    "datum_text": "0'-0\" floor",
+    "sheet": "3",
+    "elevation": "south"
+   },
+   {
+    "what": "grade",
+    "text": "-1'-2 1/2\"",
+    "datum_text": "0'-0\" floor",
+    "sheet": "3",
+    "elevation": "south"
+   },
+   {
+    "what": "ridge",
+    "text": "19'-5 1/4\"",
+    "datum_text": "0'-0\" floor",
+    "sheet": "4",
+    "elevation": "west"
+   },
+   {
+    "what": "gable",
+    "text": "14'-5 1/2\"",
+    "datum_text": "0'-0\" floor",
+    "sheet": "4",
+    "elevation": "west"
+   },
+   {
+    "what": "ceiling",
+    "text": "9'-7 1/2\"",
+    "datum_text": "0'-0\" floor",
+    "sheet": "4",
+    "elevation": "west"
+   },
+   {
+    "what": "soffit",
+    "text": "8'-6 1/4\"",
+    "datum_text": "0'-0\" floor",
+    "sheet": "4",
+    "elevation": "west"
+   },
+   {
+    "what": "grade",
+    "text": "-1'-4 1/4\"",
+    "datum_text": "0'-0\" floor",
+    "sheet": "4",
+    "elevation": "west"
+   },
+   {
+    "what": "ridge",
+    "text": "19'-5 1/4\"",
+    "datum_text": "0'-0\" floor",
+    "sheet": "4",
+    "elevation": "east"
+   },
+   {
+    "what": "gable",
+    "text": "14'-5 1/2\"",
+    "datum_text": "0'-0\" floor",
+    "sheet": "4",
+    "elevation": "east"
+   },
+   {
+    "what": "ceiling",
+    "text": "9'-7 1/2\"",
+    "datum_text": "0'-0\" floor",
+    "sheet": "4",
+    "elevation": "east"
+   },
+   {
+    "what": "soffit",
+    "text": "8'-6 1/4\"",
+    "datum_text": "0'-0\" floor",
+    "sheet": "4",
+    "elevation": "east"
+   },
+   {
+    "what": "porch eave",
+    "text": "6'-6 1/4\"",
+    "datum_text": "0'-0\" floor",
+    "sheet": "4",
+    "elevation": "east"
+   },
+   {
+    "what": "grade",
+    "text": "-1'-3 1/2\"",
+    "datum_text": "0'-0\" floor",
+    "sheet": "4",
+    "elevation": "east"
+   },
+   {
+    "what": "dormer eave",
+    "text": "15'-7\"",
+    "datum_text": "0'-0\" floor",
+    "sheet": "2",
+    "elevation": "building section, left levels"
+   },
+   {
+    "what": "soffit",
+    "text": "8'-6 1/4\"",
+    "datum_text": "0'-0\" floor",
+    "sheet": "2",
+    "elevation": "building section"
+   },
+   {
+    "what": "top of window",
+    "text": "7'-5 1/4\"",
+    "datum_text": "0'-0\" floor",
+    "sheet": "2",
+    "elevation": "building section"
+   },
+   {
+    "what": "top of mantel",
+    "text": "4'-2\"",
+    "datum_text": "0'-0\" floor",
+    "sheet": "2",
+    "elevation": "building section"
+   },
+   {
+    "what": "bottom of window",
+    "text": "2'-0 1/2\"",
+    "datum_text": "0'-0\" floor",
+    "sheet": "2",
+    "elevation": "building section"
+   },
+   {
+    "what": "grade (left end)",
+    "text": "1'-9 3/4\"",
+    "datum_text": "0'-0\" floor",
+    "sheet": "2",
+    "elevation": "building section",
+    "note": "printed without a minus sign; it is below the floor line"
+   },
+   {
+    "what": "ridge",
+    "text": "19'-5 1/4\"",
+    "datum_text": "0'-0\" floor",
+    "sheet": "2",
+    "elevation": "building section, right levels"
+   },
+   {
+    "what": "ceiling",
+    "text": "9'-7 1/2\"",
+    "datum_text": "0'-0\" floor",
+    "sheet": "2",
+    "elevation": "building section"
+   },
+   {
+    "what": "kitchen ceiling",
+    "text": "8'-0\"",
+    "datum_text": "0'-0\" floor",
+    "sheet": "2",
+    "elevation": "building section"
+   },
+   {
+    "what": "porch eave",
+    "text": "6'-6 1/4\"",
+    "datum_text": "0'-0\" floor",
+    "sheet": "2",
+    "elevation": "building section"
+   },
+   {
+    "what": "grade (right end)",
+    "text": "2'-3 1/2\"",
+    "datum_text": "0'-0\" floor",
+    "sheet": "2",
+    "elevation": "building section",
+    "note": "printed without a minus sign; below the floor line"
+   }
+  ]
+ },
+ "roof": {
+  "overhang": {
+   "ft": 2.0,
+   "text": "2'-0\"",
+   "how": "printed",
+   "sheet": "2",
+   "note": "printed on the plan's right string from the dashed roof line to the west bay face and from the east bay face to the roof line; the top and bottom strings print 2'-0\" from the bay-gable roof line to the bay sides. Scaled check of the main hip eave beyond the main walls: 2.03 ft (top), 1.97 ft (right), 2.07 ft (bottom)."
+  },
+  "eaves": "all",
+  "note": "main roof hipped (eaves on all four sides); the two bays carry gables (apex 14'-5 1/2\") whose ends are rakes, about 16 ft each, so an eaves-all-round gutter run overstates by those two gable ends",
+  "derive": false,
+  "derive_note": "the main hip roof also covers the screened south porch, so the wall outline offset by the overhang is not the roof"
+ },
+ "porches": [
+  {
+   "name": "screened south porch (sheet left)",
+   "a": {
+    "ft": 9.8333,
+    "text": "9'-10\"",
+    "how": "printed",
+    "sheet": "2",
+    "note": "top string, porch post line to the main wall"
+   },
+   "b": {
+    "ft": 34.1667,
+    "text": "34'-2\"",
+    "how": "derived",
+    "sheet": "2",
+    "note": "the porch runs the full south wall; left string segments sum to 34'-2\". The room label prints 9'-10\" x 39'-5 1/2\", which the drawing does not support (the porch scales about 34 ft); likely a mis-lettered 33'-5 1/2\" interior"
+   }
+  },
+  {
+   "name": "open north porch (sheet right)",
+   "a": {
+    "ft": 7.7083,
+    "text": "7'-8 1/2\"",
+    "how": "derived",
+    "sheet": "2",
+    "note": "top string 2'-0\" + 5'-8 1/2\" from the main wall to the porch edge; room label 7'-3\" x 24'-10 1/2\" (interior)"
+   },
+   "b": {
+    "ft": 25.125,
+    "text": "25'-1 1/2\"",
+    "how": "derived",
+    "sheet": "2",
+    "note": "right string middle line 8'-1 1/2\" + 3'-0 1/4\" + 2'-11\" + 11'-0 3/4\" from the main west wall line to the porch's far edge"
+   }
+  }
+ ],
+ "passes": {
+  "a": "pass A: an independent reader of the 400 dpi sheets (2026-11-25), chain and heights read from crops",
+  "b": "pass B: a second independent reader of the same sheets (2026-11-25), not shown pass A",
+  "disagreements": [
+   {
+    "what": "everything scored",
+    "pass_a": "identical",
+    "pass_b": "identical",
+    "resolved": "both passes read the same 12-edge chain, overall, heights and overhang"
+   },
+   {
+    "what": "roof.eaves",
+    "pass_a": "all",
+    "pass_b": "unset (the main roof also covers the screened porch)",
+    "resolved": "kept unset for scoring: roof.derive false, no roof or gutter truth, because the hip also covers the screened south porch"
+   }
+  ]
+ },
+ "flags": [
+  {
+   "code": "note",
+   "note": "Three window strings fall 1/4\" short of the run strings they sit under (20'-2 3/4\" vs 20'-3\" twice, 20'-0\" vs 20'-0 1/4\"), and the bay-depth segments sum to 3'-9 1/4\" against the printed 3'-9 1/2\". The chain uses the run strings (18'-3\", 2'-0\", 16'-0 1/4\", 2'-0\", 18'-0 1/4\" summing to the printed 56'-3 1/2\")."
+  },
+  {
+   "code": "note",
+   "note": "Screened south porch excluded as not walled (screens over a low base between rubble piers). If counted as enclosed it adds 9'-10\" x 34'-2\" = 336 SF."
+  },
+  {
+   "code": "note",
+   "note": "Porch room label 9'-10\" x 39'-5 1/2\" conflicts with the drawn and dimensioned porch (34'-2\" along the wall)."
+  },
+  {
+   "code": "note",
+   "note": "North arrow glyph on sheet 2 is ambiguous; north = sheet right was fixed from the elevations (see plan.north)."
+  }
+ ],
+ "note": "Kept from pass A, with the resolutions in passes.disagreements."
+}
