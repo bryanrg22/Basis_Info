@@ -1,5 +1,48 @@
 # Basis visual design review
 
+## November 2026: Measure tool
+
+A length on every edge of a traced shape, as Fusion 360 and EagleView show them, editing after
+drawing, typed lengths, measuring on photos, and the AI's original beside the engineer's edit
+(`live/property.js`, `live/property-model.js`, `live/property.css`; EVAL_REPORT 104;
+`docs/review_2026-10-15/AI_MEASUREMENT_PLAN.md` sections 3 and 6). The screen is the maintainer's
+to redirect.
+
+* **One tool, two places.** The Property page's side panel (as before) and a dialog opened by
+  Measure on the Assets list and Measure or Edit measurement on the asset page, so a row is
+  measured where it is reviewed. The dialog offers the property's top-down pictures (outside
+  items, the pin confirmed) and the study's photos (any item; the evidence's first).
+* **Labels.** Feet and inches to the nearest inch at each edge's middle, outside the shape, turned
+  along the edge but never upside down; whole feet when the full text does not fit on screen,
+  none when nothing fits (the Edges table lists every edge). Area and perimeter (SY when the unit
+  is SY) at a point inside the shape; a line's total at its end; a wall face as length x height.
+  Label and handle sizes follow the screen (picture pixels per screen pixel measured after each
+  render), so they read the same at every zoom.
+* **Editing.** Drag a corner (pointer events: mouse, pen, touch), drag an edge's middle dot to add
+  one, Delete or Backspace (or the button) removes the selected corner, arrows move it a pixel
+  (Shift: ten), + adds a corner after it. Undo and Redo (Cmd/Ctrl+Z, Shift+Cmd+Z, Ctrl+Y) cover
+  drawing and editing. Snap (on by default, a visible toggle) pulls to the shape's corners, then
+  the parcel's corners, then its edges, within 8 screen pixels. An edit that makes a ring cross
+  itself, or puts a corner off the picture, is undone with the server's words.
+* **Typed lengths.** Click a label (or Enter on it, or a length in the Edges table) and type
+  54'-3", 54' 3", 54.25, 54.25 ft, 36 in or 16.5 m: the far corner moves along the edge, the next
+  edge stretches, and the label always matches the geometry (Fusion's driving dimension, never
+  AutoCAD's text override).
+* **The original.** A stored measurement (a model's draft; there are none yet, the sample has one
+  with `&measure=draft`) opens as it is with "Drafted by Basis · not verified". Once changed, the
+  draft stays dashed yellow beside the new shape, changed labels turn amber, and the Edges table
+  shows the draft's length and the change per edge. Verified is a checkbox: on by default for an
+  engineer's own trace, off for a draft until the engineer ticks it.
+* **Photos.** Scale first: two clicks on something of known length and its length typed or picked
+  from the hints; the area and line tools wait for it. The scale line is drawn with its length.
+* **Zoom.** A small shape opens zoomed onto it (2x or 4x); the zoomed picture keeps its scroll
+  across renders.
+
+Headless captures at 1440 x 900 on the sample (`?mode=live&api=sample&sample=assets&property=confirmed&measure=draft`),
+kept with the private work files (`$BASIS_EVAL_DATA_DIR/work/measure_tool/`, 22 PNGs): the list,
+the fence traced and typed, a drag, the patio draft edited with its original, a refused crossing,
+the photo with its scale, the send, the asset page's read-only card, the Property page zoomed.
+
 ## November 2026: Property
 
 The study's dated pictures of its property, its public records and the tracing tool
