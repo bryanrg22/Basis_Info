@@ -89,6 +89,13 @@ def test_formula_and_inputs_are_recorded() -> None:
     )
     counter = estimate_quantity("countertop", 150, 1)
     assert counter.inputs["depth_in"] == "25"
+    assert counter.formula == "4 x sqrt(150 SF) x 25/12 ft depth"
+    # Wainscoting's factor is a 2 ft height: the sentence says so and matches the quantity
+    # (it read "x 25/12 ft depth", the countertop's, while the quantity used 2 ft).
+    wainscot = estimate_quantity("wainscoting", 100, 1)
+    assert (wainscot.quantity, wainscot.unit) == (Decimal("80.00"), "SF")
+    assert wainscot.formula == "4 x sqrt(100 SF) x 2 ft height"
+    assert wainscot.inputs["height_ft"] == "2" and "depth_in" not in wainscot.inputs
 
 
 def test_area_component_without_area_is_an_explicit_error() -> None:
