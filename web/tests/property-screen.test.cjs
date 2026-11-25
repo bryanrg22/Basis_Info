@@ -55,6 +55,19 @@ test('the default sample: the house question on the wide aerial, with the pin an
  const card=x.Live.studyProperty(x.study);assert.match(text(card),/House not confirmed/);assert.match(text(card),/Is this the right house\?/);
  assert.match(x.Live.studyTools(x.study),/>Property</);
 });
+test('public records gathered around an earlier pin say so and offer to gather again',async()=>{
+ // Live check 2026-11-24: after the pin moved, the public-records cards showed the old point's
+ // results with no word that they were out of date (gatherStatus never set its stale field).
+ const x=await boot({intercept:async(p,init)=>{
+  if((init.method||'GET')!=='GET'||!p.endsWith('/property/public'))return null;
+  const r=await x.sample.fetch(`${x.sample.base}${p.replace(/^\/v1/,'')}`,init),j=await r.json();j.gather={...j.gather,stale:true};
+  return new Response(JSON.stringify(j),{status:200,headers:{'content-type':'application/json'}});
+ }});
+ const html=await x.page(),t=text(html);
+ assert.match(t,/Public records · Gathered around an earlier pin/);
+ assert.match(t,/The pin moved after these records were gathered/);
+ assert.match(html,/data-live="pa-gather"[^>]*>[^<]*Gather them again|Gather them again/);
+});
 test('street level is not available, with the reason the capture gave; the four sides say they are not for measuring',async()=>{
  const x=await boot();await x.page();
  x.Live.actions['pa-view'](null,'street');assert.match(text(x.Live.screens.property()),/Street level: not available Street-level pictures are not available yet\./);
@@ -90,7 +103,7 @@ test('measuring: the fence traced on the suggested view goes to the assets revie
  assert.deepEqual([x.added[0].stage,c.entity_type,c.entity_id],['assets_review','asset',f.id]);
  assert.equal(PM.measure(c.after.measurement).quantity,'209.97');assert.equal(c.after.measurement.image.captured_on,'2025-11-20');
  assert.ok(!('quantity' in c.after),'never with a typed quantity');
- t=text(x.Live.screens.property());assert.match(t,/Fence measured 209\.97 LF is in the assets review’s corrections/);assert.match(t,/No review flag/);
+ t=text(x.Live.screens.property());assert.match(t,/Fence measured 209\.97 LF is in the assets review’s corrections/);assert.match(t,/No review flag: the picture is dated no later than a year after the placed-in-service date/);assert.doesNotMatch(t,/dated before the placed-in-service/);
 });
 test('measuring is refused where it must be: an unconfirmed pin, a closed review, a phone',async()=>{
  let x=await boot(),f=(await x.api.assets(x.study.id,x.study.revision)).items.find(a=>a.label==='fence');x.Live.state.docId=f.id;

@@ -210,7 +210,10 @@
 
  /* ---------- what to measure ---------- */
  // An asset the aerial can size: a row held for a measured quantity (EVAL_REPORT 78) whose unit
- // is an area or a length, outside the building (an exterior room, or no room).
+ // is an area or a length, outside the building (an exterior room, or no room), that is a
+ // component (it has a label: the structure model's building-wide rows, wiring, piping, framing,
+ // have none and no room) and holds its own quantity (not a copy that points at the row the
+ // property's measurement is on, takeoff.inputs.measured_with_asset). Live check 2026-11-24.
  const MEASURE_REASONS=['input:exterior_area','input:room','cross:COST_NEEDS_QUANTITY','unpriced'];
  function measureUnit(a){
   const cand=[a?.cost?.trail?.base?.unit,a?.cost?.trail?.base?.row_unit,a?.takeoff?.unit].find(u=>UNITS.includes(u));
@@ -218,7 +221,7 @@
  }
  function needsMeasurement(a){
   const reasons=a?.review_reasons||[],hit=reasons.find(r=>MEASURE_REASONS.some(p=>r===p||r.startsWith(p+':')))||null;
-  const outside=!a?.room||a.room.room_type==='exterior'||a.room.room_type==='parking';
+  const outside=(!a?.room||a.room.room_type==='exterior'||a.room.room_type==='parking')&&!!a?.label&&!a?.takeoff?.inputs?.measured_with_asset;
   const unit=measureUnit(a);
   return {needed:!!hit&&!!unit&&outside,offer:!!unit&&outside,reason:hit,unit};
  }
@@ -265,7 +268,7 @@
   switch(gather.status){
    case 'queued':case 'running':return {state:gather.status,tone:'progress',title:gather.status==='queued'?'Queued':'Gathering',text:gather.message||'Gathering public records of the property.',polling:true};
    case 'failed':return {state:'failed',tone:'danger',title:'Not gathered',text:gather.message||'Public records could not be gathered. Ask for them again later.',polling:false,code:gather.code};
-   default:return {state:'ready',tone:gather.stale?'review':'done',title:gather.stale?'Gathered around an earlier pin':'Ready',text:gather.stale?'The pin moved after these records were gathered. Gather them again around the new pin.':failedAll?'No public source answered this time. Gather them again later.':(gather.message||'Public records are ready.'),polling:false,stale:!!gather.stale};
+   default:return {state:'ready',stale:!!gather.stale,tone:gather.stale?'review':'done',title:gather.stale?'Gathered around an earlier pin':'Ready',text:gather.stale?'The pin moved after these records were gathered. Gather them again around the new pin.':failedAll?'No public source answered this time. Gather them again later.':(gather.message||'Public records are ready.'),polling:false,stale:!!gather.stale};
   }
  }
 
