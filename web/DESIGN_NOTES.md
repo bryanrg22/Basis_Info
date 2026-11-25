@@ -49,6 +49,12 @@ to redirect.
   length and its length typed or picked from the hints; the area and line tools wait for it. The scale line is drawn with its length.
 * **Zoom.** A small shape opens zoomed onto it (2x or 4x); the zoomed picture keeps its scroll
   across renders.
+* **Photo | Diagram.** A switch beside the zoom on every georeferenced top-down view (not on
+  photos) swaps the picture for a clean plan in the same pixels: light ground, lot lines (adjacent
+  dashed), each measured item in its type's colour with its lengths and total, a key, north, a scale
+  bar in round feet and the picture's date and source. The overlay is the same in both, so a shape
+  can be traced on the photo and checked on the plan. Photo by default; the choice is kept in this
+  browser. Captures 40 to 44 (sample) and 50 to 53 (live).
 
 Headless captures at 1440 x 900 on the sample (`?mode=live&api=sample&sample=assets&property=confirmed&measure=draft`),
 kept with the private work files (`$BASIS_EVAL_DATA_DIR/work/measure_tool/`): 01 to 27 on the

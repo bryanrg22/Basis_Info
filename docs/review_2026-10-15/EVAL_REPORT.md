@@ -15920,3 +15920,39 @@ the existing property tests unchanged (backEnd/tests/LEDGER.md).
   maintainer's decision (plan section 8.3); no review flag is raised for one.
 * Not built: the other gates' drafts, snapping to a building outline and to right angles, slope,
   colour by asset type, the diagram in the report, phones.
+
+### 104.1 Photo | Diagram: a clean plan under the same overlay (2026-11-25)
+
+**Question.** Bryan asked to switch the measure picture between the real picture and a clean, simple
+diagram with "the lines and everything" staying put. Can a plan drawn from data the study already
+has (no model call) sit under the measure tool's overlay at exactly the same place?
+
+**Method.** On a georeferenced top-down view (capture views, public orthos; not study photos) the
+picture is replaced by an SVG with the view's own width, height and viewBox, so the overlay needs no
+change. It draws, EagleView-style: the lot lines from the parcels (`parcelRings`, adjacent ones
+dashed); every lon/lat measurement of the study on that picture (stored `takeoff.inputs.measurement`,
+or the pending one in the assets review), projected with the view's `georef` (the inverse of what the
+tool traces with); a colour per asset type (eight strokes, each 6.0:1 to 8.1:1 on the diagram's
+ground, WCAG AA) with edge lengths and a total; a legend with each type once; a north arrow from
+the view's heading; a scale bar in round feet (1, 2 or 5 x 10^n, at most a quarter of the picture)
+from `pixel_size_m`; the picture's date and source. Image-space measurements, ones off the picture
+and the asset being edited (drawn by the tool on top) are left out.
+
+| Check | Result |
+|---|---|
+| A parcel corner and a measured corner, diagram vs overlay | the same pixel (`georef.toPixel`); back through the tool's frame to the lon/lat within 1e-9 degree |
+| Scale bar on the close aerial (8.41 cm a pixel) | 50 ft = 181.2128 px; px x pixel size = 50 ft to 1e-9 |
+| Headless (sample, 1440 x 900): the patio's corners on screen, photo vs diagram | identical to the pixel; a length typed in diagram mode applies as in photo mode |
+| Live (Lincoln Home capture, pin moved back to its point and confirmed, no new capture): a gutter traced on the real close aerial, 93.75 LF | the three corners at the same screen pixels in photo and diagram; the Property page's diagram lists "Gutter · 93.75 LF"; the trace then removed (draft deleted) |
+
+**Verdict.** The diagram is a different background, not a different drawing: the overlay, editing
+and snapping are untouched. Nothing is priced or stored by it. The choice is kept per browser
+(Photo by default) and still works for the session with storage blocked.
+
+Tests: `measure-diagram.test.cjs` 8; the web suite 555.
+
+**Open.** The legend, north arrow and scale bar sit at the picture's corners, so a zoomed-in view
+scrolls them out of sight; the building outline is not drawn (no outline polygon is stored); on the
+live study the public records were gathered around an earlier pin, so there is no lot line there;
+the diagram is not in the report.
+
