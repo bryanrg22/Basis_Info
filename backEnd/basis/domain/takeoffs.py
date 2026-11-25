@@ -238,9 +238,15 @@ def estimate_quantity(
     perimeter = Decimal(4) * area.sqrt()
     quantity = perimeter * spec.per_sf
     formula = f"4 x sqrt({_fmt(area)} SF)"
-    if spec.per_sf != 1:
+    if key == "countertop":
         formula += f" x {_fmt(COUNTERTOP_DEPTH_IN)}/12 ft depth"
         inputs["depth_in"] = _fmt(COUNTERTOP_DEPTH_IN)
+    elif spec.per_sf != 1:
+        # A height, not the countertop's depth (wainscoting: 2 ft); the sentence said
+        # "25/12 ft depth" for every perimeter row with a factor while the quantity used the
+        # row's own factor.
+        formula += f" x {_fmt(spec.per_sf)} ft height"
+        inputs["height_ft"] = _fmt(spec.per_sf)
     return Takeoff(key, _q(quantity), spec.unit, formula, inputs, "perimeter", assumptions)
 
 

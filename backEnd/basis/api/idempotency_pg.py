@@ -42,12 +42,11 @@ from collections.abc import Iterable
 from datetime import timedelta
 from typing import Any, Final
 
-from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from basis.api.idempotency import StoredResponse, UserKey
-from basis.db.models import IdempotencyKey, User
-from basis.db.repositories import IdempotencyRepository
+from basis.db.models import IdempotencyKey
+from basis.db.repositories import IdempotencyRepository, UserRepository
 from basis.db.session import session_scope
 
 BODY_TEXT: Final = "body"
@@ -97,7 +96,10 @@ class PostgresIdempotencyStore:
         self._sessionmaker = sessionmaker
 
     async def _user_id(self, session: AsyncSession, uid: str) -> uuid.UUID:
-        user_id = await session.scalar(select(User.id).where(User.firebase_uid == uid))
+        # The uid's own users row, or the user it is linked to (AUTH_LINK_VERIFIED_EMAIL):
+        # get_current_user resolves a linked account the same way, so both agree on the user.
+        user = await UserRepository(session).get_by_firebase_uid(uid)
+        user_id = None if user is None else user.id
         if user_id is None:
             raise UnknownUserError(
                 "no users row for this principal; declare get_current_user before "

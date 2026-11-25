@@ -50,7 +50,7 @@ class); `.zip` is recorded for the city cost index, a follow-up.
 | Field | Rule |
 |---|---|
 | `purchase_price` | dollars to the cent, above 0; the contract price from the closing statement |
-| `acquisition_costs[]` | required, `[]` when the closing statement has no capitalizable line (so `CC = 0` is a statement, not an omission); `{category, amount, description?}`, at most 100. Capitalized categories (Reg. 1.263(a)-2(f), Pub. 551): `abstract_fees`, `title_search`, `title_insurance_owner`, `legal_fees`, `recording_fees`, `survey`, `transfer_taxes`, `broker_commission`, `appraisal_buyer`, `inspection`, `utility_connection`, `seller_obligations_paid`, `other_facilitative`. Refused with the reason in `errors[].detail`: `points`, `loan_origination`, `mortgage_insurance`, `loan_assumption_fee`, `credit_report`, `appraisal_lender`, `prepaid_interest`, `escrow_taxes`, `escrow_insurance`, `casualty_insurance`, `property_tax_proration`, `prepaid_rent`, `utilities_before_closing`, `refinancing_fees` |
+| `acquisition_costs[]` | required, `[]` when the closing statement has no capitalizable line (so `CC = 0` is a statement, not an omission); `{category, amount, description?}`, at most 100. Capitalized categories (Reg. 1.263(a)-2(f), Pub. 551): `abstract_fees`, `title_search`, `title_insurance_owner`, `legal_fees`, `recording_fees`, `survey`, `transfer_taxes`, `broker_commission`, `appraisal_buyer`, `inspection`, `utility_connection`, `seller_obligations_paid`, `other_facilitative`, and `improvements_before_service` (a renovation made after the purchase and before the property was placed in service, the CPA's capitalized amount: it is added to the reconciliation's target, price less land plus the improvements, and spread over the classes pro rata like the closing costs; docs/api/RENOVATIONS.md). Refused with the reason in `errors[].detail`: `points`, `loan_origination`, `mortgage_insurance`, `loan_assumption_fee`, `credit_report`, `appraisal_lender`, `prepaid_interest`, `escrow_taxes`, `escrow_insurance`, `casualty_insurance`, `property_tax_proration`, `prepaid_rent`, `utilities_before_closing`, `refinancing_fees` |
 | `land_method` | `appraisal_site_value` (needs `appraisal_site_value`; `appraisal_effective_date` for the date check), `land_appraisal` (needs `land_appraisal_value`; `land_appraisal_date`), `flat_percentage` (needs `flat_land_percentage`, percent of the price, and `flat_land_source`). There is no assessor method and no residual: `assessor_land_value` + `assessor_improvement_value` (both or neither, not both 0) are a check only |
 | `property_use` | `residential_rental` (27.5 years) needs `dwelling_unit_income_share` ≥ 0.8 and `transient_lodging: false`; otherwise `nonresidential` (39 years) |
 | `placed_in_service_date` | required; when the property was ready and available for its use |
@@ -309,7 +309,7 @@ route follows a later intake change.
   | `input:basement_area` | a basement room with no printed basement area | appraisal review: `improvements.basement_area_sqft` |
   | `input:basement_finish` | the basement's finished share is not printed | appraisal review: `improvements.basement_finish_percent` |
   | `input:site_area` | no site area for landscaping | appraisal review: `site.area_sqft` or `site.area_acres` |
-  | `input:exterior_area`, `input:room` | a measured item in an exterior room, or in no room | assets review: the measured quantity (an `asset` correction's `quantity`, `quantity_unit`, `quantity_source`) |
+  | `input:exterior_area`, `input:room` | a measured item in an exterior room, or in no room | assets review: the measured quantity (an `asset` correction's `quantity`, `quantity_unit`, `quantity_source`, or a traced `measurement`: docs/api/OVERRIDES.md section 4) |
   | `input:room_type` | a measured item in a room of unknown type | rooms review: the room's type |
   | `input:count` | a counted item with no count | components review: the count |
   | `input:cabinet_run` | a cabinet or countertop run (the room's perimeter is not one) | assets review: the measured quantity |
@@ -334,6 +334,34 @@ precision; rows round half up and the residual cents go to the largest remainder
 stated in `basis/domain/basis.py`). The example's allocation block mixes two states for
 brevity: a reconciled structure path carries `rcnld` on every row and a factor near 1.
 
+### Renovations and component ages (EVAL_REPORT 102)
+
+Two members appear only when they have something to say, so a study without renovations or
+ages answers exactly as before (byte for byte; EVAL_REPORT 102):
+
+* `component_ages`: every acquisition row an engineer gave its own age (docs/api/OVERRIDES.md
+  section 7): `{asset_id, label, category, effective_age, year_installed, economic_life, rate,
+  replaced_rate, source, source_detail, reason, rcn, rcnld}`. `rate` is `age / life` and is what
+  the row was depreciated at instead of `replaced_rate` (the appraiser's); `effective_age` and
+  `rate` are null when the age cannot be used (blocker `component_age`).
+* `renovations` (the study has a renovations document, or its assets were built with one;
+  docs/api/RENOVATIONS.md): `version` (the document's) and `built_with_version` (the assets'),
+  `projects[]` (each with its dates, invoices, capitalized amount, `bonus` default from its own
+  contract or work-start date, and for an after-service project `estimate_total`, `factor`
+  (capitalized / estimates, 9 places), `estimate_gap_share`, `rows[]` `{asset_id, label,
+  category, bucket, schedule_class (the bucket or qip), estimate, allocated, rounding_cents,
+  qip_reason}`, `by_class[]` and `rows_sum` = the capitalized amount), `dispositions[]`
+  `{asset_id, label, category, project, bucket, parent (building or own_asset),
+  parent_placed_in_service, disposition_date, tax_year, share, unadjusted_basis, bonus,
+  depreciation_by_year[], allowed_or_allowable, adjusted_basis, treatment (election_required
+  or whole_asset), method, reason}`, `dispositions_by_year[]`, `exterior_brackets`,
+  `acquisition_bonus_rate`, `renovations_basis` (the after-service schedules' total) and
+  `checks[]` (warnings).
+
+A project's rows are not in `schedule`, `structure`, `reconciliation` or `allocation`: those are
+the acquisition's, as if the project's photographs had not been taken. A renovation blocker (in
+`blockers`, listed in docs/api/RENOVATIONS.md section 4) withholds the allocation like any other.
+
 ## What the takeoff drew on: `summary.takeoff` in the export
 
 Next to `summary.basis`, the export's summary carries `takeoff`: what the revision's quantities
@@ -341,8 +369,20 @@ and prices were drawn from, read back from the stored rows (EVAL_REPORT section 
 row already carries its own `takeoff_inputs` (`room_area_source`: `gla_share`,
 `basement_share`, `garage_area`, `typical_for_room_type`, `default_150_sf`; `quantity_source:
 appraisal_derived` for the roof, siding, gutters and landscaping; `needs_measurement` for a site
-item the appraisal cannot size), its `cost_source` text and its `cost_trail` (how its cost was
-reached, as data, recorded when it was priced: docs/api/COST_INDICES.md, "Per-asset cost
+item the appraisal cannot size; `quantity_source: engineer` with `measured_by_engineer` and
+`computed_quantity` for a quantity the engineer measured, and `measurement`, an object, when it was
+traced: the shape, the image's source, date and pixel size, the scale, the method and the expected
+error, docs/api/OVERRIDES.md section 4); with `TAKEOFF_SKETCH=on` and a sketch table in the
+appraisal, `sketch_check` on the roof, siding, gutter, landscaping, garage and patio rows: one
+sentence saying whether the appraisal's sketch was used, with its living area, the printed GLA, how
+far apart they are and the tolerance, and `footprint_source: sketch` when the footprint is the
+sketch's ground floor, EVAL_REPORT 96; with `TAKEOFF_SKETCH_OUTLINE=on` as well and an outline read
+from the PDF's line work, `perimeter_field` on the roof and `ground_perimeter_field` and
+`upper_perimeter_field` on the siding read `sketch.ground_perimeter_ft (drawing, page N)`, the
+assumptions say "perimeter read from the appraisal sketch's outline" in place of the 1.5:1
+rectangle, and `sketch_outline` gives the reason when an outline that was read is not used,
+EVAL_REPORT 100), its `cost_source` text and its `cost_trail` (how its cost was reached, as data,
+recorded when it was priced: docs/api/COST_INDICES.md, "Per-asset cost
 trail"); `summary.takeoff` is the study-level view the end-to-end scorer prints.
 
 ```json

@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import asyncio
 import os
+import uuid
 from collections.abc import Iterator
 from typing import TYPE_CHECKING
 
@@ -95,12 +96,35 @@ def postgres() -> Iterator[PostgresContainer]:
 
 
 @pytest.fixture(scope="session")
-def database_url(postgres: PostgresContainer) -> str:
-    """The container's database with ``CREATE EXTENSION vector`` and Alembic at head."""
+def database_url(request: pytest.FixtureRequest) -> Iterator[str]:
+    """A fresh database with ``CREATE EXTENSION vector`` and Alembic at head.
+
+    By default it lives in the session's Postgres container. With
+    ``BASIS_TEST_POSTGRES_URL`` set (an admin URL of a running server with pgvector, e.g.
+    ``postgresql+asyncpg://postgres@127.0.0.1:55432/postgres``) the suite creates its own
+    database on that server instead, ``basis_test_<random>``, and drops it at the end: for a
+    machine where Docker is unavailable. CI keeps the container.
+    """
     from alembic import command
     from dbtest_support import alembic_config, execute_admin
 
-    url = postgres.get_connection_url()
-    asyncio.run(execute_admin(url, "CREATE EXTENSION IF NOT EXISTS vector"))
-    command.upgrade(alembic_config(url), "head")
-    return url
+    server = os.environ.get("BASIS_TEST_POSTGRES_URL", "").strip()
+    if not server:
+        container: PostgresContainer = request.getfixturevalue("postgres")
+        url = container.get_connection_url()
+        asyncio.run(execute_admin(url, "CREATE EXTENSION IF NOT EXISTS vector"))
+        command.upgrade(alembic_config(url), "head")
+        yield url
+        return
+
+    from sqlalchemy.engine import make_url
+
+    name = f"basis_test_{uuid.uuid4().hex[:12]}"
+    asyncio.run(execute_admin(server, f'CREATE DATABASE "{name}"'))
+    url = make_url(server).set(database=name).render_as_string(hide_password=False)
+    try:
+        asyncio.run(execute_admin(url, "CREATE EXTENSION IF NOT EXISTS vector"))
+        command.upgrade(alembic_config(url), "head")
+        yield url
+    finally:
+        asyncio.run(execute_admin(server, f'DROP DATABASE IF EXISTS "{name}" WITH (FORCE)'))

@@ -119,7 +119,7 @@ client-data guard on every commit.
   match is replayed with `evals.conventions_replay` before it ships.
 - **Client data never enters the repository.** Private files live in `~/basis-eval-data`
   (`BASIS_EVAL_DATA_DIR`); reports that quote client figures are written there, not in `docs/`.
-  The guard blocks known files by hash, data extensions and large files.
+  The guard blocks known files by hash, data extensions and large files, and text that contains a term from the private list `$BASIS_EVAL_DATA_DIR/private_terms.txt` (a client property's town, address, name or coordinates); add a client's identifying terms there before writing about their property.
 - **No provider names in anything a customer sees.** Outages read as Basis being
   unavailable; provider names appear only on the operator ops page.
 - **Nothing paid without approval.** A live study costs about $2 to $4 with conventions,

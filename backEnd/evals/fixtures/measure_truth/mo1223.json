@@ -1,0 +1,610 @@
+{
+ "schema": "measure_truth/v1",
+ "id": "mo1223",
+ "name": "George Wallace House",
+ "loc_url": "https://www.loc.gov/pictures/item/mo1223/",
+ "survey_number": "HABS MO-1910",
+ "drawing_date": "1992",
+ "address": "605 West Truman Road, Independence, Jackson County, MO",
+ "location": {
+  "lat": 39.0938054,
+  "lon": -94.422844,
+  "how": "centre of the building's outline clicked by hand on the public ortho mo-2023-2024 (2024, 0.150 m/px), pixel (265, 652)"
+ },
+ "standing": {
+  "status": "unchanged",
+  "source": "public ortho mo-2023-2024",
+  "year": 2024,
+  "note": "L-shaped roof next door west of 601 (Frank Wallace), about 44 x 55 ft at the roof edge on the ortho against walls of 40 x 47 ft plus overhangs and the front porch; no addition visible. NPS-owned (Harry S Truman NHS)."
+ },
+ "passes": {
+  "a": "pass A: an independent reader of the 400 dpi sheets (2026-11-25), chain and heights read from crops",
+  "b": "pass B: a second independent reader of the same sheets (2026-11-25), not shown pass A",
+  "disagreements": [
+   {
+    "what": "chain",
+    "pass_a": "16 edges, 1,170.2 SF",
+    "pass_b": "16 edges, 1,171.2 SF (bay side and one run derived differently)",
+    "resolved": "A (walls from the string facing them); the passes differ by 0.08 % in area and not at all in perimeter"
+   },
+   {
+    "what": "grade under the eave",
+    "pass_a": "-2'-0 1/2\" (east)",
+    "pass_b": "-3'-5 1/4\" (north)",
+    "resolved": "the mean of the eight printed grades, 2.370 ft below the floor (eave 1.4 ft apart between the passes' single readings: the lot slopes)"
+   },
+   {
+    "what": "overhang",
+    "pass_a": "2'-6 1/2\" derived",
+    "pass_b": "2'-5 3/4\" derived",
+    "resolved": "not scored (roof.derive false)"
+   }
+  ]
+ },
+ "sheets": {
+  "1": "title sheet: history, location map, site plan (not used for dimensions)",
+  "3": "first floor plan, 1/4\" = 1'-0\", dimensioned; delineated 1992. The plan is drawn about 0.6 deg off square on the sheet",
+  "4": "roof plan, 1/4\" = 1'-0\", dimensioned (front-gable main roof 44'-11\" x 27'-2\", hipped rear-bedroom wing 23'-9 1/4\" wide, flat roof over the side bath); delineated 1992",
+  "5": "north and south elevations (levels on a first-floor 0'-0\" datum, grade printed below it), typical window, window schedule",
+  "6": "east and west elevations (first-floor datum), screen door, front door"
+ },
+ "stories": 1,
+ "roof_shape": "cross: front-gable main roof (gable ends front and back) with a hipped rear wing and a flat roof over the side bath",
+ "plan": {
+  "sheet": "3",
+  "scale": "1/4\" = 1'-0\"",
+  "chain": [
+   {
+    "dir": "E",
+    "length": {
+     "ft": 2.8958,
+     "text": "2'-10 3/4\"",
+     "how": "printed",
+     "sheet": "3"
+    },
+    "label": "top (east) wall from the front corner to the living-room bay"
+   },
+   {
+    "dir": "N",
+    "length": {
+     "ft": 1.8958,
+     "text": "1'-10 3/4\"",
+     "how": "printed",
+     "sheet": "3",
+     "note": "left string, top segment"
+    },
+    "label": "bay's left side"
+   },
+   {
+    "dir": "E",
+    "length": {
+     "ft": 7.4583,
+     "text": "7'-5 1/2\"",
+     "how": "printed",
+     "sheet": "3",
+     "note": "top string; 9 3/4\" + 5'-10\" + 9 3/4\" below it"
+    },
+    "label": "bay face"
+   },
+   {
+    "dir": "S",
+    "length": {
+     "ft": 1.8958,
+     "text": "1'-10 3/4\"",
+     "how": "printed",
+     "sheet": "3",
+     "note": "same string as the bay's other side"
+    },
+    "label": "bay's right side"
+   },
+   {
+    "dir": "E",
+    "length": {
+     "ft": 21.9792,
+     "how": "derived",
+     "note": "top string third tier from the bay to the kitchen's outside corner: 5'-3\" + 3'-8 3/4\" + 6'-8 1/4\" + 5'-8\" + 7 3/4\" = 21'-11 3/4\"",
+     "sheet": "3"
+    },
+    "label": "top wall, bay to the kitchen corner"
+   },
+   {
+    "dir": "S",
+    "length": {
+     "ft": 11.8125,
+     "text": "11'-9 3/4\"",
+     "how": "printed",
+     "sheet": "3",
+     "note": "right string second tier; its tier-1 window segments and the sheet (1183 px) agree"
+    },
+    "label": "kitchen/bath right wall down to the bedroom wing"
+   },
+   {
+    "dir": "E",
+    "length": {
+     "ft": 8.3125,
+     "how": "derived",
+     "note": "top string: 30'-3 1/2\" (bay to the bedroom wing's right wall) less the 21'-11 3/4\" above; the third tier's 6'-4 1/4\" + 9 1/4\" plus an undimensioned gap of 1'-2 1/4\" make the same 8'-3 3/4\"",
+     "sheet": "3"
+    },
+    "label": "bedroom wing's top wall"
+   },
+   {
+    "dir": "S",
+    "length": {
+     "ft": 9.6458,
+     "text": "9'-7 3/4\"",
+     "how": "printed",
+     "sheet": "3"
+    },
+    "label": "bedroom wing's right wall down to the bath bump-out"
+   },
+   {
+    "dir": "E",
+    "length": {
+     "ft": 6.375,
+     "text": "6'-4 1/2\"",
+     "how": "printed",
+     "sheet": "3",
+     "note": "top string, last segment; the bottom string gives 6'-1 1/4\" for the same bump-out (see flags)"
+    },
+    "label": "bath bump-out's top wall"
+   },
+   {
+    "dir": "S",
+    "length": {
+     "ft": 8.6875,
+     "text": "8'-8 1/4\"",
+     "how": "printed",
+     "sheet": "3"
+    },
+    "label": "bath bump-out's right wall"
+   },
+   {
+    "dir": "W",
+    "length": {
+     "ft": 6.1042,
+     "text": "6'-1 1/4\"",
+     "how": "printed",
+     "sheet": "3",
+     "note": "bottom string, last segment"
+    },
+    "label": "bath bump-out's bottom wall"
+   },
+   {
+    "dir": "S",
+    "length": {
+     "ft": 7.9792,
+     "text": "7'-11 3/4\"",
+     "how": "printed",
+     "sheet": "3"
+    },
+    "label": "lower bedroom's right wall"
+   },
+   {
+    "dir": "W",
+    "length": {
+     "ft": 18.6875,
+     "text": "18'-8 1/4\"",
+     "how": "printed",
+     "sheet": "3",
+     "note": "bottom string second tier"
+    },
+    "label": "lower bedroom wing's bottom (west) wall"
+   },
+   {
+    "dir": "N",
+    "length": {
+     "ft": 15.8542,
+     "text": "15'-10 1/4\"",
+     "how": "printed",
+     "sheet": "3",
+     "note": "left string second tier"
+    },
+    "label": "lower wing's left wall up to the main block"
+   },
+   {
+    "dir": "W",
+    "length": {
+     "ft": 22.1875,
+     "text": "22'-2 1/4\"",
+     "how": "printed",
+     "sheet": "3",
+     "note": "bottom string second tier"
+    },
+    "label": "main block's bottom wall (dining and living rooms)"
+   },
+   {
+    "dir": "N",
+    "length": {
+     "ft": 22.2083,
+     "how": "derived",
+     "note": "left overall 39'-11 1/2\" less the bay 1'-10 3/4\" and the lower wing 15'-10 1/4\" = 22'-2 1/2\"; the five printed segments between (4'-3 1/2\" 3'-8 1/4\" 6'-6 1/2\" 3'-8 1/4\" 4'-2\") add to 22'-4 1/2\" (see flags); the sheet scales 22.18 ft",
+     "sheet": "3"
+    },
+    "label": "front (north) wall behind the porch"
+   }
+  ],
+  "excluded": [
+   "open front porch on the left (north) wall: 7'-9 1/2\" deep (top and bottom strings), about 20.0 ft long scaled, with its steps",
+   "rear stoop and steps outside the kitchen's top-right corner",
+   "chimney/hearth base projecting below the living room's bottom wall (about 5.6 x 0.9 ft)",
+   "a shallow box projection (about 3.0 x 0.6 ft, scaled) on the dining room's bottom wall, between the two type-12 windows"
+  ],
+  "north": "left (the arrow points to the sheet's left; the front porch faces north)",
+  "note": "Start at the front wall's top (east) corner and walk clockwise on the sheet: main block (living room with a shallow bay on the top wall, kitchen), bedroom wing stepping out to the right, bath bump-out on the far right, lower bedroom wing below. Each wall uses the string that faces it."
+ },
+ "floors": [
+  {
+   "level": "first",
+   "finished": true,
+   "same_as_ground": true,
+   "note": "One storey; the attic under the front gable is not shown as living space."
+  }
+ ],
+ "heights": {
+  "eave": {
+   "above_grade_ft": 10.1406,
+   "how": "derived",
+   "sheet": "6",
+   "elevation": "all four elevations' grades",
+   "note": "eave printed 7'-9 1/4\" above the first floor; grade printed below the floor at 8 points (3'-5 1/4\", 1'-6 1/2\", 1'-5 3/4\", 2'-9 1/2\", 2'-0 1/2\", 3'-10\", 2'-1 3/4\", 1'-8 1/4\": 1.48 to 3.83 ft, the lot slopes); their mean 2.370 ft is the grade used (both passes read the same eight values)"
+  },
+  "ridge": {
+   "above_grade_ft": 17.5781,
+   "how": "derived",
+   "sheet": "6",
+   "elevation": "all four elevations' grades",
+   "note": "front-gable ridge printed 15'-2 1/2\" above the first floor; grade printed below the floor at 8 points (3'-5 1/4\", 1'-6 1/2\", 1'-5 3/4\", 2'-9 1/2\", 2'-0 1/2\", 3'-10\", 2'-1 3/4\", 1'-8 1/4\": 1.48 to 3.83 ft, the lot slopes); their mean 2.370 ft is the grade used (both passes read the same eight values)"
+  },
+  "readings": [
+   {
+    "what": "ridge (main)",
+    "text": "15'-2 1/2\"",
+    "datum_text": "0'-0\" first floor",
+    "sheet": "5",
+    "elevation": "north elevation"
+   },
+   {
+    "what": "eave",
+    "text": "7'-9 1/4\"",
+    "datum_text": "0'-0\" first floor",
+    "sheet": "5",
+    "elevation": "north elevation",
+    "note": "left labels"
+   },
+   {
+    "what": "fascia",
+    "text": "6'-8 1/2\"",
+    "datum_text": "0'-0\" first floor",
+    "sheet": "5",
+    "elevation": "north elevation"
+   },
+   {
+    "what": "fascia (base)",
+    "text": "0'-10 1/4\"",
+    "datum_text": "0'-0\" first floor",
+    "sheet": "5",
+    "elevation": "north elevation",
+    "note": "below the floor"
+   },
+   {
+    "what": "grade",
+    "text": "3'-5 1/4\"",
+    "datum_text": "0'-0\" first floor",
+    "sheet": "5",
+    "elevation": "north elevation",
+    "note": "left labels, below the floor"
+   },
+   {
+    "what": "chimney",
+    "text": "17'-1 3/4\"",
+    "datum_text": "0'-0\" first floor",
+    "sheet": "5",
+    "elevation": "north elevation"
+   },
+   {
+    "what": "ridge (wing)",
+    "text": "14'-0 1/2\"",
+    "datum_text": "0'-0\" first floor",
+    "sheet": "5",
+    "elevation": "north elevation"
+   },
+   {
+    "what": "eave (wing)",
+    "text": "7'-8 1/2\"",
+    "datum_text": "0'-0\" first floor",
+    "sheet": "5",
+    "elevation": "north elevation",
+    "note": "right labels"
+   },
+   {
+    "what": "fascia",
+    "text": "6'-10\"",
+    "datum_text": "0'-0\" first floor",
+    "sheet": "5",
+    "elevation": "north elevation",
+    "note": "right labels"
+   },
+   {
+    "what": "fascia (base)",
+    "text": "0'-9 3/4\"",
+    "datum_text": "0'-0\" first floor",
+    "sheet": "5",
+    "elevation": "north elevation",
+    "note": "below the floor"
+   },
+   {
+    "what": "grade",
+    "text": "1'-6 1/2\"",
+    "datum_text": "0'-0\" first floor",
+    "sheet": "5",
+    "elevation": "north elevation",
+    "note": "right labels, below the floor"
+   },
+   {
+    "what": "ridge (wing)",
+    "text": "14'-0 1/2\"",
+    "datum_text": "0'-0\" first floor",
+    "sheet": "5",
+    "elevation": "south elevation"
+   },
+   {
+    "what": "eave (wing)",
+    "text": "7'-7 1/4\"",
+    "datum_text": "0'-0\" first floor",
+    "sheet": "5",
+    "elevation": "south elevation",
+    "note": "left labels"
+   },
+   {
+    "what": "fascia",
+    "text": "6'-10\"",
+    "datum_text": "0'-0\" first floor",
+    "sheet": "5",
+    "elevation": "south elevation"
+   },
+   {
+    "what": "fascia (base)",
+    "text": "0'-9 3/4\"",
+    "datum_text": "0'-0\" first floor",
+    "sheet": "5",
+    "elevation": "south elevation",
+    "note": "below the floor"
+   },
+   {
+    "what": "grade",
+    "text": "1'-5 3/4\"",
+    "datum_text": "0'-0\" first floor",
+    "sheet": "5",
+    "elevation": "south elevation",
+    "note": "left labels, below the floor"
+   },
+   {
+    "what": "ridge (main)",
+    "text": "15'-2 1/2\"",
+    "datum_text": "0'-0\" first floor",
+    "sheet": "5",
+    "elevation": "south elevation"
+   },
+   {
+    "what": "eave",
+    "text": "7'-9 1/4\"",
+    "datum_text": "0'-0\" first floor",
+    "sheet": "5",
+    "elevation": "south elevation",
+    "note": "right labels"
+   },
+   {
+    "what": "fascia",
+    "text": "6'-8 1/2\"",
+    "datum_text": "0'-0\" first floor",
+    "sheet": "5",
+    "elevation": "south elevation"
+   },
+   {
+    "what": "fascia (base)",
+    "text": "0'-10 1/4\"",
+    "datum_text": "0'-0\" first floor",
+    "sheet": "5",
+    "elevation": "south elevation",
+    "note": "below the floor"
+   },
+   {
+    "what": "grade",
+    "text": "2'-9 1/2\"",
+    "datum_text": "0'-0\" first floor",
+    "sheet": "5",
+    "elevation": "south elevation",
+    "note": "right labels, below the floor"
+   },
+   {
+    "what": "ridge",
+    "text": "15'-2 1/2\"",
+    "datum_text": "0'-0\" first floor",
+    "sheet": "6",
+    "elevation": "east elevation"
+   },
+   {
+    "what": "fascia (base)",
+    "text": "0'-9 3/4\"",
+    "datum_text": "0'-0\" first floor",
+    "sheet": "6",
+    "elevation": "east elevation",
+    "note": "below the floor"
+   },
+   {
+    "what": "grade",
+    "text": "2'-0 1/2\"",
+    "datum_text": "0'-0\" first floor",
+    "sheet": "6",
+    "elevation": "east elevation",
+    "note": "left labels, below the floor"
+   },
+   {
+    "what": "eave",
+    "text": "7'-9 1/4\"",
+    "datum_text": "0'-0\" first floor",
+    "sheet": "6",
+    "elevation": "east elevation",
+    "note": "right labels"
+   },
+   {
+    "what": "fascia",
+    "text": "6'-8 1/2\"",
+    "datum_text": "0'-0\" first floor",
+    "sheet": "6",
+    "elevation": "east elevation"
+   },
+   {
+    "what": "sill",
+    "text": "3'-0 1/4\"",
+    "datum_text": "0'-0\" first floor",
+    "sheet": "6",
+    "elevation": "east elevation",
+    "note": "below the floor"
+   },
+   {
+    "what": "grade",
+    "text": "3'-10\"",
+    "datum_text": "0'-0\" first floor",
+    "sheet": "6",
+    "elevation": "east elevation",
+    "note": "right labels, below the floor"
+   },
+   {
+    "what": "chimney",
+    "text": "17'-1 3/4\"",
+    "datum_text": "0'-0\" first floor",
+    "sheet": "6",
+    "elevation": "west elevation"
+   },
+   {
+    "what": "ridge",
+    "text": "15'-2 1/2\"",
+    "datum_text": "0'-0\" first floor",
+    "sheet": "6",
+    "elevation": "west elevation"
+   },
+   {
+    "what": "porch",
+    "text": "0'-2 3/4\"",
+    "datum_text": "0'-0\" first floor",
+    "sheet": "6",
+    "elevation": "west elevation",
+    "note": "below the floor"
+   },
+   {
+    "what": "grade",
+    "text": "2'-1 3/4\"",
+    "datum_text": "0'-0\" first floor",
+    "sheet": "6",
+    "elevation": "west elevation",
+    "note": "left labels, below the floor"
+   },
+   {
+    "what": "ridge (wing)",
+    "text": "14'-0 1/2\"",
+    "datum_text": "0'-0\" first floor",
+    "sheet": "6",
+    "elevation": "west elevation"
+   },
+   {
+    "what": "railing",
+    "text": "9'-7 1/4\"",
+    "datum_text": "0'-0\" first floor",
+    "sheet": "6",
+    "elevation": "west elevation",
+    "note": "rail on the bath's flat roof"
+   },
+   {
+    "what": "flat roof",
+    "text": "7'-10 1/4\"",
+    "datum_text": "0'-0\" first floor",
+    "sheet": "6",
+    "elevation": "west elevation"
+   },
+   {
+    "what": "fascia",
+    "text": "6'-8 1/4\"",
+    "datum_text": "0'-0\" first floor",
+    "sheet": "6",
+    "elevation": "west elevation"
+   },
+   {
+    "what": "fascia (base)",
+    "text": "0'-9 3/4\"",
+    "datum_text": "0'-0\" first floor",
+    "sheet": "6",
+    "elevation": "west elevation",
+    "note": "below the floor"
+   },
+   {
+    "what": "grade",
+    "text": "1'-8 1/4\"",
+    "datum_text": "0'-0\" first floor",
+    "sheet": "6",
+    "elevation": "west elevation",
+    "note": "right labels, below the floor"
+   }
+  ]
+ },
+ "roof": {
+  "overhang": {
+   "ft": 2.5417,
+   "how": "derived",
+   "note": "roof plan (sheet 4): the hipped wing's roof 23'-9 1/4\" less its walls' 18'-8 1/4\", halved = 2'-6 1/2\". Other pairs: wing north-south 31'-5 1/2\" (11'-3\" + 10'-9 3/4\" + 9'-4 3/4\") over 26'-3 3/4\" of wall gives 2.57 ft; main roof 27'-2\" (13'-7\" + 13'-7\") over the main block's 22'-2 1/2\" gives 2.48 ft; the bath's flat roof 10'-9 3/4\" over 8'-8 1/4\" gives 1.06 ft",
+   "sheet": "4"
+  },
+  "eaves": [
+   "N",
+   "E",
+   "S"
+  ],
+  "note": "Front-gable main roof: eaves on the sheet's top and bottom sides, gable over the open front porch on the left. Hipped wing: eaves on its top, right and bottom sides; flat roof with railing over the bath bump-out. Roof plan strings: top 44'-11\" + 8'-4 1/4\" = 53'-3 1/4\" to the wing's right eave, bottom 29'-7 1/4\" + 23'-9 1/4\" = 53'-4 1/2\" to the same eave (1 1/4\" apart), then 4'-9 1/4\" to the flat roof's edge; right side 11'-6\" + 11'-3\" + 10'-9 3/4\" + 9'-4 3/4\". Outline not transcribed as a chain.",
+  "derive": false,
+  "derive_note": "front gable over the porch, hipped rear wing and a flat roof over the side bath: no single pitch"
+ },
+ "porches": [
+  {
+   "name": "front porch (north)",
+   "a": {
+    "ft": 20.0,
+    "how": "scaled",
+    "scale": "1/4\" = 1'-0\"",
+    "note": "sheet 3: outer faces of the corner piers 3072 to 5072 px",
+    "sheet": "3"
+   },
+   "b": {
+    "ft": 7.7917,
+    "text": "7'-9 1/2\"",
+    "how": "printed",
+    "sheet": "3",
+    "note": "top and bottom strings, porch edge to the front wall"
+   },
+   "note": "porch floor 0'-2 3/4\" below the first floor (west elevation)"
+  }
+ ],
+ "flags": [
+  {
+   "code": "no_overall",
+   "note": "No printed east-west overall for the walls: 54'-9 3/4\" (top) and 54'-9 1/4\" (bottom) include the 7'-9 1/2\" open porch (walls alone 47'-0 1/4\" top, 46'-11 3/4\" bottom). North-south the left overall 39'-11 1/2\" runs bay top to the lower wing's bottom wall; the chain's extent is 40.02 ft on the right-hand strings."
+  },
+  {
+   "code": "note",
+   "note": "Top and bottom strings disagree on where the bedroom wing's right wall is: top 30'-3 1/2\" from the bay puts it 40'-7 3/4\" from the front wall, bottom 22'-2 1/4\" + 18'-8 1/4\" puts it 40'-10 1/2\" (2 3/4\" more); each overall still agrees within 1/2\" because the bath bump-out differs the other way (top 6'-4 1/2\", bottom 6'-1 1/4\"). On the drawing the bump-out scales about 6.2 ft. The chain takes each wall from the string facing it, so the two discrepancies cancel to the overalls' 1/2\" and the chain closes."
+  },
+  {
+   "code": "note",
+   "note": "Right overall 38'-3 1/2\" vs its four segments 7'-11 3/4\" + 8'-8 1/4\" + 9'-7 3/4\" + 11'-9 3/4\" = 38'-1 1/2\"; the sheet scales 38.13 ft (3813 px), with the segments. The chain uses the segments."
+  },
+  {
+   "code": "note",
+   "note": "Left side: the five segments between the main block's bottom wall and its top wall add to 22'-4 1/2\" but the overall less the other segments leaves 22'-2 1/2\", and the sheet scales 22.18 ft; the 4'-3 1/2\" segment scales 4.15 ft and is probably the misprint. The chain uses 22'-2 1/2\"."
+  },
+  {
+   "code": "note",
+   "note": "Grade is printed per elevation side, 1'-5 3/4\" to 3'-10\" below the first floor; the east elevation's 2'-0 1/2\" is used. Eave above grade ranges 9.2 to 11.6 ft by side."
+  }
+ ],
+ "note": "Kept from pass A, with the resolutions in passes.disagreements."
+}

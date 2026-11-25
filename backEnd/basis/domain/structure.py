@@ -2626,6 +2626,21 @@ def depreciate(rcns: Sequence[Decimal], rate: Decimal) -> list[Decimal]:
     return _largest_remainder(exact, total)
 
 
+def depreciate_by_row(rcns: Sequence[Decimal], rates: Sequence[Decimal]) -> list[Decimal]:
+    """``rcn_i x (1 - rate_i)`` per row, each row at its own rate (a component's own age,
+    EVAL_REPORT 102), footing to the sum of the exact values rounded to the cent. With every
+    rate equal this is :func:`depreciate`."""
+    if len(rcns) != len(rates):
+        raise ValueError("one rate per row")
+    if not rcns:
+        return []
+    with localcontext() as ctx:
+        ctx.prec = PRECISION
+        exact = [r * (ONE - rate) for r, rate in zip(rcns, rates, strict=True)]
+        total = money(sum(exact, ZERO))
+    return _largest_remainder(exact, total)
+
+
 # ----------------------------------------------------------------- reconciliation
 
 Status = Literal["reconciled", "unreconciled", "not_checked"]
@@ -2965,6 +2980,7 @@ __all__ = [
     "concealed_rows",
     "cost_approach_from_fields",
     "depreciate",
+    "depreciate_by_row",
     "depreciation",
     "heating_alternative",
     "inside_model",

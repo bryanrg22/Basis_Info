@@ -70,6 +70,10 @@ AREA_TITLES: Final[dict[str, str]] = {
     "CLIENT": "Browser error capture: `POST /v1/client-errors` (docs/api/CLIENT_ERRORS.md)",
     "DEMO": "Demo requests from the public site: `POST /v1/demo-requests` "
     "(docs/api/DEMO_REQUESTS.md)",
+    "CAPTURE": "Property pictures: the capture worker and `/v1/studies/{id}/property` "
+    "(docs/api/PROPERTY_CAPTURE.md)",
+    "GEO": "Public geographic sources: the geo worker and `/v1/studies/{id}/property/public` "
+    "(docs/api/PUBLIC_GEO.md)",
 }
 
 
@@ -1242,6 +1246,44 @@ ENTRIES: Final[tuple[Entry, ...]] = (
         problem="intake-locked",
     ),
     _e(
+        E.STUDY_RENOVATIONS_LOCKED,
+        "refusal",
+        "`PUT /v1/studies/{id}/renovations`",
+        "basis.db.repositories.study",
+        "The study's current revision has been exported (the assets review was approved): its "
+        "export, report and schedule were computed with the renovation projects as they were, "
+        "so replacing them in place would leave those out of date (docs/api/RENOVATIONS.md).",
+        "409 `renovations-locked`; nothing is written, no event.",
+        "Reopen the study at the assets review (docs/api/REVISIONS.md), change the projects, "
+        "reprice and approve again.",
+        "no",
+        problem="renovations-locked",
+    ),
+    _e(
+        E.STUDY_RENOVATIONS_PRECONDITION_FAILED,
+        "refusal",
+        "`PUT /v1/studies/{id}/renovations`",
+        "basis.db.repositories.study",
+        "`If-Match` does not name the renovations' current version (someone saved since).",
+        "412 `precondition-failed` with the current `ETag`; nothing written.",
+        "Read the renovations again, reapply the change, retry with the new tag.",
+        "after fix",
+    ),
+    _e(
+        E.STUDY_RENOVATIONS_DOCUMENT,
+        "refusal",
+        "`PUT /v1/studies/{id}/renovations`",
+        "basis.api.routes.renovations",
+        "The document names a file that is not one of the study's uploads, a photograph tagged "
+        "after a project that is not a photo, or an invoice that is not a document of kind "
+        "`other`; or a project's dates contradict the intake's (an after-service project placed "
+        "in service on or before the building, a before-service project started before the "
+        "acquisition).",
+        "422 `validation` naming the member (`errors[].loc`).",
+        "Upload the file first, or correct the document.",
+        "after fix",
+    ),
+    _e(
         E.STUDY_INPUT_MISSING,
         "outcome",
         "`process_assets`; `GET /v1/ops/client-errors` (kind `study_input`)",
@@ -2235,6 +2277,38 @@ ENTRIES: Final[tuple[Entry, ...]] = (
         temporal_type="ValidationError",
     ),
     _e(
+        E.CORRECT_COMPONENT_AGE,
+        "error",
+        "corrections",
+        "basis.activities.corrections",
+        "A component age on an `asset` correction is invalid: exactly one of `effective_age` "
+        "(years from 0, below 200) and `year_installed` (a calendar year), an `economic_life` "
+        "above the age, an `age_source` from the list, an `age_source_detail` (1 to 300 "
+        "characters) and the correction's `reason`; or `effective_age: null` alone to clear "
+        "(EVAL_REPORT 102, docs/api/OVERRIDES.md section 7). The decision route refuses the "
+        "same with a 422.",
+        "`ValidationError: ... [BASIS-CORRECT-047]`; the rejection's corrections are refused.",
+        "Send the age, the life, the source and a reason together.",
+        "no",
+        temporal_type="ValidationError",
+    ),
+    _e(
+        E.CORRECT_REMOVAL,
+        "error",
+        "corrections",
+        "basis.activities.corrections",
+        "A removal on an `asset` correction is invalid: `removed_by_project` (a project key of "
+        "the study's renovations) with a `disposition_date` (ISO date) and an optional "
+        "`removed_share` (above 0, at most 1), and the correction's `reason`; or "
+        "`removed_by_project: null` alone to clear (EVAL_REPORT 102, docs/api/RENOVATIONS.md). "
+        "The decision route refuses the same, and a key the renovations do not list, with a "
+        "422.",
+        "`ValidationError: ... [BASIS-CORRECT-048]`; the rejection's corrections are refused.",
+        "Name a project of the study's renovations, the disposition date and a reason.",
+        "no",
+        temporal_type="ValidationError",
+    ),
+    _e(
         E.CORRECT_UNIT_COST_CONCEALED,
         "error",
         "corrections",
@@ -2246,6 +2320,23 @@ ENTRIES: Final[tuple[Entry, ...]] = (
         "`ValidationError: ... [BASIS-CORRECT-045]`; the rejection's corrections are refused.",
         "Correct the square-foot model instead (`structure_model` through "
         "`POST .../assets/reprice`).",
+        "no",
+        temporal_type="ValidationError",
+    ),
+    _e(
+        E.CORRECT_MEASUREMENT,
+        "error",
+        "corrections",
+        "basis.domain.traced",
+        "An asset correction's traced `measurement` is invalid (an unknown key, a unit other "
+        "than SF, SY or LF, a shape that crosses itself, a cutout outside its ring, a scale "
+        "missing on an image, a quantity out of range, ...), or comes with `quantity`, "
+        "`quantity_unit` or `quantity_source` (one way to state a quantity). The message names "
+        "what is wrong and where; the decision route refuses the same with a 422 (EVAL_REPORT "
+        "97, docs/api/OVERRIDES.md section 4).",
+        "`ValidationError: measurement... [BASIS-CORRECT-046]`; the rejection's corrections are "
+        "refused.",
+        "Fix what the message names, or send a typed quantity instead.",
         "no",
         temporal_type="ValidationError",
     ),
@@ -2747,6 +2838,55 @@ ENTRIES: Final[tuple[Entry, ...]] = (
         signal="takeoff:upper_bound",
     ),
     _e(
+        E.ASSETS_MEASURE_IMAGE_UNDATED,
+        "flag",
+        "process_assets",
+        "basis.domain.traced",
+        "The engineer's traced measurement names no capture date for its image: undated "
+        "imagery cannot show the property as it was placed in service (EVAL_REPORT 97).",
+        "`review_reasons` `measure:IMAGE_UNDATED`.",
+        "Confirm the image shows the property as placed in service, or trace on a dated one.",
+        "no",
+        signal="measure:IMAGE_UNDATED",
+    ),
+    _e(
+        E.ASSETS_MEASURE_IMAGE_AFTER_SERVICE,
+        "flag",
+        "process_assets",
+        "basis.domain.traced",
+        "The traced measurement's image was captured more than "
+        "`MEASURE_IMAGE_AFTER_SERVICE_DAYS` after the placed-in-service date: it may show "
+        "improvements made after the purchase (EVAL_REPORT 97).",
+        "`review_reasons` `measure:IMAGE_AFTER_SERVICE`.",
+        "Check that the traced item existed at the placed-in-service date.",
+        "no",
+        signal="measure:IMAGE_AFTER_SERVICE",
+    ),
+    _e(
+        E.ASSETS_MEASURE_ERROR_UNKNOWN,
+        "flag",
+        "process_assets",
+        "basis.domain.traced",
+        "A measurement traced on lon/lat imagery names no pixel size, so its expected error "
+        "is unknown (EVAL_REPORT 97).",
+        "`review_reasons` `measure:ERROR_UNKNOWN`.",
+        "Give the imagery's pixel size, or confirm the quantity another way.",
+        "no",
+        signal="measure:ERROR_UNKNOWN",
+    ),
+    _e(
+        E.ASSETS_MEASURE_COARSE,
+        "flag",
+        "process_assets",
+        "basis.domain.traced",
+        "A traced measurement's expected error (one pixel on every edge, plus the scale's) is "
+        "above `MEASURE_ERROR_FLAG_PCT` (EVAL_REPORT 97).",
+        "`review_reasons` `measure:COARSE`.",
+        "Trace on sharper imagery or a plan, or confirm the quantity another way.",
+        "no",
+        signal="measure:COARSE",
+    ),
+    _e(
         E.ASSETS_BUDGET_FLAGGED,
         "outcome",
         "process_assets",
@@ -3065,6 +3205,21 @@ ENTRIES: Final[tuple[Entry, ...]] = (
         signal="value_vs_contract",
     ),
     _e(
+        E.CHECK_EXTRACTION_GLA_VS_SKETCH,
+        "flag",
+        "extract_fields",
+        "basis.extraction.validation",
+        "The living area on the appraisal's sketch and the gross living area box differ by "
+        "more than the tolerance (`TAKEOFF_SKETCH_GLA_TOLERANCE`, read only with "
+        "`TAKEOFF_SKETCH=on`). One of them is wrong, and the takeoff does not use the sketch "
+        "until they agree.",
+        "issue `gla_vs_sketch`.",
+        "Correct the gross living area if the sketch is right, or the sketch's living area "
+        "if the box is.",
+        "no",
+        signal="gla_vs_sketch",
+    ),
+    _e(
         E.CHECK_EXTRACTION_SOURCES_DISAGREE,
         "flag",
         "extract_fields",
@@ -3272,6 +3427,21 @@ ENTRIES: Final[tuple[Entry, ...]] = (
         "Classify by hand.",
         "no",
         signal="no_answer",
+    ),
+    _e(
+        E.CHECK_RENOVATION_ROOM_MIXED,
+        "flag",
+        "process_assets",
+        "basis.domain.renovations",
+        "A room's photographs mix the acquisition and a renovation project (some tagged after a "
+        "project, some not, or two projects): its room-level rows (the reconciled inventory, an "
+        "engineer's added rows) cannot follow one tag, so they stay in the acquisition "
+        "(docs/api/RENOVATIONS.md).",
+        "`renovation:ROOM_MIXED` on each of the room's room-level rows.",
+        "Move the project's photographs to a room of their own at the rooms review, or tag "
+        "every photograph of the room alike.",
+        "after fix",
+        signal="renovation:ROOM_MIXED",
     ),
     # ------------------------------------------------------------------ COST
     _e(
@@ -3700,6 +3870,21 @@ ENTRIES: Final[tuple[Entry, ...]] = (
         "Set `ALERT_EMAIL_TO` on the relay so alerts reach someone.",
         "no",
     ),
+    _e(
+        E.ALERT_CAPTURE_BLOCKED,
+        "outcome",
+        "the capture worker (`python -m basis.capture`)",
+        "basis.capture.runner",
+        "A block signal (BASIS-CAPTURE-001 to 004) opened the capture breaker: every capture "
+        "waits until the breaker's time and resumes on its own. One alert per trip, keyed by the "
+        "trip number and the time it opened; a second signal while it is open raises none.",
+        "`alerts` row (`kind = capture_blocked`); the email; `GET /v1/ops/health` "
+        "`property_capture.breaker`.",
+        "Open the incident's evidence (`GET /v1/ops/capture-incidents`) and read what the page "
+        "said. Nothing to reset: the breaker closes after its wait, which doubles on each "
+        "consecutive trip. Set `PROPERTY_CAPTURE=false` to stop captures altogether.",
+        "no",
+    ),
     # ------------------------------------------------------------------ CLIENT
     _e(
         E.CLIENT_ERROR_RECORDED,
@@ -3826,6 +4011,429 @@ ENTRIES: Final[tuple[Entry, ...]] = (
         "returning firm, and no longer.",
         "The purge's JSON summary line (`deleted`, `cutoff`).",
         "Nothing; a firm that became a customer is in the firm records, not here.",
+        "no",
+    ),
+    # ------------------------------------------------------------------ CAPTURE
+    _e(
+        E.CAPTURE_UNUSUAL_TRAFFIC,
+        "error",
+        "the capture worker (`python -m basis.capture`)",
+        "basis.capture.signals",
+        "The imagery site answered with its unusual-traffic page (a `/sorry/` address or the page text) instead of the map: it believes the traffic is automated. A block signal: the breaker opens.",
+        "The capture's `study_events` row `capture.paused` (`code`, `detail.evidence` the screenshot, HTML and page record under the capture's files); the `capture_incidents` row for the code (count, first and last seen, last study, last evidence); the capture worker's log line `capture signal` with `error_code`; one `capture_blocked` alert per breaker trip.",
+        "Nothing for the engineer: the capture waits and resumes when the breaker closes. Operator: read the evidence; if it repeats after each wait, lower the caps or turn `PROPERTY_CAPTURE` off.",
+        "automatic",
+    ),
+    _e(
+        E.CAPTURE_RECAPTCHA,
+        "error",
+        "the capture worker (`python -m basis.capture`)",
+        "basis.capture.signals",
+        "The page carries a reCAPTCHA challenge. Basis never answers one. A block signal: the breaker opens.",
+        "The capture's `study_events` row `capture.paused` (`code`, `detail.evidence` the screenshot, HTML and page record under the capture's files); the `capture_incidents` row for the code (count, first and last seen, last study, last evidence); the capture worker's log line `capture signal` with `error_code`; one `capture_blocked` alert per breaker trip.",
+        "Nothing for the engineer: the capture waits and resumes when the breaker closes. Operator: read the evidence; if it repeats after each wait, lower the caps or turn `PROPERTY_CAPTURE` off.",
+        "automatic",
+    ),
+    _e(
+        E.CAPTURE_WALL,
+        "error",
+        "the capture worker (`python -m basis.capture`)",
+        "basis.capture.signals",
+        "The page went to a consent or sign-in wall (`consent.` or `accounts.` host, or the page asks to sign in or accept) instead of the map. A block signal: the breaker opens.",
+        "The capture's `study_events` row `capture.paused` (`code`, `detail.evidence` the screenshot, HTML and page record under the capture's files); the `capture_incidents` row for the code (count, first and last seen, last study, last evidence); the capture worker's log line `capture signal` with `error_code`; one `capture_blocked` alert per breaker trip.",
+        "Nothing for the engineer: the capture waits and resumes when the breaker closes. Operator: read the evidence; if it repeats after each wait, lower the caps or turn `PROPERTY_CAPTURE` off.",
+        "automatic",
+    ),
+    _e(
+        E.CAPTURE_RATE_LIMITED,
+        "error",
+        "the capture worker (`python -m basis.capture`)",
+        "basis.capture.signals",
+        "HTTP 429 on the main document or on an imagery or data host. A 429 from the site's feedback or survey endpoints is ignored (EVAL_REPORT 98: their quota is shared by every anonymous visitor). A block signal: the breaker opens.",
+        "The capture's `study_events` row `capture.paused` (`code`, `detail.evidence` the screenshot, HTML and page record under the capture's files); the `capture_incidents` row for the code (count, first and last seen, last study, last evidence); the capture worker's log line `capture signal` with `error_code`; one `capture_blocked` alert per breaker trip.",
+        "Nothing for the engineer: the capture waits and resumes when the breaker closes. Operator: read the evidence; if it repeats after each wait, lower the caps or turn `PROPERTY_CAPTURE` off.",
+        "automatic",
+    ),
+    _e(
+        E.CAPTURE_BLANK_RENDER,
+        "error",
+        "the capture worker (`python -m basis.capture`)",
+        "basis.capture.signals",
+        "The view rendered blank or black (almost one colour) after the wait for imagery: the GPU or WebGL failed, or the imagery did not stream. Not a block signal; the capture fails and the engineer may start it again.",
+        "The capture's status `failed` with this `code`; the `capture.failed` timeline event; the `capture_incidents` row; the worker's log line with `error_code`; the evidence beside the capture's files.",
+        "Run it again; if every view is blank, check the worker's Chromium flags (`CAPTURE_CHROMIUM_ARGS`) and that WebGL is available.",
+        "after fix",
+    ),
+    _e(
+        E.CAPTURE_NO_PLACE,
+        "error",
+        "the capture worker (`python -m basis.capture`)",
+        "basis.capture.runner",
+        "The address search found no place: the page did not move to a place (no `@lat,lon` in its address) within the wait, or it moved to the no-place spot at latitude 0 near longitude 0 (open ocean), where a search that finds nothing leaves the camera.",
+        "The capture's status `failed` with this `code`; the `capture.failed` timeline event; the `capture_incidents` row; the worker's log line with `error_code`; the evidence beside the capture's files.",
+        "The engineer corrects the address or drops the pin on the house (`PUT .../property/pin` with `lat`/`lon`) and starts the capture again.",
+        "after fix",
+    ),
+    _e(
+        E.CAPTURE_TIMEOUT,
+        "error",
+        "the capture worker (`python -m basis.capture`)",
+        "basis.capture.runner",
+        "A page load or the wait for imagery took longer than its limit (`CAPTURE_PAGE_TIMEOUT_S`).",
+        "The capture's status `failed` with this `code`; the `capture.failed` timeline event; the `capture_incidents` row; the worker's log line with `error_code`; the evidence beside the capture's files.",
+        "Run it again; if it repeats, read the evidence: a slow network or a page that changed.",
+        "after fix",
+    ),
+    _e(
+        E.CAPTURE_BROWSER_CRASH,
+        "error",
+        "the capture worker (`python -m basis.capture`)",
+        "basis.capture.runner",
+        "The browser closed or crashed during the capture (a renderer crash, out of memory, a killed process).",
+        "The capture's status `failed` with this `code`; the `capture.failed` timeline event; the `capture_incidents` row; the worker's log line with `error_code`; the evidence beside the capture's files.",
+        "Run it again; if it repeats, check the worker's memory and the browser log.",
+        "after fix",
+    ),
+    _e(
+        E.CAPTURE_BREAKER_OPEN,
+        "outcome",
+        "the capture worker, or `POST .../property/captures`",
+        "basis.capture.governor",
+        "A capture was due while the breaker is open after a block signal: it waits until the "
+        "breaker's time (a durable timer in its workflow) and resumes on its own.",
+        "The capture's status `waiting` with `resume_at`; `capture.paused` on the timeline; the "
+        "`capture_incidents` row; `GET /v1/ops/health` `property_capture.breaker`.",
+        "Nothing; it resumes. The engineer sees that pictures are paused and when they resume.",
+        "automatic",
+    ),
+    _e(
+        E.CAPTURE_CAPS_SPENT,
+        "outcome",
+        "the capture worker",
+        "basis.capture.governor",
+        "The hourly or daily cap on page loads or camera moves is spent "
+        "(`CAPTURE_LOADS_PER_HOUR`, `CAPTURE_LOADS_PER_DAY`, `CAPTURE_MOVES_PER_HOUR`): the "
+        "capture waits until the oldest navigation in the window ages out.",
+        "The capture's status `waiting` with `resume_at`; `capture.paused`; the incident row; "
+        "`GET /v1/ops/health` `property_capture.used`.",
+        "Nothing; it resumes. Raise a cap only with a measurement behind it.",
+        "automatic",
+    ),
+    _e(
+        E.CAPTURE_GAVE_UP,
+        "error",
+        "the capture workflow",
+        "basis.capture.workflow",
+        "The capture waited longer than `CAPTURE_MAX_WAIT_HOURS` in all (breaker or caps) and "
+        "stopped waiting.",
+        "The capture's status `failed` with this code; `capture.failed`; the incident row.",
+        "Start the capture again once `GET /v1/ops/health` shows the breaker closed.",
+        "after fix",
+    ),
+    _e(
+        E.CAPTURE_COMPLETED,
+        "outcome",
+        "the capture worker",
+        "basis.capture.runner",
+        "Every planned view was taken and stored with its camera, date and pixel size.",
+        "The capture's status `succeeded`; `capture.completed` on the timeline; the views.",
+        "Nothing.",
+        "no",
+    ),
+    _e(
+        E.CAPTURE_OFF,
+        "refusal",
+        "`POST .../property/captures`",
+        "basis.api.routes.property",
+        "Property pictures are turned off on this deployment (`PROPERTY_CAPTURE=false`; "
+        "`GET /v1/capabilities` says `property_capture: false`).",
+        "409 `capture-off`.",
+        "An operator turns the setting on; until then the app does not offer it.",
+        "no",
+        problem="capture-off",
+    ),
+    _e(
+        E.CAPTURE_IN_PROGRESS,
+        "refusal",
+        "`POST .../property/captures`",
+        "basis.api.routes.property",
+        "A capture of this study is already queued, waiting or running (one at a time per study).",
+        "409 `capture-in-progress` naming the capture.",
+        "Wait for it; its status says when it resumes.",
+        "yes",
+        problem="capture-in-progress",
+    ),
+    _e(
+        E.CAPTURE_NO_ADDRESS,
+        "refusal",
+        "`POST .../property/captures`",
+        "basis.api.routes.property",
+        "The study has no property pin: neither an address nor a point to look at.",
+        "422 `capture-no-address`.",
+        "`PUT .../property/pin` with the address (or `lat`/`lon`), then start the capture.",
+        "after fix",
+        problem="capture-no-address",
+    ),
+    _e(
+        E.CAPTURE_PIN_PRECONDITION_FAILED,
+        "refusal",
+        "`PUT .../property/pin`",
+        "basis.api.routes.property",
+        "`If-Match` names a version of the pin that is no longer current: someone else moved or "
+        "confirmed it.",
+        "412 `precondition-failed` with the current `ETag`.",
+        "Read the pin again, reapply the change and send the new `ETag`.",
+        "yes",
+        problem="precondition-failed",
+    ),
+    _e(
+        E.CAPTURE_UNAVAILABLE,
+        "refusal",
+        "`POST .../property/captures`",
+        "basis.api.routes.property",
+        "The capture's workflow could not be started: the workflow service did not answer. The "
+        "capture row is marked failed with this code so nothing is left queued.",
+        "503 `service-unavailable` with `Retry-After`.",
+        "Retry after `Retry-After`.",
+        "yes",
+        problem="service-unavailable",
+    ),
+    _e(
+        E.CAPTURE_HISTORY_UNAVAILABLE,
+        "error",
+        "the capture worker (`python -m basis.capture`)",
+        "basis.capture.runner",
+        "The historical views could not be taken: the viewer showed no history control, or "
+        "stepping through its dates read no date. The capture still completes with today's "
+        "views; nothing else is lost.",
+        "A note on the capture (`notes`, part `history`); the `capture.part_failed` timeline "
+        "event; the `capture_incidents` row; the worker's log line with `error_code`; the "
+        "evidence beside the capture's files.",
+        "If it repeats on every capture, the viewer's history control changed: read the "
+        "evidence's page record and adjust `basis.capture.playwright_browser`.",
+        "after fix",
+    ),
+    _e(
+        E.CAPTURE_STREET_NO_COVERAGE,
+        "outcome",
+        "the capture worker (`python -m basis.capture`)",
+        "basis.capture.street",
+        "Street-level pictures were asked for (`CAPTURE_STREET_VIEW`) and the page named no "
+        "panorama near the property. The capture still completes with its other views.",
+        "A note on the capture (`notes`, part `street`); the `capture.part_failed` timeline "
+        "event; the `capture_incidents` row; the worker's log line with `error_code`; the "
+        "evidence beside the capture's files.",
+        "Nothing to fix where there is no coverage. If it happens where coverage exists, read "
+        "the evidence's failed responses: the panorama lookup answered an error "
+        "(EVAL_REPORT 99).",
+        "no",
+    ),
+    _e(
+        E.CAPTURE_STREET_REFUSED,
+        "error",
+        "the capture worker (`python -m basis.capture`)",
+        "basis.capture.street",
+        "The street-level panorama was refused or rendered black: its imagery tiles answered "
+        "HTTP 401/403 or its lookup a server error (5xx), or the frame was black (EVAL_REPORT "
+        "99: every headless attempt; 99.1: a headed browser renders it, so street level needs "
+        "CAPTURE_HEADLESS=false). Not a block signal, no retry; the capture still "
+        "completes with its other views.",
+        "A note on the capture (`notes`, part `street`); the `capture.part_failed` timeline "
+        "event; the `capture_incidents` row; the worker's log line with `error_code`; the "
+        "evidence beside the capture's files.",
+        "Leave `CAPTURE_STREET_VIEW` off until a headless approach is shown to render "
+        "(EVAL_REPORT 99).",
+        "no",
+    ),
+    _e(
+        E.CAPTURE_DATE_UNREAD,
+        "outcome",
+        "the capture worker (`python -m basis.capture`)",
+        "basis.capture.imagery_date",
+        "A view's imagery date could not be read from the viewer's status bar (no text "
+        "reader installed, the reader failed, or no date in what it read). The view is "
+        "stored with `imagery_date` null and the reason in `imagery_date_note`; a measurement "
+        "on it is then undated.",
+        "`imagery_date_note` on the view; the `capture_incidents` row (one per capture); the "
+        "worker's log line with `error_code`.",
+        "Install tesseract on the capture worker or set `CAPTURE_TESSERACT`; if it is "
+        "installed, read the stored status strip (`<label>.status.png`) beside the view.",
+        "after fix",
+    ),
+    _e(
+        E.GEO_OFF,
+        "refusal",
+        "`POST .../property/public`",
+        "basis.api.routes.property_public",
+        "Public geographic sources are turned off on this deployment (`PUBLIC_GEO=false`, the default).",
+        "409 `geo-off`.",
+        "An operator turns `PUBLIC_GEO` on and runs the geo worker.",
+        "after fix",
+        problem="geo-off",
+    ),
+    _e(
+        E.GEO_NO_POINT,
+        "refusal",
+        "`POST .../property/public`",
+        "basis.api.routes.property_public",
+        "The study's pin has no point yet (no pin, or an address the capture has not placed): the public sources are looked up by point.",
+        "422 `geo-no-point`.",
+        "Drop the pin on the house (`PUT .../property/pin` with `lat`/`lon`) or let the capture place it, then ask again.",
+        "after fix",
+        problem="geo-no-point",
+    ),
+    _e(
+        E.GEO_IN_PROGRESS,
+        "refusal",
+        "`POST .../property/public`",
+        "basis.api.routes.property_public",
+        "A gather of the public sources for this study is already queued or running (one at a time per study).",
+        "409 `geo-in-progress`.",
+        "Wait for it; poll `GET .../property/public`.",
+        "yes",
+        problem="geo-in-progress",
+    ),
+    _e(
+        E.GEO_UNAVAILABLE,
+        "refusal",
+        "`POST .../property/public`, `POST .../property/captures`",
+        "basis.api.routes.property_public",
+        "The gather's workflow could not be started: the workflow service did not answer. The gather row is marked failed with this code so nothing is left queued.",
+        "503 `service-unavailable` with `Retry-After` (from `POST .../property/public`); a log line only when the capture route started it.",
+        "Retry after `Retry-After`.",
+        "yes",
+        problem="service-unavailable",
+    ),
+    _e(
+        E.GEO_SOURCE_HTTP,
+        "error",
+        "the geo worker (`python -m basis.geo`)",
+        "basis.geo.http",
+        "A public source answered an HTTP error (after the retries for 429 and 5xx) or the connection failed.",
+        "The source's outcome in the gather's `sources` with this `code`; a `geo.source_failed` timeline event; the `geo_incidents` row for the code and the source; the worker's log line with `error_code`.",
+        "Nothing for the engineer: the other sources go on. Operators read the incident; a source failing for days is marked unavailable in `basis/geo/sources.json`.",
+        "automatic",
+    ),
+    _e(
+        E.GEO_SOURCE_TIMEOUT,
+        "error",
+        "the geo worker (`python -m basis.geo`)",
+        "basis.geo.http",
+        "A public source did not answer within `GEO_REQUEST_TIMEOUT_S`, after the retries.",
+        "The source's outcome in the gather's `sources` with this `code`; a `geo.source_failed` timeline event; the `geo_incidents` row for the code and the source; the worker's log line with `error_code`.",
+        "As for `BASIS-GEO-005`.",
+        "automatic",
+    ),
+    _e(
+        E.GEO_SOURCE_BAD_RESPONSE,
+        "error",
+        "the geo worker (`python -m basis.geo`)",
+        "basis.geo.imagery, basis.geo.parcels",
+        "A public source answered 200 with something unusable: an error document instead of an image, an image that does not decode, JSON that is not a feature collection.",
+        "The source's outcome in the gather's `sources` with this `code`; a `geo.source_failed` timeline event; the `geo_incidents` row for the code and the source; the worker's log line with `error_code`.",
+        "As for `BASIS-GEO-005`.",
+        "automatic",
+    ),
+    _e(
+        E.GEO_NO_IMAGERY,
+        "outcome",
+        "the geo worker (`python -m basis.geo`)",
+        "basis.geo.gather",
+        "No registry source with imagery covers the point, or every one that should answered a blank image there.",
+        "The gather's `sources`; no current public view; the gather still succeeds with what it found.",
+        "Nothing: the property pictures (if on) or an uploaded site plan are the fallback.",
+        "no",
+    ),
+    _e(
+        E.GEO_NO_PARCEL,
+        "outcome",
+        "the geo worker (`python -m basis.geo`)",
+        "basis.geo.parcels",
+        "The state's parcel layer returned no parcel under the point, or the registry has no open parcel layer for the state.",
+        "The gather's `sources`; `parcels` empty; the site check says `no_parcel`.",
+        "Check the pin is on the lot; otherwise nothing.",
+        "no",
+    ),
+    _e(
+        E.GEO_NO_LIDAR,
+        "outcome",
+        "the geo worker (`python -m basis.geo`)",
+        "basis.geo.lidar",
+        "No federal 3DEP point cloud project covers the point.",
+        "The gather's `sources`; `lidar` null.",
+        "Nothing.",
+        "no",
+    ),
+    _e(
+        E.GEO_LIDAR_UNREADABLE,
+        "error",
+        "the geo worker (`python -m basis.geo`)",
+        "basis.geo.lidar",
+        "A lidar point tile or the project's metadata could not be read (not LAZ, a schema without classification, a truncated download).",
+        "The source's outcome in the gather's `sources` with this `code`; a `geo.source_failed` timeline event; the `geo_incidents` row for the code and the source; the worker's log line with `error_code`.",
+        "As for `BASIS-GEO-005`.",
+        "automatic",
+    ),
+    _e(
+        E.GEO_SITE_AREA_MISMATCH,
+        "flag",
+        "`GET .../property/public`",
+        "basis.geo.site_check",
+        "The parcel's area under the pin and the appraisal's site area (`site.area_sqft`) differ by more than `GEO_SITE_TOLERANCE_PCT` (and no set of the owner's adjacent parcels matches).",
+        "`site_check.status` `disagree`, `flag` true, this `code`; a `geo.site_area_checked` timeline event when the gather ran.",
+        "The engineer checks the appraisal's site area and the lot: a lot of several parcels, a wrong pin, or a misread area.",
+        "no",
+        signal="geo:SITE_AREA_MISMATCH",
+    ),
+    _e(
+        E.GEO_SITE_AREA_ADJACENT,
+        "flag",
+        "`GET .../property/public`",
+        "basis.geo.site_check",
+        "The parcel under the pin alone does not match the appraisal's site area, but it and the owner's adjacent parcels together do (within `GEO_SITE_TOLERANCE_PCT`).",
+        "`site_check.status` `adjacent_match`, `flag` false, this `code`, the parcels that sum to it.",
+        "The engineer confirms the site is the listed parcels.",
+        "no",
+        signal="geo:SITE_AREA_ADJACENT",
+    ),
+    _e(
+        E.GEO_COMPLETED,
+        "outcome",
+        "the geo worker (`python -m basis.geo`)",
+        "basis.geo.gather",
+        "The gather ran every source the registry has for the point; each source's outcome is in `sources`.",
+        "The gather's status `succeeded`; `geo.completed` on the timeline.",
+        "Nothing.",
+        "no",
+    ),
+    _e(
+        E.GEO_GATHER_FAILED,
+        "error",
+        "the geo worker (`python -m basis.geo`)",
+        "basis.geo.workflow",
+        "The gather step itself failed after its retries (a timeout, a dead worker, an error it did not classify).",
+        "The gather's status `failed` with this `code`; `geo.failed` on the timeline; the `geo_incidents` row.",
+        "Ask again (`POST .../property/public`).",
+        "yes",
+    ),
+    _e(
+        E.GEO_NO_BUILDING,
+        "outcome",
+        "the geo worker (`python -m basis.geo`)",
+        "basis.geo.lidar",
+        "The lidar covers the point but has no building-classified points (class 6) near the pin, so no heights or footprint are read; the project and its density are still reported.",
+        "`lidar.building` null with this `code`.",
+        "Nothing; the project may not classify buildings.",
+        "no",
+    ),
+    _e(
+        E.GEO_LIDAR_FOOTPRINT_UNCERTAIN,
+        "outcome",
+        "the geo worker (`python -m basis.geo`)",
+        "basis.geo.lidar",
+        "The building under the pin comes within 1 m of the edge of the area read, so its footprint may be cut there or be a block of attached roofs running to it, and its heights may be a neighbour's (EVAL_REPORT 101.5). Cautious: a building that just fits is flagged too; attached roofs merged well inside the area are not.",
+        "`lidar.building.reaches_box_edge` true with this `code`.",
+        "Measure the building another way (the sketch or a traced outline); do not take this footprint as the building's.",
         "no",
     ),
 )

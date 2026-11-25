@@ -216,6 +216,10 @@ data and is deselected in CI; `regression` guards a fixed bug and is never delet
 stated reason. The suites in `tests/` and what each covers are tabulated in `README.md`
 "Testing". CI's `backend-test` job runs the whole suite with `--timeout=600` per test and a
 45-minute job limit; the suite takes about 26 minutes there, so do not add tests that sleep.
+A lifecycle test is rerun once, and only, when it failed with Temporal's deadlock timer
+(`TMPRL1101`): the SDK's 2 s are wall-clock time, and a CPU-starved CI runner trips them with no
+code at fault (`tests/lifecycle/deadlock_rerun.py`, `pytest-rerunfailures`). No other failure is
+rerun; a test that is flaky for any other reason is fixed, not retried.
 
 Habits that keep the suite trustworthy: assert on the thing itself, not on a log line;
 order-free assertions where the database may pick the winner; one real Postgres for anything

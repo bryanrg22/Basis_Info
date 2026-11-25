@@ -6,7 +6,9 @@ classification, date placed in service, basis, recovery period, convention, meth
 what the report proves (the line, its class, its authority, the statutory bonus default
 with its source). The description is cut to 45 characters without quotes or commas, the
 limit of Fixed Assets CS's import. Every row's basis is the line's allocated cost, so the
-rows sum to the depreciable basis to the cent (:func:`rows` checks it). Vendor layouts are
+rows sum to the depreciable basis to the cent (:func:`rows` checks it); a renovation's rows
+(EVAL_REPORT 102) follow, with the renovation's own dates and bonus default, and sum to its
+capitalized amount. Vendor layouts are
 column mappings over these rows (:mod:`basis.report.vendors`, STUDY_REPORT_SPEC 11.5.1).
 
 Both files are byte-identical for the same report: the CSV has fixed columns and order, the
@@ -25,8 +27,8 @@ from decimal import Decimal
 from typing import Final
 
 from basis.errors.codes import E
-from basis.report.model import ReportError, StudyReport
-from basis.report.tax import terms
+from basis.report.model import ItemLine, ReportError, StudyReport
+from basis.report.tax import BonusDefault, ClassTerms, terms
 
 DESCRIPTION_LIMIT: Final = 45
 COLUMNS: Final = (
@@ -69,38 +71,48 @@ def _date(value: date | None) -> str:
     return value.isoformat() if value else ""
 
 
+def _row(
+    item: ItemLine,
+    t: ClassTerms,
+    acquired: date | None,
+    placed: date | None,
+    bonus: BonusDefault | None,
+) -> Row:
+    return Row(
+        values=(
+            str(item.line),
+            description(item.description),
+            description(item.location),
+            t.irc_section,
+            item.asset_class or "",
+            f"{t.gds_life.normalize():f}",
+            t.method,
+            t.convention,
+            f"{t.gds_life.normalize():f}",
+            f"{t.ads_life.normalize():f}",
+            "Y" if t.real_property else "N",
+            _date(acquired),
+            _date(placed),
+            f"{item.allocated:.2f}",
+            "Y" if t.bonus_eligible else "N",
+            "" if bonus is None or bonus.rate is None else f"{bonus.rate:.2f}",
+            "" if bonus is None else f"{bonus.source} ({bonus.reason}; preparer elects)",
+            item.authority,
+        ),
+        basis=item.allocated,
+    )
+
+
 def rows(report: StudyReport) -> tuple[Row, ...]:
-    """The schedule rows, one per report line, checked to sum to the depreciable basis."""
+    """The schedule rows, one per report line, checked to sum to the depreciable basis: the
+    acquisition's lines, then each renovation's (EVAL_REPORT 102) with its own dates and
+    bonus default, each schedule checked to sum to its own basis."""
     by_bucket = {s.terms.bucket: s for s in report.schedule}
     out: list[Row] = []
     for item in report.items:
-        t = terms(item.bucket)
         line = by_bucket[item.bucket]
-        bonus = line.bonus
         out.append(
-            Row(
-                values=(
-                    str(item.line),
-                    description(item.description),
-                    description(item.location),
-                    t.irc_section,
-                    item.asset_class or "",
-                    f"{t.gds_life.normalize():f}",
-                    t.method,
-                    t.convention,
-                    f"{t.gds_life.normalize():f}",
-                    f"{t.ads_life.normalize():f}",
-                    "Y" if t.real_property else "N",
-                    _date(line.acquired),
-                    _date(line.placed_in_service),
-                    f"{item.allocated:.2f}",
-                    "Y" if t.bonus_eligible else "N",
-                    "" if bonus is None or bonus.rate is None else f"{bonus.rate:.2f}",
-                    "" if bonus is None else f"{bonus.source} ({bonus.reason}; preparer elects)",
-                    item.authority,
-                ),
-                basis=item.allocated,
-            )
+            _row(item, terms(item.bucket), line.acquired, line.placed_in_service, line.bonus)
         )
     total = sum((r.basis for r in out), Decimal(0))
     if total != report.depreciable_basis:
@@ -108,6 +120,32 @@ def rows(report: StudyReport) -> tuple[Row, ...]:
             E.REPORT_TOTALS_DO_NOT_TIE,
             f"the schedule rows sum to {total}, the depreciable basis is "
             f"{report.depreciable_basis}",
+        )
+    for renovation in report.renovations:
+        mine = [
+            _row(
+                item,
+                item.terms,
+                renovation.acquired,
+                renovation.placed_in_service,
+                renovation.bonus if item.terms.bonus_eligible else None,
+            )
+            for item in renovation.items
+        ]
+        subtotal = sum((r.basis for r in mine), Decimal(0))
+        if subtotal != renovation.capitalized:
+            raise ReportError(
+                E.REPORT_TOTALS_DO_NOT_TIE,
+                f"renovation {renovation.key}: its schedule rows sum to {subtotal}, its "
+                f"capitalized amount is {renovation.capitalized}",
+            )
+        out.extend(mine)
+    grand = sum((r.basis for r in out), Decimal(0))
+    if grand != report.depreciable_basis + report.renovations_basis:
+        raise ReportError(
+            E.REPORT_TOTALS_DO_NOT_TIE,
+            f"the schedule rows sum to {grand}, the acquisition and the renovations to "
+            f"{report.depreciable_basis + report.renovations_basis}",
         )
     return tuple(out)
 

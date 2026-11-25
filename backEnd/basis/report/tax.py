@@ -130,6 +130,31 @@ TERMS: Final[dict[Bucket, ClassTerms]] = {
     ),
 }
 
+# Qualified improvement property (IRC 168(e)(6), 168(e)(3)(E)(vii)): 15-year straight line for
+# GDS and 20 years for ADS when placed in service after 2017 (ATG p.87 and pp.156-157, Rev.
+# 2-2025: "The recovery period for QIP placed in service after December 31, 2017, was reduced
+# from 39 years to 15 years for GDS"). Only a renovation schedule's rows can be QIP: the
+# improvement must be placed in service after the building was first placed in service and be
+# "made by the taxpayer" (ATG p.87); :mod:`basis.evidence.renovations` decides which rows.
+QIP_TERMS: Final = ClassTerms(
+    Bucket.Y15,
+    "Qualified improvement property",
+    "1250",
+    Decimal(15),
+    Decimal(20),
+    "SL",
+    "HY",
+    None,
+    False,
+    True,
+    MID_QUARTER_NOTE,
+)
+QIP_AUTHORITY: Final = (
+    "IRC 168(e)(6) and 168(e)(3)(E)(vii); ATG pp.87, 156-157: an improvement to an interior "
+    "portion of nonresidential real property placed in service after the building, not an "
+    "enlargement, elevator or escalator, or internal structural framework"
+)
+
 # 168(k)(6) phase-down for property acquired before 2025-01-20 (P.L. 115-97), by the
 # calendar year it is placed in service.
 PHASE_DOWN: Final[dict[int, Decimal]] = {
@@ -193,6 +218,28 @@ def bonus_default(acquired: date | None, placed_in_service: date) -> BonusDefaul
     )
 
 
+NOTICE_2026_11: Final = (
+    "Notice 2026-11 section 3.03 (the acquisition date under Reg. 1.168(k)-2(b)(5): the written "
+    "binding contract, else when physical work of a significant nature begins)"
+)
+
+
+def project_bonus_default(
+    contract_date: date | None, work_start: date, placed_in_service: date
+) -> BonusDefault:
+    """The statutory default bonus rate of a renovation project: :func:`bonus_default` with the
+    project's own acquisition date (its binding contract's date, else the start of physical
+    work: self-constructed property), never the building's. The source names the notice."""
+    acquired = contract_date or work_start
+    found = bonus_default(acquired, placed_in_service)
+    which = "the contract date" if contract_date is not None else "the work-start date"
+    return BonusDefault(
+        found.rate,
+        f"{found.reason} (the project's {which}, {acquired.isoformat()})",
+        f"{found.source}; {NOTICE_2026_11}",
+    )
+
+
 def terms(bucket: Bucket | str) -> ClassTerms:
     """The class terms of an asset bucket (:class:`~basis.db.enums.Bucket` or its value)."""
     return TERMS[Bucket(bucket)]
@@ -232,12 +279,16 @@ __all__ = [
     "MID_QUARTER_SHARE",
     "PHASE_DOWN",
     "PUB_946",
+    "NOTICE_2026_11",
     "PUB_946_ADS",
+    "QIP_AUTHORITY",
+    "QIP_TERMS",
     "TCJA_ACQUIRED_AFTER",
     "TERMS",
     "BonusDefault",
     "ClassTerms",
     "bonus_default",
     "mid_quarter_note",
+    "project_bonus_default",
     "terms",
 ]

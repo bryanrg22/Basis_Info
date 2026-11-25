@@ -1,0 +1,463 @@
+{
+ "schema": "measure_truth/v1",
+ "id": "il0491",
+ "name": "Miller House",
+ "loc_url": "https://www.loc.gov/pictures/item/il0491/",
+ "survey_number": "HABS IL-1123-B",
+ "drawing_date": "1985",
+ "address": "511 South Eighth Street, Springfield, Sangamon County, IL",
+ "location": {
+  "lat": 39.796779,
+  "lon": -89.6454396,
+  "how": "centre of the building's outline clicked by hand on the public ortho il-2025-blk3-west (2025, 0.152 m/px), pixel (372, 704)"
+ },
+ "standing": {
+  "status": "unchanged",
+  "source": "public ortho il-2025-blk3-west",
+  "year": 2025,
+  "note": "West side of Eighth Street south of Jackson Street (the Lincoln Home site plan, HABS il0382, puts Miller there between Sprigg and Dubois). Identified by its roof: the low hip with a flat deck (the drawing's 'roof top') reads 101 x 71 px (15.4 x 10.8 m) against the drawn main block of 46 ft 5 in x 32 ft 4 in plus a 2.1 ft overhang each side (15.4 x 11.1 m), with the lower rear wing to the west. No addition seen. NPS-owned (Lincoln Home NHS)."
+ },
+ "passes": {
+  "a": "pass A: an independent reader of the 400 dpi sheets (2026-11-25), chain and heights read from crops",
+  "b": "pass B: a second independent reader of the same sheets (2026-11-25), not shown pass A",
+  "disagreements": [
+   {
+    "what": "north-south depth",
+    "pass_a": "46'-8\" (left string, overall 54'-6\"), chain open 0.25 ft",
+    "pass_b": "30'-1\" + 16'-4\" = 46'-5\" (right string, overall 54'-3\"), chain closes",
+    "resolved": "B: the right string closes the chain, the second-floor plan prints 54'-3\" on both sides, and the left string's end tick does not meet a wall face; the left string is recorded as a drafting difference (footprint 1,611.6 against 1,608.4 SF, 0.2 %)"
+   },
+   {
+    "what": "overhang",
+    "pass_a": "2.1 ft scaled",
+    "pass_b": "2.1 ft scaled",
+    "resolved": "2.1 ft"
+   }
+  ]
+ },
+ "sheets": {
+  "1": "Title, history, site plan (1/8\" = 1'-0\"), cellar plan",
+  "2": "First and second floor plans, 1/4\" = 1'-0\" (drawn 1985)",
+  "3": "East and north elevations with level marks (ground 0'-0\"), bracket detail",
+  "4": "West and south elevations with level marks (west on the basement-floor datum, south on ground 0'-0\")"
+ },
+ "stories": 2,
+ "roof_shape": "hip",
+ "plan": {
+  "sheet": "2",
+  "scale": "1/4\" = 1'-0\"",
+  "chain": [
+   {
+    "dir": "E",
+    "length": {
+     "ft": 12.833333,
+     "text": "12'-10\"",
+     "how": "printed",
+     "sheet": "2",
+     "note": "top string, second row; first row 8'-11\" + 2'-7\" + 1'-4\" = 12'-10\""
+    },
+    "label": "sheet-top (actual west, rear) wall of the main block, left of the rear wing"
+   },
+   {
+    "dir": "N",
+    "length": {
+     "ft": 7.833333,
+     "text": "7'-10\"",
+     "how": "printed",
+     "sheet": "2",
+     "note": "left and right strings, second row (left: 10\" + 1'-8\" + 5'-4\"; right: 8\" + 5'-10\" + 1'-4\")"
+    },
+    "label": "left side of the rear wing"
+   },
+   {
+    "dir": "E",
+    "length": {
+     "ft": 17.25,
+     "text": "17'-3\"",
+     "how": "printed",
+     "sheet": "2",
+     "note": "top string, second row; first row 2'-8\" + 1'-7\" + 8'-7\" + 1'-7\" + 2'-10\" = 17'-3\""
+    },
+    "label": "rear wall of the rear wing (stair and 7'-4\" x 13'-4\" room)"
+   },
+   {
+    "dir": "S",
+    "length": {
+     "ft": 7.833333,
+     "text": "7'-10\"",
+     "how": "printed",
+     "sheet": "2",
+     "note": "right string, second row"
+    },
+    "label": "right side of the rear wing"
+   },
+   {
+    "dir": "E",
+    "length": {
+     "ft": 1.333333,
+     "text": "1'-4\"",
+     "how": "printed",
+     "sheet": "2",
+     "note": "top string, second and first rows"
+    },
+    "label": "rear wall of the main block, right of the wing"
+   },
+   {
+    "dir": "S",
+    "length": {
+     "ft": 30.083333,
+     "text": "30'-1\"",
+     "how": "printed",
+     "sheet": "2",
+     "note": "right string, second row = 3'-4\" + 2'-8\" + 3'-0\" + 2'-8\" + 6'-3\" + 2'-8\" + 3'-7\" + 2'-8\" + 3'-3\""
+    },
+    "label": "sheet-right (actual north) wall, rear part"
+   },
+   {
+    "dir": "E",
+    "length": {
+     "ft": 0.916667,
+     "text": "11\"",
+     "how": "derived",
+     "note": "bottom string 32'-4\" less top string 31'-5\" (the left wall is straight); scaled: the upper right face at about 6425-6434 px, the lower at about 6510-6530 px (0.9-1.0 ft)",
+     "sheet": "2"
+    },
+    "label": "step out of the sheet-right wall"
+   },
+   {
+    "dir": "S",
+    "length": {
+     "ft": 16.333333,
+     "text": "16'-4\"",
+     "how": "printed",
+     "sheet": "2",
+     "note": "right string, second row = 1'-8\" + 2'-10\" + 7'-4\" + 2'-10\" + 1'-8\""
+    },
+    "label": "sheet-right wall, front part (the 9'-10\" x 14'-4\" room)"
+   },
+   {
+    "dir": "W",
+    "length": {
+     "ft": 32.333333,
+     "text": "32'-4\"",
+     "how": "printed",
+     "sheet": "2",
+     "note": "bottom string overall = 3'-1\" + 2'-10\" + 2'-0\" + 2'-10\" + 6'-9\" + 2'-10\" + 4'-7\" + 2'-10\" + 4'-7\""
+    },
+    "label": "sheet-bottom (actual east, front, Eighth Street) wall"
+   },
+   {
+    "dir": "N",
+    "length": {
+     "ft": 46.416667,
+     "text": "46'-5\"",
+     "how": "derived",
+     "note": "the right string's 30'-1\" + 16'-4\"; the left string prints 46'-8\" for this wall (segments 3'-9\" + 2'-8\" + 5'-9\" + 1'-10\" + 3'-7\" + 2'-7\" + 4'-4\" + 2'-7\" + 3'-11\" + 1'-8\" + 14'-0\" agree with it), see flags",
+     "sheet": "2"
+    },
+    "label": "sheet-left (actual south) wall"
+   }
+  ],
+  "overall": {
+   "ew": {
+    "ft": 32.333333,
+    "text": "32'-4\"",
+    "how": "printed",
+    "sheet": "2",
+    "note": "bottom string overall"
+   },
+   "ns": {
+    "ft": 54.25,
+    "text": "54'-3\"",
+    "how": "printed",
+    "sheet": "2",
+    "note": "right string overall = 7'-10\" + 30'-1\" + 16'-4\"; the left string's overall prints 54'-6\""
+   }
+  },
+  "excluded": [
+   "front porch (sheet bottom, actual east): open platform, TOP OF PORCH 2'-7\" above ground; about 10.0 ft x 5.8 ft scaled, with steps beyond",
+   "rear steps and the small enclosure (cistern or coal box) against the main block's rear wall left of the wing"
+  ],
+  "north": "right (arrow on sheet 2 points to the sheet's right)",
+  "note": "Outside face of the walls as the dimension strings take it. Start at the main block's sheet top-left corner (rear, south), walk clockwise. Two-story frame house, main block 32'-4\" across the front with an 11\" step in the north wall, and a two-story rear wing (stair, kitchen) 17'-3\" x 7'-10\". The strings disagree by 3\" on the main block's depth (left 46'-8\", right 30'-1\" + 16'-4\" = 46'-5\"); the right side is used, matching the second floor (left 46'-7\", right 46'-6\") and both of its overalls (54'-3\"); see flags."
+ },
+ "floors": [
+  {
+   "level": "first",
+   "finished": true,
+   "same_as_ground": true
+  },
+  {
+   "level": "second",
+   "finished": true,
+   "chain": [
+    {
+     "dir": "E",
+     "length": {
+      "ft": 12.75,
+      "text": "12'-9\"",
+      "how": "printed",
+      "sheet": "2",
+      "note": "second floor top string, second row; first row 8'-11\" + 2'-10\" + 1'-0\""
+     },
+     "label": "rear wall of the main block, left of the wing"
+    },
+    {
+     "dir": "N",
+     "length": {
+      "ft": 7.75,
+      "text": "7'-9\"",
+      "how": "printed",
+      "sheet": "2",
+      "note": "second floor right string (the left string prints 7'-8\")"
+     },
+     "label": "left side of the rear wing"
+    },
+    {
+     "dir": "E",
+     "length": {
+      "ft": 17.25,
+      "text": "17'-3\"",
+      "how": "printed",
+      "sheet": "2",
+      "note": "second floor top string, second row; first row 2'-8\" + 1'-8\" + 8'-7\" + 1'-8\" + 2'-8\""
+     },
+     "label": "rear wall of the wing"
+    },
+    {
+     "dir": "S",
+     "length": {
+      "ft": 7.75,
+      "text": "7'-9\"",
+      "how": "printed",
+      "sheet": "2",
+      "note": "second floor right string"
+     },
+     "label": "right side of the wing"
+    },
+    {
+     "dir": "E",
+     "length": {
+      "ft": 1.25,
+      "text": "1'-3\"",
+      "how": "printed",
+      "sheet": "2",
+      "note": "second floor top string"
+     },
+     "label": "rear wall of the main block, right of the wing"
+    },
+    {
+     "dir": "S",
+     "length": {
+      "ft": 30.083333,
+      "text": "30'-1\"",
+      "how": "printed",
+      "sheet": "2",
+      "note": "second floor right string = 3'-3\" + 2'-10\" + 2'-10\" + 2'-10\" + 5'-11\" + 2'-10\" + 3'-7\" + 2'-10\" + 3'-2\""
+     },
+     "label": "sheet-right wall, rear part"
+    },
+    {
+     "dir": "E",
+     "length": {
+      "ft": 1.083333,
+      "text": "1'-1\"",
+      "how": "derived",
+      "note": "second floor bottom 32'-4\" less top 31'-3\"",
+      "sheet": "2"
+     },
+     "label": "step out of the sheet-right wall"
+    },
+    {
+     "dir": "S",
+     "length": {
+      "ft": 16.416667,
+      "text": "16'-5\"",
+      "how": "printed",
+      "sheet": "2",
+      "note": "second floor right string = 2'-0\" + 2'-10\" + 6'-10\" + 2'-10\" + 1'-11\""
+     },
+     "label": "sheet-right wall, front part"
+    },
+    {
+     "dir": "W",
+     "length": {
+      "ft": 32.333333,
+      "text": "32'-4\"",
+      "how": "printed",
+      "sheet": "2",
+      "note": "second floor bottom string = 2'-1\" + 2'-10\" + 4'-1\" + 2'-10\" + 5'-8\" + 2'-10\" + 4'-7\" + 2'-10\" + 4'-7\""
+     },
+     "label": "front wall"
+    },
+    {
+     "dir": "N",
+     "length": {
+      "ft": 46.5,
+      "text": "46'-6\"",
+      "how": "derived",
+      "note": "the right string's 30'-1\" + 16'-5\"; the left string prints 46'-7\" (segments 3'-6\" + 2'-10\" + 5'-11\" + 2'-1\" + 2'-11\" + 2'-10\" + 4'-3\" + 2'-10\" + 4'-3\" + 2'-10\" + 12'-4\")",
+      "sheet": "2"
+     },
+     "label": "sheet-left wall"
+    }
+   ],
+   "sheet": "2",
+   "note": "Same footprint as the first floor within an inch or two: top 31'-3\" (first 31'-5\"), wing 7'-9\" deep (first 7'-10\"), right 30'-1\" + 16'-5\" (first 30'-1\" + 16'-4\"); both overalls 54'-3\". The wing holds a 7'-4\" x 16'-4\" room and the stair."
+  }
+ ],
+ "heights": {
+  "eave": {
+   "above_grade_ft": 22.75,
+   "how": "printed",
+   "text": "22'-9\"",
+   "datum_text": "0'-0\"",
+   "sheet": "3",
+   "elevation": "east elevation (front)",
+   "note": "TOP OF GUTTER 22'-9\" over GROUND 0'-0\"; the same on the south elevation (sheet 4)"
+  },
+  "ridge": {
+   "above_grade_ft": 27.583333,
+   "how": "printed",
+   "text": "27'-7\"",
+   "datum_text": "0'-0\"",
+   "sheet": "3",
+   "elevation": "east elevation (front)",
+   "note": "ROOF TOP 27'-7\" over GROUND 0'-0\": the top of the low hip roof (it ends in a short flat deck, not a sharp ridge); the west elevation prints ROOF 32'-7\" on the basement-floor datum"
+  },
+  "readings": [
+   {
+    "what": "roof top",
+    "text": "27'-7\"",
+    "sheet": "3",
+    "elevation": "east elevation",
+    "datum_text": "0'-0\" ground"
+   },
+   {
+    "what": "top of gutter",
+    "text": "22'-9\"",
+    "sheet": "3",
+    "elevation": "east elevation",
+    "datum_text": "0'-0\" ground"
+   },
+   {
+    "what": "top of porch",
+    "text": "2'-7\"",
+    "sheet": "3",
+    "elevation": "east elevation",
+    "datum_text": "0'-0\" ground"
+   },
+   {
+    "what": "ground",
+    "text": "0'-0\"",
+    "sheet": "3",
+    "elevation": "east elevation"
+   },
+   {
+    "what": "roof",
+    "text": "32'-7\"",
+    "sheet": "4",
+    "elevation": "west elevation",
+    "datum_text": "0'-0\" basement floor",
+    "note": "on the basement-floor datum; ground is not printed there"
+   },
+   {
+    "what": "second floor ceiling",
+    "text": "25'-0\"",
+    "sheet": "4",
+    "elevation": "west elevation",
+    "datum_text": "0'-0\" basement floor"
+   },
+   {
+    "what": "first floor ceiling",
+    "text": "16'-0\"",
+    "sheet": "4",
+    "elevation": "west elevation",
+    "datum_text": "0'-0\" basement floor"
+   },
+   {
+    "what": "basement ceiling",
+    "text": "7'-2\"",
+    "sheet": "4",
+    "elevation": "west elevation",
+    "datum_text": "0'-0\" basement floor"
+   },
+   {
+    "what": "basement floor",
+    "text": "0'-0\"",
+    "sheet": "4",
+    "elevation": "west elevation"
+   },
+   {
+    "what": "roof",
+    "text": "27'-7\"",
+    "sheet": "4",
+    "elevation": "south elevation",
+    "datum_text": "0'-0\" ground"
+   },
+   {
+    "what": "top of gutter",
+    "text": "22'-9\"",
+    "sheet": "4",
+    "elevation": "south elevation",
+    "datum_text": "0'-0\" ground"
+   },
+   {
+    "what": "top of porch",
+    "text": "2'-7\"",
+    "sheet": "4",
+    "elevation": "south elevation",
+    "datum_text": "0'-0\" ground"
+   },
+   {
+    "what": "ground",
+    "text": "0'-0\"",
+    "sheet": "4",
+    "elevation": "south elevation"
+   }
+  ]
+ },
+ "roof": {
+  "overhang": {
+   "ft": 2.1,
+   "how": "scaled",
+   "scale": "1/4\" = 1'-0\"",
+   "note": "east elevation sheet 3 at 1/4\" (100 px/ft): wall corners at 2994 and 6236 px (the printed 32'-4\" between them spans 3242 px), the gutter's outer edge at 2778 and 6443 px: 2.16 and 2.07 ft; north elevation's left end 2.15 ft (2986 to 2772 px). To the outer edge of the gutter and cornice",
+   "sheet": "3"
+  },
+  "eaves": "all",
+  "note": "Low hip roof over the main block with a short flat deck (roof top 27'-7\"), bracketed cornice and built-in gutter at 22'-9\"; the two-story rear wing has its own lower roof.",
+  "derive": true,
+  "derive_note": "one low hip over the main block (a short flat deck at the top, so the slope from the gutter to the roof top is slightly under the true pitch); the lower rear-wing hip is folded in with the same overhang"
+ },
+ "porches": [
+  {
+   "name": "front porch (east)",
+   "a": {
+    "ft": 10.05,
+    "how": "scaled",
+    "scale": "1/4\" = 1'-0\"",
+    "note": "platform 3462 to 4467 px along the front wall on sheet 2",
+    "sheet": "2"
+   },
+   "b": {
+    "ft": 5.84,
+    "how": "scaled",
+    "scale": "1/4\" = 1'-0\"",
+    "note": "front wall 7050 px to the platform edge 7634 px on sheet 2 (steps beyond, to 7940 px)",
+    "sheet": "2"
+   }
+  }
+ ],
+ "flags": [
+  {
+   "code": "note",
+   "note": "First floor (sheet 2) left string prints 46'-8\" for the main block's depth (overall 54'-6\"), the right string 30'-1\" + 16'-4\" = 46'-5\" (overall 54'-3\"). Measured between the strings' own end ticks the left is 54.34 ft and the right 54.08 ft, so the drawing itself differs; the left string's bottom tick (7043 px) does not line up with the front wall's drawn faces (about 7015-7020 and 7053-7068 px), the right string's (7020 px) does. The right side is used (the second floor gives 54'-3\" on both sides). With the left value the outline would be 0.25 ft deeper on one side and would not close."
+  },
+  {
+   "code": "note",
+   "note": "The front wall is drawn with an inner line at about 7015 px and an outer line at about 7053-7068 px; the side strings end near the inner one. Not resolved; the printed strings are used."
+  }
+ ],
+ "note": "Pass B. Scale 1/4\" = 1'-0\" for plans and elevations (100 sheet px per foot). Kept from pass B, with the resolutions in passes.disagreements."
+}

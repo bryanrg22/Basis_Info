@@ -1,0 +1,587 @@
+{
+ "schema": "measure_truth/v1",
+ "id": "mo1224",
+ "name": "Noland-Haukenberry House",
+ "loc_url": "https://www.loc.gov/pictures/item/mo1224/",
+ "survey_number": "HABS MO-1911",
+ "drawing_date": "1992",
+ "address": "216 North Delaware Street, Independence, Jackson County, MO",
+ "location": {
+  "lat": 39.0936208,
+  "lon": -94.4240261,
+  "how": "centre of the building's outline clicked by hand on the public ortho mo-2008 (2008, 0.152 m/px), pixel (620, 512); 1.6 m from the Google search's pin for the address"
+ },
+ "standing": {
+  "status": "unchanged",
+  "source": "public orthos mo-2008 to mo-2023-2024",
+  "year": 2024,
+  "note": "The two-gabled house on the west side of Delaware Street, 130 x 65 px (19.8 x 9.9 m) on the 2008 ortho against the printed roof plan's 66 ft 8 in overall length. Placed on the 2008 ortho because the 2024 one is winter low-sun with the house in the shadow of the building south of it; the house is on every view 2008 to 2024 at the same place and no addition is seen at this resolution. NPS-owned (Harry S Truman NHS). A first placement on the 2024 ortho had picked the wrong roof and was corrected."
+ },
+ "passes": {
+  "a": "pass A: an independent reader of the 400 dpi sheets (2026-11-25), chain and heights read from crops",
+  "b": "pass B: a second independent reader of the same sheets (2026-11-25), not shown pass A",
+  "disagreements": [
+   {
+    "what": "chain",
+    "pass_a": "12 edges, open 0.146 ft (top walls 58'-11 3/4\" against bottom 59'-1 1/2\")",
+    "pass_b": "12 edges, closes to 0.021 ft (segments of the top string, 28'-5 3/4\")",
+    "resolved": "B: its chain closes; the passes differ by 0.12 % in area"
+   },
+   {
+    "what": "grade under the eave",
+    "pass_a": "-2'-5 1/4\" (south)",
+    "pass_b": "-2'-5 1/2\" (east)",
+    "resolved": "the mean of the four printed grades, 2.417 ft below the floor"
+   }
+  ]
+ },
+ "sheets": {
+  "1": "Title, location map, site plan (1\" = 20'-0\"), history",
+  "3": "First floor plan, 1/4\" = 1'-0\" (drawn 1992)",
+  "4": "Second floor plan, 1/4\" = 1'-0\" (drawn 1992)",
+  "5": "Roof plan, dimensioned, 1/4\" = 1'-0\" (drawn 1992)",
+  "6": "East elevation with level marks, front door, hardware",
+  "7": "South elevation with level marks",
+  "8": "West elevation with level marks, window details",
+  "9": "North elevation with level marks"
+ },
+ "stories": 2,
+ "roof_shape": "cross-gable",
+ "plan": {
+  "sheet": "3",
+  "scale": "1/4\" = 1'-0\"",
+  "chain": [
+   {
+    "dir": "E",
+    "length": {
+     "ft": 30.625,
+     "text": "30'-7 1/2\"",
+     "how": "printed",
+     "sheet": "3",
+     "note": "top string, second row: kitchen wing's west wall to the main block's west wall; its first row 1'-11\" + 2'-6\" + 9'-8 3/4\" + 2'-3\" + 7'-6\" + 2'-3\" + 4'-5 3/4\" adds to the same"
+    },
+    "label": "north wall of the one-story kitchen and dining wing"
+   },
+   {
+    "dir": "N",
+    "length": {
+     "ft": 1.958333,
+     "text": "1'-11 1/2\"",
+     "how": "printed",
+     "sheet": "3",
+     "note": "west string, second row"
+    },
+    "label": "main block's west wall north of the wing"
+   },
+   {
+    "dir": "E",
+    "length": {
+     "ft": 28.479167,
+     "text": "28'-5 3/4\"",
+     "how": "derived",
+     "note": "top string first row 5'-9 3/4\" + 5'-1 3/4\" + 9'-4 1/4\" + 2'-3\" + 5'-11\" (main block west wall to east wall); the second row prints 28'-4 1/4\" between the same ticks; the sum is used because the chain then closes against the bottom strings (59'-1 1/4\" against 59'-1 1/2\"), the 28'-4 1/4\" leaves it 1 3/4\" open",
+     "sheet": "3"
+    },
+    "label": "north wall of the two-story main block"
+   },
+   {
+    "dir": "S",
+    "length": {
+     "ft": 16.333333,
+     "text": "16'-4\"",
+     "how": "derived",
+     "note": "east string first row 6'-3 1/2\" + 3'-9\" + 6'-3 1/2\"; the second row prints \"10'-4\"\" for this span, a misprint (it spans 1635 px = 16.35 ft at 1/4\", and the row's 3'-10 1/2\" + 7'-11 3/4\" + 16'-4\" = the overall 28'-2 1/4\")",
+     "sheet": "3"
+    },
+    "label": "east wall of the main block (parlor), behind the front porch"
+   },
+   {
+    "dir": "W",
+    "length": {
+     "ft": 6.125,
+     "text": "6'-1 1/2\"",
+     "how": "printed",
+     "sheet": "3",
+     "note": "bottom string, second row; first row 1'-11\" + 2'-4\" + 1'-10 1/2\""
+    },
+    "label": "south wall of the parlor"
+   },
+   {
+    "dir": "S",
+    "length": {
+     "ft": 7.979167,
+     "text": "7'-11 3/4\"",
+     "how": "printed",
+     "sheet": "3",
+     "note": "east string, second row"
+    },
+    "label": "east wall of the foyer (front door)"
+   },
+   {
+    "dir": "W",
+    "length": {
+     "ft": 15.645833,
+     "text": "15'-7 3/4\"",
+     "how": "printed",
+     "sheet": "3",
+     "note": "bottom string, second row, bedroom's east wall to the foyer's east wall; first row 9'-6 3/4\" + 1'-10 3/4\" + 4'-2 1/4\" adds to the same"
+    },
+    "label": "south wall of the foyer and stair"
+   },
+   {
+    "dir": "S",
+    "length": {
+     "ft": 3.875,
+     "text": "3'-10 1/2\"",
+     "how": "printed",
+     "sheet": "3",
+     "note": "east string, second row"
+    },
+    "label": "east wall of the one-story bedroom, south of the stair"
+   },
+   {
+    "dir": "W",
+    "length": {
+     "ft": 10.3125,
+     "text": "10'-3 3/4\"",
+     "how": "printed",
+     "sheet": "3",
+     "note": "bottom string, second row; first row 4'-0 3/4\" + 2'-3 1/2\" + 3'-11 1/2\""
+    },
+    "label": "south wall of the bedroom"
+   },
+   {
+    "dir": "N",
+    "length": {
+     "ft": 5.375,
+     "text": "5'-4 1/2\"",
+     "how": "printed",
+     "sheet": "3",
+     "note": "west string, second row"
+    },
+    "label": "west wall of the bedroom, south of the enclosed porch"
+   },
+   {
+    "dir": "W",
+    "length": {
+     "ft": 27.041667,
+     "text": "27'-0 1/2\"",
+     "how": "printed",
+     "sheet": "3",
+     "note": "bottom string, second row; first row 10'-0 1/2\" + 2'-9\" + 14'-3\""
+    },
+    "label": "south wall of the enclosed (glazed) porch"
+   },
+   {
+    "dir": "N",
+    "length": {
+     "ft": 20.854167,
+     "text": "20'-10 1/4\"",
+     "how": "derived",
+     "note": "west string second row 4'-10 3/4\" + 15'-11 1/2\" (porch south wall to the kitchen's north wall, porch and kitchen west walls in line)",
+     "sheet": "3"
+    },
+    "label": "west wall of the enclosed porch and kitchen"
+   }
+  ],
+  "excluded": [
+   "front porch, open, L-shaped with a curved south-east corner: along the east wall 5'-9 3/4\" (top string) / 5'-10 1/2\" (bottom string) deep, and in front of the foyer south of the parlor",
+   "steps south of the foyer and south of the enclosed porch; the porch steps on the east"
+  ],
+  "north": "up (arrow on sheets 3, 4, 5 points to the top of the sheet)",
+  "note": "Outside face of the first-floor walls. Start at the kitchen wing's NW corner, walk clockwise. Parts: two-story main block (living room, parlor) on the east; one-story kitchen and dining wing on the west; the enclosed south-facing porch (walled and glazed; the title sheet calls it an enclosed south-facing porch) south of the kitchen, in the outline; the foyer and stair, and the one-story bedroom, south of the main block. The drawn walls are slightly out of square (the porch's west and south walls are visibly skewed); the chain is rectilinear on the printed values. North-south extent 28'-2 1/4\" = the printed overall of both the west and east strings. East-west the strings print 64'-9 1/2\" (top) and 65'-0\" (bottom) to the front porch's edge; less the porch (5'-9 3/4\" and 5'-10 1/2\") they give 58'-11 3/4\" and 59'-1 1/2\" for the walls; the chain's extent is 59'-1 1/4\"."
+ },
+ "floors": [
+  {
+   "level": "first",
+   "finished": true,
+   "same_as_ground": true
+  },
+  {
+   "level": "second",
+   "finished": true,
+   "chain": [
+    {
+     "dir": "E",
+     "length": {
+      "ft": 28.270833,
+      "text": "28'-3 1/4\"",
+      "how": "printed",
+      "sheet": "4",
+      "note": "top string, second row; first row 8'-6 3/4\" + 2'-4 1/4\" + 9'-2 1/2\" + 2'-4 1/4\" + 5'-9 3/4\" = 28'-3 1/2\""
+     },
+     "label": "north wall of the main block"
+    },
+    {
+     "dir": "S",
+     "length": {
+      "ft": 16.270833,
+      "text": "16'-3 1/4\"",
+      "how": "printed",
+      "sheet": "4",
+      "note": "east string, second row = 5'-10 1/2\" + 4'-6 3/4\" + 5'-10\""
+     },
+     "label": "east wall of the main block"
+    },
+    {
+     "dir": "W",
+     "length": {
+      "ft": 6.104167,
+      "text": "6'-1 1/4\"",
+      "how": "printed",
+      "sheet": "4",
+      "note": "bottom string, second row = 1'-7 1/2\" + 2'-4 1/4\" + 2'-1 1/2\""
+     },
+     "label": "south wall of the east bedroom"
+    },
+    {
+     "dir": "S",
+     "length": {
+      "ft": 7.958333,
+      "text": "7'-11 1/2\"",
+      "how": "printed",
+      "sheet": "4",
+      "note": "east string, second row = 1'-10 1/4\" + 2'-4 1/2\" + 3'-8 3/4\""
+     },
+     "label": "east wall of the hall"
+    },
+    {
+     "dir": "W",
+     "length": {
+      "ft": 15.604167,
+      "text": "15'-7 1/4\"",
+      "how": "printed",
+      "sheet": "4",
+      "note": "bottom string, second row; its first row 6'-4 1/2\" + 2'-4 1/4\" + 6'-11 1/2\" adds to 15'-8 1/4\""
+     },
+     "label": "south wall of the hall and stair"
+    },
+    {
+     "dir": "S",
+     "length": {
+      "ft": 3.6875,
+      "text": "3'-8 1/4\"",
+      "how": "printed",
+      "sheet": "4",
+      "note": "east string, second row"
+     },
+     "label": "east wall of the storage room"
+    },
+    {
+     "dir": "W",
+     "length": {
+      "ft": 10.479167,
+      "text": "10'-5 3/4\"",
+      "how": "printed",
+      "sheet": "4",
+      "note": "bottom string, second row = 4'-1 3/4\" + 2'-3 3/4\" + 4'-0 1/4\""
+     },
+     "label": "south wall of the storage room"
+    },
+    {
+     "dir": "N",
+     "length": {
+      "ft": 12.375,
+      "text": "12'-4 1/2\"",
+      "how": "printed",
+      "sheet": "4",
+      "note": "west string, second row = 6'-11 1/4\" + 2'-9 3/4\" + 2'-7 1/2\""
+     },
+     "label": "west wall of the storage room and bath"
+    },
+    {
+     "dir": "E",
+     "length": {
+      "ft": 3.854167,
+      "text": "3'-10 1/4\"",
+      "how": "printed",
+      "sheet": "4",
+      "note": "top string, second row"
+     },
+     "label": "north wall of the bath"
+    },
+    {
+     "dir": "N",
+     "length": {
+      "ft": 15.541667,
+      "text": "15'-6 1/2\"",
+      "how": "derived",
+      "note": "west string first row 1'-3 3/4\" + 2'-4 1/4\" + 7'-6 1/2\" + 2'-4 1/4\" + 1'-11 3/4\"; the second row prints 15'-4 1/2\" for this span (and the overall 27'-10\" against the east string's 27'-11\"); the sum is used because it makes the west side equal the east side's 27'-11\"",
+      "sheet": "4"
+     },
+     "label": "west wall of the main block above the kitchen wing's roof"
+    }
+   ],
+   "sheet": "4",
+   "note": "Main block, hall over the foyer, bath and storage over the bedroom; the kitchen wing and the enclosed porch are one story. The second floor prints the main block 28'-3 1/4\" wide against 28'-4 1/4\" / 28'-5 3/4\" on the first floor. The storage room is unheated storage but within the walls; counted as drawn."
+  }
+ ],
+ "heights": {
+  "eave": {
+   "above_grade_ft": 21.4583,
+   "how": "derived",
+   "sheet": "6",
+   "elevation": "all four elevations' grades",
+   "note": "two-storey block eave printed 19'-0 1/2\" above the first floor; grade printed below the floor at 4 points (2'-5 1/2\", 2'-5 1/4\", 2'-6 3/4\", 2'-2 1/2\": 2.21 to 2.56 ft, the lot slopes); their mean 2.417 ft is the grade used (both passes read the same eight values)"
+  },
+  "ridge": {
+   "above_grade_ft": 29.1875,
+   "how": "derived",
+   "sheet": "6",
+   "elevation": "all four elevations' grades",
+   "note": "main ridge printed 26'-9 1/4\" above the first floor; grade printed below the floor at 4 points (2'-5 1/2\", 2'-5 1/4\", 2'-6 3/4\", 2'-2 1/2\": 2.21 to 2.56 ft, the lot slopes); their mean 2.417 ft is the grade used (both passes read the same eight values)"
+  },
+  "readings": [
+   {
+    "what": "chimney",
+    "text": "29'-8 3/4\"",
+    "sheet": "6",
+    "elevation": "east elevation",
+    "datum_text": "0'-0\" first floor"
+   },
+   {
+    "what": "ridge",
+    "text": "26'-9 1/4\"",
+    "sheet": "6",
+    "elevation": "east elevation",
+    "datum_text": "0'-0\" first floor"
+   },
+   {
+    "what": "eave (main block)",
+    "text": "19'-0 1/2\"",
+    "sheet": "6",
+    "elevation": "east elevation",
+    "datum_text": "0'-0\" first floor"
+   },
+   {
+    "what": "second floor",
+    "text": "10'-3 1/2\"",
+    "sheet": "6",
+    "elevation": "east elevation",
+    "datum_text": "0'-0\" first floor"
+   },
+   {
+    "what": "eave (front porch roof)",
+    "text": "9'-5 1/4\"",
+    "sheet": "6",
+    "elevation": "east elevation",
+    "datum_text": "0'-0\" first floor"
+   },
+   {
+    "what": "first floor",
+    "text": "0'-0\"",
+    "sheet": "6",
+    "elevation": "east elevation"
+   },
+   {
+    "what": "fascia",
+    "text": "0'-6\"",
+    "sheet": "6",
+    "elevation": "east elevation",
+    "datum_text": "0'-0\" first floor",
+    "note": "below the first floor, printed without a sign"
+   },
+   {
+    "what": "grade",
+    "text": "2'-5 1/2\"",
+    "sheet": "6",
+    "elevation": "east elevation",
+    "datum_text": "0'-0\" first floor",
+    "note": "below the first floor, printed without a sign"
+   },
+   {
+    "what": "ridge",
+    "text": "26'-9 1/4\"",
+    "sheet": "7",
+    "elevation": "south elevation",
+    "datum_text": "0'-0\" first floor"
+   },
+   {
+    "what": "eave",
+    "text": "19'-0 1/2\"",
+    "sheet": "7",
+    "elevation": "south elevation",
+    "datum_text": "0'-0\" first floor"
+   },
+   {
+    "what": "second floor",
+    "text": "10'-3 1/2\"",
+    "sheet": "7",
+    "elevation": "south elevation",
+    "datum_text": "0'-0\" first floor"
+   },
+   {
+    "what": "fascia",
+    "text": "0'-8 1/4\"",
+    "sheet": "7",
+    "elevation": "south elevation",
+    "datum_text": "0'-0\" first floor",
+    "note": "below"
+   },
+   {
+    "what": "grade",
+    "text": "2'-5 1/4\"",
+    "sheet": "7",
+    "elevation": "south elevation",
+    "datum_text": "0'-0\" first floor",
+    "note": "below"
+   },
+   {
+    "what": "ridge",
+    "text": "26'-9 1/4\"",
+    "sheet": "8",
+    "elevation": "west elevation",
+    "datum_text": "0'-0\" first floor"
+   },
+   {
+    "what": "eave (west gable side / rear)",
+    "text": "18'-5 3/4\"",
+    "sheet": "8",
+    "elevation": "west elevation",
+    "datum_text": "0'-0\" first floor"
+   },
+   {
+    "what": "second floor",
+    "text": "10'-3 1/2\"",
+    "sheet": "8",
+    "elevation": "west elevation",
+    "datum_text": "0'-0\" first floor"
+   },
+   {
+    "what": "eave (one-story wing)",
+    "text": "6'-10 3/4\"",
+    "sheet": "8",
+    "elevation": "west elevation",
+    "datum_text": "0'-0\" first floor"
+   },
+   {
+    "what": "fascia",
+    "text": "0'-11\"",
+    "sheet": "8",
+    "elevation": "west elevation",
+    "datum_text": "0'-0\" first floor",
+    "note": "below"
+   },
+   {
+    "what": "grade",
+    "text": "2'-6 3/4\"",
+    "sheet": "8",
+    "elevation": "west elevation",
+    "datum_text": "0'-0\" first floor",
+    "note": "below"
+   },
+   {
+    "what": "ridge (main)",
+    "text": "26'-9 1/4\"",
+    "sheet": "9",
+    "elevation": "north elevation",
+    "datum_text": "0'-0\" floor"
+   },
+   {
+    "what": "ridge (kitchen wing)",
+    "text": "13'-11 1/2\"",
+    "sheet": "9",
+    "elevation": "north elevation",
+    "datum_text": "0'-0\" floor"
+   },
+   {
+    "what": "eave (kitchen wing)",
+    "text": "7'-6 3/4\"",
+    "sheet": "9",
+    "elevation": "north elevation",
+    "datum_text": "0'-0\" floor"
+   },
+   {
+    "what": "fascia",
+    "text": "0'-8\"",
+    "sheet": "9",
+    "elevation": "north elevation",
+    "datum_text": "0'-0\" floor",
+    "note": "below"
+   },
+   {
+    "what": "grade",
+    "text": "2'-2 1/2\"",
+    "sheet": "9",
+    "elevation": "north elevation",
+    "datum_text": "0'-0\" floor",
+    "note": "below"
+   }
+  ]
+ },
+ "roof": {
+  "overhang": {
+   "ft": 1.208333,
+   "how": "derived",
+   "note": "roof plan sheet 5, east string: main block roof from its north eave to its south eave 1'-3 1/2\" + 8'-1\" + 9'-4 1/2\" = 18'-9\" (9'-4 1/2\" each side of the ridge), less the main block's east wall 16'-4\" (sheet 3), halved = 1'-2 1/2\". The kitchen wing's roof (west string 8'-1 3/4\" + 5'-10 1/2\" + 8'-6 1/2\" = 22'-6 3/4\" against its walls 20'-10 1/4\") gives 0.85 ft; the main block's gable rakes (30'-1 1/2\" roof against 28'-5 3/4\" walls) 0.82 ft",
+   "sheet": "5"
+  },
+  "eaves": [
+   "N",
+   "S"
+  ],
+  "note": "Main block: gable roof, ridge east-west, gable ends east (front, with ornamental gable) and west; a hipped roof over the two-story rear part south of it. Kitchen wing: gable roof, ridge east-west, carried down over the enclosed porch on the south. Front porch: its own low roof. Roof plan top string 30'-7\" + 30'-1 1/2\" + 5'-8\" = 66'-4 1/2\"; bottom 27'-0\" + 9'-5 1/4\" + 2'-8 1/4\" + 6'-8\" + 9'-4 1/2\" + 11'-5 3/4\" (read from a 1/4-scale crop, not checked digit by digit) adds to 66'-7 3/4\" against the printed overall 66'-8\"; west 28'-2 1/4\" overall (segments add to 28'-2 1/2\"); east 26'-6 3/4\".",
+  "derive": false,
+  "derive_note": "two-storey cross-gable block, hipped two-storey rear part and a one-storey kitchen wing: mixed eaves and pitches"
+ },
+ "porches": [
+  {
+   "name": "front porch, east leg",
+   "a": {
+    "ft": 21.17,
+    "how": "scaled",
+    "scale": "1/4\" = 1'-0\"",
+    "note": "porch floor north edge 3250 px to the bottom of its curved corner 5367 px on sheet 3",
+    "sheet": "3"
+   },
+   "b": {
+    "ft": 5.8125,
+    "text": "5'-9 3/4\"",
+    "how": "printed",
+    "sheet": "3",
+    "note": "top string, porch edge to the main block's east wall"
+   },
+   "note": "the south-east corner is a quarter circle, so the rectangle overstates the floor"
+  },
+  {
+   "name": "front porch, leg in front of the foyer",
+   "a": {
+    "ft": 6.125,
+    "text": "6'-1 1/2\"",
+    "how": "printed",
+    "sheet": "3",
+    "note": "the parlor's south wall run, between the foyer's east wall and the main block's east wall"
+   },
+   "b": {
+    "ft": 6.0,
+    "how": "scaled",
+    "scale": "1/4\" = 1'-0\"",
+    "note": "parlor south wall 4767 px to the porch's south edge 5367 px on sheet 3",
+    "sheet": "3"
+   }
+  }
+ ],
+ "flags": [
+  {
+   "code": "no_overall",
+   "note": "No printed east-west overall of the wall outline: both overalls (64'-9 1/2\" top, 65'-0\" bottom) include the front porch. North-south 28'-2 1/4\" (both sides) equals the chain's extent."
+  },
+  {
+   "code": "note",
+   "note": "Top string sheet 3: the main block's overall 28'-4 1/4\" disagrees with its own segments (28'-5 3/4\"); the segments are used (they close the chain against the bottom string's 59'-1 1/2\" within 1/4\"). Scaled between the two ticks 2835 px (28.35 ft); between the drawn wall faces about 2867 px (28.67 ft)."
+  },
+  {
+   "code": "note",
+   "note": "East string sheet 3 prints \"10'-4\"\" for the main block's east wall; its own segments and the overall give 16'-4\"; 16'-4\" is used."
+  },
+  {
+   "code": "note",
+   "note": "Second floor west string (sheet 4) prints 15'-4 1/2\" and overall 27'-10\" where its segments give 15'-6 1/2\" and 27'-11\" (= the east string's 27'-11\"); the segments are used. Its bottom string's middle segments add to 15'-8 1/4\" against the printed 15'-7 1/4\" (used)."
+  },
+  {
+   "code": "note",
+   "note": "Grade levels are printed without a minus sign below FIRST FLOOR 0'-0\": 2'-5 1/2\" (east), 2'-5 1/4\" (south), 2'-6 3/4\" (west), 2'-2 1/2\" (north). The east (front) elevation's is used."
+  }
+ ],
+ "note": "Pass B. Scale 1/4\" = 1'-0\" on the plans and elevations (100 sheet px per foot). Kept from pass B, with the resolutions in passes.disagreements."
+}

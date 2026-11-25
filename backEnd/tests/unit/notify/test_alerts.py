@@ -179,3 +179,38 @@ def test_alert_settings_defaults() -> None:
     assert settings.alert_heartbeat_stale_seconds == 300.0
     assert settings.alert_check_seconds == 60.0
     assert Settings(_env_file=None, alert_email_to="").alert_email_to is None
+
+
+def blocked_payload(**extra: object) -> dict[str, object]:
+    return {
+        "type": "alert",
+        "kind": "capture_blocked",
+        "key": "capture-blocked:2:2026-11-01T14:30:05+00:00",
+        "trip": 2,
+        "code": "BASIS-CAPTURE-001",
+        "reason": "the unusual-traffic page",
+        "opened_at": AT.isoformat(),
+        "open_until": "2026-11-01T16:30:05+00:00",
+        "study_id": STUDY,
+        "url": "https://www.google.com/sorry/index",
+        "http_status": 429,
+        "evidence": "gs://b/studies/x/captures/y/evidence/z/",
+        **extra,
+    }
+
+
+def test_a_breaker_trip_renders_one_message_keyed_by_the_trip() -> None:
+    from basis.db.repositories.alert import CAPTURE_BLOCKED
+
+    assert blocked_payload()["kind"] == CAPTURE_BLOCKED
+    message = render_alert(blocked_payload(), "ops@basis.test", env="prod")
+    assert message.subject == "[Basis] (prod) Property pictures paused: BASIS-CAPTURE-001 (trip 2)"
+    assert message.idempotency_key == "capture-blocked:2:2026-11-01T14:30:05+00:00"
+    assert "Open until: 2026-11-01 16:30:05 UTC" in message.text
+    assert "gs://b/studies/x/captures/y/evidence/z/" in message.text
+    assert "HTTP 429" in message.text
+
+
+def test_a_breaker_alert_without_its_trip_is_malformed() -> None:
+    with pytest.raises(MalformedAlert):
+        render_alert(blocked_payload(trip=None), "ops@basis.test")
