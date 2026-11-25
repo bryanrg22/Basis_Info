@@ -26,7 +26,8 @@ const PHOTOS = ['kitchen.webp', 'kitchen-detail.webp', 'living.webp', 'bedroom.w
 const FROM_SITE = ['bryan-96.webp', 'brands/chatgpt.svg', 'brands/claude.svg', 'brands/color/google.svg', 'brands/color/nvidia.svg',
   'brands/color/openai.svg', 'brands/color/usc.svg', 'fonts/ibm-plex-mono-latin-400-normal.woff2', 'fonts/ibm-plex-mono-latin-500-normal.woff2',
   'fonts/newsreader-latin-opsz-400-500.woff2', 'fonts/OFL-ibm-plex-mono.txt', 'fonts/OFL-newsreader.txt', 'partners/cssi.svg',
-  'partners/gtg-mark.webp', 'partners/mcguire-sponsel.png', 'partners/source-advisors.webp', 'vendor/lenis-1.3.26.mjs'];
+  'partners/gtg-mark.webp', 'partners/mcguire-sponsel.png', 'partners/source-advisors.webp', 'share/apple-touch-icon.png',
+  'share/card.png', 'vendor/lenis-1.3.26.mjs'];
 
 const copy = (from, to) => { fs.mkdirSync(path.dirname(to), { recursive: true }); fs.cpSync(from, to, { recursive: true }); };
 const placed = new Map();

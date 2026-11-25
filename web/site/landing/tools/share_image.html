@@ -1,0 +1,21 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<!-- The link preview's image (og:image, 1200 x 630) and the touch icon (180 x 180), drawn from the logo traced
+     to vector (share_logo.svg, share_mark.svg; tools/share_image.mjs says how). Apple's TN3156 asks for a
+     graphical image with the words left to og:title, so the card carries the logo only. -->
+<title>Share image</title>
+<style>
+html,body{margin:0;background:#f5f3ec}
+.card{width:1200px;height:630px;background:#f5f3ec;display:grid;place-items:center}
+.card img{width:600px;height:auto;display:block}
+.icon{width:180px;height:180px;background:#f5f3ec;display:grid;place-items:center}
+.icon img{width:136px;height:136px;display:block}
+</style>
+</head>
+<body>
+<div class="card" id="card"><img src="share_logo.svg" alt="basis"></div>
+<div class="icon" id="icon"><img src="share_mark.svg" alt="basis mark"></div>
+</body>
+</html>
