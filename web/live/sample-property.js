@@ -21,6 +21,8 @@
  * between two of the dated views), at each view's exact pixel size, so a shape traced on them
  * measures what was drawn: the patio is 20 x 40 ft, the back-yard fence 210 ft.
  *
+ * &measure=draft puts a model's draft of the patio on its row (patioDraft, sample-api.js P10).
+ *
  * &property= ready (default: the search's pin, not confirmed yet) | confirmed | running |
  * paused | waiting | failed | noplace (the address found no place) | nopin | site (the appraisal
  * prints a site area that disagrees with the parcel).
@@ -178,7 +180,10 @@
    message:status==='agree'?`The parcel’s area agrees with the appraisal’s site area (within 5 %).`:status==='adjacent_match'?'The owner’s adjacent parcels together match the appraisal’s site area: the site is these parcels.':`The parcel under the pin is ${Math.round(under.area_sqft).toLocaleString('en-US')} SF; the appraisal’s site area is ${appraisal.toLocaleString('en-US')} SF (${diff>=0?'+':''}${diff.toFixed(1)} %). Check the appraisal’s site area or the pin.`,
    appraisal_sqft:appraisal,parcel_sqft:under.area_sqft,layer_sqft:Math.round(under.layer_acres*43560),polygon_sqft:under.area_sqft,difference_pct:Math.round(diff*10)/10,parcels:status==='adjacent_match'?ps.map(x=>x.parcel_id):[under.parcel_id],combined_sqft:status==='adjacent_match'?combined:null,tolerance_pct:5};
  }
- const LIDAR={project:'Sample statewide lidar (synthetic)',year:2021,points:4812,density_per_m2:8.2,building:{footprint_m2:205.3,footprint_sqft:2209.9,peak_m:8.9,max_m:10.2,eave_m:5.6,ground_elevation_m:177.0,points:1684,distance_m:0},code:null,credit:'Sample elevation program (synthetic)',terms_class:'public-domain',terms_url:'https://sample.basis.invalid/terms/lidar'};
+ // The lidar's roof outline (EVAL_REPORT 104.2): the house and the garage as one roof, 0.2 m of
+ // overhang beyond their walls (205.6 m2, the footprint's 205.3 within a cell's rounding).
+ const ROOF_OUTLINE=[[-7.2,-5.2],[12.2,-5.2],[12.2,2.2],[5.2,2.2],[5.2,7.2],[-7.2,7.2]].map(([e,n])=>toLonLat(e,n).map(v=>Math.round(v*1e9)/1e9));
+ const LIDAR={project:'Sample statewide lidar (synthetic)',year:2021,points:4812,density_per_m2:8.2,building:{footprint_m2:205.3,footprint_sqft:2209.9,peak_m:8.9,max_m:10.2,eave_m:5.6,ground_elevation_m:177.0,points:1684,distance_m:0,outline:ROOF_OUTLINE},code:null,credit:'Sample elevation program (synthetic)',terms_class:'public-domain',terms_url:'https://sample.basis.invalid/terms/lidar'};
  function publicOut(S,I){
   const P=stateOf(S,I),g=P.gathers[P.gathers.length-1];
   if(!g||!P.pin||P.pin.lat==null)return {enabled:true,gather:g?gatherOut(S,g):null,current:null,history:[],parcels:[],site_check:null,lidar:null};
@@ -276,6 +281,13 @@
  }
  // The site's true sizes, for tests and the verification notes.
  const truth={patioSf:40*20,fenceFt:64/FT,lotSqft:area(SITE.lot)*SQFT,patioBuilt:PATIO_BUILT};
- const api={register,truth,HOUSE,aerialSvg,sideSvg,SITE,toLonLat};
+ // A model's draft of the patio, for the measure tool's original and verified state (EVAL_REPORT
+ // 104; no model drafts measurements yet, so this is a fixture): the 40 x 20 ft patio outlined a
+ // little off, as a drafting method might, on the close aerial (the &measure=draft sample).
+ function patioDraft(){
+  const ring=[[-8.25,8.35],[4.05,8.5],[4.15,14.9],[-8.1,14.75]].map(([e,n])=>toLonLat(e,n).map(v=>Math.round(v*1e9)/1e9));
+  return {unit:'SF',space:'lonlat',shapes:[{kind:'area',ring}],image:{source:SOURCE,captured_on:'2026-06-18',pixel_size_m:CLOSE},drawn_by:'model:sample-drafter@1',verified:false,view:{kind:'capture',label:'aerial-close'}};
+ }
+ const api={register,truth,HOUSE,aerialSvg,sideSvg,SITE,toLonLat,patioDraft};
  if(typeof module==='object'&&module.exports)module.exports=api;else scope.BasisPropertySample=api;
 })(typeof globalThis==='object'?globalThis:this);

@@ -228,6 +228,10 @@ On `POST /v1/studies/{id}/decisions` (a `reject` at `assets_review`) and on a ga
 | `image.captured_on` | optional `YYYY-MM-DD`: when the image was flown or drawn |
 | `image.pixel_size_m` | optional, `lonlat` only: metres per pixel on the ground |
 | `height_ft` | optional: only with `SF` or `SY` and line shapes, a wall face (length x height) |
+| `drawn_by` | optional: `engineer` (the default when absent) or `model:<name>@<version>` for a draft a model made (letters, digits and `. _ - / +`; the version names the drafting method so one change's drafts can be found) |
+| `verified` | optional `true` or `false`: the engineer's own mark that the measurement was checked against the picture |
+| `view` | optional: the picture it was drawn on, so it can be drawn again: `kind` (`capture`, `public` or `document`), `id` and/or `label` (1 to 200 characters, at least one), and `width` with `height` (the pixel frame the points are in, both or neither, above 0 and at most 100,000) |
+| `original` | optional: the measurement this one replaced (an engineer's edit of a model's draft or of an earlier trace), a whole body checked and computed by the same rules; it may not hold an `original` of its own (an edit of an edit keeps the first original) |
 
 `SF` and `SY` take area shapes (the rings' areas less their cutouts) or line shapes with
 `height_ft`; `LF` takes line shapes only. The correction may carry the measurement alone or
@@ -236,6 +240,23 @@ price (section 3), as the typed quantity can; never with `quantity`, `quantity_u
 `quantity_source` (one way to state a quantity). A `reason` follows the rule of the fields it
 comes with: a measurement alone needs none, as a typed quantity needs none; with a unit price,
 the price's reason is required.
+
+**Provenance** (EVAL_REPORT 104). `drawn_by`, `verified`, `view` and `original` change
+nothing about the quantity, the price or the review flags: an unverified model draft is priced
+exactly as an engineer's trace (whether an unverified draft may price the report is the
+maintainer's decision, AI_MEASUREMENT_PLAN.md section 8.3). They are stored as sent (text
+trimmed); a body without them is stored and read exactly as before. The takeoff's formula adds
+"verified by the engineer" or "not verified" when `verified` is given and "replaces 812.40 SF
+drafted by Basis" (or "traced by the engineer") when `original` is; a model's draft reads
+"drafted by Basis", never the model's name (the record keeps `drawn_by`). Refused with the
+`correction_value` 422 like every other key: a `drawn_by` that is neither form, a `verified`
+that is not a JSON boolean, a `view` with an unknown key, another `kind`, no `id` or `label`,
+blank or over-long text, one of `width` and `height` alone or out of range, an `original` that
+is not a valid body (its problems named under `measurement.original...`) or that holds its own
+`original`. With an `original` and cutouts the body is 8 levels deep, the request schema's limit.
+
+In `takeoffs.inputs["measurement"]` the `original` is recorded like the measurement: its body
+plus its own `quantity`, `area_sf` or `length_ft`, `method`, `expected_error_pct` and counts.
 
 **How the quantity is computed** (`basis/domain/traced.py`). Image space is planar: the area
 or length in pixels times the scale (feet per pixel = the scale's length over the distance
@@ -304,7 +325,10 @@ builds and a later assets rejection that does not send it again recomputes the t
 accepted and, like a typed quantity there, does not change the row's quantity; areas that
 overlap each other and cutouts that overlap each other are not detected; nothing compares the
 traced total with the lot; no exhibit (the image with the shape) is stored or printed; the
-client report does not print the source.
+client report does not print the source. No model drafts measurements yet (`drawn_by` is ready
+for them); no review flag is raised for an unverified draft (EVAL_REPORT 104, the maintainer's
+decision); the server does not check that `view` names a view or document of the study (it is a
+pointer for drawing it again, `image.document_id` is the checked one).
 
 ## 5. Shapes against the app's sample API (`web/live/sample-api.js`, PROPOSED)
 

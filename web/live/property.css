@@ -215,3 +215,141 @@
 /* A phone shows the picture at about a third of its size: the pin keeps a readable size. */
 @media (max-width:767px){.pa-stage .pa-pin-mark{transform:scale(2)}}
 #app .pa-stage.is-empty p,#app .pa-stage .pa-caption{color:#e6eee9}
+
+/* The measure tool (EVAL_REPORT 104): labels on every edge, handles, the original dashed, the
+ * typed-length box, the edge table, the dialog over the Assets and asset pages, the read-only card.
+ * Sizes on the picture come from the script (font and handle radius times picture pixels per
+ * screen pixel), so they read the same at every zoom; strokes do not scale. */
+.mt-dialog-backdrop,.mt-card{--pa-ink:#1d3328;--pa-muted:#4f6258;--pa-line:#d5dfd8;--pa-soft:#f4f8f5;--pa-card:#fff;--pa-green:#2f6b4a;--pa-canvas:#24382f;--pa-amber:#8a4a00;--pa-red:#a33a2b;--pa-blue:#245d8f}
+.mt-overlay{touch-action:none}
+.pa-stage:not(.is-measure) .mt-overlay{touch-action:auto}
+.mt-shape{cursor:default}
+.mt-original{fill:none;stroke:#ffd666;stroke-width:2.5;stroke-dasharray:9 6;vector-effect:non-scaling-stroke;pointer-events:none}
+.mt-original.is-cut{stroke:#ffe9a8;stroke-dasharray:4 5}
+.mt-label{cursor:text}
+.mt-label rect{fill:rgba(16,30,23,.86);stroke:rgba(255,255,255,.55);stroke-width:1;vector-effect:non-scaling-stroke}
+.mt-label text{fill:#fff;text-anchor:middle;font-family:Inter,system-ui,sans-serif;font-weight:600;font-variant-numeric:tabular-nums;pointer-events:none}
+.mt-label.is-short text{font-weight:500}
+.mt-label.is-changed rect{fill:rgba(122,74,0,.92);stroke:#ffd666}
+.mt-label.is-scale{cursor:default}.mt-label.is-scale rect{fill:rgba(36,93,143,.92)}
+.mt-label:hover rect,.mt-label:focus rect{stroke:#fff;stroke-width:2}
+.mt-label:focus{outline:none}.mt-label:focus-visible rect{stroke:#7fd3ff;stroke-width:3}
+.mt-total text{fill:#fff;text-anchor:middle;font-family:Inter,system-ui,sans-serif;font-weight:700;paint-order:stroke;stroke:rgba(16,30,23,.9);stroke-width:4px;stroke-linejoin:round;pointer-events:none}
+.mt-total text+text{font-weight:500}
+/* On the diagram's light ground the photo's white-on-dark outline reads as doubled text: dark text, light halo. */
+.pa-canvas.is-diagram .mt-total text{fill:#10201a;stroke:#f7f8f5;stroke-width:3px}
+.mt-total.is-line text{text-anchor:start}
+.mt-vertex,.mt-mid{cursor:grab}
+.mt-vertex:active{cursor:grabbing}
+.mt-hit{fill:transparent}
+.mt-vertex .mt-dot{fill:#fff;stroke:#1d3328;stroke-width:2;vector-effect:non-scaling-stroke}
+.mt-vertex.is-selected .mt-dot{fill:#3cbe8c;stroke:#fff;stroke-width:3}
+.mt-vertex.is-scale .mt-dot{fill:#7fb6e6}
+.mt-vertex:focus{outline:none}.mt-vertex:focus-visible .mt-dot{stroke:#7fd3ff;stroke-width:4}
+.mt-mid .mt-dot{fill:rgba(255,255,255,.75);stroke:#1d3328;stroke-width:1.5;vector-effect:non-scaling-stroke}
+.mt-mid:hover .mt-dot{fill:#3cbe8c}
+.mt-scale{stroke:#7fb6e6;stroke-width:3;stroke-dasharray:2 4;stroke-linecap:round;vector-effect:non-scaling-stroke}
+.mt-snap{fill:none;stroke:#ffd666;stroke-width:2;vector-effect:non-scaling-stroke;pointer-events:none}
+.mt-edit{position:absolute;transform:translate(-50%,-50%);z-index:3;display:grid;grid-template-columns:auto auto;gap:4px 6px;align-items:center;background:#fff;border:1px solid var(--pa-line);border-radius:10px;padding:8px;box-shadow:0 8px 24px rgba(16,30,23,.28);color:var(--pa-ink)}
+.mt-edit input{font:inherit;font-size:15px;font-variant-numeric:tabular-nums;width:9em;padding:6px 8px;border:1px solid #9bb3a6;border-radius:7px}
+.mt-edit small{grid-column:1/-1;font-size:12px;color:var(--pa-muted);max-width:18em}
+.mt-prov{margin:0 0 6px;font-size:12.5px;border-radius:8px;padding:6px 10px;background:var(--pa-soft);border:1px solid var(--pa-line)}
+.mt-prov.is-draft{background:#fdf8ee;border-color:#e9c98f;color:#5d3a00}
+.mt-snap-toggle{font-size:13px;color:var(--pa-muted)}
+.mt-scale-box{background:#eef4fa;border:1px solid #c9dbea;border-radius:10px;padding:8px 10px;margin:8px 0;font-size:13px}
+.mt-scale-box label{display:flex;align-items:center;gap:6px;font-weight:600}
+.mt-scale-box input{font:inherit;font-size:13px;width:8em;padding:5px 8px;border:1px solid var(--pa-line);border-radius:8px}
+.mt-scale-box p{margin:4px 0}
+.mt-known{display:flex;flex-wrap:wrap;gap:4px;margin-top:4px}.mt-known .pa-chip{font-size:11.5px;padding:3px 8px}
+.mt-edges{margin:8px 0;font-size:13px}
+.mt-edges summary{cursor:pointer;font-weight:600}
+.mt-edges table{width:100%;border-collapse:collapse;margin-top:4px;font-variant-numeric:tabular-nums}
+#app .mt-edges table.mt-edge-table th,#app .mt-edges table.mt-edge-table td{text-align:left;padding:3px 6px;height:auto;border-bottom:1px solid var(--pa-line);background:none;font-size:13px;line-height:1.3;white-space:nowrap}
+#app .mt-edges table.mt-edge-table thead th{font-size:12px;color:var(--pa-muted);font-weight:600;text-transform:none;letter-spacing:0}
+.mt-edges td.mt-delta{color:var(--pa-amber);font-weight:600}
+.mt-len{font:inherit;background:none;border:0;padding:2px 4px;margin:-2px -4px;border-radius:5px;color:var(--pa-blue);text-decoration:underline dotted;cursor:text}
+.mt-len:hover,.mt-len:focus-visible{background:#e3eef8}
+.mt-verified{display:flex;align-items:flex-start;gap:8px;margin:10px 0 4px;font-size:13px;line-height:1.35;background:var(--pa-soft);border:1px solid var(--pa-line);border-radius:10px;padding:8px 10px}
+.mt-verified input{margin-top:2px}
+.mt-verified input:disabled+span{opacity:.6}
+/* The dialog */
+.mt-dialog-backdrop{position:fixed;inset:0;z-index:60;background:rgba(16,30,23,.55);display:grid;place-items:center;padding:16px}
+.mt-dialog{width:min(1400px,100%);height:calc(100vh - 32px);overflow:hidden;background:#fff;color:var(--pa-ink);border-radius:16px;box-shadow:0 24px 64px rgba(0,0,0,.35);padding:14px 18px;display:grid;grid-template-rows:auto minmax(0,1fr);gap:10px}
+.mt-dialog:focus{outline:none}
+.mt-dialog-head{display:flex;align-items:flex-start;justify-content:space-between;gap:12px}
+#app .mt-dialog-head h2,.mt-dialog-head h2{margin:0;font-size:18px;font-weight:650;letter-spacing:-.01em}
+.mt-dialog-head p{margin:2px 0 0}
+/* The picture takes the height left; the controls sit beside it and scroll on their own, with the
+   actions pinned at their foot, so the picture and Save are on screen together. */
+.mt-dialog-body{display:grid;grid-template-columns:minmax(0,1fr) 340px;gap:16px;min-height:0;height:100%}
+.mt-dialog-main{display:grid;grid-template-rows:auto minmax(0,1fr);gap:8px;min-width:0;min-height:0}
+.mt-dialog-side{font-size:13.5px;min-height:0;overflow:auto;display:flex;flex-direction:column;padding-right:4px}
+.mt-dialog-side .pa-measure-actions{position:sticky;bottom:0;background:#fff;margin-top:auto;padding:8px 0 2px;border-top:1px solid var(--pa-line)}
+.mt-dialog-side .mt-verified{margin-top:8px}
+.mt-dialog-note{margin:8px 0;font-size:14px}
+.mt-views{display:grid;gap:6px;min-width:0}
+.mt-aerials{display:flex;gap:6px;overflow-x:auto;padding-bottom:2px}
+.mt-photo-row{display:flex;align-items:center;gap:6px;overflow-x:auto;padding-bottom:2px}
+.mt-views-label{font-size:12px;font-weight:600;color:var(--pa-muted);margin-right:2px}
+.mt-thumb{flex:0 0 auto;display:grid;grid-template-columns:44px auto;align-items:center;gap:6px;max-width:190px;font:inherit;font-size:12px;color:var(--pa-ink);background:#fff;border:1px solid var(--pa-line);border-radius:10px;padding:3px 8px 3px 3px;cursor:pointer}
+.mt-thumb[aria-pressed="true"]{border-color:var(--pa-green);box-shadow:0 0 0 2px rgba(47,107,74,.25);background:#eef6f1}
+.mt-thumb span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.mt-thumb-img{width:44px;height:33px;object-fit:cover;border-radius:6px;background:#dfe7e2;display:block}
+.mt-all{flex:0 0 auto;font-size:12.5px;color:var(--pa-muted);display:flex;align-items:center;gap:6px;white-space:nowrap}
+.mt-all select{font:inherit;font-size:12.5px;max-width:220px;padding:5px 8px;border:1px solid var(--pa-line);border-radius:8px;background:#fff;color:var(--pa-ink)}
+.mt-stage{display:grid;grid-template-rows:minmax(0,1fr) auto;min-height:0;padding:6px}
+.mt-stage .pa-zoom{max-height:none;min-height:0;height:100%;container-type:size}
+.mt-stage .pa-stage-tools{padding-top:6px}.mt-stage .pa-caption{margin:0}
+.pa-canvas.mt-canvas{min-width:0;width:min(calc(var(--mt-zoom,1)*100%),calc(var(--mt-zoom,1)*100cqh*var(--mt-ar,1.5)));margin:0 auto}
+@media (max-width:1000px){.mt-dialog{height:auto;max-height:calc(100vh - 32px);overflow:auto}.mt-dialog-body{grid-template-columns:minmax(0,1fr);height:auto}.mt-stage .pa-zoom{height:60vh}.mt-dialog-side{overflow:visible}}
+/* The stored measurement on the asset page */
+.mt-card{margin-top:18px;border:1px solid var(--pa-line);border-radius:14px;padding:14px 16px;background:#fff;color:var(--pa-ink)}
+#app .mt-card h3,.mt-card h3{margin:0 0 4px;font-size:15px}
+.mt-card .pa-dl{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:6px 12px;margin:8px 0;font-size:13px}
+.mt-card .pa-dl>div{display:block}.mt-card .pa-dl dt{color:var(--pa-muted);font-size:12px}.mt-card .pa-dl dd{margin:0}
+.mt-mini{background:var(--pa-canvas);border-radius:12px;padding:6px;margin-top:6px}
+.mt-mini .pa-caption{color:#e6eee9;margin:6px 4px 2px}
+.nd-tag.nd-tag-draft{background:#fdf3e2;color:#8a4a00;margin-left:6px}
+/* Photo | Diagram (EVAL_REPORT 104.1): a clean plan in the picture's own pixels, under the same
+ * overlay. Ink and strokes from the Property tokens; each type colour reads at 4.5:1 or more on
+ * the ground (#f7f8f5). */
+.pa-canvas.is-diagram{background:#f7f8f5}
+.mt-diagram{position:absolute;inset:0;width:100%;height:100%;display:block;font-family:Inter,system-ui,sans-serif}
+.mt-d-lot{fill:none;stroke:#3b4a42;stroke-width:2;vector-effect:non-scaling-stroke;stroke-linejoin:round}
+.mt-d-lot.is-adjacent{stroke:#6b7b72;stroke-dasharray:9 6}
+.mt-d-shape{fill:color-mix(in srgb,var(--c) 16%,transparent);stroke:var(--c);stroke-width:2.5;vector-effect:non-scaling-stroke;stroke-linejoin:round}
+.mt-d-shape.is-line{fill:none;stroke-width:3.5;stroke-linecap:round}
+.mt-d-shape.is-cut{fill:#f7f8f5;stroke-dasharray:6 4}
+.mt-d-label rect{fill:#fff;stroke:var(--c);stroke-width:1.2;vector-effect:non-scaling-stroke}
+.mt-d-label text{fill:var(--c);text-anchor:middle;font-weight:600;font-variant-numeric:tabular-nums}
+.mt-d-total text{fill:var(--c);text-anchor:middle;font-weight:700;paint-order:stroke;stroke:#fff;stroke-width:3px;stroke-linejoin:round}
+.mt-d-total text+text{font-weight:600}
+.mt-d-total.is-line text{text-anchor:start}
+.mt-d-leader{stroke:var(--c);stroke-width:1.5;vector-effect:non-scaling-stroke;stroke-linecap:round}.mt-d-leader.is-building{--c:#4b5563}
+.mt-d-legend>rect{fill:#fff;stroke:#cfd8d2;stroke-width:1;vector-effect:non-scaling-stroke}
+.mt-d-legend text{fill:#1d3328}.mt-d-legend text.is-title{font-weight:700}
+.mt-d-swatch{fill:color-mix(in srgb,var(--c) 30%,#fff);stroke:var(--c);stroke-width:1.5;vector-effect:non-scaling-stroke}
+.mt-d-north path{fill:#1d3328}.mt-d-north text{fill:#1d3328;text-anchor:middle;font-weight:700}
+.mt-d-scale line{stroke:#1d3328;stroke-width:2;vector-effect:non-scaling-stroke}
+.mt-d-scale text{fill:#1d3328;text-anchor:middle;font-weight:600}
+.mt-d-plate{fill:rgba(255,255,255,.85)}
+.mt-d-credit{fill:#4f6258;text-anchor:end}
+.mt-d-note{fill:#4f6258;text-anchor:start;font-style:italic;paint-order:stroke;stroke:#f7f8f5;stroke-width:3px}
+.mt-picture-toggle button{padding:4px 10px}
+.mt-d-building{fill:rgba(75,85,99,.16);stroke:#4b5563;stroke-width:2.5;vector-effect:non-scaling-stroke;stroke-linejoin:round}
+.mt-d-label.is-building{--c:#4b5563}.mt-d-total.is-building{--c:#4b5563}
+/* The diagram's furniture: fixed in the stage's corners over the zoomed picture. */
+.mt-stage-view{position:relative;min-height:0;min-width:0}
+.mt-stage .mt-stage-view{display:grid}
+.mt-furniture{position:absolute;inset:0;pointer-events:none;font:500 12px/1.35 Inter,system-ui,sans-serif;color:#1d3328}
+.mt-furniture>*{position:absolute;background:rgba(255,255,255,.92);border:1px solid #cfd8d2;border-radius:8px;box-shadow:0 1px 3px rgba(16,30,23,.12)}
+/* The key: a strip at the top of the bar under the picture, never over the drawing */
+.mt-f-key{flex:1 0 100%;display:flex;flex-wrap:wrap;align-items:center;gap:2px 14px;padding:5px 10px;background:rgba(255,255,255,.94);color:#1d3328;border-radius:8px;font:500 12px/1.35 Inter,system-ui,sans-serif}
+.mt-f-key strong{font-weight:700}.mt-f-key ul{display:contents;list-style:none;margin:0;padding:0}
+.mt-f-key li{display:flex;align-items:center;gap:6px;min-width:0}.mt-f-key p{margin:0;color:#4f6258;font-style:italic}
+.mt-f-swatch{width:11px;height:11px;border-radius:2px;flex:0 0 auto;background:color-mix(in srgb,var(--c) 30%,#fff);border:1.5px solid var(--c)}
+.mt-f-swatch.is-building{--c:#4b5563}
+.mt-f-north{top:10px;right:10px;padding:4px 6px}.mt-f-north path{fill:#1d3328}.mt-f-north text{fill:#1d3328;text-anchor:middle;font-weight:700}
+.mt-f-scale{left:10px;bottom:10px;padding:4px 10px 6px;display:grid;justify-items:start;gap:2px;font-weight:600}
+.mt-f-scale i{display:block;height:6px;border:2px solid #1d3328;border-top:0}
+.mt-f-credit{right:10px;bottom:10px;padding:3px 8px;color:#4f6258;font-size:11px;max-width:55%;text-align:right}

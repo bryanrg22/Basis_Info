@@ -306,3 +306,44 @@ async def test_a_viewer_is_403_a_non_member_404_and_a_stale_revision_409(
     )
     assert stale.status_code == 409, stale.text
     await assert_nothing_written(sessionmaker, sid, Stage.ASSETS_REVIEW, 2)
+
+
+# EVAL_REPORT 104: who drew it, whether it was verified, the picture, the measurement it replaced.
+EDITED: dict[str, Any] = {
+    **PLAN,
+    "shapes": [{"kind": "area", "ring": [[0, 0], [110, 0], [110, 200], [0, 200]]}],
+    "drawn_by": "engineer",
+    "verified": True,
+    "view": {
+        "kind": "document",
+        "id": "plan-c1",
+        "label": "Sheet C1",
+        "width": 2400,
+        "height": 1800,
+    },
+    "original": {**PLAN, "drawn_by": "model:sam3-surface@1", "verified": False},
+}
+
+
+async def test_a_measurement_with_its_provenance_survives_a_draft_and_a_decision(
+    api: Api, seed: Seed, sessionmaker: async_sessionmaker[AsyncSession]
+) -> None:
+    # The app keeps a traced measurement in the assets gate's draft so a reload keeps it
+    # (web/live/live-review.js); the draft and then the decision store the body as sent.
+    sid, targets = await at_assets(api, seed)
+    url = f"/v1/studies/{sid}/drafts/assets_review"
+    headers = {"Authorization": "Bearer uid:alice"}
+    body = {"revision": 2, "corrections": [asset(targets["asset"], {"measurement": EDITED})]}
+    saved = await api.client.put(url, json=body, headers=headers)
+    assert saved.status_code == 200, saved.text
+    read = await api.client.get(url, headers=headers)
+    assert read.json()["draft"]["corrections"][0]["after"] == {"measurement": EDITED}
+    nested = {**EDITED, "original": {**EDITED["original"], "original": PLAN}}
+    refused = await reject(api, sid, [asset(targets["asset"], {"measurement": nested})])
+    assert refused.status_code == 422, refused.text
+    assert "measurement.original.original cannot hold an original" in refused.text
+    response = await reject(api, sid, [asset(targets["asset"], {"measurement": EDITED})])
+    assert response.status_code == 202, response.text
+    async with sessionmaker() as session:
+        [row] = (await session.scalars(select(Correction))).all()
+    assert row.after == {"measurement": EDITED}

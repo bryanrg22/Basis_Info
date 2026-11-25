@@ -15849,3 +15849,609 @@ the tenancy walk, the known routes and migration 0039's test pass (backEnd/tests
   test to the preparer), a later renovation removing an earlier renovation's row.
 * The treatment split (election required or whole asset) is an inference, the CPA's to confirm.
 * Migration 0039 revises 0035 on this branch and is re-pointed when 0036-0038 land.
+
+## 103. Ground truth for measuring: ten measured houses, the harness, today's formulas, lidar and the Google pixel size (2026-11-25)
+
+**Answer first.** Ten real houses in seven states (IL, MO, MD, LA, VA, NC, GA; one to two
+storeys; hip, gable, cross-gable and low-slope roofs) are now ground truth, each transcribed twice
+from its HABS measured drawings, with the chain closing and the two readings agreeing to 0.6 % on
+the plan. Today's formulas, fed a perfect appraisal, read the **perimeter 14.5 % low on average
+and low on every house**, the wall face 26 % low and the gutter 49 % low. 3DEP lidar found the
+building on 2 of the 8 houses it read; on the other 6 the project never classified buildings.
+Google's straight-down view measures a roof edge true to about 1 % (3 houses), probably because
+the roof's height and a 2.7 % too-fine recorded pixel size cancel (suspected). Cost $0; 17 Google
+page loads, no block signal; no client data.
+
+**Question.** Step 1 of `AI_MEASUREMENT_PLAN.md` section 7: before any method drafts a
+measurement, is there a set of real houses whose exterior is known to the inch, a harness that
+scores any measuring method against it, the baseline (today's formulas) scored on it, and an
+answer to the one assumption every Google-traced quantity rests on: is the straight-down view's
+recorded pixel size right? No paid call of any kind; no client data.
+
+**The standard.**
+
+* *Ground truth for building geometry.* The Historic American Buildings Survey's measured
+  drawings (Library of Congress; "No known restrictions on images made by the U.S. Government",
+  read on every record used) are hand-measured on site and printed as dimension strings to the
+  inch or the eighth of an inch. NPS's measured-drawing guidelines give no numeric tolerance; the
+  passes below measure the transcription's own repeatability instead of assuming it.
+* *Floor area.* ANSI Z765 (the measure appraisers use): gross living area from the outside face
+  of the exterior walls, finished above-grade floors only. The truth's GLA is that sum of the
+  plan's floor outlines.
+* *Scoring.* Paired design (every method on the same houses), signed and absolute percent error
+  per quantity per house, the bias (mean signed) and the per-house spread (SD of signed), which
+  is what sizes the set (AI_MEASUREMENT_PLAN section 4: about 18 houses separate two methods
+  2 points apart when they disagree by 3 % a house).
+* *A perspective camera over 3D buildings.* A straight-down pinhole view of flat ground has one
+  scale everywhere; a surface `h` above the ground point is `range - h` from the camera and shows
+  `range / (range - h)` larger. Google renders photogrammetric 3D buildings where it has them,
+  so a roof edge in the straight-down view is not at the ground's scale. A public ortho is
+  resampled to the ground; a building leans (relief displacement) but its roof's scale changes
+  by `H / (H - h)` with a flying height `H` of kilometres, under 1 %.
+
+### 103.1 The set and how it was built
+
+**Picking.** 27 candidates (`$BASIS_EVAL_DATA_DIR/work/measure_research/ground_truth.md`) were
+screened on their item records and the small preview of every sheet (Library of Congress, one
+request at a time, 4 s apart, generic User-Agent; 195 requests in all, 11 of them retried after a
+dropped connection, logged in `measure_truth/work/loc_requests.jsonl`). Kept: detached houses
+whose first-floor plan prints an overall and the exterior wall strings, and whose elevations
+print heights or can be scaled at 1/4" = 1'-0", spread over states and roof shapes; NPS-owned
+houses first, because they are most likely to stand unchanged. Not used: the Swedish House and
+the tenant house of the Sandburg estate (nc0491, nc0492, small outbuildings, in favour of the
+farm manager's house), the Boulter House (oh1974), the Bethel Gulf station (fl0003, not a house),
+the Arnold and Dean houses (il0490, il0494): not needed once ten were found. Only the needed sheets were downloaded as the
+400 dpi masters (1-bit TIFF, 14,400 x 9,600 px; 56 sheets, 33 MB) to `measure_truth/habs/<id>/`.
+
+**Transcribing.** Each house was read twice, independently: two readers per group of five
+houses, each with the same written instructions (`measure_truth/work/TRANSCRIBE.md`: the
+schema, the outline to follow, how to treat strings that disagree) and the sheet viewer, neither
+shown the other's files. Every edge carries its printed text, its value, its sheet, and whether
+it is printed, arithmetic on printed strings (a sum, a difference, a closure) or scaled (with the
+scale and the printed dimension it was calibrated on). The validator (`evals.measure_truth`)
+checks every printed text against its value, every printed height against its datum, that the
+chain closes to 0.10 ft and that its extent equals the printed overall to 0.10 ft; a check that
+fails must be declared in the file's `flags`, or the unit test fails. The two passes were then
+compared quantity by quantity (`measure_truth/work/compare.py`) and merged by a script that
+writes every disagreement and its resolution into the file (`passes.disagreements`,
+`measure_truth/work/merge.py`).
+
+How to read this table: the ten houses as committed in `backEnd/evals/fixtures/measure_truth/`.
+*Outline*: the ground floor's exterior walls (printed: every edge printed or arithmetic on
+printed strings; scaled: at least one edge scaled). *Heights*: above grade; printed, derived
+(a printed level plus the mean of the printed grades around a sloping lot) or scaled.
+*Standing*: what the public ortho (and its history back to 2007) shows against the drawing.
+
+| House | Name, place | Drawn | Storeys | Roof | Outline (edges) | Footprint SF | Perimeter ft | GLA SF | Eave / ridge ft (how) | Roof truths | Standing |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| ga0157 | Jimmy Carter Boyhood Home, Sumter County GA | 1989 | 1 | hip with cross gables | printed (12) | 2,016 | 192.5 | 2,016 | 9.9 / 20.8 (printed, printed) | none | unknown |
+| il0491 | Miller House, Sangamon County IL | 1985 | 2 | hip | printed (10) | 1,608 | 173.2 | 3,213 | 22.8 / 27.6 (printed, printed) | roof_plan_sf, roof_area_sf, gutter_ft | unchanged |
+| la0726 | James Muslow House, Caddo Parish LA | 2015 | 1 | low-slope gable | scaled (14) | 3,916 | 288.7 | 3,916 | 10.7 / 13.0 (scaled, derived) | none | unknown |
+| md1464 | Norris-Higgins House, Montgomery County MD | 1994 | 2 | cross-gable on a two-story block | printed (8) | 973 | 135.7 | 1,745 | 22.3 / 30.2 (scaled, derived) | none | changed |
+| mo1222 | Frank Wallace House, Jackson County MO | 1992 | 1 | hip | printed (4) | 1,216 | 145.2 | 1,216 | 13.6 / 23.5 (derived, derived) | roof_plan_sf, roof_area_sf, gutter_ft | unchanged |
+| mo1223 | George Wallace House, Jackson County MO | 1992 | 1 | cross: front-gable main roof | printed (16) | 1,170 | 174.0 | 1,170 | 10.1 / 17.6 (derived, derived) | none | unchanged |
+| mo1224 | Noland-Haukenberry House, Jackson County MO | 1992 | 2 | cross-gable | printed (12) | 1,328 | 174.6 | 2,037 | 21.5 / 29.2 (derived, derived) | none | unchanged |
+| mo1857 | Harry S. Truman Farm Home, Jackson County MO | 1996 | 2 | hip | printed (12) | 1,014 | 161.5 | 1,890 | 19.8 / 27.5 (printed, derived) | none | unchanged |
+| nc0490 | Carl Sandburg Home, Farm Manager's House, Henderson County NC | 1974 | 1.5 | cross-gable | printed (6) | 1,356 | 179.3 | 1,795 | 10.2 / 25.2 (scaled, scaled) | none | unknown |
+| va1914 | Minor-Nelson House, Charlottesville VA | 1999 | 2 | gable | scaled (16) | 2,319 | 223.4 | 3,705 | 23.4 / 29.7 (scaled, scaled) | none | unchanged |
+
+**Where the passes agreed.** Of the ten houses, the footprint area agreed to the square foot on
+5 and differed by at most 0.6 % (median 0.04 %); the perimeter on 6, at most 0.3 %; the long side
+on 9, at most 0.46 %. The heights differed more: the eave by up to 14 % and the ridge by up to 8 %
+on one house (mo1223), because the two readers took the grade from different elevations of a
+lot that falls 2.4 ft around the house; both read the same eight printed grades, so the merged
+file uses their mean. Each disagreement and its resolution is in the file; the ones that move a
+truth value by more than 0.5 %:
+
+| House | What | Pass A | Pass B | Kept |
+|---|---|---|---|---|
+| il0491 | north-south depth | 46'-8" (left string, overall 54'-6"), chain open 0.25 ft | 30'-1" + 16'-4" = 46'-5" (right string, overall 54'-3"), chain closes | B: the right string closes the chain, the second-floor plan prints 54'-3" on both sides, and the left string's end tick does not meet a wall face; the left string is recorded as a drafting difference (footprint 1,611.6 against 1,608.4 SF, 0.2 %) |
+| la0726 | chain | 12 edges, 3,892.8 SF (scaled jogs 0.33 and 0.63 ft, 30.29 / 3.46 / 14.46 ft) | 14 edges, 3,916.0 SF (scaled jogs 0.17, 0.43, 0.60 ft; 30.43 / 3.27 / 14.75 ft; kitchen jog read) | B, the finer reading; the 0.6 % difference is this house's truth uncertainty (five runs are scaled at 3/16") |
+| md1464 | ridge | 27'-4 5/8" above the first floor (main ridge) + 1.92 ft scaled grade = 29.3 ft | 28'-3" above the first floor (the higher of the two printed 'roof ridges') + 2.08 ft scaled grade = 30.33 ft | the higher printed ridge, 28'-3" (the roof's top, as lidar's peak reads it), plus the mean of the two scaled grades, 2.00 ft |
+| md1464 | eave | 22.1 ft scaled | 22.42 ft scaled | the mean, 22.26 ft (both scaled on the north elevation) |
+| mo1223 | grade under the eave | -2'-0 1/2" (east) | -3'-5 1/4" (north) | the mean of the eight printed grades, 2.370 ft below the floor (eave 1.4 ft apart between the passes' single readings: the lot slopes) |
+| va1914 | north-south extent | 51'-5" (left string's segments, which the drawing scales to); overall 51'-8" declared a mismatch | 51'-8" (right string, with the printed 5'-4" the drawing shows as about 5.0 ft) | A: both passes found the drawing scales 51.1 to 51.4 ft, which supports 51'-5"; areas differ 0.21 %, perimeters 0.30 % |
+
+**Why some truths are missing.** A roof area or a gutter length is a truth only where it rests on
+printed values and one stated assumption that holds: one roof of one pitch over the outline with
+the same overhang all round (`roof.derive`), or a printed roof plan. That is 2 houses of 10
+(il0491, mo1222); the other roofs mix pitches and heights, cover porches, or have overhangs from
+0.1 to 7 ft (la0726), and a single number for them would be a guess dressed as truth. The wall
+face is perimeter x eave above grade (one eave for the whole building, no gable triangles, no
+openings): derived, and an overstatement where a one-storey wing meets a two-storey block
+(mo1224, mo1857, md1464, va1914). Site items were not transcribed: only one site plan prints
+anything to scale for paving (il0491's walk), so they wait for step 4's county shapes.
+
+### 103.2 The harness
+
+`python -m evals.measure_eval` (component `measure_eval`, version `v1`; `evals/README.md`) loads
+the truth files, runs every method listed in `METHODS` on every house and scores each quantity:
+signed error `(method - truth) / truth`, its absolute value, then per quantity across houses the
+bias (mean signed), the spread (SD of signed, which sizes the set), the mean, median and worst
+absolute error, and per method the dollars, tokens and seconds per house. M1 to M6 of the plan
+plug in as one more `Method` each (an id, the plain setup name, the exact settings, a function
+of the house). `--geo` adds the lidar look, `--pixels` the pixel-size check. The truth's own
+checks run as cases (a house whose findings are not all declared fails the run).
+`evals.measure_gather` runs the production public gather (`basis.geo.gather.Gatherer` with the
+in-memory store and local files, no study) per house; `evals.measure_capture` runs the
+production capture (`CaptureRunner`, the real Playwright browser, the in-memory store) with a
+page-load ledger of its own; `evals.measure_pixels` scores hand-measured pixel lengths.
+
+Tests (`tests/unit/evals/`, 62 in all, LEDGER): the dimension parser, every schema rule, the
+chain arithmetic on an L-shape and a 45-degree bay, the findings-must-be-declared rule, every
+derived truth's closed form, M0 as the production functions compute it, the scoring arithmetic,
+the lidar conversions, the pixel ratio and its perspective correction, the load ledger's refusals
+and hour wait, and the dry-run record (CI runs it on a synthetic box).
+
+### 103.3 Today's formulas (M0) on the ten houses
+
+**Setup.** M0 is `basis.domain.measurements` exactly as the takeoff calls it (`footprint`,
+`ground_footprint`, `perimeter_ft`, `long_side_ft`, `roof_area`, `siding_area`,
+`gutter_length`): a 1.5:1 rectangle, 6/12 pitch (factor 1.118), 1 ft overhang, 9 ft of wall a
+storey, gutters on the two long eaves; no garage, no sketch. Its inputs are what an appraisal
+would print for the house: the GLA as the plan's finished floors summed (so exact: this is M0 with
+a perfect appraisal, its best case) and the storeys as drawn. The siding is compared before its
+15 % openings, on the same footing as the truth's gross wall face. Cost $0, no tokens, 0.1 ms a
+house.
+
+How to read this table: one row per quantity, over the houses that have a truth for it.
+*Mean signed* is the bias (negative: M0 reads low); *SD* the spread of the signed error from
+house to house; *worst* the largest absolute error and its house.
+
+| Setup | Quantity | Houses | Truth tier | Mean signed % | SD % | Mean abs % | Median abs % | Worst abs % (house) |
+|---|---|---|---|---|---|---|---|---|
+| Today's formulas | ground-floor outline area | 10 | printed 8, scaled 2 | -7.2 | 8.9 | 7.2 | 3.4 | 23.3 (mo1224) |
+| Today's formulas | ground-floor wall perimeter | 10 | printed 8, scaled 2 | **-14.5** | 8.5 | 14.5 | 15.6 | 25.4 (mo1224) |
+| Today's formulas | the outline's long side | 10 | printed 8, scaled 2 | -14.4 | 9.5 | 14.4 | 13.1 | 33.9 (mo1224) |
+| Today's formulas | eave height above grade (9 ft a storey) | 10 | printed 3, derived 3, scaled 4 | -12.5 | 17.6 | 19.1 | 17.6 | 33.8 (mo1222) |
+| Today's formulas | wall face, before openings | 10 | derived | **-25.8** | 13.0 | 26.7 | 28.4 | 39.5 (va1914) |
+| Today's formulas | roof outline in plan | 2 | printed 1, derived 1 | -20.7 | 13.6 | 20.7 | 20.7 | 30.3 (mo1222) |
+| Today's formulas | roof surface | 2 | derived | -18.8 | 21.2 | 18.8 | 18.8 | 33.8 (mo1222) |
+| Today's formulas | gutter length | 2 | derived | **-49.1** | 4.0 | 49.1 | 49.1 | 51.9 (mo1222) |
+
+Per house (signed %, M0's value against the truth in brackets, SF or ft):
+
+| House | footprint_sf | perimeter_ft | long_side_ft | gla_sf | eave_height_ft | wall_area_gross_sf | roof_plan_sf | roof_area_sf | gutter_ft |
+|---|---|---|---|---|---|---|---|---|---|
+| ga0157 | 0.0 (2,016 vs 2,016) | -4.8 (183 vs 192) | -2.3 (55 vs 56) | 0.0 (2,016 vs 2,016) | -8.9 (9 vs 10) | -13.2 (1,650 vs 1,901) |  |  |  |
+| il0491 | -0.1 (1,606 vs 1,608) | -5.5 (164 vs 173) | -9.5 (49 vs 54) | -0.0 (3,213 vs 3,213) | -20.9 (18 vs 23) | -25.2 (2,945 vs 3,940) | -11.0 (1,770 vs 1,990) | -3.8 (1,979 vs 2,058) | -46.2 (102 vs 190) |
+| la0726 | 0.0 (3,916 vs 3,916) | -11.5 (255 vs 289) | -20.2 (77 vs 96) | 0.0 (3,916 vs 3,916) | -16.1 (9 vs 11) | -25.7 (2,299 vs 3,096) |  |  |  |
+| md1464 | -10.3 (872 vs 973) | -11.1 (121 vs 136) | -16.5 (36 vs 43) | 0.0 (1,745 vs 1,745) | -19.1 (18 vs 22) | -28.1 (2,170 vs 3,020) |  |  |  |
+| mo1222 | -0.0 (1,216 vs 1,216) | -2.0 (142 vs 145) | -8.0 (43 vs 46) | -0.0 (1,216 vs 1,216) | -33.8 (9 vs 14) | -35.1 (1,281 vs 1,973) | -30.3 (1,358 vs 1,948) | -33.8 (1,518 vs 2,294) | -51.9 (89 vs 186) |
+| mo1223 | -0.0 (1,170 vs 1,170) | -19.7 (140 vs 174) | -10.9 (42 vs 47) | -0.0 (1,170 vs 1,170) | -11.2 (9 vs 10) | -28.8 (1,257 vs 1,764) |  |  |  |
+| mo1224 | -23.3 (1,019 vs 1,328) | -25.4 (130 vs 175) | -33.9 (39 vs 59) | -0.0 (2,037 vs 2,037) | -16.1 (18 vs 21) | -37.4 (2,345 vs 3,747) |  |  |  |
+| mo1857 | -6.8 (945 vs 1,014) | -22.3 (125 vs 162) | -15.2 (38 vs 44) | -0.0 (1,890 vs 1,890) | -9.1 (18 vs 20) | -29.3 (2,259 vs 3,196) |  |  |  |
+| nc0490 | -11.8 (1,196 vs 1,356) | -21.3 (141 vs 179) | -22.7 (42 vs 55) | 0.0 (1,795 vs 1,795) | 33.0 (14 vs 10) | 4.7 (1,906 vs 1,820) |  |  |  |
+| va1914 | -20.1 (1,853 vs 2,319) | -21.3 (176 vs 223) | -4.3 (53 vs 55) | 0.0 (3,705 vs 3,705) | -23.0 (18 vs 23) | -39.5 (3,163 vs 5,225) |  |  |  |
+
+What it says:
+
+* **The perimeter is low on every house, 2 to 25 %.** The bias is structural, not noise: a 1.5:1
+  rectangle is nearly the most compact outline an area can have, and real outlines (an L, a
+  wing, a bay, a long low house) are never more compact. On the five one-storey or equal-floor
+  houses, where the footprint is exact, the perimeter is still 2 to 20 % low. The client house's
+  31 % (AI_MEASUREMENT_PLAN section 1) is the same effect, larger.
+* **The footprint is exact only where the floors are equal.** GLA / storeys is low by 7 to 23 % on
+  the five houses whose upper floor is smaller than the ground floor (a one-storey wing, a
+  half-storey under the roof).
+* **The wall face is low by a quarter** (both errors multiply: perimeter low, and 9 ft a storey
+  against eaves that stand 0.9 to 5.4 ft higher above grade than 9 ft a storey, because of the
+  floor's height above grade and the wall above the ceiling). The one exception is the 1.5
+  storey house (nc0490), where 13.5 ft for 1.5 storeys overshoots a 10.2 ft eave.
+* **The gutter is half the truth** on both hip roofs: M0 puts gutters on two long eaves (a gable),
+  and a hip has them all round; and its 1 ft overhang is under the 2.1 and 2.85 ft drawn.
+* The roof figures rest on 2 houses (the only ones with one pitch over one outline, or a printed
+  roof plan): too few to say more than that both are low.
+
+**Spread, for sizing the set.** The per-house SD of M0's signed error is 8.5 to 9.5 % on the
+plan quantities and 13 to 18 % on heights and wall face. Whether 10 houses separate two methods
+depends on the spread of their *paired difference*, which needs a second method; M0's own spread
+says that against M0 any method within a few percent will be separated easily, and that the
+methods compared later (M1 against M2, say) are what the set must be sized for.
+
+### 103.4 Locating the houses, the public gather and the lidar, first look
+
+**Locating.** Each building centre was placed by hand on the public ortho (the gather's current
+view, a labelled pixel grid, `pixel_to_lonlat` for the point), checked against the drawing's
+outline and the Google search's pin for the address, and the ortho's history (one view a year
+back to 2006 to 2008) was looked at for changes. The result is in each file's `location` and
+`standing`:
+
+| House | Placed on | Standing | Note |
+|---|---|---|---|
+| il0491, mo1222, mo1223, mo1224, mo1857 | 15 cm state orthos (IL 2025, MO 2008 and 2024) | unchanged | NPS-owned; outline sizes on the ortho match the drawing's roof; mo1857 found from the historical marker's coordinates after the Google address search found no place |
+| va1914 | Google's view (NAIP is 0.6 m) | unchanged at 0.6 m | the same rotated block and wings 2008 to 2023 |
+| md1464 | 15 cm MD ortho, 2015 | **changed** | a long addition to the west appears between the 2015 and 2018 orthos (not measured); scored for M0 only, never for a method that measures today's building |
+| ga0157 | the lidar building at Google's farm view | unknown | lidar's roof (3,205 SF, eave 2.8 m, peak 6.5 m) matches the drawn house with its porches under the roof (about 3,240 SF, eave 3.0 m, ridge 6.3 m); NPS restored the farm after 1989 |
+| la0726 | Google's address pin | unknown | the house is under canopy on every ortho and on Google's view |
+| nc0490 | approximate (the barn complex) | unknown | not told apart from the estate's other buildings from above |
+
+So 6 houses are confirmed standing and unchanged, 1 changed, 3 not checked from above. For M0
+(which reads the appraisal) all 10 count; a method that measures from imagery or lidar can be
+scored on 6 today.
+
+**The gather.** `evals.measure_gather` at each house's centre: 448 requests to the public
+servers over the 10 houses, one at a time per host; no source failed except the NC lidar read
+(below). Files under `$BASIS_EVAL_DATA_DIR/measure_truth/geo/<id>/`.
+
+How to read this table: the 3DEP summary exactly as `basis.geo.lidar` reads it, against the
+truth. *Footprint*: the lidar building's 0.5 m cells, eaves included; *vs walls*: against the
+wall outline; *vs roof plan*: against the walls offset by the overhang (only where that is a
+truth); *eave*: the 5th percentile of the building's points above the ground ring; *peak*: the
+99th. Not a method (M1 will be): the raw numbers.
+
+| House | Project (year) | Pts/m2 | Footprint SF | vs walls % | vs roof plan % | Eave ft | vs truth % | Peak ft | vs ridge % | Status |
+|---|---|---|---|---|---|---|---|---|---|---|
+| ga0157 | USGS_LPC_GA_Georgia_A1_2016_LAS_2018 (2018) | 3.0 | 3,205 | 59.0 |  | 9.2 | -6.6 | 21.4 | 2.8 | ok |
+| il0491 | USGS_LPC_IL_WestCentral_2017_LAS_2019 (2019) | 9.1 | 2,209 | 37.4 | 11.0 | 21.8 | -4.4 | 28.6 | 3.6 | ok |
+| la0726 | LA_Sabine_River_Lidar_A5_2018 (2018) | 38.2 |  |  |  |  |  |  |  | BASIS-GEO-016 |
+| md1464 |  () |  |  |  |  |  |  |  |  | no lidar |
+| mo1222 | MO_WestCentral_1_2018 (2018) | 7.8 |  |  |  |  |  |  |  | BASIS-GEO-016 |
+| mo1223 | MO_WestCentral_1_2018 (2018) | 8.1 |  |  |  |  |  |  |  | BASIS-GEO-016 |
+| mo1224 | MO_WestCentral_1_2018 (2018) | 11.0 |  |  |  |  |  |  |  | BASIS-GEO-016 |
+| mo1857 | MO_FEMANRCS_1_2020 (2020) | 6.9 |  |  |  |  |  |  |  | BASIS-GEO-016 |
+| nc0490 |  () |  |  |  |  |  |  |  |  | no lidar |
+| va1914 | VA_ChesapeakeBaySouth_2015 (2015) | 14.0 |  |  |  |  |  |  |  | BASIS-GEO-016 |
+
+* **Lidar found the building on 2 of the 8 houses it read.** Miller House (IL, 9 points a m2):
+  outline 11 % over the roof plan, 37 % over the walls; eave 4.4 % under the printed top of
+  gutter; peak 3.6 % over the printed roof top. Carter home (GA, 3 points a m2): outline 59 %
+  over the walls (the roof also covers both porches), eave 6.6 % low, peak 2.8 % high.
+* **On the other six the project has no building class at all.** A second read of every point
+  in each box (`measure_truth/work/lidar_classes.py`) found classes 1 (unclassified), 2
+  (ground), 7, 8 or 18 and **no class 6** in MO_WestCentral_1_2018 (three houses),
+  MO_FEMANRCS_1_2020, VA_ChesapeakeBaySouth_2015 and LA_Sabine_River_Lidar_A5_2018; the IL
+  project has 5,867 class-6 points in its box. The gather reports these as `BASIS-GEO-016` ("no
+  building points near the pin"), true but misleading: the project never classified buildings.
+  A lidar method (M1) has to find the building among the unclassified points above the ground
+  itself, or it will draft nothing on most houses.
+* Garrett Park (MD) has no 3DEP project (`BASIS-GEO-010`). On the Sandburg estate the parcel
+  under the pin is the whole 264-acre site and the box over it needs more than 64 tiles
+  (`BASIS-GEO-011`): a parcel that large should fall back to the 40 m box (not changed here).
+* Parcels came back only in MD and NC, the states in the registry with an open parcel layer.
+
+### 103.5 The Google captures
+
+`evals.measure_capture` drove the production `CaptureRunner` (clean views, dates read, history
+off, street level on in a headed browser) with the in-memory store, a plain browser profile
+(never signed in to any account) and its own ledger: every page load written before it happens,
+at most 2 a house and 22 in all, the governor seeded with the ledger so its 6-an-hour and 8 to
+20 s spacing held, and a stop at the first block signal.
+
+| House | Searched by | Outcome | Loads | Close view's imagery date | Notes |
+|---|---|---|---|---|---|
+| mo1222 (and mo1223 in the same views) | address | 7 views | 2 | 8/6/2022 | |
+| mo1224 | address | 6 views | 2 | 8/6/2022 | no street panorama (019) |
+| mo1857 | address | **failed, 006** | 1 | | the search found no place; not retried (it would have waited an hour for the cap) |
+| md1464 | address | 7 views | 2 | 8/16/2023 | shows today's building, with the addition |
+| la0726 | address | 7 views | 2 | 11/15/2024 | the house is under canopy; the street picture shows planting only |
+| va1914 | address | 7 views | 2 | 10/21/2023 | |
+| il0491 | address | 7 views | 2 | 4/6/2024 | Google's address pin is 13 m north of the building's centre |
+| ga0157 | place name | 7 views | 2 | 10/16/2023 | centred on the visitor parking; the house is at the edge of the wide view |
+| nc0490 | point | 6 views | 2 | 8/21/2023 | no street panorama (019) |
+
+**17 page loads in all, no block signal** (no `BASIS-CAPTURE-001` to `004`), about 2 minutes a
+house plus the hourly cap's waits. The wide view's date was unread on 6 houses (021, a note).
+PNGs and view metadata under `$BASIS_EVAL_DATA_DIR/measure_truth/captures/<id>/`; the load
+ledger is `captures/loads.jsonl`. Both towns measured below render Google's photogrammetric 3D
+buildings (the oblique views show walls and trees standing).
+
+### 103.6 Is the straight-down view's pixel size right?
+
+**Method.** On each view, a straight roof edge of known length was measured by reading its two
+ends off a labelled pixel grid, enlarged 2.4 to 4.4 times (by eye, not a script; each edge read
+at two places along it). The true length is a roof-edge length: the printed roof plan where
+there is one (mo1222 61'-0 1/4" by 31'-11"; mo1223 the main gable's 27'-2"), else the printed
+walls plus the overhang at both ends (il0491, overhang scaled 2.1 ft by both passes). The ratio
+is the metres per pixel the true length implies over the recorded `pixel_size_m` (1: right;
+under 1: the view shows the edge larger than its recorded scale, so a trace reads long). On
+Google's view a roof edge `h` above the ground stands `range - h` from the camera and shows
+`range / (range - h)` larger (`range` 165.3 m at `aerial-close`, the eave heights from the
+truth): the *corrected* ratio divides that out and is the pixel size's own error at the ground.
+The points are in `measure_truth/pixel_check/points.json`, scored by `evals.measure_pixels`.
+
+| House | View | Edge | True ft | Pixels | Ratio | Height-corrected |
+|---|---|---|---|---|---|---|
+| mo1222 | Google straight-down | roof plan, north-south | 61.02 | 227.5 | 0.972 | 0.997 |
+| mo1222 | Google straight-down | roof plan, east-west | 31.92 | 115.5 | 1.002 | 1.028 |
+| mo1223 | Google straight-down | main gable roof, east-west | 27.17 | 99.0 | 0.995 | 1.014 |
+| il0491 | Google straight-down | main hip, north-south | 36.53 | 131.0 | 1.011 | 1.055 |
+| mo1222 | public ortho (MO 2024, 15 cm) | roof plan, north-south | 61.02 | 125.0 | 0.992 | |
+| mo1222 | public ortho | roof plan, east-west | 31.92 | 67.0 | 0.968 | |
+| mo1223 | public ortho | main gable roof, east-west | 27.17 | 54.5 | 1.013 | |
+| il0491 | public ortho (IL 2025, 15 cm) | main hip, east-west | 50.62 | 101.0 | 1.002 | |
+| il0491 | public ortho | main hip, north-south | 36.53 | 71.0 | 1.029 | |
+
+| View | Houses | Edges | Ratio: mean of house means | SD | Range | Height-corrected mean | SD |
+|---|---|---|---|---|---|---|---|
+| Google straight-down (`aerial-close`, 0.0841 m/px) | 3 | 4 | 0.998 | 1.2 % | 0.987 to 1.011 | 1.027 | 2.4 % |
+| Public ortho (15 cm) | 3 | 5 | 1.003 | 2.0 % | 0.980 to 1.016 | | |
+
+* **A roof edge traced on Google's straight-down view reads true to about 1 % on average**
+  (mean ratio 0.998, houses 0.987 to 1.011, 3 houses), and the public ortho's recorded pixel size
+  is right to the same reading error (1.003, SD 2 %).
+* **That is two errors cancelling, suspected, not proven.** Corrected for the roofs' height, the
+  ground's pixel is 2.7 % larger than recorded (1.027, SD 2.4 %): the same direction and size as
+  EVAL_REPORT 98's finding that the formula reads 2.0 to 2.6 % finer than the viewer's own scale
+  bar. If both hold, a length on the ground (a driveway, a walk, a fence) traced on Google's view
+  reads about 2.5 % short, and a roof edge 4 to 7 m up reads about right. Three houses and four
+  edges, read by eye at 1 to 2 pixels an end (0.4 to 2 % of these lengths), cannot separate a
+  2.7 % effect from zero with confidence; ground-level lengths of known size (a printed site
+  dimension, a county planimetric edge) are the next check.
+* **The roof-edge-versus-wall confound is ten times larger than the pixel error.** Every outline
+  seen from above is the roof's. Taken as the walls it overstates a side by twice the overhang:
+  5.7 ft on mo1222's 26.2 ft wall (22 %), 4.2 ft on il0491's 32.3 ft (13 %); and as an area,
+  mo1222's roof plan is 60 % over its walls (the roof also covers the porch). A pixel size within
+  3 % matters only after the overhang is taken off; that is M1's job, with the overhang from the
+  elevations or the photos.
+* Not measured: the other houses on Google's view (canopy over la0726 and va1914's eaves, the
+  ga0157 house at the wide view's edge, md1464 changed, nc0490 not identified, mo1857 not
+  captured), and mo1224 (shadowed on the ortho, under trees on Google's view).
+
+### 103.7 Verified, and not
+
+**Verified.** The ten truth files load and pass their checks (every finding declared); the two
+passes agree on the plan to 0.6 % at worst; M0 is the production code (a unit test computes it
+from `basis.domain.measurements`); every number in 103.3 and 103.4 is the recorded run's; the
+gather and the captures ran through the production code with no block signal and 17 loads; the
+lidar's missing building class was re-read point by point on every project that showed it.
+
+**Not verified, or suspected only.**
+
+* The drawings' own accuracy: HABS sets are hand-measured; the passes measure transcription,
+  not the survey. Strings that disagree on the sheet are recorded per house.
+* Heights: 3 eaves are printed against grade, 3 derived from a printed level and the mean of
+  printed grades on sloping lots (the printed grade varies 0.4 to 2.4 ft around those houses), 4 scaled.
+  The wall-face truth uses one eave height for the whole building.
+* Roof area and gutter are truths on 2 houses only, and the roof's slope factor assumes one
+  pitch from the main eave to the ridge.
+* Standing: 3 houses not checked from above (la0726, nc0490, ga0157 identified by lidar only);
+  md1464 has an addition and is not for imagery methods.
+* The pixel-size result is 3 houses read by eye; the 2.7 % at the ground is suspected.
+* mo1857 was not captured on Google (the address search found no place; a point search is next,
+  1 load).
+* Site items were not transcribed.
+* Nothing was signed in to, no model was called, cost $0.
+
+**Run record.** `$BASIS_EVAL_DATA_DIR/verification/measure_eval/v1/measure_eval_2026-11-25`
+(manifest, the 10 truth files with their sha256, 11 cases passed, $0; `python -m
+evals.registry --component measure_eval` lists it). Working files (sheets, passes, crops,
+gathers, captures, pixel points) under `$BASIS_EVAL_DATA_DIR/measure_truth/`.
+
+**Open.** M1 (lidar and public imagery for the shell) against M0 on the 6 houses that stand
+unchanged, with a building finder for unclassified lidar; ground-level lengths for the pixel
+size; 15 to 20 more HABS houses (the spread of a paired difference, not M0's, sizes the set);
+the `BASIS-GEO-016` wording and the large-parcel lidar box.
+
+## 104. The measure tool: a length on every edge, editing, typed lengths, photos and the AI's original (2026-11-25)
+
+**Question.** Bryan asked for measurements on the shapes the way Fusion 360 shows them, "as easy as
+possible", with the engineer able to change them (AI_MEASUREMENT_PLAN.md, step 2 of section 7). Can
+the tool show a length on every edge that agrees with what the server computes, let the engineer
+correct a shape by dragging or typing, measure inside items on photos, and keep an AI's draft beside
+the engineer's edit, without changing how anything is priced?
+
+**Setup.** The standard is section 3 of the plan (research in
+`$BASIS_EVAL_DATA_DIR/work/measure_research/products_and_practice.md`): EagleView's per-segment
+labels and totals from unrounded values, SiteRecon's and Google Earth's vertex editing, Fusion's
+driving dimensions (and AutoCAD's text override as the thing not to copy), Bluebeam's calibration
+to a known length, Roofr's "Mark as done", SiteRecon's locked base view. Built: `traced.py` takes
+`drawn_by`, `verified`, `view` and `original` (OVERRIDES.md section 4); the browser tool in
+`web/live/property.js` and its geometry in `property-model.js`; the assets gate's draft kept on the
+server; a model-draft fixture in the sample API (`&measure=draft`; no model drafts yet). No paid
+call, no live study.
+
+**Method.** Each per-edge length is the server's own computation: a segment on the tangent plane at
+its middle latitude (`lonlat_path_length_ft`) on the lon/lat the body carries (rounded to 1e-9
+degree as the body is), or pixels times the scale. Checked by values printed from the backend for a
+five-corner ring on the sample's close aerial, by sums against the browser's port of `measure` for
+lines and closed paths, and in a headless Chromium (Playwright, 1440 x 900) on the sample.
+
+| Check | Result |
+|---|---|
+| Five edges of a ring on the close aerial, browser vs `lonlat_path_length_ft` | identical to the last digit (168.41265105573947 ... 62.152118164820415 ft); sum 533.0674892835889 ft both |
+| Labels of a line vs the server's `length_ft` | equal after rounding to 0.01 |
+| Area at the shape's middle vs `traced.measure` | 17,177.85 SF both |
+| Typed length, image space | exact (30 ft gives 30 ft) |
+| Typed length, lon/lat (54.25, 100, 12.58, 300 ft) | within 0.001 ft; the sent body computes it within 0.006 ft (the 1e-9 degree rounding) |
+| Headless: the sample's 210 ft back-yard fence clicked at whole screen pixels | 209.72 LF in the dialog, 209.91 LF on the Property page (truth 209.97) |
+| Headless: first edge typed 54'-3" | label 54'-3"; the next edge stretched; total 211.62 LF; Undo and Redo restore both states |
+| Headless: the patio's model draft (845.40 SF, truth 800) with two edges typed to 40 and 20 ft | 821.32 SF (the other two edges untouched); Edges table shows draft, now and change |
+| Headless: a corner dragged across the ring | undone: "The shape crosses or touches itself (two of its edges meet). The change was undone." |
+| Headless: a counter line on a photo scaled by a 36 in door width | 8.39 LF, flagged undated after the send (`measure:IMAGE_UNDATED`, the server's rule) |
+
+**Live check (2026-11-25, the local stack running this branch, study 8c2d6de0, revision 2, assets
+review open, 388 assets, pin not confirmed).** Four findings from the lead's walk, fixed the same day:
+Measure was offered on 0 of 388 rows (it needed a measurement reason; formula-priced roof, siding
+and floors carry none): now 71 rows (every area or length); 52 photo chips pushed the picture below
+the fold: now thumbnails of the asset's own photos and one list; the dialog scrolled as one column:
+now picture and controls side by side at full height; a typed length on a rectangle skewed it
+(21'-0" became 21'-6"): now the far side slides when both corners are square within 3 degrees.
+Persistence on the real API: a counter traced on its photo (an area, scale from a 36 in counter
+height) was saved (`PUT .../drafts/assets_review` 200, version 1), the page reloaded, `GET` returned
+the draft (version 1, revision 2, not stale, the measurement in it) and the page showed "1 correction
+ready to send" with the traced quantity on the row; Remove deleted it (`DELETE` 200) and a second
+reload found no draft. No decision was sent; the study was left as it was.
+
+**Verdict.** The labels are the server's numbers, so what the engineer reads on an edge is what the
+schedule will carry; typed lengths move the geometry and the label never disagrees with it; an
+unverified draft is priced exactly as a trace (no pricing change). Default choices to confirm: the
+Verified box starts on for an engineer's own trace and off for a draft; snapping is on, 8 screen
+pixels; a shape under an eighth of the picture opens at 4x.
+
+Tests: `test_traced_provenance.py` 56, one API test (Postgres), `measure-tool.test.cjs` 23,
+`measure-screen.test.cjs` 9, `assets-draft.test.cjs` 4, `measure-assets-list.test.cjs` 2
+(mutation-checked: offering Measure only where needed fails it); the web suite 547 (509 before),
+the existing property tests unchanged (backEnd/tests/LEDGER.md).
+
+**Open.**
+
+* Not verified by a person on a tablet's touch or in Safari. Against the live stack only the
+  photo path and persistence were run (the study's pin is not confirmed, so no aerial). The sample's photos are placeholders (the real sample photos are not in
+  the repository), so the photo flow was checked on a placeholder.
+* No model drafts measurements yet; whether an unverified draft may price the report is the
+  maintainer's decision (plan section 8.3); no review flag is raised for one.
+* Not built: the other gates' drafts, snapping to a building outline and to right angles, slope,
+  colour by asset type, the diagram in the report, phones.
+
+### 104.1 Photo | Diagram: a clean plan under the same overlay (2026-11-25)
+
+**Question.** Bryan asked to switch the measure picture between the real picture and a clean, simple
+diagram with "the lines and everything" staying put. Can a plan drawn from data the study already
+has (no model call) sit under the measure tool's overlay at exactly the same place?
+
+**Method.** On a georeferenced top-down view (capture views, public orthos; not study photos) the
+picture is replaced by an SVG with the view's own width, height and viewBox, so the overlay needs no
+change. It draws, EagleView-style: the lot lines from the parcels (`parcelRings`, adjacent ones
+dashed); every lon/lat measurement of the study on that picture (stored `takeoff.inputs.measurement`,
+or the pending one in the assets review), projected with the view's `georef` (the inverse of what the
+tool traces with); a colour per asset type (eight strokes, each 6.0:1 to 8.1:1 on the diagram's
+ground, WCAG AA) with edge lengths and a total; a legend with each type once; a north arrow from
+the view's heading; a scale bar in round feet (1, 2 or 5 x 10^n, at most a quarter of the picture)
+from `pixel_size_m`; the picture's date and source. Image-space measurements, ones off the picture
+and the asset being edited (drawn by the tool on top) are left out.
+
+| Check | Result |
+|---|---|
+| A parcel corner and a measured corner, diagram vs overlay | the same pixel (`georef.toPixel`); back through the tool's frame to the lon/lat within 1e-9 degree |
+| Scale bar on the close aerial (8.41 cm a pixel) | 50 ft = 181.2128 px; px x pixel size = 50 ft to 1e-9 |
+| Headless (sample, 1440 x 900): the patio's corners on screen, photo vs diagram | identical to the pixel; a length typed in diagram mode applies as in photo mode |
+| Live (Lincoln Home capture, pin moved back to its point and confirmed, no new capture): a gutter traced on the real close aerial, 93.75 LF | the three corners at the same screen pixels in photo and diagram; the Property page's diagram lists "Gutter · 93.75 LF"; the trace then removed (draft deleted) |
+
+**Verdict.** The diagram is a different background, not a different drawing: the overlay, editing
+and snapping are untouched. Nothing is priced or stored by it. The choice is kept per browser
+(Photo by default) and still works for the session with storage blocked.
+
+Tests: `measure-diagram.test.cjs` 8; the web suite 555.
+
+**Open.** The legend, north arrow and scale bar sit at the picture's corners, so a zoomed-in view
+scrolls them out of sight; the building outline is not drawn (no outline polygon is stored); on the
+live study the public records were gathered around an earlier pin, so there is no lot line there;
+the diagram is not in the report.
+
+### 104.2 The lidar roof outline as a polygon, drawn in the diagram (2026-11-25)
+
+**Question.** The diagram (104.1) on a study with no parcel and nothing measured was an empty sheet:
+the lidar gave the building's footprint area but no polygon. Can the outline the lidar already
+finds be kept as a polygon, with corners an engineer would recognise and an area true to the cells?
+
+**Method.** `basis/geo/lidar.py` traces the building's cells (0.5 m, closed and hole-filled, one
+component, as before) along their edges into one ring (counter-clockwise, the first corner not
+repeated), merges straight runs to their corners, simplifies by Douglas-Peucker and maps back to
+lon/lat through the exact inverse of the cell mapping. The tolerance was chosen on buildings of
+known shape rasterized at the lidar grid (`uv run python -m evals.lidar_outline_tolerance`), then
+checked on the real lidar at the Lincoln Home (USGS_LPC_IL_WestCentral_2017_LAS_2019, read again from
+the public tiles):
+
+| Shape | 0 m (cell corners) | 0.25 m | 0.5 m | **0.71 m (chosen)** | 1 m |
+|---|---|---|---|---|---|
+| rectangle 12 x 8 m at 0 deg (4) | 4 · 0.0 % | 4 · 0.0 % | 4 · 0.0 % | **4 · 0.0 %** | 4 · 0.0 % |
+| rectangle at 10 deg (4) | 30 · 0.0 % | 30 · 0.0 % | 4 · +0.3 % | **4 · +0.3 %** | 4 · +0.3 % |
+| rectangle at 22.5 deg (4) | 62 · 0.0 % | 58 · 0.0 % | 7 · +3.3 % | **4 · +0.5 %** | 4 · +0.5 % |
+| rectangle at 30 deg (4) | 78 · 0.0 % | 42 · 0.0 % | 8 · +1.0 % | **4 · +0.3 %** | 4 · +0.3 % |
+| rectangle at 45 deg (4) | 110 · 0.0 % | 102 · 0.0 % | 6 · +3.3 % | **4 · -3.3 %** | 4 · -3.3 % |
+| L 10 x 10 m less 5 x 5 at 0 deg (6) | 6 · 0.0 % | 6 · 0.0 % | 6 · 0.0 % | **6 · 0.0 %** | 6 · 0.0 % |
+| L at 30 deg (6) | 78 · 0.0 % | 46 · 0.0 % | 8 · -0.5 % | **7 · +1.0 %** | 6 · -2.0 % |
+| T (8) | 8 · 0.0 % | 8 · 0.0 % | 8 · 0.0 % | **8 · 0.0 %** | 8 · 0.0 % |
+| house 14 x 9 m with a 1 m jog (6) | 6 · 0.0 % | 6 · 0.0 % | 4 · 0.0 % | **4 · 0.0 %** | 4 · 0.0 % |
+| **Lincoln Home, real lidar** | 36 · 0.0 % | 34 · 0.0 % | 6 · -5.0 % | **6 · -5.0 %** | 4 · -6.2 % |
+
+Each cell: corners kept · the outline's area against the cells' area (the reported footprint). The
+true corner count in parentheses. Every ring stayed simple.
+
+**Verdict.** One cell's diagonal (0.71 m) gives every turned rectangle its 4 corners and an L or a T
+its own, within 1 % of the cells' area on the synthetic shapes except the 45 degree rectangle
+(-3.3 % against the cells, -1.6 % against the true area). On the real roof the outline keeps 6
+corners and reads 5.0 % under the cells (190.3 against 200.5 m²): the real edge is ragged by a cell,
+and Douglas-Peucker keeps the inner stair corners as often as the outer ones, so the line sits about
+a third of a cell inside. The footprint figure is unchanged (the cells' area); the polygon is for
+seeing and snapping, never a quantity. A jog of 1 m or less is smoothed away from 0.5 m up. The
+summary's heights, footprint, counts and flags are byte-identical to main's on the synthetic tests;
+a gather stored before the outline reads with `outline: []`. No migration: the summary is stored as
+JSON.
+
+**The diagram.** The outline is drawn grey with its edge lengths and in the key ("Building · roof
+outline from 2019 lidar · 2,158 SF"); the measure tool snaps to it after the shape's own corners and
+before the parcel, in photo mode too. The key, north arrow, scale bar and source now sit in the
+stage's corners over the zoomed picture, and the scale bar is chosen for the screen (a round length,
+at most 140 px, from the pixel size times the picture pixels per screen pixel), so it stays true
+when zoomed.
+
+**Live check** (API, worker and geo worker restarted on this branch): the pin moved from the capture
+centre (a street intersection) to a point inside the Lincoln Home's roof and confirmed; Gather them
+again (public sources only) found the lidar building under the pin (distance 0, 6 outline corners)
+and no parcel (`BASIS-GEO-009`, as before: no parcel layer answered for the county). The captured
+views now read as taken around an earlier pin and are still offered for measuring. A gutter traced
+on the close aerial in diagram mode with clicks 3 px off three outline corners landed exactly on
+them; the trace was removed (draft deleted, no decision sent).
+
+Tests: `test_lidar_outline.py` 8 (rectangle 4 corners with the cells' area, L 6, T 8, a stair-stepped
+wall within tolerance, a pinch, the lon/lat round trip within 1 cm, the synthetic building's outline
+area within 0.5 % of its footprint, the regression against main's values, an old body without
+`outline`); `measure-diagram.test.cjs` 10; the backend unit suite 6,325, the geo tests 64, the web
+suite 557.
+
+**Found in the lead's live check, fixed the same day.** Zoom on the Property page kept the scroll in
+pixels, so 200 % slid the view to the top left and the building left it (the dialog measured the
+middle against the pane, not the picture). Both now keep the picture point at the middle of the view:
+live, 100 to 200 % kept (0.5, 0.5), and a view scrolled to the building kept (0.6798, 0.2877) through
+400 % and back, in diagram and photo mode. The pin covered the building's label; every diagram label
+is now placed clear of the pin (the building's below the outline when the pin is inside it). Web
+suite 561. No wheel or pinch zoom exists to fix. A second live check found the building's name, moved
+below the outline, sitting on the bottom edge's length label: names are now placed after every edge
+label, tested against each label already placed and the pin (inside the shape first, then below or
+above, then beside). Live, at 100 % and 200 %, no name meets an edge label or the pin's halo and no
+edge label meets the pin (measured on the rendered boxes). Web suite 564.
+
+A third check found edge labels of different shapes meeting: on the sample's Property page at 100 %
+the patio's bottom length and the building's top length overlapped (one overlap among 14 labels).
+Every label is now placed against every label already placed and the pin, in a fixed order: the
+active trace's labels first (never moved or hidden), then each measured item's lengths and name, then
+the building's. A colliding length tries the other side of its edge, then slides along it (within the
+edge's middle half), then a smaller offset; if nothing fits it is left out and named in the diagram's
+title and aria text ("Not drawn for lack of room: ..."), its length still in the edge list. Rendered
+boxes, all labels and the pin's halo: the sample at 100, 200 and 400 % (10, 12, 12 labels; one
+building length left out at 100 %, none at 200 and 400 %) and the live roof at the same zooms (6, 7,
+7 labels): zero overlaps. Unit tests add the same for the sample and live geometry at three scales
+and a fence traced across the patio and the garage. Web suite 569.
+
+A fourth check, in the Measure dialog, found the patio's name drawn inside the building's outline below
+it, so the building read as the patio. A name now sits inside its own shape or outside every other
+shape (the building, each measured shape, the trace's areas; never over another's area), on the
+picture; outside its shape and apart from it, a short leader runs to the shape's nearest edge; if no
+place qualifies the name is left out of the drawing and named in the title and aria text (it stays in
+the key). Tests: the patio-above-building geometry at the dialog's scale with the patio's inside taken
+(the name goes outside, clear of the building, with a leader ending on the patio's edge), and every
+name against every other shape's polygon (a 9 x 9 grid of the box) on the sample and live geometry at
+the Property page's and the dialog's scales for 100, 200 and 400 %, with and without a fence traced
+across. Removing the area check fails two tests; removing the leader fails one. Rendered, in the
+dialog (Fence, Close aerial, Diagram, 1440 x 900) at 100, 200 and 400 %, without and with a fence
+drawn across the patio and the building: zero label overlaps and no name over another shape (with the
+fence at 100 % the patio's name goes outside with a leader); the Property page still zero. Web suite
+574.
+
+A fifth check found the patio's name under the key (HTML over the stage's corner). The key is now a
+strip at the top of the bar under the picture (one line per item, wrapping), never over the drawing.
+The north arrow, scale bar and source note stay over the picture; their screen rectangles, mapped
+into the diagram's picture pixels at the current zoom and scroll (`PM.furnitureObstacles`), are taken
+before any label is placed, recomputed after every render and 60 ms after a pan. The trace's own
+labels, drawn by the tool, never move and may sit under them (seen once: the fence's 47'-5" under the
+source note at 200 % panned to the top-left corner). Measured furniture at 1440 x 900: north 36 x 43,
+scale bar 132 (page) or 142 (dialog) x 36, source 482 or 548 x 38. Placing names around the others
+showed two more faults, fixed with the same check: a leader drawn through a length label, and the
+patio's name below the building with its leader through the building. A leader now crosses no label
+and no other shape's edge (a place that needs one does not qualify), and a name and its leader keep
+to their side of the lot lines where they can (else anywhere that qualifies). Unit tests: the
+furniture mapping; every label and name against the furniture on both stages, sample and live, at
+100, 200 and 400 % panned to two corners and the middle (over 500 label-furniture pairs; without the
+furniture taken some would be under it); no leader crosses a label or another shape, with and without
+the fence and the furniture; names and leaders on their side of the lot lines; the key outside the
+stage's view. Mutations (furniture ignored, leader check off, shapes left out of the leader check,
+lot lines off) each fail a test. Rendered, both stages (sample, the dialog with a fence drawn by hand,
+live), 100, 200 and 400 %, panned: zero label overlaps, zero lengths or names under furniture, no
+name over another shape, the key outside the stage's view. Web suite 578.
+
+**Open.** No lot line on the live study (no parcel); the outline is the roof, not the walls; the
+building is not drawn in photo mode (only snapped to); the outline is not checked against a surveyed
+footprint.
+
