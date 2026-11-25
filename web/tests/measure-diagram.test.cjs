@@ -484,3 +484,14 @@ test('segmentsCross; a name and its leader keep to their side of the lot lines w
  }
  assert.ok(n>=20);
 });
+
+test('the trace total reads as dark text on the diagram and stays white on the photo', () => {
+ // The photo's white-on-dark outline, 4 px, read as doubled text on the diagram's light ground
+ // (seen live on a fence's "135 LF"); in diagram mode the total is dark with a light halo.
+ const css = fs.readFileSync(path.join(WEB, 'live/property.css'), 'utf8');
+ const rule = sel => { const m = css.match(new RegExp(sel.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '\\{([^}]*)\\}')); return m ? m[1] : null; };
+ const photo = rule('.mt-total text'), diagram = rule('.pa-canvas.is-diagram .mt-total text');
+ assert.match(photo, /fill:#fff/); assert.match(photo, /stroke:rgba\(16,30,23,\.9\)/);
+ assert.ok(diagram, 'a diagram rule for the trace total');
+ assert.match(diagram, /fill:#10201a/); assert.match(diagram, /stroke:#f7f8f5/);
+});

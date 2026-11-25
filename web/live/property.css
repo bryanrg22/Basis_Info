@@ -236,6 +236,8 @@
 .mt-label:focus{outline:none}.mt-label:focus-visible rect{stroke:#7fd3ff;stroke-width:3}
 .mt-total text{fill:#fff;text-anchor:middle;font-family:Inter,system-ui,sans-serif;font-weight:700;paint-order:stroke;stroke:rgba(16,30,23,.9);stroke-width:4px;stroke-linejoin:round;pointer-events:none}
 .mt-total text+text{font-weight:500}
+/* On the diagram's light ground the photo's white-on-dark outline reads as doubled text: dark text, light halo. */
+.pa-canvas.is-diagram .mt-total text{fill:#10201a;stroke:#f7f8f5;stroke-width:3px}
 .mt-total.is-line text{text-anchor:start}
 .mt-vertex,.mt-mid{cursor:grab}
 .mt-vertex:active{cursor:grabbing}
