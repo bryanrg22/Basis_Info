@@ -1,0 +1,381 @@
+{
+ "schema": "measure_truth/v1",
+ "id": "md1464",
+ "name": "Norris-Higgins House",
+ "loc_url": "https://www.loc.gov/pictures/item/md1464/",
+ "survey_number": "HABS MD-1103",
+ "drawing_date": "1994",
+ "address": "10806 Keswick Street, Garrett Park, Montgomery County, MD",
+ "location": {
+  "lat": 39.0330643,
+  "lon": -77.090564,
+  "how": "2.0 m west and 1.2 m north of the Google search's pin for the address, which the Google view labels with the house number; the drawn house sits under this point on the 2015 public ortho md-2014-2016 (0.152 m/px), read off a crop, not clicked to the pixel"
+ },
+ "standing": {
+  "status": "changed",
+  "source": "public orthos md-2011-2013 (2012), md-2014-2016 (2015), md-2017-2019 (2018), md-sixinch (2024)",
+  "year": 2024,
+  "note": "The 2012 and 2015 orthos show the drawn cross-gabled house; by 2018 a long addition runs west from it, on the 2024 ortho and on the Google view too (not measured; drawn: 43 ft 4 in of walls plus a 6 ft 8 in porch). The truth is the 1994 house: a method that measures today's building is not scored on it."
+ },
+ "sheets": {
+  "2": "Site plan, 1\" = 10'-0\" (roof shown); east (front) elevation, 1/4\" = 1'-0\", with printed levels (first floor 0, second floor 10'-10 1/4\", ceiling +9'-0\", ridges 27'-4 5/8\" and 28'-3\", basement 6'-8\" below)",
+  "3": "North elevation, 1/4\" = 1'-0\" (same printed levels); materials",
+  "4": "South elevation, 1/4\" = 1'-0\" (same printed levels)",
+  "5": "Basement floor plan, 1/4\" = 1'-0\"; west elevation and reconstructed west elevation, 1/8\" = 1'-0\"",
+  "6": "First floor plan, 1/4\" = 1'-0\" (dimensioned on four sides)",
+  "7": "Second floor plan, 1/4\" = 1'-0\" (dimensioned)"
+ },
+ "stories": 2,
+ "roof_shape": "cross-gable on a two-story block (gables on the long sides meeting at a central peak, valleys between), with two ridge levels; one-story kitchen/family-room addition at the sheet left under its own lower roof; wraparound front porch roof",
+ "plan": {
+  "sheet": "6",
+  "scale": "1/4\" = 1'-0\"",
+  "north": "up the sheet (arrow turned about 10 degrees toward the sheet's left); confirmed by the elevations (east elevation shows the front porch at the sheet right)",
+  "note": "Start at the outside top-left corner of the family room (sheet top), walk clockwise. Every run is printed or a difference of printed strings: top 5'-0\" + 38'-4\" + 6'-8\" = 50'-0\" (the 6'-8\" is the front porch), bottom 41'-0\" + 9'-0\" = 50'-0\" (the 9'-0\" is the porch beyond the hall wall), left 10'-0\" + 4'-9\" + 9'-9\" = 24'-6\", right 18'-0\" + 6'-6\". The wall outline's across-the-sheet extent (43'-4\") is not printed as an overall.",
+  "chain": [
+   {
+    "dir": "E",
+    "length": {
+     "ft": 38.3333,
+     "text": "38'-4\"",
+     "how": "printed",
+     "sheet": "6"
+    },
+    "label": "north wall: family room, dining room and parlor"
+   },
+   {
+    "dir": "S",
+    "length": {
+     "ft": 18.0,
+     "text": "18'-0\"",
+     "how": "printed",
+     "sheet": "6"
+    },
+    "label": "parlor's east wall, behind the wraparound porch"
+   },
+   {
+    "dir": "W",
+    "length": {
+     "ft": 2.3333,
+     "text": "2'-4\"",
+     "how": "derived",
+     "sheet": "6",
+     "note": "38'-4\" + 5'-0\" - 41'-0\" (scaled 234 px)"
+    },
+    "label": "jog to the hall's east wall"
+   },
+   {
+    "dir": "S",
+    "length": {
+     "ft": 6.5,
+     "text": "6'-6\"",
+     "how": "printed",
+     "sheet": "6"
+    },
+    "label": "hall's east wall (front door), behind the porch"
+   },
+   {
+    "dir": "W",
+    "length": {
+     "ft": 41.0,
+     "text": "41'-0\"",
+     "how": "printed",
+     "sheet": "6"
+    },
+    "label": "south wall: hall, laundry, kitchen"
+   },
+   {
+    "dir": "N",
+    "length": {
+     "ft": 9.75,
+     "text": "9'-9\"",
+     "how": "printed",
+     "sheet": "6"
+    },
+    "label": "kitchen's west wall"
+   },
+   {
+    "dir": "E",
+    "length": {
+     "ft": 5.0,
+     "text": "5'-0\"",
+     "how": "printed",
+     "sheet": "6"
+    },
+    "label": "kitchen's north wall, behind the side porch"
+   },
+   {
+    "dir": "N",
+    "length": {
+     "ft": 14.75,
+     "text": "14'-9\"",
+     "how": "derived",
+     "sheet": "6",
+     "note": "4'-9\" + 10'-0\" (left string): one straight wall, partly behind the side porch"
+    },
+    "label": "family room's west wall"
+   }
+  ],
+  "excluded": [
+   "wraparound front (east) porch, 6'-8\" deep along the parlor and 9'-0\" along the hall, with front steps",
+   "side porch in the corner between the family room and kitchen, 5'-0\" x 4'-9\", with steps down to the west",
+   "stoop and steps at the laundry door (south)",
+   "basement areaway / condensing unit pad"
+  ]
+ },
+ "floors": [
+  {
+   "level": "first",
+   "finished": true,
+   "same_as_ground": true
+  },
+  {
+   "level": "second",
+   "finished": true,
+   "sheet": "7",
+   "note": "Second floor covers the two-story block only (not the one-story family room/kitchen at the sheet left, and not the parlor's north-east corner, which is roof). Start at its top-left corner, clockwise. Printed on sheet 7: 25'-6\" (top), 31'-9 1/8\" (bottom), 24'-6\" (right overall and left), 12'-4 7/8\" (east wall of the north-east bedroom). The two unlabelled pieces of the right string are derived: the lower one is the hall's east wall, the same wall as the first floor's 6'-6\" (the jog lines up once the sheet's 20 px registration offset is allowed for); the 2'-4\" jog is the first floor's.",
+   "chain": [
+    {
+     "dir": "E",
+     "length": {
+      "ft": 25.5,
+      "text": "25'-6\"",
+      "how": "printed",
+      "sheet": "7"
+     },
+     "label": "north wall of the two-story block"
+    },
+    {
+     "dir": "S",
+     "length": {
+      "ft": 5.5937,
+      "how": "derived",
+      "sheet": "7",
+      "note": "24'-6\" - 12'-4 7/8\" - 6'-6\"; scaled 536 px = 5.36 ft (see flags)"
+     },
+     "label": "step down to the north-east bedroom"
+    },
+    {
+     "dir": "E",
+     "length": {
+      "ft": 8.5937,
+      "how": "derived",
+      "sheet": "7",
+      "note": "31'-9 1/8\" + 2'-4\" - 25'-6\"; scaled 868 px = 8.68 ft"
+     },
+     "label": "north wall of the north-east bedroom"
+    },
+    {
+     "dir": "S",
+     "length": {
+      "ft": 12.4063,
+      "text": "12'-4 7/8\"",
+      "how": "printed",
+      "sheet": "7"
+     },
+     "label": "east wall of the north-east bedroom"
+    },
+    {
+     "dir": "W",
+     "length": {
+      "ft": 2.3333,
+      "text": "2'-4\"",
+      "how": "derived",
+      "sheet": "6",
+      "note": "first-floor jog (38'-4\" + 5'-0\" - 41'-0\"); sheet 7 scales 232 px"
+     },
+     "label": "jog to the hall's east wall"
+    },
+    {
+     "dir": "S",
+     "length": {
+      "ft": 6.5,
+      "text": "6'-6\"",
+      "how": "printed",
+      "sheet": "6",
+      "note": "printed on the first-floor plan for the same wall; sheet 7 scales 638 px"
+     },
+     "label": "hall's east wall"
+    },
+    {
+     "dir": "W",
+     "length": {
+      "ft": 31.7604,
+      "text": "31'-9 1/8\"",
+      "how": "printed",
+      "sheet": "7"
+     },
+     "label": "south wall of the two-story block"
+    },
+    {
+     "dir": "N",
+     "length": {
+      "ft": 24.5,
+      "text": "24'-6\"",
+      "how": "printed",
+      "sheet": "7"
+     },
+     "label": "west wall of the two-story block"
+    }
+   ]
+  }
+ ],
+ "heights": {
+  "eave": {
+   "above_grade_ft": 22.26,
+   "how": "scaled",
+   "sheet": "3",
+   "elevation": "North elevation, main eave of the two-story block",
+   "scale": "1/4\" = 1'-0\"",
+   "note": "mean of the two passes' scaled readings, 22.1 and 22.42 ft. lower edge of the main roof at y 2983; first floor (printed 0) at y 5017; grade under the north wall slopes from y 5255 (west end) to 5195 (east end), mid y 5225: eave 20.34 ft above the first floor (scaled; the printed ceiling level, 19'-10 1/4\", is 3 px below it) + floor 2.08 ft above grade. The cross gables' eaves are lower (about y 3980, 10.4 ft above the first floor)."
+  },
+  "ridge": {
+   "above_grade_ft": 30.25,
+   "how": "derived",
+   "sheet": "3",
+   "elevation": "north",
+   "note": "the higher printed roof ridge, 28'-3\" above the first floor, plus the first floor's height above grade scaled by both passes (1.92 and 2.08 ft, mean 2.00)"
+  },
+  "readings": [
+   {
+    "what": "roof ridges (higher)",
+    "text": "28'-3\"",
+    "datum_text": "0 (first floor)",
+    "sheet": "2",
+    "elevation": "East elevation (also north and south elevations, sheets 3 and 4)"
+   },
+   {
+    "what": "roof ridges (lower)",
+    "text": "27'-4 5/8\"",
+    "datum_text": "0 (first floor)",
+    "sheet": "2",
+    "elevation": "East elevation (also sheets 3 and 4)"
+   },
+   {
+    "what": "second floor",
+    "text": "10'-10 1/4\"",
+    "datum_text": "0 (first floor)",
+    "sheet": "2",
+    "elevation": "East, north and south elevations"
+   },
+   {
+    "what": "ceiling (second floor)",
+    "text": "9'-0\"",
+    "datum_text": "second floor",
+    "sheet": "2",
+    "elevation": "East, north, south elevations"
+   },
+   {
+    "what": "basement floor",
+    "text": "6'-8\"",
+    "datum_text": "below first floor",
+    "sheet": "2",
+    "elevation": "East and north elevations; the south elevation shows 6'-8\" too"
+   },
+   {
+    "what": "first floor above grade, scaled",
+    "text": "2.08 ft scaled",
+    "datum_text": "grade, mid north wall",
+    "sheet": "3",
+    "elevation": "North elevation",
+    "note": "east (front) elevation: about 2.7 ft (floor y 4183, grade y 4450)"
+   },
+   {
+    "what": "main eave above first floor, scaled",
+    "text": "20.34 ft scaled",
+    "datum_text": "0 (first floor)",
+    "sheet": "3",
+    "elevation": "North elevation"
+   }
+  ]
+ },
+ "roof": {
+  "overhang": {
+   "ft": 0.83,
+   "how": "scaled",
+   "sheet": "2",
+   "scale": "1/4\" = 1'-0\"",
+   "note": "east elevation: main roof edge to edge 5350 to 7967 = 2617 px against the printed 24'-6\" wall depth, halved; north elevation gives (3992 - 3833)/2 = 0.8 ft against 38'-4\""
+  },
+  "note": "Eaves left unset: cross gables on the long sides, lower roofs over the one-story addition and the porch; the outline's sides do not map to the gutter runs.",
+  "derive": false,
+  "derive_note": "cross gables on a two-storey block, a one-storey addition and a porch under their own roofs"
+ },
+ "porches": [
+  {
+   "name": "front (east) porch along the parlor",
+   "a": {
+    "ft": 18.0,
+    "text": "18'-0\"",
+    "how": "printed",
+    "sheet": "6",
+    "note": "parlor wall length; the porch wraps on along the hall (9'-0\" deep there, 6'-6\" long)"
+   },
+   "b": {
+    "ft": 6.6667,
+    "text": "6'-8\"",
+    "how": "printed",
+    "sheet": "6"
+   }
+  },
+  {
+   "name": "side porch between family room and kitchen",
+   "a": {
+    "ft": 5.0,
+    "text": "5'-0\"",
+    "how": "printed",
+    "sheet": "6"
+   },
+   "b": {
+    "ft": 4.75,
+    "text": "4'-9\"",
+    "how": "printed",
+    "sheet": "6"
+   }
+  }
+ ],
+ "site": [],
+ "passes": {
+  "a": "pass A: an independent reader of the 400 dpi sheets (2026-11-25), chain and heights read from crops",
+  "b": "pass B: a second independent reader of the same sheets (2026-11-25), not shown pass A",
+  "disagreements": [
+   {
+    "what": "ridge",
+    "pass_a": "27'-4 5/8\" above the first floor (main ridge) + 1.92 ft scaled grade = 29.3 ft",
+    "pass_b": "28'-3\" above the first floor (the higher of the two printed 'roof ridges') + 2.08 ft scaled grade = 30.33 ft",
+    "resolved": "the higher printed ridge, 28'-3\" (the roof's top, as lidar's peak reads it), plus the mean of the two scaled grades, 2.00 ft"
+   },
+   {
+    "what": "eave",
+    "pass_a": "22.1 ft scaled",
+    "pass_b": "22.42 ft scaled",
+    "resolved": "the mean, 22.26 ft (both scaled on the north elevation)"
+   },
+   {
+    "what": "overhang",
+    "pass_a": "0.7 ft scaled",
+    "pass_b": "0.83 ft scaled",
+    "resolved": "not scored (roof.derive false)"
+   }
+  ]
+ },
+ "flags": [
+  {
+   "code": "no_overall",
+   "note": "No printed overall of the wall outline across the sheet: the 50'-0\" overalls include the front porch (50'-0\" - 6'-8\" = 43'-4\", which the chain matches). Up the sheet the printed 24'-6\" (left) is the outline's extent and the chain matches it."
+  },
+  {
+   "code": "note",
+   "note": "Second floor: the drawn east wall of the north-east bedroom scales 12.66 ft against its printed 12'-4 7/8\", and the step above it scales 5.36 ft against the 5.59 ft derived from the printed strings; printed values kept."
+  },
+  {
+   "code": "note",
+   "note": "Eave height is scaled (no eave level printed) and rests on a scaled floor-to-grade offset that varies 1.8 to 2.7 ft around the house; the ridge is printed above the first floor (28'-3\") plus that scaled offset."
+  },
+  {
+   "code": "note",
+   "note": "Two ridge levels are printed on all three elevations: 27'-4 5/8\" (lower) and 28'-3\" (higher, used), both above the first floor."
+  }
+ ],
+ "note": "Kept from pass B, with the resolutions in passes.disagreements."
+}

@@ -1,0 +1,481 @@
+{
+ "schema": "measure_truth/v1",
+ "id": "va1914",
+ "name": "Minor-Nelson House",
+ "loc_url": "https://www.loc.gov/pictures/item/va1914/",
+ "survey_number": "HABS VA-1366",
+ "drawing_date": "1999",
+ "address": "201 East High Street, Charlottesville, VA",
+ "location": {
+  "lat": 38.0329367,
+  "lon": -78.4794865,
+  "how": "centre of the house's roof outline read on the Google straight-down view (pixel 730, 455 of aerial-close; 0.8 m east and 0.4 m south of the Google search's pin for the address, which labels the house '201'); the public ortho here is NAIP at 0.6 m, too coarse to place the centre better"
+ },
+ "standing": {
+  "status": "unchanged",
+  "source": "public orthos us-naip-2008 to us-naip-2023 (0.6 m); Google aerial 10/21/2023",
+  "year": 2023,
+  "note": "The same rotated main block with its rear ell and one-storey wings on every NAIP year 2008 to 2023 and on the Google view; no addition seen, at 0.6 m resolution only. The building is in commercial use (an antique shop per the 1999 drawing's text)."
+ },
+ "sheets": {
+  "1": "front elevation (1/4\" = 1'-0\", scale bar), location map, Sanborn 1920 block plan, history (measured and drawn fall 1999)",
+  "3": "first floor plan (1/4\" = 1'-0\") with dimension strings all round",
+  "4": "second floor plan (1/4\" = 1'-0\"), undimensioned, roofs of the one-story parts drawn",
+  "5": "sections A and B (1/4\" = 1'-0\"), no levels printed"
+ },
+ "stories": 2,
+ "roof_shape": "gable (two-story front block, ridge parallel to the street, with a front pediment); two-story rear block; one-story west and rear wings under lower roofs",
+ "plan": {
+  "sheet": "3",
+  "scale": "1/4\" = 1'-0\"",
+  "north": "sheet up, tilted about 18 deg to the left (the arrow's solid half points up-left)",
+  "note": "Start at the west wing's sheet-top-left corner (outside face), walk clockwise. Parts: two-story front block 39'-3\" x 22'-2\" (sheet bottom right), two-story rear block above it (right wall 10'-7\" in from the front block's right wall), a one-story rear wing and rear room across the top (top wall 14'-6\" + 11'-2\"), and the one-story west wing 15'-10\" wide down the left side, split by an open recess with exterior steps (3'-7\" wide) and fronted by an open porch. Scale on this sheet about 100.3 px/ft (from 39'-3\", 22'-2\", 24'-2\", 20'-6\", 16'-9\").",
+  "chain": [
+   {
+    "dir": "E",
+    "length": {
+     "ft": 12.6667,
+     "text": "12'-8\"",
+     "how": "printed",
+     "sheet": "3",
+     "note": "top string, middle row"
+    },
+    "label": "west wing's north wall"
+   },
+   {
+    "dir": "N",
+    "length": {
+     "ft": 4.8333,
+     "text": "4'-10\"",
+     "how": "printed",
+     "sheet": "3",
+     "note": "left string, middle row; scales 4.9"
+    },
+    "label": "rear wing's west wall"
+   },
+   {
+    "dir": "E",
+    "length": {
+     "ft": 25.6667,
+     "text": "25'-8\"",
+     "how": "derived",
+     "sheet": "3",
+     "note": "top string middle row 14'-6\" + 11'-2\" (rear wing and rear room)"
+    },
+    "label": "rear (north) wall of the rear wing and rear room"
+   },
+   {
+    "dir": "S",
+    "length": {
+     "ft": 5.0833,
+     "text": "5'-1\"",
+     "how": "derived",
+     "sheet": "3",
+     "note": "closure: left side 4'-10\" + 20'-6\" + 3'-7\" + 16'-9\" + 5'-9\" = 51'-5\" less 24'-2\" + 22'-2\" on the right. The right string prints 5'-4\" here, but the drawn rear-block face (sheet y 2650) is level with the west wing's top (2643) and 5.0 ft below the rear wall, so 5'-4\" does not fit the drawing (see flags)"
+    },
+    "label": "rear room's east wall"
+   },
+   {
+    "dir": "E",
+    "length": {
+     "ft": 6.0833,
+     "text": "6'-1\"",
+     "how": "printed",
+     "sheet": "3",
+     "note": "top string middle row"
+    },
+    "label": "rear block's north wall, east part"
+   },
+   {
+    "dir": "S",
+    "length": {
+     "ft": 24.1667,
+     "text": "24'-2\"",
+     "how": "printed",
+     "sheet": "3",
+     "note": "right string"
+    },
+    "label": "rear block's east wall (a small stoop, 3'-10\" wide, stands outside it)"
+   },
+   {
+    "dir": "E",
+    "length": {
+     "ft": 10.5833,
+     "text": "10'-7\"",
+     "how": "printed",
+     "sheet": "3",
+     "note": "top string middle row; scales 10.7"
+    },
+    "label": "front block's north wall, east of the rear block"
+   },
+   {
+    "dir": "S",
+    "length": {
+     "ft": 22.1667,
+     "text": "22'-2\"",
+     "how": "printed",
+     "sheet": "3",
+     "note": "right string"
+    },
+    "label": "front block's east wall"
+   },
+   {
+    "dir": "W",
+    "length": {
+     "ft": 39.25,
+     "text": "39'-3\"",
+     "how": "printed",
+     "sheet": "3",
+     "note": "bottom string; window string 6'-4\" + 4'-0\" + 7'-3\" + 4'-2\" + 7'-3\" + 4'-0\" + 6'-3\" = 39'-3\" (the row 13'-7\" + 12'-2\" + 13'-5\" = 39'-2\")"
+    },
+    "label": "front (south) wall of the front block"
+   },
+   {
+    "dir": "N",
+    "length": {
+     "ft": 5.75,
+     "text": "5'-9\"",
+     "how": "printed",
+     "sheet": "3",
+     "note": "left string: the porch depth, front of the west wing to the porch edge; the porch edge is drawn within 0.2 ft of the front block's front wall (scales 5.5 to the porch edge, 5.7 to the front wall)"
+    },
+    "label": "front block's west wall beside the porch"
+   },
+   {
+    "dir": "W",
+    "length": {
+     "ft": 15.8333,
+     "text": "15'-10\"",
+     "how": "printed",
+     "sheet": "3",
+     "note": "bottom string; 9'-0\" + 3'-0\" + 3'-10\" and 5'-10\" + 5'-1\" + 4'-11\" both sum to 15'-10\"; scales 16.0"
+    },
+    "label": "west wing's front wall, behind the porch"
+   },
+   {
+    "dir": "N",
+    "length": {
+     "ft": 16.75,
+     "text": "16'-9\"",
+     "how": "printed",
+     "sheet": "3"
+    },
+    "label": "west wing's west wall, front room"
+   },
+   {
+    "dir": "E",
+    "length": {
+     "ft": 5.25,
+     "how": "scaled",
+     "scale": "1/4\" = 1'-0\"",
+     "sheet": "3",
+     "note": "recess depth from the wall line (x 4178) to the door line (x 4705), 527 px at 100.3 px/ft; not printed"
+    },
+    "label": "side of the open stair recess"
+   },
+   {
+    "dir": "N",
+    "length": {
+     "ft": 3.5833,
+     "text": "3'-7\"",
+     "how": "printed",
+     "sheet": "3"
+    },
+    "label": "door wall at the back of the recess"
+   },
+   {
+    "dir": "W",
+    "length": {
+     "ft": 5.25,
+     "how": "scaled",
+     "scale": "1/4\" = 1'-0\"",
+     "sheet": "3",
+     "note": "as the other side of the recess"
+    },
+    "label": "side of the open stair recess"
+   },
+   {
+    "dir": "N",
+    "length": {
+     "ft": 20.5,
+     "text": "20'-6\"",
+     "how": "printed",
+     "sheet": "3"
+    },
+    "label": "west wing's west wall, rear rooms"
+   }
+  ],
+  "overall": {
+   "ew": {
+    "ft": 55.0833,
+    "text": "55'-1\"",
+    "how": "printed",
+    "sheet": "3",
+    "note": "bottom string 15'-10\" + 39'-3\"; the top string prints 54'-11\" over the same walls, and its middle row sums to 55'-0\""
+   },
+   "ns": {
+    "ft": 51.6667,
+    "text": "51'-8\"",
+    "how": "printed",
+    "sheet": "3",
+    "note": "right string (5'-4\" + 24'-2\" + 22'-2\"); the left string prints 50'-7\" while its own segments sum to 51'-5\""
+   }
+  },
+  "excluded": [
+   "open front porch of the west wing, 15'-10\" x 5'-9\", three columns",
+   "open recess with exterior steps between the west wing's two rooms, 3'-7\" x about 5'-3\"",
+   "curved front entrance stair and landing",
+   "rear stoop at the rear block's east wall, 3'-10\" wide",
+   "rear steps at the rear wall"
+  ]
+ },
+ "floors": [
+  {
+   "level": "first",
+   "finished": true,
+   "same_as_ground": true,
+   "sheet": "3"
+  },
+  {
+   "level": "second",
+   "finished": true,
+   "sheet": "4",
+   "note": "Over the front block, the rear block, and a small frame room west of the rear block; the west wing, rear wing and rear room are one story (their roofs are drawn on sheet 4). Sheet 4 has no dimension strings: walls shared with the first floor take its printed values; the rest is scaled at 100.3 px/ft (front block drawn 3940 x 2224 px = 39.28 x 22.17 ft). Start at the front block's sheet-top-left corner, clockwise.",
+   "chain": [
+    {
+     "dir": "E",
+     "length": {
+      "ft": 3.33,
+      "how": "scaled",
+      "scale": "1/4\" = 1'-0\"",
+      "sheet": "4",
+      "note": "front block's west wall face (x 5783) to the frame room's west wall face (6117)"
+     },
+     "label": "front block's north wall, west end"
+    },
+    {
+     "dir": "N",
+     "length": {
+      "ft": 10.47,
+      "how": "scaled",
+      "scale": "1/4\" = 1'-0\"",
+      "sheet": "4",
+      "note": "5083 to 4033"
+     },
+     "label": "frame room's west wall"
+    },
+    {
+     "dir": "E",
+     "length": {
+      "ft": 7.04,
+      "how": "scaled",
+      "scale": "1/4\" = 1'-0\"",
+      "sheet": "4",
+      "note": "6117 to the rear block's west face 6823"
+     },
+     "label": "frame room's north wall"
+    },
+    {
+     "dir": "N",
+     "length": {
+      "ft": 13.6967,
+      "how": "derived",
+      "sheet": "4",
+      "note": "24'-2\" (rear block depth, sheet 3) less the scaled 10.47; scales 13.69"
+     },
+     "label": "rear block's west wall"
+    },
+    {
+     "dir": "E",
+     "length": {
+      "ft": 18.2967,
+      "how": "derived",
+      "sheet": "4",
+      "note": "39'-3\" - 10'-7\" - 3.33 - 7.04; scales 18.05"
+     },
+     "label": "rear block's north wall"
+    },
+    {
+     "dir": "S",
+     "length": {
+      "ft": 24.1667,
+      "text": "24'-2\"",
+      "how": "printed",
+      "sheet": "3"
+     },
+     "label": "rear block's east wall"
+    },
+    {
+     "dir": "E",
+     "length": {
+      "ft": 10.5833,
+      "text": "10'-7\"",
+      "how": "printed",
+      "sheet": "3"
+     },
+     "label": "front block's north wall, east part"
+    },
+    {
+     "dir": "S",
+     "length": {
+      "ft": 22.1667,
+      "text": "22'-2\"",
+      "how": "printed",
+      "sheet": "3"
+     },
+     "label": "front block's east wall"
+    },
+    {
+     "dir": "W",
+     "length": {
+      "ft": 39.25,
+      "text": "39'-3\"",
+      "how": "printed",
+      "sheet": "3"
+     },
+     "label": "front wall"
+    },
+    {
+     "dir": "N",
+     "length": {
+      "ft": 22.1667,
+      "text": "22'-2\"",
+      "how": "printed",
+      "sheet": "3"
+     },
+     "label": "front block's west wall"
+    }
+   ]
+  }
+ ],
+ "heights": {
+  "eave": {
+   "above_grade_ft": 23.385,
+   "how": "scaled",
+   "scale": "1/4\" = 1'-0\"",
+   "sheet": "1",
+   "elevation": "front",
+   "note": "mean of the two passes' scaled readings, 23.34 and 23.43 ft. no levels printed. Roof edge / top of the box cornice at sheet y 3800, drawn grade 6134 (level across the front), 100.0 px/ft calibrated on the front block's 39'-3\" = 3925 px on the same elevation. The cornice's lower edge meets the wall at 3894 (22.40 ft)."
+  },
+  "ridge": {
+   "above_grade_ft": 29.72,
+   "how": "scaled",
+   "scale": "1/4\" = 1'-0\"",
+   "sheet": "1",
+   "elevation": "front",
+   "note": "mean of the two passes, 29.74 and 29.7 ft. ridge line at sheet y 3160 over grade 6134; the front pediment's apex sits just below it (about 3200)"
+  },
+  "readings": [
+   {
+    "what": "eave (top of cornice), scaled",
+    "text": "23.34 ft above grade",
+    "datum_text": "drawn grade at the front wall",
+    "sheet": "1",
+    "elevation": "front"
+   },
+   {
+    "what": "underside of cornice at the wall, scaled",
+    "text": "22.40 ft above grade",
+    "datum_text": "drawn grade at the front wall",
+    "sheet": "1",
+    "elevation": "front"
+   },
+   {
+    "what": "ridge, scaled",
+    "text": "29.74 ft above grade",
+    "datum_text": "drawn grade at the front wall",
+    "sheet": "1",
+    "elevation": "front"
+   },
+   {
+    "what": "pediment apex, scaled",
+    "text": "about 29.3 ft above grade",
+    "datum_text": "drawn grade at the front wall",
+    "sheet": "1",
+    "elevation": "front"
+   }
+  ]
+ },
+ "roof": {
+  "overhang": {
+   "ft": 0.87,
+   "how": "scaled",
+   "scale": "1/4\" = 1'-0\"",
+   "sheet": "1",
+   "note": "box cornice projection: roof edge 86 px past the front block's east wall on the front elevation (0.86 ft) and 0.87 ft on section B (sheet 5); section A shows a deeper cornice, 1.7 and 2.0 ft past the wall, on the part it cuts"
+  },
+  "eaves": [
+   "N",
+   "S"
+  ],
+  "note": "main gable ridge runs across the sheet (parallel to the street), so the main eaves face north and south; the one-story wings have their own lower roofs",
+  "derive": false,
+  "derive_note": "side gable with a front pediment, a rear ell with its own gable and one-storey shed-roofed wings"
+ },
+ "porches": [
+  {
+   "name": "west wing front porch",
+   "a": {
+    "ft": 15.8333,
+    "text": "15'-10\"",
+    "how": "printed",
+    "sheet": "3"
+   },
+   "b": {
+    "ft": 5.75,
+    "text": "5'-9\"",
+    "how": "printed",
+    "sheet": "3"
+   }
+  }
+ ],
+ "passes": {
+  "a": "pass A: an independent reader of the 400 dpi sheets (2026-11-25), chain and heights read from crops",
+  "b": "pass B: a second independent reader of the same sheets (2026-11-25), not shown pass A",
+  "disagreements": [
+   {
+    "what": "north-south extent",
+    "pass_a": "51'-5\" (left string's segments, which the drawing scales to); overall 51'-8\" declared a mismatch",
+    "pass_b": "51'-8\" (right string, with the printed 5'-4\" the drawing shows as about 5.0 ft)",
+    "resolved": "A: both passes found the drawing scales 51.1 to 51.4 ft, which supports 51'-5\"; areas differ 0.21 %, perimeters 0.30 %"
+   },
+   {
+    "what": "open stair recess",
+    "pass_a": "scaled 5.25 ft sides",
+    "pass_b": "a notch 3'-7\" x 4.67 ft scaled",
+    "resolved": "A"
+   },
+   {
+    "what": "eave",
+    "pass_a": "23.34 ft scaled",
+    "pass_b": "23.43 ft scaled",
+    "resolved": "the mean, 23.385 ft; B notes the printed scale bar reads about 3 % finer than the printed dimensions, which would raise every scaled height by about 3 %"
+   },
+   {
+    "what": "ridge",
+    "pass_a": "29.74 ft scaled",
+    "pass_b": "29.70 ft scaled",
+    "resolved": "the mean, 29.72 ft"
+   }
+  ]
+ },
+ "flags": [
+  {
+   "code": "overall_mismatch",
+   "note": "The chain's north-south extent is 51'-5\" (the left string's segments 4'-10\" + 20'-6\" + 3'-7\" + 16'-9\" + 5'-9\", which also match the drawing at 100.3 px/ft: 5156 px = 51.4 ft) against the right string's printed overall 51'-8\". The right string's 51'-8\" rests on a 5'-4\" from the rear wall to the rear block that the drawing shows as 5.0 ft; the left string's own printed overall is 50'-7\", matching neither. East-west: bottom 55'-1\", top 54'-11\", top middle row 55'-0\"; the chain closes 1\" open (55'-0\" across the top, 55'-1\" across the bottom), within tolerance."
+  },
+  {
+   "code": "note",
+   "note": "Left string inner row (1\", 2'-7\", 6'-10\", ...) does not fit the drawing at the plan's scale near the top (6'-10\" spans 7.9 ft of drawing); not used."
+  },
+  {
+   "code": "note",
+   "note": "The open stair recess on the west side is treated as outside the building (no wall across its mouth); its depth is scaled. If the steps sit inside a walled entry, add 3'-7\" x 5'-3\" (19 SF)."
+  },
+  {
+   "code": "note",
+   "note": "Second floor has no printed dimensions; its chain mixes first-floor printed values for the shared walls with scaled values (see the floor note)."
+  }
+ ],
+ "note": "Kept from pass A, with the resolutions in passes.disagreements."
+}

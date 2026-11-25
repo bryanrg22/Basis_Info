@@ -1,0 +1,481 @@
+{
+ "schema": "measure_truth/v1",
+ "id": "mo1222",
+ "name": "Frank Wallace House",
+ "loc_url": "https://www.loc.gov/pictures/item/mo1222/",
+ "survey_number": "HABS MO-1909",
+ "drawing_date": "1992",
+ "address": "601 West Truman Road, Independence, Jackson County, MO",
+ "location": {
+  "lat": 39.0937933,
+  "lon": -94.4226531,
+  "how": "centre of the building's outline clicked by hand on the public ortho mo-2023-2024 (2024, 0.150 m/px), pixel (375, 661)"
+ },
+ "standing": {
+  "status": "unchanged",
+  "source": "public ortho mo-2023-2024",
+  "year": 2024,
+  "note": "Hip-roofed rectangle with the front porch under the same roof, about 34 x 63 ft at the roof edge on the ortho against the printed roof plan 31 ft 11 in x 61 ft 0 in; the house the Google search for the address centred on; no addition visible. NPS-owned (Harry S Truman NHS)."
+ },
+ "passes": {
+  "a": "pass A: an independent reader of the 400 dpi sheets (2026-11-25), chain and heights read from crops",
+  "b": "pass B: a second independent reader of the same sheets (2026-11-25), not shown pass A",
+  "disagreements": [
+   {
+    "what": "grade under the eave",
+    "pass_a": "-4'-1\" (east elevation)",
+    "pass_b": "-4'-0\" (north elevation)",
+    "resolved": "the mean of the eight printed grades (both passes read the same eight), 4.148 ft below the floor"
+   },
+   {
+    "what": "roof.outline",
+    "pass_a": "printed roof plan 61'-0 1/4\" x 31'-11\" transcribed",
+    "pass_b": "not transcribed",
+    "resolved": "A's printed outline"
+   }
+  ]
+ },
+ "sheets": {
+  "1": "title sheet: history, location map, site plan (not used for dimensions)",
+  "3": "first floor plan, 1/4\" = 1'-0\", dimensioned (porch and house); delineated Xuan-Hong Ho 1992",
+  "4": "roof plan, 1/4\" = 1'-0\", dimensioned roof outline 61'-0 1/4\" x 31'-11\"; delineated 1992",
+  "5": "north and south elevations (levels on a first-floor 0'-0\" datum, grade printed below it), typical window, window schedule",
+  "6": "east and west elevations (levels on the first-floor datum), porch lamp, front door"
+ },
+ "stories": 1,
+ "roof_shape": "hip (one hip over house and front porch) with a front hipped dormer",
+ "plan": {
+  "sheet": "3",
+  "scale": "1/4\" = 1'-0\"",
+  "chain": [
+   {
+    "dir": "E",
+    "length": {
+     "ft": 46.375,
+     "how": "derived",
+     "note": "sum of the top string's 13 segments from the front (porch-side) wall to the rear corner: 5'-3\" 3'-8\" 8'-0\" 2'-4 1/4\" 5 1/2\" 2'-4 1/4\" 7'-7 1/4\" 2'-8\" 5'-4 1/2\" 2'-8\" 5 1/2\" 2'-8\" 2'-10 1/4\" = 46'-4 1/2\". The top overall 55'-8 3/4\" (porch included) less the porch segments 4 1/4\" + 1'-5 1/2\" + 7'-8 1/2\" would give 46'-2 1/2\"; the overall disagrees with its own segments by 2\" (see flags)",
+     "sheet": "3"
+    },
+    "label": "top (east) wall"
+   },
+   {
+    "dir": "S",
+    "length": {
+     "ft": 26.2083,
+     "text": "26'-2 1/2\"",
+     "how": "printed",
+     "sheet": "3",
+     "note": "right string overall; segments 11\" 2'-2 1/4\" 2'-8 1/2\" 2'-2 1/4\" 6'-7 3/4\" 2'-8 1/4\" 5 1/2\" 2'-8 1/4\" 5 1/2\" 2'-8 1/4\" 2'-7\" add to it"
+    },
+    "label": "right (south, rear) wall"
+   },
+   {
+    "dir": "W",
+    "length": {
+     "ft": 46.3958,
+     "how": "derived",
+     "note": "bottom strings: 55'-10\" (front wall to the end of the rear steps) less 9'-5 1/4\" (rear wall to the end of the rear steps) = 46'-4 3/4\"; the same wall from the second tier: 2'-3\" + 6'-3 1/4\" + 5'-0 1/2\" + 5'-5\" + 6'-6 3/4\" + 9'-8\" + 20'-5\" less the porch 9'-2 3/4\" = 46'-4 3/4\"",
+     "sheet": "3"
+    },
+    "label": "bottom (west) wall, the cantilevered bay left out"
+   },
+   {
+    "dir": "N",
+    "length": {
+     "ft": 26.2083,
+     "how": "derived",
+     "note": "no string of its own: the left-side strings are the porch's; taken equal to the right wall's printed 26'-2 1/2\" (the roof plan's 31'-11\" is the same both ends)",
+     "sheet": "3"
+    },
+    "label": "left (north, front) wall behind the porch"
+   }
+  ],
+  "excluded": [
+   "open front porch across the left (north) wall: about 9'-2 3/4\" (bottom string) / 9'-6 1/4\" (top string) deep by 26'-6 1/4\" long, piers and balustrade, under the main roof; its steps (8'-2\") on the bottom side",
+   "cantilevered bay window on the bottom (west) wall: 9'-8\" wide (printed), about 1.85 ft deep (scaled), its bottom 1'-0 3/4\" above the first floor (window seat, no floor area); left out of the outline",
+   "rear (south) stoop and steps beyond the right wall: 9'-5 1/4\" out, 5'-0\" wide"
+  ],
+  "north": "left (the arrow points to the sheet's left; the front porch faces north)",
+  "note": "A plain rectangle. Start at the top-left outside corner (front wall, east side) and walk clockwise on the sheet. No single printed east-west length for the house without the porch; both long walls are derived from printed strings and agree to 1/4\"."
+ },
+ "floors": [
+  {
+   "level": "first",
+   "finished": true,
+   "same_as_ground": true,
+   "note": "One-storey bungalow; the attic (with a front dormer) is not shown as living space on the sheets used."
+  }
+ ],
+ "heights": {
+  "eave": {
+   "above_grade_ft": 13.5859,
+   "how": "derived",
+   "sheet": "6",
+   "elevation": "all four elevations' grades",
+   "note": "eave printed 9'-5 1/4\" above the first floor; grade printed below the floor at 8 points (4'-0\", 3'-9 1/2\", 3'-1 3/4\", 4'-5 1/2\", 4'-1\", 4'-3\", 4'-7 1/2\", 4'-10\": 3.15 to 4.83 ft, the lot slopes); their mean 4.148 ft is the grade used (both passes read the same eight values)"
+  },
+  "ridge": {
+   "above_grade_ft": 23.5234,
+   "how": "derived",
+   "sheet": "6",
+   "elevation": "all four elevations' grades",
+   "note": "main ridge printed 19'-4 1/2\" above the first floor; grade printed below the floor at 8 points (4'-0\", 3'-9 1/2\", 3'-1 3/4\", 4'-5 1/2\", 4'-1\", 4'-3\", 4'-7 1/2\", 4'-10\": 3.15 to 4.83 ft, the lot slopes); their mean 4.148 ft is the grade used (both passes read the same eight values)"
+  },
+  "readings": [
+   {
+    "what": "ridge",
+    "text": "19'-4 1/2\"",
+    "datum_text": "0'-0\" first floor",
+    "sheet": "5",
+    "elevation": "north elevation"
+   },
+   {
+    "what": "ridge (dormer)",
+    "text": "18'-2 1/2\"",
+    "datum_text": "0'-0\" first floor",
+    "sheet": "5",
+    "elevation": "north elevation"
+   },
+   {
+    "what": "chimney",
+    "text": "18'-5\"",
+    "datum_text": "0'-0\" first floor",
+    "sheet": "5",
+    "elevation": "north elevation"
+   },
+   {
+    "what": "dormer eave",
+    "text": "14'-6 1/4\"",
+    "datum_text": "0'-0\" first floor",
+    "sheet": "5",
+    "elevation": "north elevation"
+   },
+   {
+    "what": "eave",
+    "text": "9'-5 1/4\"",
+    "datum_text": "0'-0\" first floor",
+    "sheet": "5",
+    "elevation": "north elevation"
+   },
+   {
+    "what": "fascia",
+    "text": "7'-0 1/4\"",
+    "datum_text": "0'-0\" first floor",
+    "sheet": "5",
+    "elevation": "north elevation",
+    "note": "bottom of the frieze/fascia band"
+   },
+   {
+    "what": "porch",
+    "text": "0'-4\"",
+    "datum_text": "0'-0\" first floor",
+    "sheet": "5",
+    "elevation": "north elevation",
+    "note": "below the floor"
+   },
+   {
+    "what": "grade (left label)",
+    "text": "4'-0\"",
+    "datum_text": "0'-0\" first floor",
+    "sheet": "5",
+    "elevation": "north elevation",
+    "note": "below the floor"
+   },
+   {
+    "what": "grade (right label)",
+    "text": "3'-9 1/2\"",
+    "datum_text": "0'-0\" first floor",
+    "sheet": "5",
+    "elevation": "north elevation",
+    "note": "below the floor"
+   },
+   {
+    "what": "ridge",
+    "text": "19'-4 1/2\"",
+    "datum_text": "0'-0\" first floor",
+    "sheet": "5",
+    "elevation": "south elevation"
+   },
+   {
+    "what": "chimney",
+    "text": "18'-5\"",
+    "datum_text": "0'-0\" first floor",
+    "sheet": "5",
+    "elevation": "south elevation"
+   },
+   {
+    "what": "eave",
+    "text": "9'-5 1/4\"",
+    "datum_text": "0'-0\" first floor",
+    "sheet": "5",
+    "elevation": "south elevation"
+   },
+   {
+    "what": "fascia",
+    "text": "7'-0 1/4\"",
+    "datum_text": "0'-0\" first floor",
+    "sheet": "5",
+    "elevation": "south elevation"
+   },
+   {
+    "what": "bay window",
+    "text": "1'-0 3/4\"",
+    "datum_text": "0'-0\" first floor",
+    "sheet": "5",
+    "elevation": "south elevation",
+    "note": "bay bottom above the floor"
+   },
+   {
+    "what": "fascia (base)",
+    "text": "1'-1\"",
+    "datum_text": "0'-0\" first floor",
+    "sheet": "5",
+    "elevation": "south elevation",
+    "note": "below the floor"
+   },
+   {
+    "what": "grade (left label)",
+    "text": "3'-1 3/4\"",
+    "datum_text": "0'-0\" first floor",
+    "sheet": "5",
+    "elevation": "south elevation",
+    "note": "below the floor"
+   },
+   {
+    "what": "grade (right label)",
+    "text": "4'-5 1/2\"",
+    "datum_text": "0'-0\" first floor",
+    "sheet": "5",
+    "elevation": "south elevation",
+    "note": "below the floor"
+   },
+   {
+    "what": "ridge",
+    "text": "19'-4 1/2\"",
+    "datum_text": "0'-0\" first floor",
+    "sheet": "6",
+    "elevation": "east elevation"
+   },
+   {
+    "what": "ridge (dormer)",
+    "text": "18'-2 1/2\"",
+    "datum_text": "0'-0\" first floor",
+    "sheet": "6",
+    "elevation": "east elevation"
+   },
+   {
+    "what": "eave (dormer)",
+    "text": "14'-6 1/4\"",
+    "datum_text": "0'-0\" first floor",
+    "sheet": "6",
+    "elevation": "east elevation"
+   },
+   {
+    "what": "eave",
+    "text": "9'-5 1/4\"",
+    "datum_text": "0'-0\" first floor",
+    "sheet": "6",
+    "elevation": "east elevation"
+   },
+   {
+    "what": "fascia",
+    "text": "7'-0 1/4\"",
+    "datum_text": "0'-0\" first floor",
+    "sheet": "6",
+    "elevation": "east elevation"
+   },
+   {
+    "what": "porch",
+    "text": "0'-4\"",
+    "datum_text": "0'-0\" first floor",
+    "sheet": "6",
+    "elevation": "east elevation",
+    "note": "below the floor"
+   },
+   {
+    "what": "grade (left label)",
+    "text": "4'-1\"",
+    "datum_text": "0'-0\" first floor",
+    "sheet": "6",
+    "elevation": "east elevation",
+    "note": "below the floor"
+   },
+   {
+    "what": "grade (right label)",
+    "text": "4'-3\"",
+    "datum_text": "0'-0\" first floor",
+    "sheet": "6",
+    "elevation": "east elevation",
+    "note": "below the floor"
+   },
+   {
+    "what": "ridge",
+    "text": "19'-4 1/2\"",
+    "datum_text": "0'-0\" first floor",
+    "sheet": "6",
+    "elevation": "west elevation"
+   },
+   {
+    "what": "ridge (dormer)",
+    "text": "18'-2 1/2\"",
+    "datum_text": "0'-0\" first floor",
+    "sheet": "6",
+    "elevation": "west elevation"
+   },
+   {
+    "what": "chimney",
+    "text": "18'-5\"",
+    "datum_text": "0'-0\" first floor",
+    "sheet": "6",
+    "elevation": "west elevation"
+   },
+   {
+    "what": "eave",
+    "text": "9'-5 1/4\"",
+    "datum_text": "0'-0\" first floor",
+    "sheet": "6",
+    "elevation": "west elevation"
+   },
+   {
+    "what": "fascia",
+    "text": "7'-0 1/4\"",
+    "datum_text": "0'-0\" first floor",
+    "sheet": "6",
+    "elevation": "west elevation"
+   },
+   {
+    "what": "bay",
+    "text": "1'-0 3/4\"",
+    "datum_text": "0'-0\" first floor",
+    "sheet": "6",
+    "elevation": "west elevation"
+   },
+   {
+    "what": "fascia (base)",
+    "text": "1'-1\"",
+    "datum_text": "0'-0\" first floor",
+    "sheet": "6",
+    "elevation": "west elevation",
+    "note": "below the floor"
+   },
+   {
+    "what": "porch",
+    "text": "0'-4\"",
+    "datum_text": "0'-0\" first floor",
+    "sheet": "6",
+    "elevation": "west elevation",
+    "note": "below the floor"
+   },
+   {
+    "what": "grade (left label)",
+    "text": "4'-7 1/2\"",
+    "datum_text": "0'-0\" first floor",
+    "sheet": "6",
+    "elevation": "west elevation",
+    "note": "below the floor"
+   },
+   {
+    "what": "grade (right label)",
+    "text": "4'-10\"",
+    "datum_text": "0'-0\" first floor",
+    "sheet": "6",
+    "elevation": "west elevation",
+    "note": "below the floor"
+   }
+  ]
+ },
+ "roof": {
+  "overhang": {
+   "ft": 2.8542,
+   "how": "derived",
+   "note": "roof plan (sheet 4) north-south 31'-11\" (both sides printed; left side 10'-3 3/4\" + 11'-2 1/2\" + 10'-4 3/4\") less the house's 26'-2 1/2\", halved = 2'-10 1/4\". East-west the roof's 61'-0 1/4\" (bottom string 15'-10\" + 29'-5\" + 15'-10\" = 61'-1\") over the porch-plus-house 55'-8 3/4\" gives 2.65 ft; the east elevation scales about 3.0 ft (eave end to the corner board)",
+   "sheet": "4"
+  },
+  "eaves": "all",
+  "outline": [
+   {
+    "dir": "E",
+    "length": {
+     "ft": 61.0208,
+     "text": "61'-0 1/4\"",
+     "how": "printed",
+     "sheet": "4",
+     "note": "top string; the bottom string's three segments add to 61'-1\""
+    },
+    "label": "roof top edge (over porch and house)"
+   },
+   {
+    "dir": "S",
+    "length": {
+     "ft": 31.9167,
+     "text": "31'-11\"",
+     "how": "printed",
+     "sheet": "4"
+    },
+    "label": "roof right edge"
+   },
+   {
+    "dir": "W",
+    "length": {
+     "ft": 61.0208,
+     "text": "61'-0 1/4\"",
+     "how": "printed",
+     "sheet": "4",
+     "note": "taken equal to the top; bottom segments 15'-10\" + 29'-5\" + 15'-10\" = 61'-1\""
+    },
+    "label": "roof bottom edge"
+   },
+   {
+    "dir": "N",
+    "length": {
+     "ft": 31.9167,
+     "text": "31'-11\"",
+     "how": "printed",
+     "sheet": "4"
+    },
+    "label": "roof left edge"
+   }
+  ],
+  "note": "One hip roof covers the house and the open front porch, so the left (north) eave sits over the porch, not over the house's front wall. The roof outline is the eave line of the whole roof, porch included.",
+  "derive": true,
+  "derive_note": "one hip roof over the house and its front porch, outline printed on the roof plan (sheet 4)"
+ },
+ "porches": [
+  {
+   "name": "front porch (north)",
+   "a": {
+    "ft": 26.5208,
+    "how": "derived",
+    "note": "left string 34'-8 1/4\" (porch plus its steps) less the steps' 8'-2\"",
+    "sheet": "3"
+   },
+   "b": {
+    "ft": 9.2292,
+    "text": "9'-2 3/4\"",
+    "how": "printed",
+    "sheet": "3",
+    "note": "bottom string, porch outer face to the front wall; the top string gives 9'-6 1/4\" (4 1/4\" + 1'-5 1/2\" + 7'-8 1/2\")"
+   },
+   "note": "porch floor 0'-4\" below the first floor"
+  }
+ ],
+ "flags": [
+  {
+   "code": "no_overall",
+   "note": "No printed overall for the house's walls alone east-west: the 55'-8 3/4\" (top) includes the open porch, the 55'-10\" (bottom) runs from the front wall to the end of the rear steps. North-south the right wall's 26'-2 1/2\" is the overall."
+  },
+  {
+   "code": "note",
+   "note": "The top overall 55'-8 3/4\" disagrees with its own 16 segments, which add to 55'-10 3/4\" (2\" more). The segments, the bottom strings (46'-4 3/4\" for the house) and the sheet (4643 px = 46.4 ft) agree with each other, so the overall is the odd one out; the house's top wall uses the segment sum 46'-4 1/2\"."
+  },
+  {
+   "code": "note",
+   "note": "The left overall reads 34\"-8 1/4\" on the sheet (inch mark for the foot mark); taken as 34'-8 1/4\" (scales 34.67 ft)."
+  },
+  {
+   "code": "note",
+   "note": "Grade is printed per elevation and per side, 3'-1 3/4\" to 4'-10\" below the first floor; the eave above grade is 12.6 to 14.3 ft depending on the side. The east elevation's 4'-1\" is used."
+  }
+ ],
+ "note": "Kept from pass A, with the resolutions in passes.disagreements."
+}
