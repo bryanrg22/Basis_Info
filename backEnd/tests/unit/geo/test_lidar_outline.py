@@ -165,7 +165,17 @@ def test_heights_footprint_and_flags_are_those_main_computed() -> None:
         assert b is not None
         got = dataclasses.asdict(b)
         assert len(got.pop("outline")) >= 4
-        assert got == BEFORE[name], name
+        # Counts and flags exactly; heights and areas to 12 significant digits. The pinned floats
+        # were printed on macOS; CI's Linux numpy rounds the last bit differently (max_m
+        # 7.990450030420149 against ...135 on the shifted building, 2026-11-25), which is not a
+        # change in what the reader computes.
+        want = BEFORE[name]
+        assert got.keys() == want.keys(), name
+        for key, value in want.items():
+            if isinstance(value, float):
+                assert got[key] == pytest.approx(value, rel=1e-12, abs=1e-12), (name, key)
+            else:
+                assert got[key] == value, (name, key)
 
 
 def test_an_api_body_stored_before_the_outline_is_read_and_a_new_one_carries_it() -> None:
