@@ -621,11 +621,14 @@ ${toolPanel('property',s,a,t,v,{})}
   if(t.draft?.length>1)edge(t.draft,false);
   return out;
  }
- const droppedText=d=>d?.dropped?.length?` Not drawn for lack of room: ${d.dropped.join(', ')} (every length is in the edge list).`:'';
+ const droppedText=d=>`${d?.dropped?.length?` Not drawn for lack of room: ${d.dropped.join(', ')} (every length is in the edge list).`:''}${d?.droppedNames?.length?` Names not drawn for lack of room: ${d.droppedNames.join(', ')} (in the key).`:''}`;
  function diagramBody(d){
   const {model:m,frame,pin=null,trace=null,view=null}=d,k=d.k||m.w/900;
-  const font=MT_FONT*k,P=pts=>pts.map(q=>q.map(n=>n.toFixed(1)).join(',')).join(' '),out=[],labels=[],dropped=[];
+  const font=MT_FONT*k,P=pts=>pts.map(q=>q.map(n=>n.toFixed(1)).join(',')).join(' '),out=[],labels=[],dropped=[],droppedNames=[];
   const taken=[...(trace&&view?traceBoxes(trace,view,k):[]),...(d.obstacles||[])];
+  // Every area on the diagram, by owner: a name keeps out of every area but its own.
+  const areas=[...(m.building?[{own:'b',p:m.building.points}]:[]),...m.shapes.flatMap((sh,i)=>sh.shapes.map((one,j)=>one.kind==='line'?null:{own:`s${i}-${j}`,p:one.ring}).filter(Boolean)),
+   ...((trace&&view&&frameFor(trace,view))?(trace.shapes||[]).filter(sh=>sh.kind==='area').map((sh,i)=>({own:`t${i}`,p:sh.ring})):[])];
   const edgeLabels=(points,closed,cls,colour,what)=>{if(!frame)return;for(const l of PM.edgeLabels(points,closed,PM.edgeLengths(points,closed,frame),{k,font:MT_FONT})){if(l.mode==='hidden')continue;
    const b=labelBox(l.text,k),spot=PM.placeEdgeLabel(l,points,closed,b,{pin,boxes:taken});
    if(!spot){dropped.push(`${what} ${l.full}`);continue}
@@ -634,31 +637,36 @@ ${toolPanel('property',s,a,t,v,{})}
   const nameBox=(a,b,fa,fb)=>({w:Math.max(a.length*0.62*fa,b.length*0.62*fb)+8*k,h:font*2.7});
   const name=(n)=>{const box=nameBox(n.lines[0],n.lines[1],n.sizes[0],n.sizes[1]);
    const start=n.start?[n.start[0]+box.w/2,n.start[1]]:(()=>{const q=PM.labelPoint(n.points);return [q[0],q[1]+font*0.35]})();
-   const c=PM.placeName(n.points,box,{pin,boxes:taken,start,within:n.within});taken.push({at:c,w:box.w,h:box.h});
+   const spot=PM.placeName(n.points,box,{pin,boxes:taken,start,within:n.within,avoid:areas.filter(x=>x.own!==n.own).map(x=>x.p),bounds:[m.w,m.h]});
+   if(!spot){droppedNames.push(n.what);return}
+   const c=spot.at;taken.push({at:c,w:box.w,h:box.h});
+   // outside its shape and apart from it: a short leader to the shape's nearest edge
+   const lead=spot.inside?null:PM.leaderFor(c,box,n.points,!n.line,4*k);
+   if(lead)labels.push(`<line class="mt-d-leader${n.cls}" x1="${f1(lead.from[0])}" y1="${f1(lead.from[1])}" x2="${f1(lead.to[0])}" y2="${f1(lead.to[1])}"${n.colour?` style="--c:${n.colour}"`:''} data-own="${n.own}"/>`);
    const ax=n.line?c[0]-box.w/2:c[0],ay=c[1]-font*0.35;
-   labels.push(`<g class="mt-d-total${n.cls}" transform="translate(${f1(ax)} ${f1(ay)})"${n.colour?` style="--c:${n.colour}"`:''} data-box="${f1(box.w)} ${f1(box.h)}"><text font-size="${f1(n.sizes[0])}">${esc(n.lines[0])}</text><text y="${f1(n.gap2)}" font-size="${f1(n.sizes[1])}">${esc(n.lines[1])}</text></g>`)};
+   labels.push(`<g class="mt-d-total${n.cls}" transform="translate(${f1(ax)} ${f1(ay)})"${n.colour?` style="--c:${n.colour}"`:''} data-box="${f1(box.w)} ${f1(box.h)}" data-own="${n.own}"><text font-size="${f1(n.sizes[0])}">${esc(n.lines[0])}</text><text y="${f1(n.gap2)}" font-size="${f1(n.sizes[1])}">${esc(n.lines[1])}</text></g>`)};
   out.push(`<rect class="mt-d-ground" x="0" y="0" width="${m.w}" height="${m.h}" fill="${m.ground}"/>`);
   for(const lot of m.lots)out.push(`<polygon class="mt-d-lot${lot.adjacent?' is-adjacent':''}" points="${P(lot.points)}"/>`);
-  if(m.building)out.push(`<polygon class="mt-d-building" points="${P(m.building.points)}"/>`);
+  if(m.building)out.push(`<polygon class="mt-d-building" points="${P(m.building.points)}" data-own="b"/>`);
   // Measured items: their shapes, then (in order) their lengths and their names.
-  for(const sh of m.shapes)for(const one of sh.shapes){
+  m.shapes.forEach((sh,i)=>sh.shapes.forEach((one,j)=>{
    const rings=one.kind==='line'?[{p:one.path,closed:false}]:[{p:one.ring,closed:true},...(one.cutouts||[]).map(c=>({p:c,closed:true,cut:true}))];
-   for(const r of rings)out.push(r.closed?`<polygon class="mt-d-shape${r.cut?' is-cut':''}" points="${P(r.p)}" style="--c:${sh.colour}"/>`:`<polyline class="mt-d-shape is-line" points="${P(r.p)}" style="--c:${sh.colour}"/>`);
-  }
-  for(const sh of m.shapes)for(const one of sh.shapes){
+   for(const r of rings)out.push(r.closed?`<polygon class="mt-d-shape${r.cut?' is-cut':''}" points="${P(r.p)}" style="--c:${sh.colour}" data-own="s${i}-${j}"/>`:`<polyline class="mt-d-shape is-line" points="${P(r.p)}" style="--c:${sh.colour}" data-own="s${i}-${j}"/>`);
+  }));
+  m.shapes.forEach((sh,i)=>sh.shapes.forEach((one,j)=>{
    const rings=one.kind==='line'?[{p:one.path,closed:false}]:[{p:one.ring,closed:true},...(one.cutouts||[]).map(c=>({p:c,closed:true}))];
    for(const r of rings)edgeLabels(r.p,r.closed,'',sh.colour,typeName(sh.label));
    if(frame){const sum=PM.shapeSummary(one,frame,{unit:sh.unit,heightFt:sh.heightFt}),line=one.kind==='line',end=line?one.path[one.path.length-1]:null;
-    name({points:line?one.path:one.ring,within:!line,start:line?[end[0]+10*k,end[1]-10*k+font*0.35]:null,lines:[typeName(sh.label),line?sum.text:sum.area],sizes:[font*1.1,font*0.95],cls:line?' is-line':'',colour:sh.colour,gap2:font*1.3,line})}
-  }
+    name({own:`s${i}-${j}`,what:`${typeName(sh.label)} ${line?sum.text:sum.area}`,points:line?one.path:one.ring,within:!line,start:line?[end[0]+10*k,end[1]-10*k+font*0.35]:null,lines:[typeName(sh.label),line?sum.text:sum.area],sizes:[font*1.1,font*0.95],cls:line?' is-line':'',colour:sh.colour,gap2:font*1.3,line})}
+  }));
   // The building: the lidar's roof outline (overhangs included), its lengths, its name.
   if(m.building){const bp=m.building.points;edgeLabels(bp,true,' is-building',null,'Building');
-   name({points:bp,within:true,start:null,lines:['Building','roof outline'],sizes:[font,font*0.85],cls:' is-building',colour:null,gap2:font*1.25})}
-  d.dropped=dropped;
-  return `${dropped.length?`<title>${esc(`Diagram.${droppedText(d)}`)}</title>`:''}${out.join('')}${labels.join('')}`;
+   name({own:'b',what:'Building',points:bp,within:true,start:null,lines:['Building','roof outline'],sizes:[font,font*0.85],cls:' is-building',colour:null,gap2:font*1.25})}
+  d.dropped=dropped;d.droppedNames=droppedNames;
+  return `${dropped.length||droppedNames.length?`<title>${esc(`Diagram.${droppedText(d)}`)}</title>`:''}${out.join('')}${labels.join('')}`;
  }
  // Tests reach the layout with a model and a view of their own.
- Live.diagramBodyFor=(model,view,{k=null,pin=null,trace=null,obstacles=[]}={})=>{const d={model,view,frame:PM.frameOf(view),k,pin,trace,obstacles};const html=diagramBody(d);return {html,dropped:d.dropped}};
+ Live.diagramBodyFor=(model,view,{k=null,pin=null,trace=null,obstacles=[]}={})=>{const d={model,view,frame:PM.frameOf(view),k,pin,trace,obstacles};const html=diagramBody(d);return {html,dropped:d.dropped,droppedNames:d.droppedNames}};
  const typeName=l=>String(l||'').replace(/_/g,' ').replace(/^./,c=>c.toUpperCase());
  // The diagram's key, north arrow, scale bar and source sit in the stage's corners (HTML over the
  // zoomed picture), so they stay on screen when it is zoomed and panned. The scale bar is chosen

@@ -717,26 +717,57 @@
  }
  // Two upright boxes {at, w, h} overlap (with a gap between them)?
  const boxesMeet=(a,b,gap=0)=>Math.abs(a.at[0]-b.at[0])*2<a.w+b.w+2*gap&&Math.abs(a.at[1]-b.at[1])*2<a.h+b.h+2*gap;
+ // Does an upright box {at, w, h} (grown by `gap`) touch a polygon's area? A corner of either inside
+ // the other, or an edge of the polygon crossing the box (segment against box, Liang-Barsky).
+ function boxMeetsPolygon(at,{w,h},poly,gap=0){
+  if(!poly||poly.length<3)return false;
+  const x0=at[0]-w/2-gap,x1=at[0]+w/2+gap,y0=at[1]-h/2-gap,y1=at[1]+h/2+gap;
+  if([[x0,y0],[x1,y0],[x1,y1],[x0,y1],at].some(q=>insideOrOn(q,poly)))return true;
+  if(poly.some(([x,y])=>x>x0&&x<x1&&y>y0&&y<y1))return true;
+  for(let i=0;i<poly.length;i++){const a=poly[i],b=poly[(i+1)%poly.length],dx=b[0]-a[0],dy=b[1]-a[1];let t0=0,t1=1,ok=true;
+   for(const [pp,q] of [[-dx,a[0]-x0],[dx,x1-a[0]],[-dy,a[1]-y0],[dy,y1-a[1]]]){if(pp===0){if(q<0){ok=false;break}continue}const r=q/pp;if(pp<0){if(r>t1){ok=false;break}if(r>t0)t0=r}else{if(r<t0){ok=false;break}if(r<t1)t1=r}}
+   if(ok&&t0<=t1)return true}
+  return false;
+ }
  // Where a shape's name goes, after its edge labels are placed (`boxes`: every label already on the
- // diagram, as upright boxes): where it starts (the label point) when clear of them and of the pin;
- // else the nearest place inside the shape where the whole box fits and is clear; else below the
- // shape, then above it, sliding outwards past whatever is in the way; else left, then right. The
- // returned point is the box's centre. `within: false` for a line (it has no inside).
- function placeName(points,box,{pin=null,boxes=[],gap=4,start=null,within=true}={}){
-  const clear=at=>!(pin&&boxMeetsCircle(at,box,pin.at,pin.r+gap))&&!boxes.some(b=>boxesMeet({at,w:box.w,h:box.h},b,gap));
-  const fits=at=>[[-1,-1],[1,-1],[1,1],[-1,1]].every(([sx,sy])=>insideOrOn([at[0]+sx*box.w/2,at[1]+sy*box.h/2],points));
+ // diagram, as upright boxes). A name sits inside its own shape, or outside every other shape
+ // (`avoid`: the other shapes' polygons; never inside or over another shape's area, so a name is
+ // never read as another shape's), clear of every label and of the pin, and on the picture
+ // (`bounds` [w, h]). Tried in order: where it starts (the label point); the nearest place inside
+ // the shape where the whole box fits; then around the shape (below, above, left, right, then the
+ // corners), sliding outwards up to ten name heights. Returns {at, inside} (`at` the box's centre;
+ // `inside` when the whole box is inside its shape), or null when nothing qualifies: the caller
+ // leaves the name out of the drawing (it stays in the key and the title), never misplaces it.
+ // `within: false` for a line (it has no inside).
+ function placeName(points,box,{pin=null,boxes=[],gap=4,start=null,within=true,avoid=[],bounds=null}={}){
+  const onPic=at=>!bounds||(at[0]-box.w/2>=0&&at[1]-box.h/2>=0&&at[0]+box.w/2<=bounds[0]&&at[1]+box.h/2<=bounds[1]);
+  const clear=at=>onPic(at)&&!(pin&&boxMeetsCircle(at,box,pin.at,pin.r+gap))&&!boxes.some(b=>boxesMeet({at,w:box.w,h:box.h},b,gap))&&!avoid.some(q=>boxMeetsPolygon(at,box,q,gap/2));
+  const fits=at=>within&&[[-1,-1],[1,-1],[1,1],[-1,1]].every(([sx,sy])=>insideOrOn([at[0]+sx*box.w/2,at[1]+sy*box.h/2],points));
+  const found=at=>({at,inside:fits(at)});
   const first=start||labelPoint(points);
-  if(clear(first))return first;
+  if(clear(first))return found(first);
   const xs=points.map(q=>q[0]),ys=points.map(q=>q[1]),x0=Math.min(...xs),x1=Math.max(...xs),y0=Math.min(...ys),y1=Math.max(...ys),cx=(x0+x1)/2,cy=(y0+y1)/2;
   if(within){
    const inside=[];for(let i=0;i<=12;i++)for(let j=0;j<=12;j++){const q=[x0+(x1-x0)*i/12,y0+(y1-y0)*j/12];if(fits(q))inside.push(q)}
    inside.sort((a,b)=>Math.hypot(a[0]-first[0],a[1]-first[1])-Math.hypot(b[0]-first[0],b[1]-first[1]));
-   for(const q of inside)if(clear(q))return q;
+   for(const q of inside)if(clear(q))return found(q);
   }
-  const step=Math.max(1,box.h/4),reach=80;
-  for(let i=0;i<reach;i++){const d=i*step;for(const q of [[cx,y1+gap+box.h/2+d],[cx,y0-gap-box.h/2-d]])if(clear(q))return q}
-  for(let i=0;i<reach;i++){const d=i*step;for(const q of [[x0-gap-box.w/2-d,cy],[x1+gap+box.w/2+d,cy]])if(clear(q))return q}
-  return first;
+  const step=Math.max(1,box.h/4),reach=40,bw=box.w/2+gap,bh=box.h/2+gap;
+  for(let i=0;i<reach;i++){const d=i*step;
+   for(const q of [[cx,y1+bh+d],[cx,y0-bh-d],[x0-bw-d,cy],[x1+bw+d,cy],[x0-bw-d,y1+bh+d],[x1+bw+d,y1+bh+d],[x0-bw-d,y0-bh-d],[x1+bw+d,y0-bh-d]])if(clear(q))return found(q)}
+  return null;
+ }
+ // The short line from a name placed outside its shape to the shape's nearest edge: null when the
+ // name's box already touches the shape (or, for a line, comes within `near` of it).
+ function leaderFor(at,box,points,closed,near=0){
+  if(closed&&boxMeetsPolygon(at,box,points))return null;
+  let best=null;const n=points.length;
+  for(let i=0;i<(closed?n:n-1);i++){const q=nearestOnSegment(at,points[i],points[(i+1)%n]),d=dist(at,q);if(!best||d<best.d)best={q,d}}
+  if(!best)return null;
+  const dx=best.q[0]-at[0],dy=best.q[1]-at[1],t=Math.min(box.w/2/Math.max(Math.abs(dx),1e-9),box.h/2/Math.max(Math.abs(dy),1e-9));
+  if(t>=1)return null;
+  const from=[at[0]+dx*t,at[1]+dy*t];
+  return dist(from,best.q)<=near?null:{from,to:best.q};
  }
  // Where an edge's length label goes so it meets no label already placed (upright boxes) and not
  // the pin: its own place outside the edge; the other side of the edge; slid along the edge, its
@@ -801,7 +832,7 @@
  const anyProperty=c=>!!(c&&(c.propertyCapture||c.publicGeo));
 
  const api={FT_PER_M,radii,round2,measure,problems,formula,reviewFlags,expectedErrorPct,MeasurementError,georef,measurable,toMercator,fromMercator,
-  frameOf,scaleFeetPerPx,segmentFt,viewCentre,scrollToCentre,boxMeetsCircle,boxesMeet,placeName,placeEdgeLabel,turnedBox,clearOfPin,pointsBox,buildingOnView,scaleBar,measuredOnView,diagramModel,DIAGRAM_COLOURS,DIAGRAM_GROUND,angleAt,isSquare,RIGHT_TOL_DEG,edgeLengths,ftIn,ftInWords,parseLength,areaText,lfText,edgeLabels,labelPoint,shapeSummary,movePoint,insertPoint,removePoint,minPoints,setEdgeLength,snapPoint,nearestOnSegment,ringSegments,onPicture,
+  frameOf,scaleFeetPerPx,segmentFt,viewCentre,scrollToCentre,boxMeetsCircle,boxesMeet,boxMeetsPolygon,leaderFor,placeName,placeEdgeLabel,turnedBox,clearOfPin,pointsBox,buildingOnView,scaleBar,measuredOnView,diagramModel,DIAGRAM_COLOURS,DIAGRAM_GROUND,angleAt,isSquare,RIGHT_TOL_DEG,edgeLengths,ftIn,ftInWords,parseLength,areaText,lfText,edgeLabels,labelPoint,shapeSummary,movePoint,insertPoint,removePoint,minPoints,setEdgeLength,snapPoint,nearestOnSegment,ringSegments,onPicture,
   remember,undoTrace,redoTrace,snapshotOf,bodyOfRecord,pixelShapes,drawnByText,withProvenance,sameShapes,viewRef,imageBody,KNOWN_LENGTHS,edgeComparison,lonlatPathFt,shoelace,insideOrOn,
   needsMeasurement,measureOffer,measureUnit,captureStatus,gatherStatus,noteText,clock,viewsOf,historyStrip,defaultMeasureView,leafText,dateText,yearOnly,dateOf,SIDE_TEXT,LOOKING,compass,
   publicSeries,creditLine,measurementBody,imageOf,parcelRings,siteCheckText,lidarFacts,bracket,withBracket,caps,anyProperty,ringProblem,CAPTURE_FAILED,CAPTURE_PART};

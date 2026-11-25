@@ -231,7 +231,7 @@ function layout(k,pin){
  for(const l of PM.edgeLabels(ROOF,true,PM.edgeLengths(ROOF,true,frame),{k,font:12}))if(l.mode!=='hidden'){
   const b={w:(l.text.length*0.62*12+10)*k,h:18*k},tb=PM.turnedBox(b,l.angle);taken.push({at:PM.clearOfPin([l.x,l.y],tb,pin),w:tb.w,h:tb.h,text:l.text,i:l.i})}
  const box={w:Math.max(8*0.62*font,12*0.62*font*0.85)+8*k,h:font*2.7},q=PM.labelPoint(ROOF);
- return {taken,box,name:PM.placeName(ROOF,box,{pin,boxes:taken,start:[q[0],q[1]+font*0.35]})};
+ return {taken,box,name:PM.placeName(ROOF,box,{pin,boxes:taken,start:[q[0],q[1]+font*0.35]}).at};
 }
 test('the building’s name is placed after the edge labels, clear of every one of them and of the pin (the live geometry)',()=>{
  const pin={at:[980,195],r:Math.max(7,1440/110)*1.9};
@@ -246,16 +246,47 @@ test('the building’s name is placed after the edge labels, clear of every one 
  const at04=layout(0.4,pin);const fits=[[-1,-1],[1,-1],[1,1],[-1,1]].every(([sx,sy])=>PM.insideOrOn([at04.name[0]+sx*at04.box.w/2,at04.name[1]+sy*at04.box.h/2],ROOF));
  assert.ok(fits,'zoomed in, it fits inside the outline away from the pin');
  // with no pin and nothing in the way it stays at the outline's label point
- const free=PM.placeName(ROOF,{w:20,h:10},{boxes:[]});assert.deepEqual(free,PM.labelPoint(ROOF));
+ const free=PM.placeName(ROOF,{w:20,h:10},{boxes:[]});assert.deepEqual(free,{at:PM.labelPoint(ROOF),inside:true});
 });
 test('placeName tries inside, then below and above sliding past what is in the way, then beside',()=>{
  const sq=[[0,0],[100,0],[100,100],[0,100]],big={w:150,h:20};
- assert.deepEqual(PM.placeName(sq,big,{pin:{at:[50,50],r:10}}),[50,100+4+10],'too wide for the inside: below');
+ assert.deepEqual(PM.placeName(sq,big,{pin:{at:[50,50],r:10}}),{at:[50,100+4+10],inside:false},'too wide for the inside: below');
  const below={at:[50,114],w:200,h:20};
- const p=PM.placeName(sq,big,{pin:{at:[50,50],r:10},boxes:[below]});assert.ok(!PM.boxesMeet({at:p,...big},below,4)&&p[1]<0,'below is taken: above');
- const p2=PM.placeName(sq,big,{pin:{at:[50,50],r:10},boxes:[{at:[50,40],w:400,h:400}]});assert.ok(!PM.boxesMeet({at:p2,...big},{at:[50,40],w:400,h:400},4));
+ const p=PM.placeName(sq,big,{pin:{at:[50,50],r:10},boxes:[below]}).at;assert.ok(!PM.boxesMeet({at:p,...big},below,4)&&p[1]<0,'below is taken: above');
+ const p2=PM.placeName(sq,big,{pin:{at:[50,50],r:10},boxes:[{at:[50,40],w:400,h:400}]}).at;assert.ok(!PM.boxesMeet({at:p2,...big},{at:[50,40],w:400,h:400},4));
  const small={w:20,h:10},q=PM.placeName(sq,small,{pin:{at:[50,50],r:10}});
- assert.ok(PM.insideOrOn(q,sq)&&!PM.boxMeetsCircle(q,small,[50,50],14),'small enough: inside, away from the pin');
+ assert.ok(q.inside&&PM.insideOrOn(q.at,sq)&&!PM.boxMeetsCircle(q.at,small,[50,50],14),'small enough: inside, away from the pin');
+});
+test('boxMeetsPolygon: inside, overlapping, an edge crossing with no corner inside either, apart, the gap',()=>{
+ const sq=[[0,0],[100,0],[100,100],[0,100]],tri=[[0,0],[100,0],[50,100]];
+ assert.ok(PM.boxMeetsPolygon([50,50],{w:10,h:10},sq),'inside');
+ assert.ok(PM.boxMeetsPolygon([100,50],{w:10,h:10},sq),'over an edge');
+ assert.ok(PM.boxMeetsPolygon([150,50],{w:320,h:4},sq),'a thin box across, no corner of either inside the other');
+ assert.ok(PM.boxMeetsPolygon([50,50],{w:400,h:400},sq),'the polygon inside the box');
+ assert.ok(!PM.boxMeetsPolygon([50,120],{w:10,h:10},sq),'apart');
+ assert.ok(!PM.boxMeetsPolygon([90,90],{w:10,h:10},tri),'beside a slanted edge, outside');
+ assert.ok(!PM.boxMeetsPolygon([50,110],{w:10,h:10},sq,4)&&PM.boxMeetsPolygon([50,110],{w:10,h:10},sq,6),'the gap counts');
+});
+test('placeName never puts a name over another shape: outside its own it goes around the others, or nowhere',()=>{
+ // a small patio above a building that touches it, the patio's inside taken (as by the trace's labels)
+ const patio=[[100,100],[200,100],[200,140],[100,140]],bld=[[90,140],[260,140],[260,300],[90,300]],box={w:80,h:30},taken=[{at:[150,120],w:100,h:40}];
+ const old=PM.placeName(patio,box,{boxes:taken});assert.ok(PM.boxMeetsPolygon(old.at,box,bld),'not told about the building, it goes below, into it (the misreading)');
+ const at=PM.placeName(patio,box,{boxes:taken,avoid:[bld]});assert.ok(at&&!at.inside&&!PM.boxMeetsPolygon(at.at,box,bld)&&at.at[1]<100,'told, it goes above, clear of the building');
+ assert.ok(PM.leaderFor(at.at,box,patio,true)===null||PM.leaderFor(at.at,box,patio,true).to[1]===100,'its leader, if any, ends on the patio');
+ // walled in on every side: nothing qualifies, so null (the caller leaves it out), never a misplaced name
+ const wall=[[0,0],[400,0],[400,400],[0,400]];
+ assert.equal(PM.placeName(patio,box,{boxes:taken,avoid:[wall],bounds:[400,400]}),null);
+ // and kept on the picture
+ const edge=PM.placeName(patio,box,{boxes:[...taken,{at:[150,60],w:400,h:80}],avoid:[bld],bounds:[400,400]});
+ assert.ok(edge===null||(edge.at[0]-40>=0&&edge.at[1]-15>=0&&edge.at[0]+40<=400&&edge.at[1]+15<=400),'on the picture');
+});
+test('leaderFor: none when the name touches its shape; else from the box’s side to the nearest edge',()=>{
+ const sq=[[0,0],[100,0],[100,100],[0,100]],box={w:40,h:20};
+ assert.equal(PM.leaderFor([50,50],box,sq,true),null,'inside');
+ assert.equal(PM.leaderFor([50,105],box,sq,true),null,'over its edge');
+ const l=PM.leaderFor([50,140],box,sq,true);assert.deepEqual(l,{from:[50,130],to:[50,100]});
+ assert.equal(PM.leaderFor([50,112],box,[[0,100],[100,100]],false,4),null,'a line: near enough needs none');
+ assert.ok(PM.leaderFor([50,140],box,[[0,100],[100,100]],false,4),'a line: apart, a leader');
 });
 test('on the rendered diagram no name box meets an edge label or the pin',async()=>{
  const x=await boot({storage:memory()});x.Live.measurePicture.set('diagram');
@@ -332,6 +363,50 @@ test('a length that fits nowhere is left out of the drawing and named in the dia
  assert.match(html,/^<title>Diagram\. Not drawn for lack of room: Patio 40&#39;-/);
  assert.match(html,/every length is in the edge list/);
  const ok=x.Live.diagramBodyFor(model,v,{k:0.4,pin});assert.deepEqual(plain(ok.dropped),[],'zoomed in, everything fits');assert.doesNotMatch(ok.html,/<title>Diagram\./);
+});
+// Names against areas: each name's box (from the markup) and each shape's polygon by its owner key.
+function nameBoxes(html,k){const font=12*k,out=[];
+ for(const m of html.matchAll(/class="mt-d-total([^"]*)" transform="translate\(([-\d.]+) ([-\d.]+)\)"[^>]*data-box="([\d.]+) ([\d.]+)" data-own="([^"]+)"/g)){const [ax,ay,w,h]=m.slice(2,6).map(Number);out.push({own:m[6],at:[/is-line/.test(m[1])?ax+w/2:ax,ay+font*0.35],w,h})}
+ return out}
+const areasOf=(model,trace)=>[...(model.building?[{own:'b',p:model.building.points}]:[]),...model.shapes.flatMap((sh,i)=>sh.shapes.map((one,j)=>one.kind==='line'?null:{own:`s${i}-${j}`,p:one.ring})).filter(Boolean),...(trace?.shapes||[]).filter(t=>t.kind==='area').map((t,i)=>({own:`t${i}`,p:t.ring}))];
+// checked apart from the code under test: a 9 x 9 grid of the box's points in the polygon, or a corner of the polygon in the box
+const overArea=(n,poly)=>{for(let a=0;a<=8;a++)for(let b=0;b<=8;b++)if(PM.insideOrOn([n.at[0]-n.w/2+n.w*a/8,n.at[1]-n.h/2+n.h*b/8],poly))return true;return poly.some(([x,y])=>Math.abs(x-n.at[0])<n.w/2&&Math.abs(y-n.at[1])<n.h/2)};
+function assertNamesOnOwn(html,k,model,what,trace=null){const names=nameBoxes(html,k);
+ for(const n of names)for(const a of areasOf(model,trace))if(a.own!==n.own)assert.ok(!overArea(n,a.p),`${what}: the name of ${n.own} is over ${a.own}`);
+ return names}
+const DIALOG_K=[1.4458,0.7229,0.3614],PAGE_K=[1.6,0.8,0.4];// measured: the dialog's and the Property page's scale bars at 100, 200 and 400 % (1440 x 900)
+test('the patio above the building at the dialog’s scale: its name is never drawn inside the building',async()=>{
+ const x=await boot({storage:memory()});const {model,v}=await sampleModel(x);
+ const patio=model.shapes[0].shapes[0].ring,bld=model.building.points,xs=patio.map(q=>q[0]),ys=patio.map(q=>q[1]);
+ assert.ok(Math.max(...ys)<=Math.min(...bld.map(q=>q[1]))+30,'the patio sits above the building, touching it');
+ // the patio's inside taken (as by a trace's labels drawn over it), so the name must go outside
+ const cover={at:[(Math.min(...xs)+Math.max(...xs))/2,(Math.min(...ys)+Math.max(...ys))/2],w:Math.max(...xs)-Math.min(...xs)+40,h:Math.max(...ys)-Math.min(...ys)+40};
+ for(const k of DIALOG_K){
+  const {html,droppedNames}=x.Live.diagramBodyFor(model,v,{k,obstacles:[cover]});
+  const n=assertNamesOnOwn(html,k,model,`k ${k}`).find(b=>b.own==='s0-0');
+  if(!n){assert.deepEqual(plain(droppedNames),['Patio 845 SF']);assert.match(html,/Names not drawn for lack of room: Patio 845 SF \(in the key\)/);continue}
+  assert.ok(!overArea(n,bld),`k ${k}: the patio's name is not inside the building`);
+  assert.ok(!PM.boxesMeet(n,cover),`k ${k}: outside the patio`);
+  const lead=/<line class="mt-d-leader" x1="([-\d.]+)" y1="([-\d.]+)" x2="([-\d.]+)" y2="([-\d.]+)"[^>]*data-own="s0-0"\/>/.exec(html);
+  assert.ok(lead,`k ${k}: a leader from the name to the patio`);
+  const to=lead.slice(3,5).map(Number);assert.ok(patio.some((a,i)=>{const b=patio[(i+1)%patio.length];return Math.hypot(...[0,1].map(c=>PM.nearestOnSegment(to,a,b)[c]-to[c]))<0.2}),'it ends on the patio’s edge');
+ }
+ // and without the cover, at the dialog's 100 %, it sits inside the patio with no leader
+ const free=x.Live.diagramBodyFor(model,v,{k:DIALOG_K[0]});assert.doesNotMatch(free.html,/mt-d-leader[^>]*data-own="s0-0"/);
+});
+test('no name’s box is over another shape: sample and live geometry, the Property page and the dialog, 100, 200 and 400 %, with and without a fence traced across',async()=>{
+ const x=await boot({storage:memory()});const {model,v,pin}=await sampleModel(x);
+ const g=PM.georef(LIVE_VIEW),view={...LIVE_VIEW,id:'live'};
+ const live=PM.diagramModel({view,building:PM.buildingOnView({year:2019,building:{footprint_m2:200.5,outline:ROOF.map(p=>g.toLonLat(...p))}},view)}),livePin={at:[980,195],r:Math.max(7,1440/110)*1.9};
+ x.Live.measurePicture.set('diagram');const fence=x.items.find(a=>a.label==='fence');x.Live.state.docId=fence.id;await x.page(()=>x.Live.screens.property());
+ const t=x.Live.state.property[x.study.id].trace,px=([e,n])=>[720+e/0.0841,450-n/0.0841];
+ t.shapes=[{kind:'line',path:[[-14,12],[8,12],[8,-2]].map(px)}];
+ let names=0;
+ for(const [ks,where,p] of [[PAGE_K,'page',pin],[DIALOG_K,'dialog',null]])for(const k of ks){
+  for(const trace of [null,t]){const r=x.Live.diagramBodyFor(model,v,{k,pin:p,trace});names+=assertNamesOnOwn(r.html,k,model,`sample ${where} k ${k}${trace?' fence':''}`,trace).length;assertClear(labelBoxes(r.html,k),p,`sample ${where} k ${k}${trace?' fence':''}`)}
+  const r=x.Live.diagramBodyFor(live,view,{k,pin:p?livePin:null});names+=assertNamesOnOwn(r.html,k,live,`live ${where} k ${k}`).length;
+ }
+ assert.ok(names>=30,`names were drawn and checked (${names})`);
 });
 test('placeEdgeLabel: its own side, the other side, slid along the middle half, nearer; else nothing',()=>{
  const sq=[[0,0],[200,0],[200,100],[0,100]],l=PM.edgeLabels(sq,true,[20,10,20,10],{k:1,font:12})[0],box={w:60,h:18};

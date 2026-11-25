@@ -16042,6 +16042,21 @@ building length left out at 100 %, none at 200 and 400 %) and the live roof at t
 7 labels): zero overlaps. Unit tests add the same for the sample and live geometry at three scales
 and a fence traced across the patio and the garage. Web suite 569.
 
+A fourth check, in the Measure dialog, found the patio's name drawn inside the building's outline below
+it, so the building read as the patio. A name now sits inside its own shape or outside every other
+shape (the building, each measured shape, the trace's areas; never over another's area), on the
+picture; outside its shape and apart from it, a short leader runs to the shape's nearest edge; if no
+place qualifies the name is left out of the drawing and named in the title and aria text (it stays in
+the key). Tests: the patio-above-building geometry at the dialog's scale with the patio's inside taken
+(the name goes outside, clear of the building, with a leader ending on the patio's edge), and every
+name against every other shape's polygon (a 9 x 9 grid of the box) on the sample and live geometry at
+the Property page's and the dialog's scales for 100, 200 and 400 %, with and without a fence traced
+across. Removing the area check fails two tests; removing the leader fails one. Rendered, in the
+dialog (Fence, Close aerial, Diagram, 1440 x 900) at 100, 200 and 400 %, without and with a fence
+drawn across the patio and the building: zero label overlaps and no name over another shape (with the
+fence at 100 % the patio's name goes outside with a leader); the Property page still zero. Web suite
+574.
+
 **Open.** No lot line on the live study (no parcel); the outline is the roof, not the walls; the
 building is not drawn in photo mode (only snapped to); the outline is not checked against a surveyed
 footprint.

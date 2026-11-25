@@ -323,6 +323,7 @@
 .mt-d-total text{fill:var(--c);text-anchor:middle;font-weight:700;paint-order:stroke;stroke:#fff;stroke-width:3px;stroke-linejoin:round}
 .mt-d-total text+text{font-weight:600}
 .mt-d-total.is-line text{text-anchor:start}
+.mt-d-leader{stroke:var(--c);stroke-width:1.5;vector-effect:non-scaling-stroke;stroke-linecap:round}.mt-d-leader.is-building{--c:#4b5563}
 .mt-d-legend>rect{fill:#fff;stroke:#cfd8d2;stroke-width:1;vector-effect:non-scaling-stroke}
 .mt-d-legend text{fill:#1d3328}.mt-d-legend text.is-title{font-weight:700}
 .mt-d-swatch{fill:color-mix(in srgb,var(--c) 30%,#fff);stroke:var(--c);stroke-width:1.5;vector-effect:non-scaling-stroke}
