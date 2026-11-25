@@ -183,6 +183,7 @@ class CaptureRunner:
         holder: str,
         settle_s: float = 12.0,
         source_text: str = "Aerial imagery",
+        street_source_text: str = "Street-level imagery",
         clock: Callable[[], datetime] = _utcnow,
         sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
         rng: random.Random | None = None,
@@ -197,6 +198,7 @@ class CaptureRunner:
         self._holder = holder
         self._settle_s = settle_s
         self._source = source_text
+        self._street_source = street_source_text
         self._clock = clock
         self._sleep = sleep
         self._rng = rng or random.SystemRandom()
@@ -400,7 +402,7 @@ class CaptureRunner:
                 uri=uri,
                 sha256=hashlib.sha256(shot.view).hexdigest(),
                 bytes=len(shot.view),
-                source=self._source,
+                source=self._street_source if view.kind == "street" else self._source,
                 captured_at=self._clock(),
                 imagery_on=reading.on,
                 imagery_date_note=reading.note,

@@ -83,7 +83,7 @@ again."; blank, timeout, crash, gave up: take them again later).
 | `leaf` | `leaf-off`, `leaf-on` or `unknown` on the imagery date, by the month and the property's latitude (EVAL_REPORT 99). `unknown` between seasons, for a date known only to the year (31 December), outside 37 to 49.5° N, or undated. |
 | `green_share` | Top-down views: the share of green vegetation pixels (0 to 1), supporting evidence for `leaf`, not the label itself. |
 | `camera_lat`, `camera_lon` | Street-level views: where the camera stood; `lat`, `lon` are the house it looks at and `heading_deg` points from one to the other; `tilt_deg` 90 is the horizon. |
-| `source` | The provenance line (`CAPTURE_SOURCE_TEXT`). |
+| `source` | The provenance line: `CAPTURE_SOURCE_TEXT` for the aerial views, `CAPTURE_STREET_SOURCE_TEXT` for a street-level view. |
 | `pin_version`, `stale` | `stale`: taken at another point than the pin's current one (more than 1 m away). A confirmation or an address edit raises the pin's version without making views stale. |
 | `width`, `height`, `sha256`, `captured_at` | The image: 1440 x 900, free of the viewer's interface (EVAL_REPORT 99: a taller viewport cropped symmetrically, so the centre and the metres per pixel are unchanged). Views taken before carry the viewer's toolbar and status bar. |
 
@@ -166,7 +166,8 @@ per consecutive trip up to a day, and closes on the next success. Every number i
   image runs the worker under a virtual display). Refused, it records 020 and goes on. A
   visitor's uploaded photo (a panorama id starting `CIHM0og` or `AF1Qip`) is not street
   imagery: 019 with the reason. The stored picture is the band free of the page's interface
-  (230 px off the top, 180 px off the bottom).
+  (230 px off the top, 180 px off the bottom). Its `source` is `CAPTURE_STREET_SOURCE_TEXT`
+  ("Street-level imagery viewed online; ..."), not the aerial line.
 - **The date reader** is tesseract, a system program (`CAPTURE_TESSERACT`, else `tesseract`
   on the path). The capture worker's image needs it installed; without it every date is null
   with the reason and the capture records 021 once.

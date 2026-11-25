@@ -665,6 +665,8 @@ class Settings(BaseSettings):
     # captured again unless the pin moved. CAPTURE_SOURCE_TEXT: the provenance line stored
     # with every view and shown to the engineer; it must not name the imagery provider
     # (AGENTS.md), and what it says is Bryan's decision (PROPERTY_CAPTURE.md section 6).
+    # CAPTURE_STREET_SOURCE_TEXT: the same line for a street-level view, which is not aerial
+    # imagery (the live walkthrough of 2026-11-24 found the street picture labelled "Aerial").
     # EVAL_REPORT section 99 (history, imagery dates, leaf-off, street level, clean views):
     # CAPTURE_HISTORY (true): after today's views, walk the straight-down view's dated
     # history with the viewer's "Older images" arrow (one camera move a date, no page load)
@@ -704,6 +706,11 @@ class Settings(BaseSettings):
     capture_recent_hours: float = Field(default=12.0, ge=0, le=720)
     capture_source_text: str = Field(
         default="Aerial imagery viewed online; date as the imagery shows it",
+        min_length=1,
+        max_length=200,
+    )
+    capture_street_source_text: str = Field(
+        default="Street-level imagery viewed online; date as the imagery shows it",
         min_length=1,
         max_length=200,
     )
@@ -855,6 +862,7 @@ class Settings(BaseSettings):
     @field_validator(
         "capture_task_queue",
         "capture_source_text",
+        "capture_street_source_text",
         "capture_profile_dir",
         "capture_tesseract",
         "capture_viewer_origin",
