@@ -28,19 +28,16 @@ const svg = overlay(hero);
 const pairs = [...hero.querySelectorAll('.cite')].map((c) => [c, document.getElementById(c.dataset.note)]);
 let current = null, turn = 0, timer = 0, idle = true;
 const besideCopy = matchMedia('(min-width: 981px)');
-// Stacked (tablets and phones) the sources sit under the copy, so no line can reach them from the
-// sentence. There they read as a derivation instead: one rule runs through the three numbers, and
-// it fills in green down to the source that is lit (1, then 2, then 3), as the figure is built up
-// from the cost line, through the appraisal, to its class. trail() measures where the rule runs.
-const steps = rail.querySelector('ol');
-function trail() {
-  if (besideCopy.matches) return;
-  const box = steps.getBoundingClientRect();
-  const centre = (n) => { const r = n.querySelector('.n').getBoundingClientRect(); return [r.left + r.width / 2 - box.left, r.top + r.height / 2 - box.top]; };
-  const [x, top] = centre(pairs[0][1]), [, bottom] = centre(pairs[pairs.length - 1][1]);
-  steps.style.setProperty('--trail-x', `${x}px`);
-  steps.style.setProperty('--trail-top', `${top}px`);
-  steps.style.setProperty('--trail-height', `${bottom - top}px`);
+// Stacked (tablets and phones) there are no sources: they earn their place beside the copy, where a
+// line can run to them from the sentence, and under it they would only be a list in the way of the
+// page (paper.css hides them). The chips stay in the sentence as marks and do nothing there.
+const marks = hero.querySelector('.cite-set');
+function mode() {
+  marks.inert = !besideCopy.matches;
+  clearTimeout(timer);
+  if (!besideCopy.matches) { show(null); return; }
+  idle = true;
+  if (reduce.matches) show(pairs[0][0]); else timer = setTimeout(cycle, 1400);
 }
 function show(chip) {
   if (current === chip) return;
@@ -48,15 +45,13 @@ function show(chip) {
   clear(svg);
   for (const [c, n] of pairs) { c.classList.toggle('is-on', c === chip); n.classList.toggle('is-on', c === chip); }
   rail.classList.toggle('has-on', !!chip);
-  const at = pairs.findIndex(([c]) => c === chip);
-  steps.style.setProperty('--trail-fill', at > 0 ? String(at / (pairs.length - 1)) : '0');
   const note = chip && pairs.find(([c]) => c === chip)[1];
   if (note && besideCopy.matches) requestAnimationFrame(() => {
     const gap = lede.getBoundingClientRect().bottom - hero.getBoundingClientRect().top + 14;
     link(svg, hero, chip, note.querySelector('.n'), { exit: 'below', gapY: gap });
   });
 }
-const cycle = () => { if (!idle || reduce.matches) return; show(pairs[turn % pairs.length][0]); turn++; timer = setTimeout(cycle, 3200); };
+const cycle = () => { if (!idle || reduce.matches || !besideCopy.matches) return; show(pairs[turn % pairs.length][0]); turn++; timer = setTimeout(cycle, 3200); };
 for (const [c, n] of pairs) {
   for (const el of [c, n]) {
     el.addEventListener('pointerenter', (e) => { if (e.pointerType !== 'mouse') return; idle = false; clearTimeout(timer); show(c); });
@@ -65,13 +60,9 @@ for (const [c, n] of pairs) {
   c.addEventListener('focus', () => { idle = false; clearTimeout(timer); show(c); });
   c.addEventListener('click', (e) => {
     e.preventDefault(); idle = false; clearTimeout(timer);
-    const next = current === c ? null : c;
-    show(next);
-    // stacked, the source is further down the page: bring it into view
-    if (next && !besideCopy.matches) n.scrollIntoView({ block: 'center', behavior: reduce.matches ? 'auto' : 'smooth' });
+    show(current === c ? null : c);
   });
 }
 addEventListener('resize', () => { const c = current; current = null; if (c) show(c); });
-new ResizeObserver(trail).observe(rail);
-document.fonts?.ready.then(trail);
-if (reduce.matches) show(pairs[0][0]); else timer = setTimeout(cycle, 1400);
+besideCopy.addEventListener('change', mode);
+mode();
