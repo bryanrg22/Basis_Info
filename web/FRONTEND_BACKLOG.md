@@ -452,10 +452,10 @@ is `live/property.js` (`web/README.md`, "The Property area"; design in `DESIGN_N
 **Not built:**
 
 * 17: a later assets rejection does not send the measurement again (the backend's "Not done";
-  the maintainer decides whether the app repeats it or the backend keeps it); measuring on an
-  uploaded plan (`space: image` with a scale) and `document_id`; showing a sent row's
-  `takeoff_inputs.measurement` (the shape over the picture) on the asset page; the 422's per-shape
-  `detail` placed next to the shape (it shows as the send's error message).
+  the maintainer decides whether the app repeats it or the backend keeps it); the 422's per-shape
+  `detail` placed next to the shape (it shows as the send's error message). Measuring on a photo
+  with a scale and `document_id`, and showing a sent row's measurement on the asset page, are
+  built (section 22); measuring on an uploaded plan (a PDF page) is not.
 * 18: prefilling the pin from the appraisal's subject address (the form prefills from the study's
   summary when the API has one); choosing history dates (the API does not offer it);
   `green_share`; the capture list beyond the last successful one; the operator incidents page.
@@ -483,7 +483,49 @@ banner, the saved-measurement sentence). Still open:**
   an intersection, and the heights card then found no building). The confirm card could show
   the parcel or the building outline under the point, or ask the engineer to click the roof.
 * A traced measurement lives in the unsent corrections, which a reload loses (the gate drafts
-  item above).
+  item above). Fixed for the assets gate in section 22.
+
+## 22. The measure tool (EVAL_REPORT 104, November 2026)
+
+Built on the API as it is (`docs/api/OVERRIDES.md` section 4 with the provenance keys,
+`docs/api/GATE_DRAFTS_AND_RESUME.md`), in `live/property.js` (the tool, the dialog, the
+read-only card), `live/property-model.js` (its geometry, tested against the server's numbers),
+`live/live-review.js` (the assets gate's draft) and `live/new-design.js` (Measure on the list).
+
+**What the app now uses:**
+
+* `measurement.drawn_by`, `verified`, `view` (`kind`, `id`, `label`, `width`, `height`) and
+  `original` on an `asset` correction: every measurement the tool sends says who drew it, the
+  engineer's Verified mark, the picture it was drawn on (a capture view, a public view, or a
+  photo with its pixel frame), and, when it edits a stored measurement, that measurement as
+  `original` (its own original when it has one).
+* `space: image` with `scale` and `image.document_id`: any component with an area or a length is
+  measured on one of the study's photos (the evidence's first), the scale set from two clicked
+  points and a typed known length (hints: door 80 in, door 36 in wide, base cabinet 34.5 in high
+  and 24 in deep, counter 36 in). The points are in the pixels of `GET .../documents/{id}/image`
+  as shown; `view.width`/`height` record that frame.
+* `takeoff.inputs.measurement` after the rerun: shown read-only on the asset page with its
+  lengths on its own picture (lon/lat on any capture view when its own is gone), who drew it,
+  whether it was verified, the expected error and the imagery date; a model's unverified draft
+  is tagged Draft on the Assets list; Edit measurement opens it with the stored measurement as
+  the base an edit replaces.
+* `GET`/`PUT`/`DELETE .../drafts/assets_review`: the assets review's corrections are saved as
+  the engineer's draft on every change (If-Match on its version, a 412 re-read and saved again,
+  an empty list deleted) and restored when the gate is opened again with nothing pending, so a
+  traced measurement survives a reload. A stale draft is not restored. An API without the route
+  (404) leaves the corrections on the page as before.
+
+Measure is offered on every row with an area or a length; the dialog's photos are the asset's
+own as thumbnails and the rest in one list. Found in passing: in sample mode the error capture posts
+to the static server (`/sample/v1/client-errors`, 501) when a gitignored sample photo is missing.
+
+**Not built (open):** the other three gates' drafts (section 2: their corrections need titles
+rebuilt from rows); showing another engineer's draft (`others`) and a stale draft to carry over;
+a 422 at save time placed next to its correction (it is a toast); cut-outs drawn on a photo are
+offered but not exercised in the browser; snapping to the building outline (no outline polygon is
+stored, AI_MEASUREMENT_PLAN.md section 2) and to right angles; slope typed onto an area; colour by
+asset type with a legend; the diagram in the report; phones (measuring needs a larger screen, as
+before); a later assets rejection still does not resend the measurement (section 17).
 
 ## 17. The traced measurement: what the API offers and the app does not use (EVAL_REPORT 97)
 

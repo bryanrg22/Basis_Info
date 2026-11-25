@@ -15849,3 +15849,74 @@ the tenancy walk, the known routes and migration 0039's test pass (backEnd/tests
   test to the preparer), a later renovation removing an earlier renovation's row.
 * The treatment split (election required or whole asset) is an inference, the CPA's to confirm.
 * Migration 0039 revises 0035 on this branch and is re-pointed when 0036-0038 land.
+
+## 104. The measure tool: a length on every edge, editing, typed lengths, photos and the AI's original (2026-11-25)
+
+**Question.** Bryan asked for measurements on the shapes the way Fusion 360 shows them, "as easy as
+possible", with the engineer able to change them (AI_MEASUREMENT_PLAN.md, step 2 of section 7). Can
+the tool show a length on every edge that agrees with what the server computes, let the engineer
+correct a shape by dragging or typing, measure inside items on photos, and keep an AI's draft beside
+the engineer's edit, without changing how anything is priced?
+
+**Setup.** The standard is section 3 of the plan (research in
+`$BASIS_EVAL_DATA_DIR/work/measure_research/products_and_practice.md`): EagleView's per-segment
+labels and totals from unrounded values, SiteRecon's and Google Earth's vertex editing, Fusion's
+driving dimensions (and AutoCAD's text override as the thing not to copy), Bluebeam's calibration
+to a known length, Roofr's "Mark as done", SiteRecon's locked base view. Built: `traced.py` takes
+`drawn_by`, `verified`, `view` and `original` (OVERRIDES.md section 4); the browser tool in
+`web/live/property.js` and its geometry in `property-model.js`; the assets gate's draft kept on the
+server; a model-draft fixture in the sample API (`&measure=draft`; no model drafts yet). No paid
+call, no live study.
+
+**Method.** Each per-edge length is the server's own computation: a segment on the tangent plane at
+its middle latitude (`lonlat_path_length_ft`) on the lon/lat the body carries (rounded to 1e-9
+degree as the body is), or pixels times the scale. Checked by values printed from the backend for a
+five-corner ring on the sample's close aerial, by sums against the browser's port of `measure` for
+lines and closed paths, and in a headless Chromium (Playwright, 1440 x 900) on the sample.
+
+| Check | Result |
+|---|---|
+| Five edges of a ring on the close aerial, browser vs `lonlat_path_length_ft` | identical to the last digit (168.41265105573947 ... 62.152118164820415 ft); sum 533.0674892835889 ft both |
+| Labels of a line vs the server's `length_ft` | equal after rounding to 0.01 |
+| Area at the shape's middle vs `traced.measure` | 17,177.85 SF both |
+| Typed length, image space | exact (30 ft gives 30 ft) |
+| Typed length, lon/lat (54.25, 100, 12.58, 300 ft) | within 0.001 ft; the sent body computes it within 0.006 ft (the 1e-9 degree rounding) |
+| Headless: the sample's 210 ft back-yard fence clicked at whole screen pixels | 209.72 LF in the dialog, 209.91 LF on the Property page (truth 209.97) |
+| Headless: first edge typed 54'-3" | label 54'-3"; the next edge stretched; total 211.62 LF; Undo and Redo restore both states |
+| Headless: the patio's model draft (845.40 SF, truth 800) with two edges typed to 40 and 20 ft | 821.32 SF (the other two edges untouched); Edges table shows draft, now and change |
+| Headless: a corner dragged across the ring | undone: "The shape crosses or touches itself (two of its edges meet). The change was undone." |
+| Headless: a counter line on a photo scaled by a 36 in door width | 8.39 LF, flagged undated after the send (`measure:IMAGE_UNDATED`, the server's rule) |
+
+**Live check (2026-11-25, the local stack running this branch, study 8c2d6de0, revision 2, assets
+review open, 388 assets, pin not confirmed).** Four findings from the lead's walk, fixed the same day:
+Measure was offered on 0 of 388 rows (it needed a measurement reason; formula-priced roof, siding
+and floors carry none): now 71 rows (every area or length); 52 photo chips pushed the picture below
+the fold: now thumbnails of the asset's own photos and one list; the dialog scrolled as one column:
+now picture and controls side by side at full height; a typed length on a rectangle skewed it
+(21'-0" became 21'-6"): now the far side slides when both corners are square within 3 degrees.
+Persistence on the real API: a counter traced on its photo (an area, scale from a 36 in counter
+height) was saved (`PUT .../drafts/assets_review` 200, version 1), the page reloaded, `GET` returned
+the draft (version 1, revision 2, not stale, the measurement in it) and the page showed "1 correction
+ready to send" with the traced quantity on the row; Remove deleted it (`DELETE` 200) and a second
+reload found no draft. No decision was sent; the study was left as it was.
+
+**Verdict.** The labels are the server's numbers, so what the engineer reads on an edge is what the
+schedule will carry; typed lengths move the geometry and the label never disagrees with it; an
+unverified draft is priced exactly as a trace (no pricing change). Default choices to confirm: the
+Verified box starts on for an engineer's own trace and off for a draft; snapping is on, 8 screen
+pixels; a shape under an eighth of the picture opens at 4x.
+
+Tests: `test_traced_provenance.py` 56, one API test (Postgres), `measure-tool.test.cjs` 23,
+`measure-screen.test.cjs` 9, `assets-draft.test.cjs` 4, `measure-assets-list.test.cjs` 2
+(mutation-checked: offering Measure only where needed fails it); the web suite 547 (509 before),
+the existing property tests unchanged (backEnd/tests/LEDGER.md).
+
+**Open.**
+
+* Not verified by a person on a tablet's touch or in Safari. Against the live stack only the
+  photo path and persistence were run (the study's pin is not confirmed, so no aerial). The sample's photos are placeholders (the real sample photos are not in
+  the repository), so the photo flow was checked on a placeholder.
+* No model drafts measurements yet; whether an unverified draft may price the report is the
+  maintainer's decision (plan section 8.3); no review flag is raised for one.
+* Not built: the other gates' drafts, snapping to a building outline and to right angles, slope,
+  colour by asset type, the diagram in the report, phones.

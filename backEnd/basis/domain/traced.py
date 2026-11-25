@@ -21,13 +21,31 @@ words, each naming where it is (``shapes[2].ring``); :func:`problems` is the lis
      "scale": {"points": [[x1, y1], [x2, y2]], "length": 34.0, "unit": "ft" | "m"},
      "image": {"source": "...", "document_id": "<uuid>", "captured_on": "YYYY-MM-DD",
                "pixel_size_m": 0.1524},
-     "height_ft": 4.0}
+     "height_ft": 4.0,
+     "drawn_by": "engineer" | "model:<name>@<version>",
+     "verified": true | false,
+     "view": {"kind": "capture" | "public" | "document", "id": "...", "label": "...",
+              "width": 1440, "height": 900},
+     "original": {<a measurement body, without an original of its own>}}
 
 ``lonlat`` points are WGS84 ``[longitude, latitude]`` in degrees; ``image`` points are
 ``[x, y]`` pixels of an uploaded image or plan, and need the ``scale`` (two pixels the engineer
 clicked and the real length between them). SF and SY take ``area`` shapes (ring areas less
 their cutouts) or ``line`` shapes with ``height_ft`` (a wall face: length times height); LF
 takes ``line`` shapes only.
+
+**Provenance** (EVAL_REPORT 104; optional, and none of it changes the quantity, the price or
+a flag). ``drawn_by`` says who drew the shape: ``engineer`` (the default when absent), or
+``model:<name>@<version>`` for a draft a model made for the engineer to check. ``verified``
+is the engineer's own mark that the measurement was checked (Roofr's "Mark as done",
+SiteRecon's approval: docs/review_2026-10-15/AI_MEASUREMENT_PLAN.md section 3). ``view`` is
+the picture it was drawn on, so it can be drawn again: a property capture's view, a public
+view or a study document, by ``id`` or ``label`` (at least one), with the pixel frame
+(``width`` x ``height``) the points are in when they are pixels. ``original`` is the earlier
+measurement this one replaced (an engineer's edit of a model's draft or of an earlier trace):
+a whole body, checked and computed by the same rules, kept beside the edit unchanged
+(SiteRecon's locked base view, Hover's "original" PDF). An original holds no original of its
+own: an edit of an edit keeps the first original only, the shape the record started from.
 
 **Geometry.** Image space is planar: the shoelace area and the segment lengths in pixels,
 times the scale (feet per pixel = the scale's length over the distance between its two
@@ -136,12 +154,24 @@ ERROR_UNKNOWN: Final = "measure:ERROR_UNKNOWN"
 COARSE: Final = "measure:COARSE"
 FLAGS: Final = (UNDATED, AFTER_SERVICE, ERROR_UNKNOWN, COARSE)
 
-_TOP_KEYS: Final = frozenset({"unit", "space", "shapes", "scale", "image", "height_ft"})
+_TOP_KEYS: Final = frozenset(
+    {"unit", "space", "shapes", "scale", "image", "height_ft"}
+    | {"drawn_by", "verified", "view", "original"}  # provenance (EVAL_REPORT 104)
+)
 _AREA_KEYS: Final = frozenset({"kind", "ring", "cutouts"})
 _LINE_KEYS: Final = frozenset({"kind", "path"})
 _SCALE_KEYS: Final = frozenset({"points", "length", "unit"})
 _IMAGE_KEYS: Final = frozenset({"source", "document_id", "captured_on", "pixel_size_m"})
+_VIEW_KEYS: Final = frozenset({"kind", "id", "label", "width", "height"})
 _ISO_DATE: Final = re.compile(r"\d{4}-\d{2}-\d{2}")
+ENGINEER: Final = "engineer"
+# ``model:<name>@<version>``: the model and the version of the drafting method (a prompt or a
+# pipeline version), so a reviewer can tell which drafts one change affected.
+_MODEL: Final = re.compile(
+    r"model:[A-Za-z0-9][A-Za-z0-9._/-]{0,99}@[A-Za-z0-9][A-Za-z0-9._+-]{0,49}"
+)
+VIEW_KINDS: Final = ("capture", "public", "document")
+MAX_VIEW_TEXT: Final = 200
 
 Point = tuple[float, float]
 
@@ -174,6 +204,10 @@ class Traced:
     height_ft: float | None
     scale_ft_per_px: float | None  # image space
     stored: dict[str, Any]  # the validated body as kept (closing points dropped, text trimmed)
+    drawn_by: str | None = None  # None: not stated (an engineer's trace, as before)
+    verified: bool | None = None
+    view: dict[str, Any] | None = None
+    original: Traced | None = None  # the measurement this one replaced, computed alike
 
     @property
     def kind(self) -> str:
@@ -197,7 +231,13 @@ class Traced:
             computed["length_ft"] = format(self.length_ft, "f")
         if self.scale_ft_per_px is not None:
             computed["scale_ft_per_px"] = round(self.scale_ft_per_px, 9)
+        if self.original is not None:
+            computed["original"] = self.original.record()
         return {**self.stored, **computed}
+
+    @property
+    def by_model(self) -> bool:
+        return self.drawn_by is not None and self.drawn_by != ENGINEER
 
 
 # --------------------------------------------------------------------------- geometry
@@ -357,11 +397,12 @@ def outside_points(points: Sequence[Point], ring: Sequence[Point]) -> list[int]:
 class _Check:
     """Collects problems; each helper returns the parsed value or None (problem recorded)."""
 
-    def __init__(self) -> None:
+    def __init__(self, prefix: str = MEASUREMENT) -> None:
         self.problems: list[str] = []
+        self.prefix = prefix
 
     def add(self, where: str, what: str) -> None:
-        self.problems.append(f"measurement{where} {what}")
+        self.problems.append(f"{self.prefix}{where} {what}")
 
     def keys(self, where: str, value: Mapping[str, Any], allowed: frozenset[str]) -> None:
         unknown = sorted(str(k) for k in value if k not in allowed)
@@ -582,9 +623,15 @@ def _shapes(check: _Check, value: Any, space: str | None) -> list[_Shape] | None
 
 def measure(value: Any) -> Traced:
     """Check and compute a measurement (module doc), or raise :class:`MeasurementError`."""
-    check = _Check()
+    return _measure(value, MEASUREMENT, nested=False)
+
+
+def _measure(value: Any, prefix: str, *, nested: bool) -> Traced:
+    """:func:`measure`, with every problem named under ``prefix`` (``measurement.original``
+    for the measurement an edit replaced, which may not hold an original of its own)."""
+    check = _Check(prefix)
     if not isinstance(value, Mapping):
-        raise MeasurementError(["measurement must be an object (unit, space, shapes, image)"])
+        raise MeasurementError([f"{prefix} must be an object (unit, space, shapes, image)"])
     check.keys("", value, _TOP_KEYS)
     unit = value.get("unit")
     if unit not in UNITS:
@@ -605,6 +652,24 @@ def measure(value: Any) -> Traced:
     height: float | None = None
     if value.get("height_ft") is not None:
         height = check.positive(".height_ft", value["height_ft"], MAX_LENGTH)
+    drawn_by = _drawn_by(check, value.get("drawn_by"))
+    verified = value.get("verified")
+    if verified is not None and not isinstance(verified, bool):
+        check.add(".verified", f"must be true or false, got {_short(verified)}")
+        verified = None
+    view = _view(check, value.get("view"))
+    original: Traced | None = None
+    if value.get("original") is not None:
+        if nested:
+            check.add(
+                ".original",
+                "cannot hold an original of its own: an edit keeps the first original only",
+            )
+        else:
+            try:
+                original = _measure(value["original"], f"{prefix}.original", nested=True)
+            except MeasurementError as exc:
+                check.problems.extend(exc.problems)
     raw = _raw_points(value.get("shapes"))
     if raw is not None and raw[0] - raw[1] > MAX_POINTS:
         # Refused before any point is parsed (the body may hold far more than the cap; each
@@ -636,7 +701,7 @@ def measure(value: Any) -> Traced:
         elif unit in ("SF", "SY") and kind == "area" and value.get("height_ft") is not None:
             check.add(".height_ft", "goes with line shapes (a wall face), not with areas")
     if check.problems or shapes is None or space is None or image is None:
-        raise MeasurementError(check.problems or ["measurement is incomplete"])
+        raise MeasurementError(check.problems or [f"{prefix} is incomplete"])
     feet_per_px = scale[1] if scale else None
     area_sf, length_ft, edges = _compute(check, shapes, space, feet_per_px)
     if check.problems:
@@ -650,7 +715,7 @@ def measure(value: Any) -> Traced:
     if quantity <= 0 or quantity > MAX_QUANTITY:
         raise MeasurementError(
             [
-                f"measurement comes to {quantity_raw:,.4f} {unit}; the quantity must be above 0 "
+                f"{prefix} comes to {quantity_raw:,.4f} {unit}; the quantity must be above 0 "
                 f"and at most {MAX_QUANTITY:,} (after rounding to 0.01)"
             ]
         )
@@ -674,6 +739,15 @@ def measure(value: Any) -> Traced:
         stored["scale"] = scale[0]
     if height is not None:
         stored["height_ft"] = height
+    # Provenance is kept only as sent: a body without it stores exactly what it stored before.
+    if drawn_by is not None:
+        stored["drawn_by"] = drawn_by
+    if verified is not None:
+        stored["verified"] = verified
+    if view is not None:
+        stored["view"] = view
+    if original is not None:
+        stored["original"] = original.stored
     return Traced(
         unit=str(unit),
         space=space,
@@ -693,7 +767,68 @@ def measure(value: Any) -> Traced:
         height_ft=height,
         scale_ft_per_px=feet_per_px,
         stored=stored,
+        drawn_by=drawn_by,
+        verified=verified,
+        view=view,
+        original=original,
     )
+
+
+def _drawn_by(check: _Check, value: Any) -> str | None:
+    if value is None:
+        return None
+    if isinstance(value, str) and (value == ENGINEER or _MODEL.fullmatch(value)):
+        return value
+    check.add(
+        ".drawn_by",
+        f"must be engineer or model:<name>@<version> (letters, digits and . _ - / +), "
+        f"got {_short(value)}",
+    )
+    return None
+
+
+def _text(check: _Check, where: str, value: Any) -> str | None:
+    if (
+        isinstance(value, str)
+        and value.strip()
+        and len(value.strip()) <= MAX_VIEW_TEXT
+        and "\x00" not in value
+    ):
+        return value.strip()
+    check.add(where, f"must be text of 1 to {MAX_VIEW_TEXT} characters, got {_short(value)}")
+    return None
+
+
+def _view(check: _Check, value: Any) -> dict[str, Any] | None:
+    """The picture the shape was drawn on (module doc, "Provenance"), or None when absent."""
+    if value is None:
+        return None
+    if not isinstance(value, Mapping):
+        check.add(".view", "must be an object with kind and an id or a label")
+        return None
+    check.keys(".view", value, _VIEW_KEYS)
+    stored: dict[str, Any] = {}
+    kind = value.get("kind")
+    if kind not in VIEW_KINDS:
+        check.add(".view.kind", f"must be capture, public or document, got {_short(kind)}")
+    else:
+        stored["kind"] = kind
+    for key in ("id", "label"):
+        if value.get(key) is not None:
+            text = _text(check, f".view.{key}", value[key])
+            if text is not None:
+                stored[key] = text
+    if value.get("id") is None and value.get("label") is None:
+        check.add(".view", "must name the picture by its id or its label")
+    has_w, has_h = value.get("width") is not None, value.get("height") is not None
+    if has_w != has_h:
+        check.add(".view", "takes width and height together (the pixel frame of the points)")
+    elif has_w:
+        for key in ("width", "height"):
+            size = check.positive(f".view.{key}", value[key], MAX_PIXEL)
+            if size is not None:
+                stored[key] = size
+    return stored
 
 
 def _raw_points(shapes: Any) -> tuple[int, int] | None:
@@ -843,9 +978,18 @@ def _counts(traced: Traced) -> str:
     return text
 
 
+def _who(traced: Traced) -> str:
+    # A model's name is the operator's to see (the record keeps ``drawn_by``); the sentence,
+    # which the schedule and the report may print, says Basis (AGENTS.md: no provider names).
+    return "drafted by Basis" if traced.by_model else "traced by the engineer"
+
+
 def formula(traced: Traced) -> str:
     """The takeoff's formula, e.g. ``5,844.12 SF traced by the engineer on <source>
-    (captured 2020-04-18), 1 area of 15 corners; expected error up to 3.40 %``."""
+    (captured 2020-04-18), 1 area of 15 corners; expected error up to 3.40 %``. A model's
+    draft reads "drafted by Basis"; ``verified`` adds "verified by the engineer" or "not
+    verified"; an ``original`` adds what it replaced ("replaces 812.40 SF drafted by
+    Basis"). A body without provenance reads exactly as before."""
     when = (
         f"captured {traced.captured_on.isoformat()}"
         if traced.captured_on is not None
@@ -859,9 +1003,15 @@ def formula(traced: Traced) -> str:
     scale = ""
     if traced.scale_ft_per_px is not None:
         scale = f", scale {traced.scale_ft_per_px:.4g} ft per pixel"
+    tail = ""
+    if traced.verified is not None:
+        tail += "; verified by the engineer" if traced.verified else "; not verified"
+    if traced.original is not None:
+        was = traced.original
+        tail += f"; replaces {was.quantity:,} {was.unit} {_who(was)}"
     return (
-        f"{traced.quantity:,} {traced.unit} traced by the engineer on {traced.source} ({when}), "
-        f"{_counts(traced)}{scale}; {error}"
+        f"{traced.quantity:,} {traced.unit} {_who(traced)} on {traced.source} ({when}), "
+        f"{_counts(traced)}{scale}; {error}{tail}"
     )
 
 
@@ -892,6 +1042,7 @@ def review_flags(
 __all__ = [
     "AFTER_SERVICE",
     "COARSE",
+    "ENGINEER",
     "ERROR_UNKNOWN",
     "FLAGS",
     "MAX_POINTS",
@@ -900,6 +1051,7 @@ __all__ = [
     "METHOD_IMAGE",
     "METHOD_LONLAT",
     "UNDATED",
+    "VIEW_KINDS",
     "MeasurementError",
     "Traced",
     "expected_error_pct",

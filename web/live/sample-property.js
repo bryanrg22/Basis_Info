@@ -21,6 +21,8 @@
  * between two of the dated views), at each view's exact pixel size, so a shape traced on them
  * measures what was drawn: the patio is 20 x 40 ft, the back-yard fence 210 ft.
  *
+ * &measure=draft puts a model's draft of the patio on its row (patioDraft, sample-api.js P10).
+ *
  * &property= ready (default: the search's pin, not confirmed yet) | confirmed | running |
  * paused | waiting | failed | noplace (the address found no place) | nopin | site (the appraisal
  * prints a site area that disagrees with the parcel).
@@ -276,6 +278,13 @@
  }
  // The site's true sizes, for tests and the verification notes.
  const truth={patioSf:40*20,fenceFt:64/FT,lotSqft:area(SITE.lot)*SQFT,patioBuilt:PATIO_BUILT};
- const api={register,truth,HOUSE,aerialSvg,sideSvg,SITE,toLonLat};
+ // A model's draft of the patio, for the measure tool's original and verified state (EVAL_REPORT
+ // 104; no model drafts measurements yet, so this is a fixture): the 40 x 20 ft patio outlined a
+ // little off, as a drafting method might, on the close aerial (the &measure=draft sample).
+ function patioDraft(){
+  const ring=[[-8.25,8.35],[4.05,8.5],[4.15,14.9],[-8.1,14.75]].map(([e,n])=>toLonLat(e,n).map(v=>Math.round(v*1e9)/1e9));
+  return {unit:'SF',space:'lonlat',shapes:[{kind:'area',ring}],image:{source:SOURCE,captured_on:'2026-06-18',pixel_size_m:CLOSE},drawn_by:'model:sample-drafter@1',verified:false,view:{kind:'capture',label:'aerial-close'}};
+ }
+ const api={register,truth,HOUSE,aerialSvg,sideSvg,SITE,toLonLat,patioDraft};
  if(typeof module==='object'&&module.exports)module.exports=api;else scope.BasisPropertySample=api;
 })(typeof globalThis==='object'?globalThis:this);
