@@ -623,6 +623,60 @@
   return now.map((ft,i)=>({i,now:ft,was:was[i],change:ft-was[i]}));
  }
 
+ /* ---------- the diagram: a clean plan of a top-down view (EVAL_REPORT 104.5) ----------
+  * Drawn from data the study already has, in the view's own pixels (the same width, height and
+  * georeference as the picture), so the measure tool's overlay sits exactly where it sits on the
+  * photo: the lot lines (the parcels, adjacent ones dashed), every lon/lat measurement on the
+  * study's assets (stored, or pending in the assets review) projected with the view's
+  * georeference, a colour per asset type with a legend, a north arrow, a scale bar from the
+  * view's pixel size, and the picture's source and date. EagleView's report diagrams are the
+  * model: shapes, lengths, a key, north, scale. */
+ // Strokes that read on the diagram's near-white ground (#f7f8f5): each at least 4.5:1 (WCAG AA
+ // for text), so the lengths written in them stay legible; the fill is the stroke at 16 %.
+ const DIAGRAM_COLOURS=['#1f5f8b','#a3401c','#5b3a8e','#2c6b2f','#7a5200','#a3174f','#00635a','#4b5563'];
+ const DIAGRAM_GROUND='#f7f8f5';
+ // The largest round length (1, 2 or 5 x 10^n feet) whose bar is at most maxPx of this view's pixels.
+ function scaleBar(pixelSizeM,{maxPx=200}={}){
+  const ftPerPx=Number(pixelSizeM)*FT_PER_M;if(!(ftPerPx>0)||!(maxPx>0))return null;
+  let best=null;for(let e=-1;e<=6;e++)for(const m of [1,2,5]){const ft=m*Math.pow(10,e),px=ft/ftPerPx;if(px<=maxPx&&(!best||px>best.px))best={ft:Number(ft.toPrecision(3)),px}}
+  if(!best)return null;
+  return {...best,label:`${best.ft.toLocaleString('en-US')} ft`};
+ }
+ // The study's lon/lat measurements that lie on this view, in its pixels: the pending correction's
+ // measurement over the stored one; image-space ones (on a photo) skipped; `except` (the asset being
+ // edited, which the tool draws on top) left out.
+ function measuredOnView(items,view,{pending=null,except=null}={}){
+  const g=georef(view);if(!g)return [];
+  const w=Number(view.width),h=Number(view.height),out=[];
+  for(const a of items||[]){
+   if(!a||a.id===except)continue;
+   const raw=pending?.get?.(a.id)?.after?.measurement||a.takeoff?.inputs?.measurement;
+   if(!raw||typeof raw!=='object'||raw.space!=='lonlat'||!Array.isArray(raw.shapes))continue;
+   const body=bodyOfRecord(raw);let r;try{r=measure(body)}catch{continue}
+   const px=pixelShapes(body,view);if(!px)continue;
+   const pts=px.shapes.flatMap(sh=>sh.kind==='line'?sh.path:sh.ring);
+   if(!pts.some(q=>q[0]>=0&&q[1]>=0&&q[0]<=w&&q[1]<=h))continue;// not on this picture
+   out.push({assetId:a.id,label:a.label||a.category||'measured',category:a.category||'',unit:r.unit,quantity:r.quantity,shapes:px.shapes,heightFt:body.height_ft??null,pending:!!pending?.get?.(a.id)?.after?.measurement,drawnBy:body.drawn_by||'engineer',verified:body.verified??null});
+  }
+  return out;
+ }
+ const typeName=l=>String(l||'').replace(/_/g,' ').replace(/^./,c=>c.toUpperCase());
+ function diagramModel({view,parcels=[],measured=[]}){
+  const g=georef(view);if(!g)return null;
+  const w=Number(view.width),h=Number(view.height);
+  const lots=(parcels||[]).flatMap(p=>parcelRings(p,g).map(points=>({points,adjacent:!p.under_pin})));
+  // One colour per asset type, in the order of the type names (stable from render to render).
+  const types=[...new Set(measured.map(m=>m.label))].sort((a,b)=>typeName(a).localeCompare(typeName(b)));
+  const colourOf=l=>DIAGRAM_COLOURS[types.indexOf(l)%DIAGRAM_COLOURS.length];
+  const legend=types.map(l=>{const of=measured.filter(m=>m.label===l),units=[...new Set(of.map(m=>m.unit))];
+   const quantity=units.map(u=>`${of.filter(m=>m.unit===u).reduce((t,m)=>t+Number(m.quantity),0).toLocaleString('en-US',{maximumFractionDigits:2})} ${u}`).join(' + ');
+   return {label:l,name:typeName(l),colour:colourOf(l),quantity,count:of.length}});
+  const scale=scaleBar(view.pixel_size_m,{maxPx:w/4});
+  const note=!lots.length&&!measured.length?'No lot line and nothing measured on this picture yet. Trace a shape and it is drawn here.':!lots.length?'No lot line was found for this property.':!measured.length?'Nothing measured on this picture yet.':null;
+  const credit=[view.source_id?`${view.credit||'Public imagery'}, ${view.year_label||view.year||'year unknown'}`:`Picture of ${dateText(dateOf(view))}`,view.pixel_size_m?`${(Number(view.pixel_size_m)*100).toLocaleString('en-US',{maximumFractionDigits:1})} cm a pixel`:null,view.source_id?null:view.source].filter(Boolean).join(' · ');
+  return {w,h,ground:DIAGRAM_GROUND,lots,shapes:measured.map(m=>({...m,colour:colourOf(m.label)})),legend,scale,north:{angle:-(Number(view.heading_deg)||0)},note,credit};
+ }
+
  /* ---------- parcels, site check, lidar ---------- */
  function polygons(geometry){if(!geometry)return [];return geometry.type==='Polygon'?[geometry.coordinates]:geometry.type==='MultiPolygon'?geometry.coordinates:[]}
  // Every ring of a parcel as pixel points on a view (outer rings and holes).
@@ -671,7 +725,7 @@
  const anyProperty=c=>!!(c&&(c.propertyCapture||c.publicGeo));
 
  const api={FT_PER_M,radii,round2,measure,problems,formula,reviewFlags,expectedErrorPct,MeasurementError,georef,measurable,toMercator,fromMercator,
-  frameOf,scaleFeetPerPx,segmentFt,angleAt,isSquare,RIGHT_TOL_DEG,edgeLengths,ftIn,ftInWords,parseLength,areaText,lfText,edgeLabels,labelPoint,shapeSummary,movePoint,insertPoint,removePoint,minPoints,setEdgeLength,snapPoint,nearestOnSegment,ringSegments,onPicture,
+  frameOf,scaleFeetPerPx,segmentFt,scaleBar,measuredOnView,diagramModel,DIAGRAM_COLOURS,DIAGRAM_GROUND,angleAt,isSquare,RIGHT_TOL_DEG,edgeLengths,ftIn,ftInWords,parseLength,areaText,lfText,edgeLabels,labelPoint,shapeSummary,movePoint,insertPoint,removePoint,minPoints,setEdgeLength,snapPoint,nearestOnSegment,ringSegments,onPicture,
   remember,undoTrace,redoTrace,snapshotOf,bodyOfRecord,pixelShapes,drawnByText,withProvenance,sameShapes,viewRef,imageBody,KNOWN_LENGTHS,edgeComparison,lonlatPathFt,shoelace,insideOrOn,
   needsMeasurement,measureOffer,measureUnit,captureStatus,gatherStatus,noteText,clock,viewsOf,historyStrip,defaultMeasureView,leafText,dateText,yearOnly,dateOf,SIDE_TEXT,LOOKING,compass,
   publicSeries,creditLine,measurementBody,imageOf,parcelRings,siteCheckText,lidarFacts,bracket,withBracket,caps,anyProperty,ringProblem,CAPTURE_FAILED,CAPTURE_PART};

@@ -308,3 +308,27 @@
 .mt-mini{background:var(--pa-canvas);border-radius:12px;padding:6px;margin-top:6px}
 .mt-mini .pa-caption{color:#e6eee9;margin:6px 4px 2px}
 .nd-tag.nd-tag-draft{background:#fdf3e2;color:#8a4a00;margin-left:6px}
+/* Photo | Diagram (EVAL_REPORT 104.5): a clean plan in the picture's own pixels, under the same
+ * overlay. Ink and strokes from the Property tokens; each type colour reads at 4.5:1 or more on
+ * the ground (#f7f8f5). */
+.pa-canvas.is-diagram{background:#f7f8f5}
+.mt-diagram{position:absolute;inset:0;width:100%;height:100%;display:block;font-family:Inter,system-ui,sans-serif}
+.mt-d-lot{fill:none;stroke:#3b4a42;stroke-width:2;vector-effect:non-scaling-stroke;stroke-linejoin:round}
+.mt-d-lot.is-adjacent{stroke:#6b7b72;stroke-dasharray:9 6}
+.mt-d-shape{fill:color-mix(in srgb,var(--c) 16%,transparent);stroke:var(--c);stroke-width:2.5;vector-effect:non-scaling-stroke;stroke-linejoin:round}
+.mt-d-shape.is-line{fill:none;stroke-width:3.5;stroke-linecap:round}
+.mt-d-shape.is-cut{fill:#f7f8f5;stroke-dasharray:6 4}
+.mt-d-label rect{fill:#fff;stroke:var(--c);stroke-width:1.2;vector-effect:non-scaling-stroke}
+.mt-d-label text{fill:var(--c);text-anchor:middle;font-weight:600;font-variant-numeric:tabular-nums}
+.mt-d-total text{fill:var(--c);text-anchor:middle;font-weight:700;paint-order:stroke;stroke:#fff;stroke-width:3px;stroke-linejoin:round}
+.mt-d-total text+text{font-weight:600}
+.mt-d-legend>rect{fill:#fff;stroke:#cfd8d2;stroke-width:1;vector-effect:non-scaling-stroke}
+.mt-d-legend text{fill:#1d3328}.mt-d-legend text.is-title{font-weight:700}
+.mt-d-swatch{fill:color-mix(in srgb,var(--c) 30%,#fff);stroke:var(--c);stroke-width:1.5;vector-effect:non-scaling-stroke}
+.mt-d-north path{fill:#1d3328}.mt-d-north text{fill:#1d3328;text-anchor:middle;font-weight:700}
+.mt-d-scale line{stroke:#1d3328;stroke-width:2;vector-effect:non-scaling-stroke}
+.mt-d-scale text{fill:#1d3328;text-anchor:middle;font-weight:600}
+.mt-d-plate{fill:rgba(255,255,255,.85)}
+.mt-d-credit{fill:#4f6258;text-anchor:end}
+.mt-d-note{fill:#4f6258;text-anchor:middle;font-style:italic}
+.mt-picture-toggle button{padding:4px 10px}

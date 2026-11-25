@@ -128,7 +128,8 @@
  function stage(s,v,prop,pub,u){
   if(!v)return `<div class="pa-stage is-empty"><p>No picture yet.</p></div>`;
   const g=PM.georef(v),w=v.width,h=v.height,parts=[],parcelPx=[];
-  if(g&&pub?.parcels?.length)for(const parcel of pub.parcels)for(const ring of PM.parcelRings(parcel,g)){parcelPx.push(ring);if(u.layers.parcel)parts.push(`<polygon class="pa-parcel ${parcel.under_pin?'':'is-adjacent'}" points="${ring.map(p=>p.map(n=>n.toFixed(1)).join(',')).join(' ')}"/>`)}
+  const diagram=diagramOn(v);// the diagram draws the lot lines itself
+  if(g&&pub?.parcels?.length)for(const parcel of pub.parcels)for(const ring of PM.parcelRings(parcel,g)){parcelPx.push(ring);if(u.layers.parcel&&!diagram)parts.push(`<polygon class="pa-parcel ${parcel.under_pin?'':'is-adjacent'}" points="${ring.map(p=>p.map(n=>n.toFixed(1)).join(',')).join(' ')}"/>`)}
   if(g&&u.layers.pin&&prop.pin?.lat!=null){const [x,y]=g.toPixel(prop.pin.lon,prop.pin.lat);parts.push(marker(x,y,w,'pa-pin'))}
   if(g&&u.candidate){const [x,y]=g.toPixel(...u.candidate);parts.push(marker(x,y,w,'pa-pin is-candidate'))}
   // The measure tool while measuring here; after saving, the saved shape with its labels.
@@ -136,7 +137,7 @@
   if(tracing){scopes.property={s,t:u.trace,v,w,h,parcels:parcelPx,doc:null};parts.push(toolLayer(u.trace,v))}
   else if(u.saved?.viewId===v.id&&u.saved.assetId===L.docId)parts.push(toolLayer({shapes:u.saved.shapes,draft:[],tool:'area',unit:u.saved.unit,space:'lonlat',k:u.trace?.k||null},v,{readOnly:true}));
   const zoom=u.zoom||1,mode=u.mode==='pin'?'is-pin':u.mode==='measure'?'is-measure':'';
-  return `<div class="pa-stage ${mode}" data-zoom="${zoom}"><div class="pa-zoom" tabindex="0" aria-label="Picture; scroll to pan when zoomed"><div class="pa-canvas" style="width:${zoom*100}%;aspect-ratio:${w}/${h}">${img(s,v,v.label||'Property picture','pa-photo')}<svg class="pa-overlay" viewBox="0 0 ${w} ${h}" preserveAspectRatio="none" data-pa-stage="${esc(v.id)}" data-mt-scope="property" role="img" aria-label="${esc(overlayLabel(prop,pub,u))}">${parts.join('')}</svg>${tracing?editBox(u.trace,v,w,h,'property'):''}</div></div><div class="pa-stage-tools"><div class="pa-zoom-tools" role="group" aria-label="Zoom"><button class="pa-icon-btn" data-live="pa-zoom" data-value="out" aria-label="Zoom out" ${zoom<=1?'disabled':''}>−</button><span>${zoom*100}%</span><button class="pa-icon-btn" data-live="pa-zoom" data-value="in" aria-label="Zoom in" ${zoom>=4?'disabled':''}>+</button></div>${g?`<label class="pa-toggle"><input type="checkbox" data-pa-layer="pin" ${u.layers.pin?'checked':''}> Pin</label>${pub?.parcels?.length?`<label class="pa-toggle"><input type="checkbox" data-pa-layer="parcel" ${u.layers.parcel?'checked':''}> Parcel</label>`:''}`:''}</div>${caption(v)}</div>`;
+  return `<div class="pa-stage ${mode}" data-zoom="${zoom}"><div class="pa-zoom" tabindex="0" aria-label="Picture; scroll to pan when zoomed"><div class="pa-canvas${diagram?' is-diagram':''}" style="width:${zoom*100}%;aspect-ratio:${w}/${h}">${diagram?diagramFor('property',s,v,{except:tracing?u.trace.assetId:null}):img(s,v,v.label||'Property picture','pa-photo')}<svg class="pa-overlay" viewBox="0 0 ${w} ${h}" preserveAspectRatio="none" data-pa-stage="${esc(v.id)}" data-mt-scope="property" role="img" aria-label="${esc(overlayLabel(prop,pub,u))}">${parts.join('')}</svg>${tracing?editBox(u.trace,v,w,h,'property'):''}</div></div><div class="pa-stage-tools"><div class="pa-zoom-tools" role="group" aria-label="Zoom"><button class="pa-icon-btn" data-live="pa-zoom" data-value="out" aria-label="Zoom out" ${zoom<=1?'disabled':''}>−</button><span>${zoom*100}%</span><button class="pa-icon-btn" data-live="pa-zoom" data-value="in" aria-label="Zoom in" ${zoom>=4?'disabled':''}>+</button></div>${pictureToggle(v)}${g?`<label class="pa-toggle"><input type="checkbox" data-pa-layer="pin" ${u.layers.pin?'checked':''}> Pin</label>${pub?.parcels?.length&&!diagram?`<label class="pa-toggle"><input type="checkbox" data-pa-layer="parcel" ${u.layers.parcel?'checked':''}> Parcel</label>`:''}`:''}</div>${caption(v)}</div>`;
  }
  const overlayLabel=(prop,pub,u)=>[u.mode==='pin'?'Click the house to move the pin.':u.mode==='measure'?'Click corners to trace.':'',prop.pin?'The pin marks the house.':'',pub?.parcels?.length?'The parcel outline is drawn.':''].filter(Boolean).join(' ');
  const marker=(x,y,w,cls)=>{const r=Math.max(7,w/110);return `<g class="${cls}" transform="translate(${x.toFixed(1)} ${y.toFixed(1)})"><g class="pa-pin-mark"><circle r="${r*1.9}" class="pa-pin-halo"/><circle r="${r}" class="pa-pin-dot"/></g></g>`};
@@ -337,7 +338,7 @@
  // The picture with the tool over it (the Property page's stage builds its own frame around it).
  // The dialog's picture fits the height it is given (CSS container units: --mt-ar is its aspect).
  function toolCanvas(scope,t,v,{w,h,imgHtml,extraSvg='',label='Picture to measure on',zoom=1}){
-  return `<div class="pa-canvas mt-canvas" style="--mt-zoom:${zoom};--mt-ar:${(w/h).toFixed(6)};aspect-ratio:${w}/${h}">${imgHtml}<svg class="pa-overlay mt-overlay" viewBox="0 0 ${w} ${h}" preserveAspectRatio="none" data-pa-stage="${esc(v.id)}" data-mt-scope="${scope}" role="img" aria-label="${esc(label)}">${extraSvg}${toolLayer(t,v)}</svg>${editBox(t,v,w,h,scope)}</div>`;
+  return `<div class="pa-canvas mt-canvas${diagramOn(v)?' is-diagram':''}" style="--mt-zoom:${zoom};--mt-ar:${(w/h).toFixed(6)};aspect-ratio:${w}/${h}">${imgHtml}<svg class="pa-overlay mt-overlay" viewBox="0 0 ${w} ${h}" preserveAspectRatio="none" data-pa-stage="${esc(v.id)}" data-mt-scope="${scope}" role="img" aria-label="${esc(label)}">${extraSvg}${toolLayer(t,v)}</svg>${editBox(t,v,w,h,scope)}</div>`;
  }
 
  /* ----- the panel ----- */
@@ -543,7 +544,7 @@ ${toolPanel('property',s,a,t,v,{})}
   const want=D.key||(()=>{const st=off.stored,vid=st?.view?.kind==='document'||st?.space==='image'?'doc:'+(st?.image?.document_id||st?.view?.id):st?.view?.id;return views.find(x=>x.key===vid||(!st?.view?.id&&st?.view?.label&&x.view?.label===st.view.label))?.key||views[0].key})();
   const pick=views.find(x=>x.key===want)||views[0];// D.key is the engineer's choice only (mt-view)
   let w,h,v,doc=null,imgHtml;
-  if(pick.kind==='view'){v=pick.view;w=v.width;h=v.height;imgHtml=img(s,v,v.label||'Property picture','pa-photo')}
+  if(pick.kind==='view'){v=pick.view;w=v.width;h=v.height;imgHtml=diagramOn(v)?diagramFor('dialog',s,v,{except:a.id}):img(s,v,v.label||'Property picture','pa-photo')}
   else{doc=pick.doc;const d=dimsOf(doc.id);if(!d)return wrap(`${chips(views,pick)}${Live.loading('Loading the photo…')}`);[w,h]=d;v={id:'doc:'+doc.id,kind:'document',width:w,height:h};imgHtml=Live.photo(doc.id,doc.filename,'pa-photo')}
   const space=pick.kind==='view'?'lonlat':'image';
   if(!D.trace||D.trace.assetId!==a.id)D.trace=newTrace(a,v,{space,doc,w,h});
@@ -555,12 +556,12 @@ ${toolPanel('property',s,a,t,v,{})}
   const t=D.trace,g=PM.georef(v),pub=pubEntry(s)?.data;
   const parcels=space==='lonlat'&&g&&pub?.parcels?.length?pub.parcels.flatMap(p=>PM.parcelRings(p,g)):[];
   scopes.dialog={s,a,t,v,w,h,doc,parcels};
-  const extra=parcels.map(r=>`<polygon class="pa-parcel" points="${r.map(p=>p.map(n=>n.toFixed(1)).join(',')).join(' ')}"/>`).join('');
+  const extra=diagramOn(v)?'':parcels.map(r=>`<polygon class="pa-parcel" points="${r.map(p=>p.map(n=>n.toFixed(1)).join(',')).join(' ')}"/>`).join('');
   const on=pick.kind==='view'?(v.source_id?`${v.credit}, ${viewDate(v)}`:`Picture of ${PM.dateText(PM.dateOf(v))}`)+` · ${fmt(v.pixel_size_m*100,1)} cm a pixel`:`${doc.filename}${pick.evidence?' · where it was seen':''} · scaled by the known length you set`;
   // A small shape opens zoomed in on it (a patio on a 120 m wide aerial is a few dozen pixels).
   if(!D.zoom){const box=shapesBox(t);D.zoom=box&&box.w<w/8&&box.h<h/8?4:box&&box.w<w/4&&box.h<h/4?2:1;D.centre=D.zoom>1}
   const zoom=D.zoom;
-  return wrap(`<div class="mt-dialog-body"><div class="mt-dialog-main">${chips(views,pick)}<div class="pa-stage is-measure mt-stage"><div class="pa-zoom" tabindex="0" aria-label="Picture to measure on; scroll to pan when zoomed">${toolCanvas('dialog',t,v,{w,h,imgHtml,extraSvg:extra,label:`Measuring ${title} on ${on}`,zoom})}</div><div class="pa-stage-tools"><div class="pa-zoom-tools" role="group" aria-label="Zoom"><button class="pa-icon-btn" data-live="mt-zoom" data-value="out" aria-label="Zoom out" ${zoom<=1?'disabled':''}>−</button><span>${zoom*100}%</span><button class="pa-icon-btn" data-live="mt-zoom" data-value="in" aria-label="Zoom in" ${zoom>=8?'disabled':''}>+</button></div><p class="pa-caption">${esc(on)}</p></div></div></div><aside class="mt-dialog-side" data-mt-root="dialog">${toolPanel('dialog',s,a,t,v,{doc,w,h})}</aside></div>`);
+  return wrap(`<div class="mt-dialog-body"><div class="mt-dialog-main">${chips(views,pick)}<div class="pa-stage is-measure mt-stage"><div class="pa-zoom" tabindex="0" aria-label="Picture to measure on; scroll to pan when zoomed">${toolCanvas('dialog',t,v,{w,h,imgHtml,extraSvg:extra,label:`Measuring ${title} on ${on}`,zoom})}</div><div class="pa-stage-tools"><div class="pa-zoom-tools" role="group" aria-label="Zoom"><button class="pa-icon-btn" data-live="mt-zoom" data-value="out" aria-label="Zoom out" ${zoom<=1?'disabled':''}>−</button><span>${zoom*100}%</span><button class="pa-icon-btn" data-live="mt-zoom" data-value="in" aria-label="Zoom in" ${zoom>=8?'disabled':''}>+</button></div>${pictureToggle(v)}<p class="pa-caption">${esc(on)}</p></div></div></div><aside class="mt-dialog-side" data-mt-root="dialog">${toolPanel('dialog',s,a,t,v,{doc,w,h})}</aside></div>`);
  };
  // The picture picker: the top-down views as chips; the asset's own photos (where it was seen,
  // then its room's) as a few thumbnails; every other photo behind one "All photos" list.
@@ -579,6 +580,50 @@ ${toolPanel('property',s,a,t,v,{})}
   const pending=!!Live.pendingCorrection?.('assets_review',a.id)?.after?.measurement;
   return `<button class="button small ${primary&&!pending?'primary':''}" data-live="mt-open" data-value="${esc(a.id)}" title="Measure it on ${off.aerial?'a top-down picture or ':''}a photo">${esc(label||(off.stored||pending?'Edit measurement':'Measure'))}</button>`;
  };
+
+ /* ---------- Photo | Diagram (EVAL_REPORT 104.5) ----------
+  * On a georeferenced top-down view the picture can be swapped for a clean plan drawn in the same
+  * pixels (live/property-model.js diagramModel): the overlay (the tool, its labels and handles, the
+  * pin) stays exactly where it was. The viewer's choice is kept in this browser (localStorage,
+  * wrapped: blocked storage keeps it for the session only); Photo by default. Photos of the study
+  * have no georeference and no toggle. */
+ const PICTURE_KEY='basis.measure.picture';let pictureMode=null;
+ function pictureModeOf(){if(pictureMode)return pictureMode;let v=null;try{v=globalThis.localStorage?.getItem(PICTURE_KEY)}catch{}pictureMode=v==='diagram'?'diagram':'photo';return pictureMode}
+ function setPictureMode(m){pictureMode=m==='diagram'?'diagram':'photo';try{globalThis.localStorage?.setItem(PICTURE_KEY,pictureMode)}catch{}}
+ Live.measurePicture={get:pictureModeOf,set:setPictureMode,reset(){pictureMode=null}};
+ const georeferenced=v=>!!v&&v.kind!=='document'&&!!PM.georef(v);
+ const diagramOn=v=>georeferenced(v)&&pictureModeOf()==='diagram';
+ const pictureToggle=v=>georeferenced(v)?`<div class="pa-seg mt-picture-toggle" role="group" aria-label="Show the picture or a diagram">${[['photo','Photo'],['diagram','Diagram']].map(([k,l])=>`<button data-live="mt-picture" data-value="${k}" aria-pressed="${pictureModeOf()===k}">${l}</button>`).join('')}</div>`:'';
+ const diagrams={};// scope -> {model, frame, k} as last drawn
+ function diagramFor(scope,s,v,{except=null}={}){
+  const pub=pubEntry(s)?.data,items=assetsEntry(s).data?.items||[],pending=L.corrections?.assets_review||null;
+  const model=PM.diagramModel({view:v,parcels:pub?.parcels||[],measured:PM.measuredOnView(items,v,{pending,except})});
+  diagrams[scope]={model,frame:PM.frameOf(v),k:diagrams[scope]?.model?.w===model.w?diagrams[scope].k:null};
+  const m=model,what=[m.lots.length?`${m.lots.length} lot ${m.lots.length===1?'line':'lines'}`:'no lot line',m.legend.length?`measured: ${m.legend.map(x=>`${x.name} ${x.quantity}`).join(', ')}`:'nothing measured'].join('; ');
+  return `<svg class="mt-diagram" viewBox="0 0 ${m.w} ${m.h}" preserveAspectRatio="none" data-mt-diagram="${scope}" role="img" aria-label="${esc(`Diagram of the property: ${what}. North is up; scale bar ${m.scale?.label||'unknown'}.`)}">${diagramBody(diagrams[scope])}</svg>`;
+ }
+ function diagramBody({model:m,frame,k}){
+  k=k||m.w/900;const font=MT_FONT*k,P=pts=>pts.map(q=>q.map(n=>n.toFixed(1)).join(',')).join(' '),out=[],labels=[];
+  out.push(`<rect class="mt-d-ground" x="0" y="0" width="${m.w}" height="${m.h}" fill="${m.ground}"/>`);
+  for(const lot of m.lots)out.push(`<polygon class="mt-d-lot${lot.adjacent?' is-adjacent':''}" points="${P(lot.points)}"/>`);
+  for(const sh of m.shapes)for(const one of sh.shapes){
+   const rings=one.kind==='line'?[{p:one.path,closed:false}]:[{p:one.ring,closed:true},...(one.cutouts||[]).map(c=>({p:c,closed:true,cut:true}))];
+   for(const r of rings)out.push(r.closed?`<polygon class="mt-d-shape${r.cut?' is-cut':''}" points="${P(r.p)}" style="--c:${sh.colour}"/>`:`<polyline class="mt-d-shape is-line" points="${P(r.p)}" style="--c:${sh.colour}"/>`);
+   if(frame)for(const r of rings)for(const l of PM.edgeLabels(r.p,r.closed,PM.edgeLengths(r.p,r.closed,frame),{k,font:MT_FONT}))if(l.mode!=='hidden'){const b=labelBox(l.text,k);
+    labels.push(`<g class="mt-d-label" transform="translate(${f1(l.x)} ${f1(l.y)}) rotate(${f1(l.angle)})" style="--c:${sh.colour}"><rect x="${f1(-b.w/2)}" y="${f1(-b.h/2)}" width="${f1(b.w)}" height="${f1(b.h)}" rx="${f1(4*k)}"/><text y="${f1(0.36*font)}" font-size="${f1(font)}">${esc(l.text)}</text></g>`)}
+   if(frame){const sum=PM.shapeSummary(one,frame,{unit:sh.unit,heightFt:sh.heightFt}),at=one.kind==='line'?one.path[Math.floor(one.path.length/2)]:PM.labelPoint(one.ring);
+    labels.push(`<g class="mt-d-total" transform="translate(${f1(at[0])} ${f1(at[1])})" style="--c:${sh.colour}"><text font-size="${f1(font*1.1)}">${esc(typeName(sh.label))}</text><text y="${f1(font*1.3)}" font-size="${f1(font*0.95)}">${esc(one.kind==='line'?sum.text:sum.area)}</text></g>`)}
+  }
+  // The key, north, the scale bar and the picture's source, at the picture's corners.
+  const pad=12*k,row=18*k,lw=Math.max(150,...m.legend.map(x=>(x.name.length+x.quantity.length)*0.6*MT_FONT+60))*k;
+  if(m.legend.length)out.push(`<g class="mt-d-legend" transform="translate(${f1(pad)} ${f1(pad)})"><rect width="${f1(lw)}" height="${f1(row*(m.legend.length+1)+pad*0.6)}" rx="${f1(6*k)}"/><text x="${f1(pad*0.8)}" y="${f1(row*0.85)}" font-size="${f1(font)}" class="is-title">Measured</text>${m.legend.map((x,i)=>`<g transform="translate(${f1(pad*0.8)} ${f1(row*(i+1.2))})"><rect class="mt-d-swatch" width="${f1(12*k)}" height="${f1(12*k)}" rx="${f1(2*k)}" style="--c:${x.colour}"/><text x="${f1(18*k)}" y="${f1(10*k)}" font-size="${f1(font)}">${esc(x.name)}${x.count>1?` (${x.count})`:''} · ${esc(x.quantity)}</text></g>`).join('')}</g>`);
+  out.push(`<g class="mt-d-north" transform="translate(${f1(m.w-28*k)} ${f1(34*k)}) rotate(${f1(m.north.angle)})"><path d="M0 ${f1(-18*k)} L${f1(8*k)} ${f1(10*k)} L0 ${f1(4*k)} L${f1(-8*k)} ${f1(10*k)} Z"/><text y="${f1(-22*k)}" font-size="${f1(font)}">N</text></g>`);
+  if(m.scale){const x=pad,y=m.h-pad-8*k;out.push(`<g class="mt-d-scale" data-scale-px="${m.scale.px}" data-scale-ft="${m.scale.ft}"><rect x="${f1(x-4*k)}" y="${f1(y-22*k)}" width="${f1(m.scale.px+8*k)}" height="${f1(32*k)}" rx="${f1(4*k)}" class="mt-d-plate"/><line x1="${x}" y1="${f1(y)}" x2="${x+m.scale.px}" y2="${f1(y)}"/><line x1="${x}" y1="${f1(y-5*k)}" x2="${x}" y2="${f1(y+5*k)}"/><line x1="${x+m.scale.px}" y1="${f1(y-5*k)}" x2="${x+m.scale.px}" y2="${f1(y+5*k)}"/><text x="${f1(x+m.scale.px/2)}" y="${f1(y-8*k)}" font-size="${f1(font)}">${esc(m.scale.label)}</text></g>`)}
+  out.push(`<text class="mt-d-credit" x="${f1(m.w-pad)}" y="${f1(m.h-pad)}" font-size="${f1(font*0.9)}">Diagram · ${esc(m.credit)}</text>`);
+  if(m.note)out.push(`<text class="mt-d-note" x="${f1(m.w/2)}" y="${f1(m.legend.length?m.h/2:pad+row)}" font-size="${f1(font*1.05)}">${esc(m.note)}</text>`);
+  return out.join('')+labels.join('');
+ }
+ const typeName=l=>String(l||'').replace(/_/g,' ').replace(/^./,c=>c.toUpperCase());
 
  /* ---------- the stored measurement, read-only, on the asset page ---------- */
  const cards=new Map();// asset id -> the read-only trace drawn on the asset page
@@ -710,6 +755,7 @@ ${noViews?'':`<section class="pa-history" aria-label="Dated views">${strips(s,ca
  A['mt-known']=(el,v)=>{const c=ctxOf(mtScope(el));if(!c)return;setScale(c.t,v);Live.render()};
  A['mt-open']=(el,id)=>{const a=(assetsEntry(L.study).data?.items||[]).find(x=>x.id===id);if(a)openDialog(a,Live.screen())};
  A['mt-close']=()=>closeDialog();
+ A['mt-picture']=(el,m)=>{setPictureMode(m);Live.render()};
  A['mt-view']=(el,key)=>{if(!L.mtDialog)return;L.mtDialog.key=key;L.mtDialog.zoom=null;L.mtDialog.scroll=null;Live.render()};
  // Zooming keeps the middle of what is on screen in the middle.
  A['mt-zoom']=(el,dir)=>{const D=L.mtDialog;if(!D)return;const box=document.querySelector?.('.mt-stage .pa-zoom'),c=box?[(box.scrollLeft+box.clientWidth/2)/box.scrollWidth,(box.scrollTop+box.clientHeight/2)/box.scrollHeight]:null;
@@ -862,6 +908,7 @@ ${noViews?'':`<section class="pa-history" aria-label="Dated views">${strips(s,ca
  // After a render: the screen's scale (picture pixels per screen pixel) for the labels, and focus.
  function measureLabels(){
   if(typeof document.querySelectorAll!=='function')return;
+  for(const svg of document.querySelectorAll('svg[data-mt-diagram]')){const d=diagrams[svg.dataset.mtDiagram],box=svg.getBoundingClientRect?.();if(!d||!box?.width)continue;const k=svg.viewBox.baseVal.width/box.width;if(!d.k||Math.abs(d.k-k)/k>0.03){d.k=k;svg.innerHTML=diagramBody(d)}}
   for(const svg of document.querySelectorAll('svg[data-mt-scope],svg[data-mt-card]')){
    const box=svg.getBoundingClientRect?.();if(!box?.width)continue;const k=svg.viewBox.baseVal.width/box.width;
    const card=svg.dataset.mtCard?cards.get(svg.dataset.mtCard):null,t=card?card.t:traceOf(svg.dataset.mtScope);if(!t)continue;
