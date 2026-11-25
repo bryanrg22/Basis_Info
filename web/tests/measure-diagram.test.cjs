@@ -1,5 +1,5 @@
 // Photo | Diagram on the measure picture (web/live/property.js, live/property-model.js diagramModel;
-// EVAL_REPORT 104.5): the diagram is drawn in the view's own pixels so the overlay stays put; the
+// EVAL_REPORT 104.1): the diagram is drawn in the view's own pixels so the overlay stays put; the
 // scale bar is the view's pixel size; stored lon/lat shapes are projected with the inverse of the
 // georeference the tool traces with; image-space and off-picture measurements are skipped; one
 // legend entry per type; an empty diagram still has north, a scale bar and a note; the toggle is
@@ -60,6 +60,7 @@ test('with no lot line and nothing measured the diagram still has north, a scale
  assert.ok(m.scale.px>0);assert.match(m.note,/No lot line and nothing measured on this picture yet/);
  assert.match(m.credit,/Picture of Jun 18, 2026 · 8\.4 cm a pixel · Aerial imagery/);
  assert.match(PM.diagramModel({view:VIEW,parcels:[{under_pin:true,geometry:{type:'Polygon',coordinates:[PS.SITE.lot.map(([e,n])=>PS.toLonLat(e,n))]}}]}).note,/Nothing measured/);
+ assert.equal(PM.diagramModel({view:VIEW,editing:true}).note,'No lot line was found for this property.','while a shape is being drawn, nothing is said about measurements');
  assert.equal(PM.diagramModel({view:{...VIEW,pixel_size_m:null}}),null,'no georeference, no diagram');
 });
 

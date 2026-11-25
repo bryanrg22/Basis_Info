@@ -581,7 +581,7 @@ ${toolPanel('property',s,a,t,v,{})}
   return `<button class="button small ${primary&&!pending?'primary':''}" data-live="mt-open" data-value="${esc(a.id)}" title="Measure it on ${off.aerial?'a top-down picture or ':''}a photo">${esc(label||(off.stored||pending?'Edit measurement':'Measure'))}</button>`;
  };
 
- /* ---------- Photo | Diagram (EVAL_REPORT 104.5) ----------
+ /* ---------- Photo | Diagram (EVAL_REPORT 104.1) ----------
   * On a georeferenced top-down view the picture can be swapped for a clean plan drawn in the same
   * pixels (live/property-model.js diagramModel): the overlay (the tool, its labels and handles, the
   * pin) stays exactly where it was. The viewer's choice is kept in this browser (localStorage,
@@ -597,7 +597,7 @@ ${toolPanel('property',s,a,t,v,{})}
  const diagrams={};// scope -> {model, frame, k} as last drawn
  function diagramFor(scope,s,v,{except=null}={}){
   const pub=pubEntry(s)?.data,items=assetsEntry(s).data?.items||[],pending=L.corrections?.assets_review||null;
-  const model=PM.diagramModel({view:v,parcels:pub?.parcels||[],measured:PM.measuredOnView(items,v,{pending,except})});
+  const model=PM.diagramModel({view:v,parcels:pub?.parcels||[],measured:PM.measuredOnView(items,v,{pending,except}),editing:!!except});
   diagrams[scope]={model,frame:PM.frameOf(v),k:diagrams[scope]?.model?.w===model.w?diagrams[scope].k:null};
   const m=model,what=[m.lots.length?`${m.lots.length} lot ${m.lots.length===1?'line':'lines'}`:'no lot line',m.legend.length?`measured: ${m.legend.map(x=>`${x.name} ${x.quantity}`).join(', ')}`:'nothing measured'].join('; ');
   return `<svg class="mt-diagram" viewBox="0 0 ${m.w} ${m.h}" preserveAspectRatio="none" data-mt-diagram="${scope}" role="img" aria-label="${esc(`Diagram of the property: ${what}. North is up; scale bar ${m.scale?.label||'unknown'}.`)}">${diagramBody(diagrams[scope])}</svg>`;
@@ -611,8 +611,9 @@ ${toolPanel('property',s,a,t,v,{})}
    for(const r of rings)out.push(r.closed?`<polygon class="mt-d-shape${r.cut?' is-cut':''}" points="${P(r.p)}" style="--c:${sh.colour}"/>`:`<polyline class="mt-d-shape is-line" points="${P(r.p)}" style="--c:${sh.colour}"/>`);
    if(frame)for(const r of rings)for(const l of PM.edgeLabels(r.p,r.closed,PM.edgeLengths(r.p,r.closed,frame),{k,font:MT_FONT}))if(l.mode!=='hidden'){const b=labelBox(l.text,k);
     labels.push(`<g class="mt-d-label" transform="translate(${f1(l.x)} ${f1(l.y)}) rotate(${f1(l.angle)})" style="--c:${sh.colour}"><rect x="${f1(-b.w/2)}" y="${f1(-b.h/2)}" width="${f1(b.w)}" height="${f1(b.h)}" rx="${f1(4*k)}"/><text y="${f1(0.36*font)}" font-size="${f1(font)}">${esc(l.text)}</text></g>`)}
-   if(frame){const sum=PM.shapeSummary(one,frame,{unit:sh.unit,heightFt:sh.heightFt}),at=one.kind==='line'?one.path[Math.floor(one.path.length/2)]:PM.labelPoint(one.ring);
-    labels.push(`<g class="mt-d-total" transform="translate(${f1(at[0])} ${f1(at[1])})" style="--c:${sh.colour}"><text font-size="${f1(font*1.1)}">${esc(typeName(sh.label))}</text><text y="${f1(font*1.3)}" font-size="${f1(font*0.95)}">${esc(one.kind==='line'?sum.text:sum.area)}</text></g>`)}
+   // A line's name and length at its end (as the tool puts a line's total), an area's inside it.
+   if(frame){const sum=PM.shapeSummary(one,frame,{unit:sh.unit,heightFt:sh.heightFt}),line=one.kind==='line',end=line?one.path[one.path.length-1]:null,at=line?[end[0]+10*k,end[1]-10*k]:PM.labelPoint(one.ring);
+    labels.push(`<g class="mt-d-total${line?' is-line':''}" transform="translate(${f1(at[0])} ${f1(at[1])})" style="--c:${sh.colour}"><text font-size="${f1(font*1.1)}">${esc(typeName(sh.label))}</text><text y="${f1(font*1.3)}" font-size="${f1(font*0.95)}">${esc(one.kind==='line'?sum.text:sum.area)}</text></g>`)}
   }
   // The key, north, the scale bar and the picture's source, at the picture's corners.
   const pad=12*k,row=18*k,lw=Math.max(150,...m.legend.map(x=>(x.name.length+x.quantity.length)*0.6*MT_FONT+60))*k;
@@ -620,7 +621,8 @@ ${toolPanel('property',s,a,t,v,{})}
   out.push(`<g class="mt-d-north" transform="translate(${f1(m.w-28*k)} ${f1(34*k)}) rotate(${f1(m.north.angle)})"><path d="M0 ${f1(-18*k)} L${f1(8*k)} ${f1(10*k)} L0 ${f1(4*k)} L${f1(-8*k)} ${f1(10*k)} Z"/><text y="${f1(-22*k)}" font-size="${f1(font)}">N</text></g>`);
   if(m.scale){const x=pad,y=m.h-pad-8*k;out.push(`<g class="mt-d-scale" data-scale-px="${m.scale.px}" data-scale-ft="${m.scale.ft}"><rect x="${f1(x-4*k)}" y="${f1(y-22*k)}" width="${f1(m.scale.px+8*k)}" height="${f1(32*k)}" rx="${f1(4*k)}" class="mt-d-plate"/><line x1="${x}" y1="${f1(y)}" x2="${x+m.scale.px}" y2="${f1(y)}"/><line x1="${x}" y1="${f1(y-5*k)}" x2="${x}" y2="${f1(y+5*k)}"/><line x1="${x+m.scale.px}" y1="${f1(y-5*k)}" x2="${x+m.scale.px}" y2="${f1(y+5*k)}"/><text x="${f1(x+m.scale.px/2)}" y="${f1(y-8*k)}" font-size="${f1(font)}">${esc(m.scale.label)}</text></g>`)}
   out.push(`<text class="mt-d-credit" x="${f1(m.w-pad)}" y="${f1(m.h-pad)}" font-size="${f1(font*0.9)}">Diagram · ${esc(m.credit)}</text>`);
-  if(m.note)out.push(`<text class="mt-d-note" x="${f1(m.w/2)}" y="${f1(m.legend.length?m.h/2:pad+row)}" font-size="${f1(font*1.05)}">${esc(m.note)}</text>`);
+  // The note sits in the top-left corner under the key, clear of the pin at the middle.
+  if(m.note)out.push(`<text class="mt-d-note" x="${f1(pad)}" y="${f1(pad+(m.legend.length?row*(m.legend.length+1)+pad*1.6:0)+font)}" font-size="${f1(font)}">${esc(m.note)}</text>`);
   return out.join('')+labels.join('');
  }
  const typeName=l=>String(l||'').replace(/_/g,' ').replace(/^./,c=>c.toUpperCase());

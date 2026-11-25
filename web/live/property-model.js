@@ -623,7 +623,7 @@
   return now.map((ft,i)=>({i,now:ft,was:was[i],change:ft-was[i]}));
  }
 
- /* ---------- the diagram: a clean plan of a top-down view (EVAL_REPORT 104.5) ----------
+ /* ---------- the diagram: a clean plan of a top-down view (EVAL_REPORT 104.1) ----------
   * Drawn from data the study already has, in the view's own pixels (the same width, height and
   * georeference as the picture), so the measure tool's overlay sits exactly where it sits on the
   * photo: the lot lines (the parcels, adjacent ones dashed), every lon/lat measurement on the
@@ -661,7 +661,8 @@
   return out;
  }
  const typeName=l=>String(l||'').replace(/_/g,' ').replace(/^./,c=>c.toUpperCase());
- function diagramModel({view,parcels=[],measured=[]}){
+ // editing: the tool draws the shape being measured on top, so "nothing measured" is not said.
+ function diagramModel({view,parcels=[],measured=[],editing=false}){
   const g=georef(view);if(!g)return null;
   const w=Number(view.width),h=Number(view.height);
   const lots=(parcels||[]).flatMap(p=>parcelRings(p,g).map(points=>({points,adjacent:!p.under_pin})));
@@ -672,7 +673,7 @@
    const quantity=units.map(u=>`${of.filter(m=>m.unit===u).reduce((t,m)=>t+Number(m.quantity),0).toLocaleString('en-US',{maximumFractionDigits:2})} ${u}`).join(' + ');
    return {label:l,name:typeName(l),colour:colourOf(l),quantity,count:of.length}});
   const scale=scaleBar(view.pixel_size_m,{maxPx:w/4});
-  const note=!lots.length&&!measured.length?'No lot line and nothing measured on this picture yet. Trace a shape and it is drawn here.':!lots.length?'No lot line was found for this property.':!measured.length?'Nothing measured on this picture yet.':null;
+  const note=!lots.length&&!measured.length&&!editing?'No lot line and nothing measured on this picture yet. Trace a shape and it is drawn here.':!lots.length?'No lot line was found for this property.':!measured.length&&!editing?'Nothing measured on this picture yet.':null;
   const credit=[view.source_id?`${view.credit||'Public imagery'}, ${view.year_label||view.year||'year unknown'}`:`Picture of ${dateText(dateOf(view))}`,view.pixel_size_m?`${(Number(view.pixel_size_m)*100).toLocaleString('en-US',{maximumFractionDigits:1})} cm a pixel`:null,view.source_id?null:view.source].filter(Boolean).join(' · ');
   return {w,h,ground:DIAGRAM_GROUND,lots,shapes:measured.map(m=>({...m,colour:colourOf(m.label)})),legend,scale,north:{angle:-(Number(view.heading_deg)||0)},note,credit};
  }
