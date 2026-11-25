@@ -16030,6 +16030,18 @@ label, tested against each label already placed and the pin (inside the shape fi
 above, then beside). Live, at 100 % and 200 %, no name meets an edge label or the pin's halo and no
 edge label meets the pin (measured on the rendered boxes). Web suite 564.
 
+A third check found edge labels of different shapes meeting: on the sample's Property page at 100 %
+the patio's bottom length and the building's top length overlapped (one overlap among 14 labels).
+Every label is now placed against every label already placed and the pin, in a fixed order: the
+active trace's labels first (never moved or hidden), then each measured item's lengths and name, then
+the building's. A colliding length tries the other side of its edge, then slides along it (within the
+edge's middle half), then a smaller offset; if nothing fits it is left out and named in the diagram's
+title and aria text ("Not drawn for lack of room: ..."), its length still in the edge list. Rendered
+boxes, all labels and the pin's halo: the sample at 100, 200 and 400 % (10, 12, 12 labels; one
+building length left out at 100 %, none at 200 and 400 %) and the live roof at the same zooms (6, 7,
+7 labels): zero overlaps. Unit tests add the same for the sample and live geometry at three scales
+and a fence traced across the patio and the garage. Web suite 569.
+
 **Open.** No lot line on the live study (no parcel); the outline is the roof, not the walls; the
 building is not drawn in photo mode (only snapped to); the outline is not checked against a surveyed
 footprint.

@@ -138,7 +138,7 @@
   if(tracing){scopes.property={s,t:u.trace,v,w,h,parcels:parcelPx,building:buildingPx,doc:null};parts.push(toolLayer(u.trace,v))}
   else if(u.saved?.viewId===v.id&&u.saved.assetId===L.docId)parts.push(toolLayer({shapes:u.saved.shapes,draft:[],tool:'area',unit:u.saved.unit,space:'lonlat',k:u.trace?.k||null},v,{readOnly:true}));
   const zoom=u.zoom||1,mode=u.mode==='pin'?'is-pin':u.mode==='measure'?'is-measure':'';
-  return `<div class="pa-stage ${mode}" data-zoom="${zoom}"><div class="mt-stage-view"><div class="pa-zoom" tabindex="0" aria-label="Picture; scroll to pan when zoomed"><div class="pa-canvas${diagram?' is-diagram':''}" style="width:${zoom*100}%;aspect-ratio:${w}/${h}">${diagram?diagramFor('property',s,v,{except:tracing?u.trace.assetId:null,pin:g&&u.layers.pin&&prop.pin?.lat!=null?{at:g.toPixel(prop.pin.lon,prop.pin.lat),r:Math.max(7,w/110)*1.9}:null}):img(s,v,v.label||'Property picture','pa-photo')}<svg class="pa-overlay" viewBox="0 0 ${w} ${h}" preserveAspectRatio="none" data-pa-stage="${esc(v.id)}" data-mt-scope="property" role="img" aria-label="${esc(overlayLabel(prop,pub,u))}">${parts.join('')}</svg>${tracing?editBox(u.trace,v,w,h,'property'):''}</div></div>${diagram?furnitureHtml('property'):''}</div><div class="pa-stage-tools"><div class="pa-zoom-tools" role="group" aria-label="Zoom"><button class="pa-icon-btn" data-live="pa-zoom" data-value="out" aria-label="Zoom out" ${zoom<=1?'disabled':''}>−</button><span>${zoom*100}%</span><button class="pa-icon-btn" data-live="pa-zoom" data-value="in" aria-label="Zoom in" ${zoom>=4?'disabled':''}>+</button></div>${pictureToggle(v)}${g?`<label class="pa-toggle"><input type="checkbox" data-pa-layer="pin" ${u.layers.pin?'checked':''}> Pin</label>${pub?.parcels?.length&&!diagram?`<label class="pa-toggle"><input type="checkbox" data-pa-layer="parcel" ${u.layers.parcel?'checked':''}> Parcel</label>`:''}`:''}</div>${caption(v)}</div>`;
+  return `<div class="pa-stage ${mode}" data-zoom="${zoom}"><div class="mt-stage-view"><div class="pa-zoom" tabindex="0" aria-label="Picture; scroll to pan when zoomed"><div class="pa-canvas${diagram?' is-diagram':''}" style="width:${zoom*100}%;aspect-ratio:${w}/${h}">${diagram?diagramFor('property',s,v,{except:tracing?u.trace.assetId:null,trace:tracing?u.trace:null,pin:g&&u.layers.pin&&prop.pin?.lat!=null?{at:g.toPixel(prop.pin.lon,prop.pin.lat),r:Math.max(7,w/110)*1.9}:null}):img(s,v,v.label||'Property picture','pa-photo')}<svg class="pa-overlay" viewBox="0 0 ${w} ${h}" preserveAspectRatio="none" data-pa-stage="${esc(v.id)}" data-mt-scope="property" role="img" aria-label="${esc(overlayLabel(prop,pub,u))}">${parts.join('')}</svg>${tracing?editBox(u.trace,v,w,h,'property'):''}</div></div>${diagram?furnitureHtml('property'):''}</div><div class="pa-stage-tools"><div class="pa-zoom-tools" role="group" aria-label="Zoom"><button class="pa-icon-btn" data-live="pa-zoom" data-value="out" aria-label="Zoom out" ${zoom<=1?'disabled':''}>−</button><span>${zoom*100}%</span><button class="pa-icon-btn" data-live="pa-zoom" data-value="in" aria-label="Zoom in" ${zoom>=4?'disabled':''}>+</button></div>${pictureToggle(v)}${g?`<label class="pa-toggle"><input type="checkbox" data-pa-layer="pin" ${u.layers.pin?'checked':''}> Pin</label>${pub?.parcels?.length&&!diagram?`<label class="pa-toggle"><input type="checkbox" data-pa-layer="parcel" ${u.layers.parcel?'checked':''}> Parcel</label>`:''}`:''}</div>${caption(v)}</div>`;
  }
  const overlayLabel=(prop,pub,u)=>[u.mode==='pin'?'Click the house to move the pin.':u.mode==='measure'?'Click corners to trace.':'',prop.pin?'The pin marks the house.':'',pub?.parcels?.length?'The parcel outline is drawn.':''].filter(Boolean).join(' ');
  const marker=(x,y,w,cls)=>{const r=Math.max(7,w/110);return `<g class="${cls}" transform="translate(${x.toFixed(1)} ${y.toFixed(1)})"><g class="pa-pin-mark"><circle r="${r*1.9}" class="pa-pin-halo"/><circle r="${r}" class="pa-pin-dot"/></g></g>`};
@@ -547,7 +547,7 @@ ${toolPanel('property',s,a,t,v,{})}
   const want=D.key||(()=>{const st=off.stored,vid=st?.view?.kind==='document'||st?.space==='image'?'doc:'+(st?.image?.document_id||st?.view?.id):st?.view?.id;return views.find(x=>x.key===vid||(!st?.view?.id&&st?.view?.label&&x.view?.label===st.view.label))?.key||views[0].key})();
   const pick=views.find(x=>x.key===want)||views[0];// D.key is the engineer's choice only (mt-view)
   let w,h,v,doc=null,imgHtml;
-  if(pick.kind==='view'){v=pick.view;w=v.width;h=v.height;imgHtml=diagramOn(v)?diagramFor('dialog',s,v,{except:a.id}):img(s,v,v.label||'Property picture','pa-photo')}
+  if(pick.kind==='view'){v=pick.view;w=v.width;h=v.height;imgHtml=diagramOn(v)?null:img(s,v,v.label||'Property picture','pa-photo')}
   else{doc=pick.doc;const d=dimsOf(doc.id);if(!d)return wrap(`${chips(views,pick)}${Live.loading('Loading the photo…')}`);[w,h]=d;v={id:'doc:'+doc.id,kind:'document',width:w,height:h};imgHtml=Live.photo(doc.id,doc.filename,'pa-photo')}
   const space=pick.kind==='view'?'lonlat':'image';
   if(!D.trace||D.trace.assetId!==a.id)D.trace=newTrace(a,v,{space,doc,w,h});
@@ -559,6 +559,7 @@ ${toolPanel('property',s,a,t,v,{})}
   const t=D.trace,g=PM.georef(v),pub=pubEntry(s)?.data;
   const parcels=space==='lonlat'&&g&&pub?.parcels?.length?pub.parcels.flatMap(p=>PM.parcelRings(p,g)):[];
   scopes.dialog={s,a,t,v,w,h,doc,parcels,building:space==='lonlat'?PM.buildingOnView(pub?.lidar,v)?.points||null:null};
+  if(imgHtml===null)imgHtml=diagramFor('dialog',s,v,{except:a.id,trace:t});// its labels make room for the trace's
   const extra=diagramOn(v)?'':parcels.map(r=>`<polygon class="pa-parcel" points="${r.map(p=>p.map(n=>n.toFixed(1)).join(',')).join(' ')}"/>`).join('');
   const on=pick.kind==='view'?(v.source_id?`${v.credit}, ${viewDate(v)}`:`Picture of ${PM.dateText(PM.dateOf(v))}`)+` · ${fmt(v.pixel_size_m*100,1)} cm a pixel`:`${doc.filename}${pick.evidence?' · where it was seen':''} · scaled by the known length you set`;
   // A small shape opens zoomed in on it (a patio on a 120 m wide aerial is a few dozen pixels).
@@ -598,48 +599,66 @@ ${toolPanel('property',s,a,t,v,{})}
  const diagramOn=v=>georeferenced(v)&&pictureModeOf()==='diagram';
  const pictureToggle=v=>georeferenced(v)?`<div class="pa-seg mt-picture-toggle" role="group" aria-label="Show the picture or a diagram">${[['photo','Photo'],['diagram','Diagram']].map(([k,l])=>`<button data-live="mt-picture" data-value="${k}" aria-pressed="${pictureModeOf()===k}">${l}</button>`).join('')}</div>`:'';
  const diagrams={};// scope -> {model, frame, k} as last drawn
- function diagramFor(scope,s,v,{except=null,pin=null}={}){
+ function diagramFor(scope,s,v,{except=null,pin=null,trace=null}={}){
   const pub=pubEntry(s)?.data,items=assetsEntry(s).data?.items||[],pending=L.corrections?.assets_review||null;
   const model=PM.diagramModel({view:v,parcels:pub?.parcels||[],measured:PM.measuredOnView(items,v,{pending,except}),editing:!!except,building:PM.buildingOnView(pub?.lidar,v)});
-  diagrams[scope]={model,frame:PM.frameOf(v),pin,k:diagrams[scope]?.model?.w===model.w?diagrams[scope].k:null};
-  const m=model,what=[m.lots.length?`${m.lots.length} lot ${m.lots.length===1?'line':'lines'}`:'no lot line',m.legend.length?`measured: ${m.legend.map(x=>`${x.name} ${x.quantity}`).join(', ')}`:'nothing measured'].join('; ');
-  return `<svg class="mt-diagram" viewBox="0 0 ${m.w} ${m.h}" preserveAspectRatio="none" data-mt-diagram="${scope}" role="img" aria-label="${esc(`Diagram of the property: ${what}. North is up; scale bar ${m.scale?.label||'unknown'}.`)}">${diagramBody(diagrams[scope])}</svg>`;
+  diagrams[scope]={model,view:v,frame:PM.frameOf(v),pin,trace,k:diagrams[scope]?.model?.w===model.w?diagrams[scope].k:null};
+  const body=diagramBody(diagrams[scope]),m=model,what=[m.lots.length?`${m.lots.length} lot ${m.lots.length===1?'line':'lines'}`:'no lot line',m.legend.length?`measured: ${m.legend.map(x=>`${x.name} ${x.quantity}`).join(', ')}`:'nothing measured'].join('; ');
+  return `<svg class="mt-diagram" viewBox="0 0 ${m.w} ${m.h}" preserveAspectRatio="none" data-mt-diagram="${scope}" role="img" aria-label="${esc(`Diagram of the property: ${what}. North is up; scale bar ${m.scale?.label||'unknown'}.${droppedText(diagrams[scope])}`)}">${body}</svg>`;
  }
- // Labels never overlap each other or the pin, which the overlay draws over the diagram: the edge
- // lengths are placed first (each pushed clear of the pin), then each shape's name, tested against
- // every label already placed and the pin (PM.placeName: inside the shape first, then below or
- // above it, then beside it).
- function diagramBody({model:m,frame,k,pin=null}){
-  k=k||m.w/900;const font=MT_FONT*k,P=pts=>pts.map(q=>q.map(n=>n.toFixed(1)).join(',')).join(' '),out=[],labels=[],taken=[],names=[];
-  const edgeLabel=(l,cls,colour)=>{const b=labelBox(l.text,k),tb=PM.turnedBox(b,l.angle),[lx,ly]=PM.clearOfPin([l.x,l.y],tb,pin);taken.push({at:[lx,ly],w:tb.w,h:tb.h});
-   labels.push(`<g class="mt-d-label${cls}" transform="translate(${f1(lx)} ${f1(ly)}) rotate(${f1(l.angle)})"${colour?` style="--c:${colour}"`:''}><rect x="${f1(-b.w/2)}" y="${f1(-b.h/2)}" width="${f1(b.w)}" height="${f1(b.h)}" rx="${f1(4*k)}"/><text y="${f1(0.36*font)}" font-size="${f1(font)}">${esc(l.text)}</text></g>`)};
+ // No label meets another or the pin (which the overlay draws over the diagram). Labels are placed
+ // in a fixed order, each against every one already placed: the active trace's (drawn by the tool,
+ // never moved or hidden), then each measured item's edge lengths and name, then the building's.
+ // An edge length that fits nowhere (PM.placeEdgeLabel) is left out of the drawing and named in the
+ // diagram's title; a name goes where PM.placeName finds room.
+ function traceBoxes(t,v,k){
+  const frame=t?frameFor(t,v):null,font=MT_FONT*k,out=[];if(!frame)return out;
+  const edge=(p,closed)=>{for(const l of PM.edgeLabels(p,closed,PM.edgeLengths(p,closed,frame),{k,font:MT_FONT}))if(l.mode!=='hidden'){const tb=PM.turnedBox(labelBox(l.text,k),l.angle);out.push({at:[l.x,l.y],w:tb.w,h:tb.h})}};
+  for(const sh of t.shapes||[]){for(const {pts,closed} of ringsOf(sh))edge(pts,closed);
+   const sum=PM.shapeSummary(sh,frame,{unit:t.unit,heightFt:Number(heightOf(t))||null});
+   if(sh.kind==='area'){const [x,y]=PM.labelPoint(sh.ring),w=Math.max(sum.area.length*1.2,sum.perimeter.length*0.95)*0.62*font+8*k;out.push({at:[x,y+font*0.4],w,h:font*2.7})}
+   else if(sh.path.length>2||Number(heightOf(t))>0){const q=sh.path[sh.path.length-1],w=sum.text.length*0.62*font*1.05+8*k;out.push({at:[q[0]+10*k+w/2,q[1]-10*k],w,h:font*1.5})}}
+  if(t.draft?.length>1)edge(t.draft,false);
+  return out;
+ }
+ const droppedText=d=>d?.dropped?.length?` Not drawn for lack of room: ${d.dropped.join(', ')} (every length is in the edge list).`:'';
+ function diagramBody(d){
+  const {model:m,frame,pin=null,trace=null,view=null}=d,k=d.k||m.w/900;
+  const font=MT_FONT*k,P=pts=>pts.map(q=>q.map(n=>n.toFixed(1)).join(',')).join(' '),out=[],labels=[],dropped=[];
+  const taken=[...(trace&&view?traceBoxes(trace,view,k):[]),...(d.obstacles||[])];
+  const edgeLabels=(points,closed,cls,colour,what)=>{if(!frame)return;for(const l of PM.edgeLabels(points,closed,PM.edgeLengths(points,closed,frame),{k,font:MT_FONT})){if(l.mode==='hidden')continue;
+   const b=labelBox(l.text,k),spot=PM.placeEdgeLabel(l,points,closed,b,{pin,boxes:taken});
+   if(!spot){dropped.push(`${what} ${l.full}`);continue}
+   taken.push(spot);labels.push(`<g class="mt-d-label${cls}" transform="translate(${f1(spot.at[0])} ${f1(spot.at[1])}) rotate(${f1(l.angle)})"${colour?` style="--c:${colour}"`:''}><title>${esc(`${what} · ${l.full}`)}</title><rect x="${f1(-b.w/2)}" y="${f1(-b.h/2)}" width="${f1(b.w)}" height="${f1(b.h)}" rx="${f1(4*k)}"/><text y="${f1(0.36*font)}" font-size="${f1(font)}">${esc(l.text)}</text></g>`)}};
   // A name of two lines: the first's baseline at the anchor, the box's middle 0.35 em below it.
   const nameBox=(a,b,fa,fb)=>({w:Math.max(a.length*0.62*fa,b.length*0.62*fb)+8*k,h:font*2.7});
+  const name=(n)=>{const box=nameBox(n.lines[0],n.lines[1],n.sizes[0],n.sizes[1]);
+   const start=n.start?[n.start[0]+box.w/2,n.start[1]]:(()=>{const q=PM.labelPoint(n.points);return [q[0],q[1]+font*0.35]})();
+   const c=PM.placeName(n.points,box,{pin,boxes:taken,start,within:n.within});taken.push({at:c,w:box.w,h:box.h});
+   const ax=n.line?c[0]-box.w/2:c[0],ay=c[1]-font*0.35;
+   labels.push(`<g class="mt-d-total${n.cls}" transform="translate(${f1(ax)} ${f1(ay)})"${n.colour?` style="--c:${n.colour}"`:''} data-box="${f1(box.w)} ${f1(box.h)}"><text font-size="${f1(n.sizes[0])}">${esc(n.lines[0])}</text><text y="${f1(n.gap2)}" font-size="${f1(n.sizes[1])}">${esc(n.lines[1])}</text></g>`)};
   out.push(`<rect class="mt-d-ground" x="0" y="0" width="${m.w}" height="${m.h}" fill="${m.ground}"/>`);
   for(const lot of m.lots)out.push(`<polygon class="mt-d-lot${lot.adjacent?' is-adjacent':''}" points="${P(lot.points)}"/>`);
-  // The building: the lidar's roof outline (overhangs included), grey, with its edge lengths.
-  if(m.building){const bp=m.building.points;out.push(`<polygon class="mt-d-building" points="${P(bp)}"/>`);
-   if(frame)for(const l of PM.edgeLabels(bp,true,PM.edgeLengths(bp,true,frame),{k,font:MT_FONT}))if(l.mode!=='hidden')edgeLabel(l,' is-building',null);
-   names.push({points:bp,within:true,start:null,lines:['Building','roof outline'],sizes:[font,font*0.85],cls:' is-building',colour:null,gap2:font*1.25})}
+  if(m.building)out.push(`<polygon class="mt-d-building" points="${P(m.building.points)}"/>`);
+  // Measured items: their shapes, then (in order) their lengths and their names.
   for(const sh of m.shapes)for(const one of sh.shapes){
    const rings=one.kind==='line'?[{p:one.path,closed:false}]:[{p:one.ring,closed:true},...(one.cutouts||[]).map(c=>({p:c,closed:true,cut:true}))];
    for(const r of rings)out.push(r.closed?`<polygon class="mt-d-shape${r.cut?' is-cut':''}" points="${P(r.p)}" style="--c:${sh.colour}"/>`:`<polyline class="mt-d-shape is-line" points="${P(r.p)}" style="--c:${sh.colour}"/>`);
-   if(frame)for(const r of rings)for(const l of PM.edgeLabels(r.p,r.closed,PM.edgeLengths(r.p,r.closed,frame),{k,font:MT_FONT}))if(l.mode!=='hidden')edgeLabel(l,'',sh.colour);
-   if(frame){const sum=PM.shapeSummary(one,frame,{unit:sh.unit,heightFt:sh.heightFt}),line=one.kind==='line',lines=[typeName(sh.label),line?sum.text:sum.area];
-    // A line's name starts beside its end (as the tool puts a line's total), centred on the box.
-    const end=line?one.path[one.path.length-1]:null,box=nameBox(lines[0],lines[1],font*1.1,font*0.95);
-    names.push({points:line?one.path:one.ring,within:!line,start:line?[end[0]+10*k,end[1]-10*k+font*0.35]:null,lines,sizes:[font*1.1,font*0.95],cls:line?' is-line':'',colour:sh.colour,gap2:font*1.3,box,line})}
   }
-  for(const n of names){
-   const box=n.box||nameBox(n.lines[0],n.lines[1],n.sizes[0],n.sizes[1]);
-   const start=n.start?[n.start[0]+box.w/2,n.start[1]]:(()=>{const q=PM.labelPoint(n.points);return [q[0],q[1]+font*0.35]})();
-   const c=PM.placeName(n.points,box,{pin,boxes:taken,start,within:n.within});taken.push({at:c,w:box.w,h:box.h});
-   // The anchor: the middle of the box for a centred name, its left edge for a line's (text-anchor start).
-   const ax=n.line?c[0]-box.w/2:c[0],ay=c[1]-font*0.35;
-   labels.push(`<g class="mt-d-total${n.cls}" transform="translate(${f1(ax)} ${f1(ay)})"${n.colour?` style="--c:${n.colour}"`:''} data-box="${f1(box.w)} ${f1(box.h)}"><text font-size="${f1(n.sizes[0])}">${esc(n.lines[0])}</text><text y="${f1(n.gap2)}" font-size="${f1(n.sizes[1])}">${esc(n.lines[1])}</text></g>`);
+  for(const sh of m.shapes)for(const one of sh.shapes){
+   const rings=one.kind==='line'?[{p:one.path,closed:false}]:[{p:one.ring,closed:true},...(one.cutouts||[]).map(c=>({p:c,closed:true}))];
+   for(const r of rings)edgeLabels(r.p,r.closed,'',sh.colour,typeName(sh.label));
+   if(frame){const sum=PM.shapeSummary(one,frame,{unit:sh.unit,heightFt:sh.heightFt}),line=one.kind==='line',end=line?one.path[one.path.length-1]:null;
+    name({points:line?one.path:one.ring,within:!line,start:line?[end[0]+10*k,end[1]-10*k+font*0.35]:null,lines:[typeName(sh.label),line?sum.text:sum.area],sizes:[font*1.1,font*0.95],cls:line?' is-line':'',colour:sh.colour,gap2:font*1.3,line})}
   }
-  return out.join('')+labels.join('');
+  // The building: the lidar's roof outline (overhangs included), its lengths, its name.
+  if(m.building){const bp=m.building.points;edgeLabels(bp,true,' is-building',null,'Building');
+   name({points:bp,within:true,start:null,lines:['Building','roof outline'],sizes:[font,font*0.85],cls:' is-building',colour:null,gap2:font*1.25})}
+  d.dropped=dropped;
+  return `${dropped.length?`<title>${esc(`Diagram.${droppedText(d)}`)}</title>`:''}${out.join('')}${labels.join('')}`;
  }
+ // Tests reach the layout with a model and a view of their own.
+ Live.diagramBodyFor=(model,view,{k=null,pin=null,trace=null,obstacles=[]}={})=>{const d={model,view,frame:PM.frameOf(view),k,pin,trace,obstacles};const html=diagramBody(d);return {html,dropped:d.dropped}};
  const typeName=l=>String(l||'').replace(/_/g,' ').replace(/^./,c=>c.toUpperCase());
  // The diagram's key, north arrow, scale bar and source sit in the stage's corners (HTML over the
  // zoomed picture), so they stay on screen when it is zoomed and panned. The scale bar is chosen
@@ -943,7 +962,7 @@ ${noViews?'':`<section class="pa-history" aria-label="Dated views">${strips(s,ca
  // After a render: the screen's scale (picture pixels per screen pixel) for the labels, and focus.
  function measureLabels(){
   if(typeof document.querySelectorAll!=='function')return;
-  for(const svg of document.querySelectorAll('svg[data-mt-diagram]')){const d=diagrams[svg.dataset.mtDiagram],box=svg.getBoundingClientRect?.();if(!d||!box?.width)continue;const k=svg.viewBox.baseVal.width/box.width;if(!d.k||Math.abs(d.k-k)/k>0.03){d.k=k;svg.innerHTML=diagramBody(d);const f=document.querySelector(`[data-mt-furniture="${svg.dataset.mtDiagram}"]`);if(f)f.outerHTML=furnitureHtml(svg.dataset.mtDiagram)}}
+  for(const svg of document.querySelectorAll('svg[data-mt-diagram]')){const d=diagrams[svg.dataset.mtDiagram],box=svg.getBoundingClientRect?.();if(!d||!box?.width)continue;const k=svg.viewBox.baseVal.width/box.width;if(!d.k||Math.abs(d.k-k)/k>0.03){d.k=k;svg.innerHTML=diagramBody(d);svg.setAttribute('aria-label',(svg.getAttribute('aria-label')||'').replace(/ Not drawn for lack of room:.*$/,'')+droppedText(d));const f=document.querySelector(`[data-mt-furniture="${svg.dataset.mtDiagram}"]`);if(f)f.outerHTML=furnitureHtml(svg.dataset.mtDiagram)}}
   for(const svg of document.querySelectorAll('svg[data-mt-scope],svg[data-mt-card]')){
    const box=svg.getBoundingClientRect?.();if(!box?.width)continue;const k=svg.viewBox.baseVal.width/box.width;
    const card=svg.dataset.mtCard?cards.get(svg.dataset.mtCard):null,t=card?card.t:traceOf(svg.dataset.mtScope);if(!t)continue;

@@ -9,6 +9,7 @@ const fs=require('node:fs'),path=require('node:path'),vm=require('node:vm');
 const WEB=path.join(__dirname,'..'),A=require('../live/sample-api.js'),PM=require('../live/property-model.js'),PS=require('../live/sample-property.js');
 const NOW=Date.parse('2026-11-23T20:00:00Z');
 const VIEW={id:'v',label:'aerial-close',width:1440,height:900,lat:43.5,lon:-87,pixel_size_m:0.0841,heading_deg:0,tilt_deg:0,imagery_on:'2026-06-18',source:'Aerial imagery'};
+const plain=o=>JSON.parse(JSON.stringify(o));
 const ring=PS.SITE.patio.map(([e,n])=>PS.toLonLat(e,n));
 const body=(extra={})=>({unit:'SF',space:'lonlat',shapes:[{kind:'area',ring}],image:{source:'Aerial imagery',pixel_size_m:0.0841},...extra});
 const asset=(id,label,m)=>({id,label,category:label,takeoff:{unit:'SF',inputs:m?{measurement:m}:{}}});
@@ -200,7 +201,7 @@ test('no label of the diagram sits under the pin; the building’s label moves b
  const b=/mt-d-total is-building" transform="translate\(([\d.]+) ([\d.]+)\)"/.exec(html).slice(1).map(Number);
  assert.ok(!PM.boxMeetsCircle([b[0],b[1]+font*0.35],box,pin.at,pin.r),'clear of the pin');
  assert.ok(b[1]>Math.max(...outline.map(p=>p[1])),'below the outline');
- for(const m of html.matchAll(/class="mt-d-label[^"]*" transform="translate\(([\d.]+) ([\d.]+)\) rotate\(([-\d.]+)\)"[^>]*><rect x="[-\d.]+" y="[-\d.]+" width="([\d.]+)" height="([\d.]+)"/g)){
+ for(const m of html.matchAll(/class="mt-d-label[^"]*" transform="translate\(([\d.]+) ([\d.]+)\) rotate\(([-\d.]+)\)"[^>]*>(?:<title>[^<]*<\/title>)?<rect x="[-\d.]+" y="[-\d.]+" width="([\d.]+)" height="([\d.]+)"/g)){
   const [lx,ly,a,w,h]=m.slice(1).map(Number);assert.ok(!PM.boxMeetsCircle([lx,ly],PM.turnedBox({w,h},a),pin.at,pin.r),`edge label at ${lx},${ly}`);
  }
  // without the pin (the layer off) the label stays in the middle of the outline
@@ -260,9 +261,82 @@ test('on the rendered diagram no name box meets an edge label or the pin',async(
  const x=await boot({storage:memory()});x.Live.measurePicture.set('diagram');
  const html=await x.page(()=>x.Live.screens.property());
  const pinAt=/class="pa-pin" transform="translate\(([\d.]+) ([\d.]+)\)"/.exec(html).slice(1).map(Number),r=Math.max(7,1440/110)*1.9,font=12*1440/900;
- const edges=[...html.matchAll(/class="mt-d-label[^"]*" transform="translate\(([\d.]+) ([\d.]+)\) rotate\(([-\d.]+)\)"[^>]*><rect x="[-\d.]+" y="[-\d.]+" width="([\d.]+)" height="([\d.]+)"/g)].map(m=>{const [x0,y0,a,w,h]=m.slice(1).map(Number);return {at:[x0,y0],...PM.turnedBox({w,h},a)}});
+ const edges=[...html.matchAll(/class="mt-d-label[^"]*" transform="translate\(([\d.]+) ([\d.]+)\) rotate\(([-\d.]+)\)"[^>]*>(?:<title>[^<]*<\/title>)?<rect x="[-\d.]+" y="[-\d.]+" width="([\d.]+)" height="([\d.]+)"/g)].map(m=>{const [x0,y0,a,w,h]=m.slice(1).map(Number);return {at:[x0,y0],...PM.turnedBox({w,h},a)}});
  const names=[...html.matchAll(/class="mt-d-total([^"]*)" transform="translate\(([\d.]+) ([\d.]+)\)"[^>]*data-box="([\d.]+) ([\d.]+)"/g)].map(m=>{const [ax,ay,w,h]=m.slice(2).map(Number),line=/is-line/.test(m[1]);return {at:[line?ax+w/2:ax,ay+font*0.35],w,h}});
  assert.ok(edges.length>=6&&names.length>=2,'the building’s and the patio’s');
  for(const n of names){for(const e of edges)assert.ok(!PM.boxesMeet(n,e),'a name on an edge label');assert.ok(!PM.boxMeetsCircle(n.at,n,pinAt,r),'a name under the pin')}
  for(let i=0;i<names.length;i++)for(let j=i+1;j<names.length;j++)assert.ok(!PM.boxesMeet(names[i],names[j]),'two names on each other');
+});
+
+/* ---------- no label meets another, of any shape, or the pin ---------- */
+// Every label on the picture as an upright box: the diagram's edge lengths and names, and the
+// trace's edge lengths (the overlay's); the pin as a circle.
+function labelBoxes(html,k){
+ const font=12*k,boxes=[];
+ for(const m of html.matchAll(/class="(mt-d-label|mt-label)[^"]*" transform="translate\(([-\d.]+) ([-\d.]+)\) rotate\(([-\d.]+)\)"[^>]*>(?:<title>[^<]*<\/title>)?<rect x="[-\d.]+" y="[-\d.]+" width="([\d.]+)" height="([\d.]+)"/g)){
+  const [x0,y0,a,w,h]=m.slice(2).map(Number);boxes.push({kind:m[1],at:[x0,y0],...PM.turnedBox({w,h},a)});
+ }
+ for(const m of html.matchAll(/class="mt-d-total([^"]*)" transform="translate\(([-\d.]+) ([-\d.]+)\)"[^>]*data-box="([\d.]+) ([\d.]+)"/g)){
+  const [ax,ay,w,h]=m.slice(2).map(Number);boxes.push({kind:'name',at:[/is-line/.test(m[1])?ax+w/2:ax,ay+font*0.35],w,h});
+ }
+ return boxes;
+}
+function assertClear(boxes,pin,what){
+ for(let i=0;i<boxes.length;i++){
+  if(pin&&boxes[i].kind!=='mt-label')assert.ok(!PM.boxMeetsCircle(boxes[i].at,boxes[i],pin.at,pin.r),`${what}: a ${boxes[i].kind} under the pin`);
+  for(let j=i+1;j<boxes.length;j++)assert.ok(!PM.boxesMeet(boxes[i],boxes[j]),`${what}: ${boxes[i].kind} at ${boxes[i].at.map(Math.round)} meets ${boxes[j].kind} at ${boxes[j].at.map(Math.round)}`);
+ }
+}
+async function sampleModel(x){
+ const prop=await x.Live.api.request('GET',`/v1/studies/${x.study.id}/property`),pub=await x.Live.api.request('GET',`/v1/studies/${x.study.id}/property/public`);
+ const v=PM.viewsOf(prop.capture).close,g=PM.georef(v);
+ const model=PM.diagramModel({view:v,parcels:pub.parcels,measured:PM.measuredOnView(x.items,v),building:PM.buildingOnView(pub.lidar,v)});
+ return {model,v,pin:{at:g.toPixel(prop.pin.lon,prop.pin.lat),r:Math.max(7,v.width/110)*1.9}};
+}
+test('the sample’s default view: no two labels meet and none is under the pin, at 100, 200 and 400 %',async()=>{
+ const x=await boot({storage:memory()});const {model,v,pin}=await sampleModel(x);
+ assert.ok(model.building&&model.shapes.length,'the patio and the building');
+ for(const k of [1.6,0.8,0.4]){const {html}=x.Live.diagramBodyFor(model,v,{k,pin});const boxes=labelBoxes(html,k);assert.ok(boxes.length>=10);assertClear(boxes,pin,`k ${k}`)}
+ // the collision the lead measured (the patio's bottom edge and the building's top edge meet at 100 %):
+ // the building's, lower in priority, has no room and is left out, named in the title
+ const {html,dropped}=x.Live.diagramBodyFor(model,v,{k:1.6,pin});
+ assert.deepEqual(plain(dropped),[`Building 40'-8"`]);assert.match(html,/^<title>Diagram\. Not drawn for lack of room: Building 40&#39;-8&quot;/);
+ const drawn=[...html.matchAll(/<title>(Patio|Building) · ([^<]*)<\/title>/g)].map(m=>m[1]);
+ assert.equal(drawn.filter(w=>w==='Patio').length,4,'every patio length is drawn');// an edge too short on screen for a label (mode hidden) is in the edge list only, as before
+ const bp=model.building.points,shown=PM.edgeLabels(bp,true,PM.edgeLengths(bp,true,PM.frameOf(v)),{k:1.6,font:12}).filter(l=>l.mode!=='hidden').length;
+ assert.ok(shown>=5,'most building edges are long enough for a label');assert.equal(drawn.filter(w=>w==='Building').length+dropped.length,shown,'every building length long enough for a label is drawn or named');
+});
+test('the live roof: no two labels meet and none is under the pin, at 100, 200 and 400 %',async()=>{
+ const x=await boot({storage:memory()}),g=PM.georef(LIVE_VIEW),view={...LIVE_VIEW,id:'live'};
+ const building=PM.buildingOnView({year:2019,building:{footprint_m2:200.5,outline:ROOF.map(p=>g.toLonLat(...p))}},view);
+ const model=PM.diagramModel({view,building}),pin={at:[980,195],r:Math.max(7,1440/110)*1.9};
+ for(const k of [1.6,0.8,0.4]){const {html}=x.Live.diagramBodyFor(model,view,{k,pin});assertClear(labelBoxes(html,k),pin,`k ${k}`)}
+});
+test('a fence traced across the patio and the building: its labels stay where the tool puts them and nothing meets them',async()=>{
+ const x=await boot({storage:memory()});x.Live.measurePicture.set('diagram');
+ const fence=x.items.find(a=>a.label==='fence');x.Live.state.docId=fence.id;await x.page(()=>x.Live.screens.property());
+ const u=x.Live.state.property[x.study.id],t=u.trace,px=([e,n])=>[720+e/0.0841,450-n/0.0841];
+ t.shapes=[{kind:'line',path:[[-14,12],[8,12],[8,-2]].map(px)}];// across the patio, then down across the garage
+ const html=await x.page(()=>x.Live.screens.property()),k=1440/900;
+ const boxes=labelBoxes(html,k),traced=boxes.filter(b=>b.kind==='mt-label');
+ assert.equal(traced.length,2,'the trace’s two lengths are drawn, never dropped');
+ const pinAt=/class="pa-pin" transform="translate\(([\d.]+) ([\d.]+)\)"/.exec(html).slice(1).map(Number);
+ assertClear(boxes,{at:pinAt,r:Math.max(7,1440/110)*1.9},'with the trace');
+});
+test('a length that fits nowhere is left out of the drawing and named in the diagram’s title',async()=>{
+ const x=await boot({storage:memory()});const {model,v,pin}=await sampleModel(x);
+ const wall={at:[720,450],w:4000,h:4000};// everything taken
+ const {html,dropped}=x.Live.diagramBodyFor(model,v,{k:1.6,pin,obstacles:[wall]});
+ assert.ok(dropped.length>=8&&dropped.some(t=>/^Building /.test(t))&&dropped.some(t=>/^Patio /.test(t)),String(dropped));
+ assert.doesNotMatch(html,/class="mt-d-label/);
+ assert.match(html,/^<title>Diagram\. Not drawn for lack of room: Patio 40&#39;-/);
+ assert.match(html,/every length is in the edge list/);
+ const ok=x.Live.diagramBodyFor(model,v,{k:0.4,pin});assert.deepEqual(plain(ok.dropped),[],'zoomed in, everything fits');assert.doesNotMatch(ok.html,/<title>Diagram\./);
+});
+test('placeEdgeLabel: its own side, the other side, slid along the middle half, nearer; else nothing',()=>{
+ const sq=[[0,0],[200,0],[200,100],[0,100]],l=PM.edgeLabels(sq,true,[20,10,20,10],{k:1,font:12})[0],box={w:60,h:18};
+ assert.deepEqual(PM.placeEdgeLabel(l,sq,true,box).at,[l.x,l.y]);
+ const other=PM.placeEdgeLabel(l,sq,true,box,{boxes:[{at:[l.x,l.y],w:60,h:18}]});assert.ok(other.at[1]>0,'inside, the other side');
+ const slid=PM.placeEdgeLabel(l,sq,true,box,{boxes:[{at:[100,0],w:20,h:60}]});assert.ok(Math.abs(slid.at[0]-100)<=50+1e-9&&Math.abs(slid.at[0]-100)>0,'slid, within the middle half');
+ assert.equal(PM.placeEdgeLabel(l,sq,true,box,{boxes:[{at:[100,0],w:400,h:200}]}),null);
 });

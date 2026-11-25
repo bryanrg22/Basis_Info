@@ -738,6 +738,19 @@
   for(let i=0;i<reach;i++){const d=i*step;for(const q of [[x0-gap-box.w/2-d,cy],[x1+gap+box.w/2+d,cy]])if(clear(q))return q}
   return first;
  }
+ // Where an edge's length label goes so it meets no label already placed (upright boxes) and not
+ // the pin: its own place outside the edge; the other side of the edge; slid along the edge, its
+ // middle kept within the edge's middle half; then nearer the edge on either side. Null when nothing
+ // fits: the caller leaves that length out of the drawing (it stays in the edge list and the title).
+ function placeEdgeLabel(l,points,closed,box,{pin=null,boxes=[],gap=2}={}){
+  const n=points.length,a=points[l.i],b=points[(l.i+1)%n],len=dist(a,b);if(!(len>0))return null;
+  const u=[(b[0]-a[0])/len,(b[1]-a[1])/len],off=Math.hypot(l.x-l.mx,l.y-l.my)||1,nn=[(l.x-l.mx)/off,(l.y-l.my)/off],tb=turnedBox(box,l.angle);
+  const at=(s,o)=>[l.mx+u[0]*s*len+nn[0]*o,l.my+u[1]*s*len+nn[1]*o];
+  const ok=p=>!(pin&&boxMeetsCircle(p,tb,pin.at,pin.r+gap))&&!boxes.some(o=>boxesMeet({at:p,w:tb.w,h:tb.h},o,gap));
+  const slides=[0,0.125,-0.125,0.25,-0.25],tries=[[0,off],[0,-off],...slides.slice(1).flatMap(s=>[[s,off],[s,-off]]),...slides.flatMap(s=>[[s,off*0.6],[s,-off*0.6]])];
+  for(const [sl,o] of tries){const p=at(sl,o);if(ok(p))return {at:p,w:tb.w,h:tb.h}}
+  return null;
+ }
  const pointsBox=pts=>{const xs=pts.map(p=>p[0]),ys=pts.map(p=>p[1]);return {cx:(Math.min(...xs)+Math.max(...xs))/2,minY:Math.min(...ys),maxY:Math.max(...ys)}};
 
  /* ---------- parcels, site check, lidar ---------- */
@@ -788,7 +801,7 @@
  const anyProperty=c=>!!(c&&(c.propertyCapture||c.publicGeo));
 
  const api={FT_PER_M,radii,round2,measure,problems,formula,reviewFlags,expectedErrorPct,MeasurementError,georef,measurable,toMercator,fromMercator,
-  frameOf,scaleFeetPerPx,segmentFt,viewCentre,scrollToCentre,boxMeetsCircle,boxesMeet,placeName,turnedBox,clearOfPin,pointsBox,buildingOnView,scaleBar,measuredOnView,diagramModel,DIAGRAM_COLOURS,DIAGRAM_GROUND,angleAt,isSquare,RIGHT_TOL_DEG,edgeLengths,ftIn,ftInWords,parseLength,areaText,lfText,edgeLabels,labelPoint,shapeSummary,movePoint,insertPoint,removePoint,minPoints,setEdgeLength,snapPoint,nearestOnSegment,ringSegments,onPicture,
+  frameOf,scaleFeetPerPx,segmentFt,viewCentre,scrollToCentre,boxMeetsCircle,boxesMeet,placeName,placeEdgeLabel,turnedBox,clearOfPin,pointsBox,buildingOnView,scaleBar,measuredOnView,diagramModel,DIAGRAM_COLOURS,DIAGRAM_GROUND,angleAt,isSquare,RIGHT_TOL_DEG,edgeLengths,ftIn,ftInWords,parseLength,areaText,lfText,edgeLabels,labelPoint,shapeSummary,movePoint,insertPoint,removePoint,minPoints,setEdgeLength,snapPoint,nearestOnSegment,ringSegments,onPicture,
   remember,undoTrace,redoTrace,snapshotOf,bodyOfRecord,pixelShapes,drawnByText,withProvenance,sameShapes,viewRef,imageBody,KNOWN_LENGTHS,edgeComparison,lonlatPathFt,shoelace,insideOrOn,
   needsMeasurement,measureOffer,measureUnit,captureStatus,gatherStatus,noteText,clock,viewsOf,historyStrip,defaultMeasureView,leafText,dateText,yearOnly,dateOf,SIDE_TEXT,LOOKING,compass,
   publicSeries,creditLine,measurementBody,imageOf,parcelRings,siteCheckText,lidarFacts,bracket,withBracket,caps,anyProperty,ringProblem,CAPTURE_FAILED,CAPTURE_PART};
