@@ -467,15 +467,16 @@
  const lfText=ft=>`${ft.toLocaleString('en-US',{maximumFractionDigits:ft<100?1:0})} LF`;
 
  /* ----- where the labels go ----- */
- // One label per edge at its middle, outside the shape (a ring's outward normal; a line's left
- // side), turned along the edge but never upside down (the angle in (-90, 90]), in full when the
+ // One label per edge at its middle, outside the shape (a ring's outward normal; a line's outer
+ // side, its points read as a ring), turned along the edge but never upside down (the angle in (-90, 90]), in full when the
  // edge is long enough on screen, as whole feet when only that fits, else hidden (the edge list
  // in the panel still has it). k: picture pixels per screen pixel; font: the label's size in
  // screen pixels.
  const CHAR_EM=0.62,LABEL_PAD=10,LABEL_GAP=6;
  const labelWidth=(text,font)=>text.length*CHAR_EM*font+LABEL_PAD;
  function edgeLabels(points,closed,lengthsFt,{k=1,font=12}={}){
-  const n=points.length,edges=closed?n:n-1,sign=closed&&shoelace(points)<0?-1:1,out=[];
+  // A line's labels go on the side away from the bulk of its bends (its points read as a ring).
+  const n=points.length,edges=closed?n:n-1,sign=shoelace(points)<0?-1:1,out=[];
   for(let i=0;i<edges;i++){
    const a=points[i],b=points[(i+1)%n],dx=b[0]-a[0],dy=b[1]-a[1],len=Math.hypot(dx,dy)||1e-12;
    const full=ftIn(lengthsFt[i]),shortText=ftIn(lengthsFt[i],{short:true}),onScreen=len/k;
