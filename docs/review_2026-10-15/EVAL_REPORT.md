@@ -18719,21 +18719,39 @@ mode, signed in as a verified emulator account linked to the study's owner:
   "quantity_unit": "SF", "quantity_source": "verified Basis draft from the room photos"}`, and 432),
   and the study moved to `assets_processing`, revision 2.
 
-The reprice that follows (a typed quantity replaces the draft and the blocker clears) is the
-pipeline tests' `test_a_typed_quantity_replaces_the_draft...`; it was not run live, because there
-is no worker or Temporal here.
+Second run, the whole loop (the database restored from the same dump):
+1. I gave the gather a top-down picture: a synthetic aerial drawn from the stored lidar roof
+   outline, georeferenced with `view_box`, credited as synthetic, in `geo_views`.
+2. Verify on the roof opened the measure tool on that view, with the draft outline exactly on the
+   drawn roof. The tool showed "2,011.23 SF in plan x 1.1518 (the roof planes' slope, 29.5 degrees
+   on average) = 2,316.53 SF on the row", the server's figures. I ticked Verified and saved.
+3. Use this number on the countertop and the wall, then Review & send: `POST .../decisions` 202,
+   with the three corrections stored.
+4. I then ran what the workflow runs after an assets rejection, `apply_corrections` and
+   `process_assets` (revision 2, the stored corrections, the same settings), with the
+   activities' own code on that database; there is no Temporal here.
+5. Revision 2, read through the API:
+   * `measure:draft_unverified` is gone from the blockers;
+   * the held list is gone;
+   * the roof is verified at 2,316.53 SF ("Basis drafted 2,316.53 SF; engineer verified.");
+   * the countertop and the wall carry the engineer's quantity at the draft's number ("Basis
+     drafted 28 SF; engineer verified.", 432 SF);
+   * the unpriced siding, gutter and flooring stay pending drafts that hold nothing.
 
-**Sizes.** A phone never loads the product: every product route goes to the sign-in page, which
-says to use a computer (`web/public-entry.js`), so no phone layout applies. On a tablet the held
-list fits at 1024 and at 768 px wide, with no sideways scroll and every action visible. At 768 the
-Assets table's labels below it are cramped; that table is not changed here.
+The other blockers are the seed's: no intake, and the synthetic cost table's unpriced rows. The
+measure tool's own area of the outline reads 2,011.26 SF against the server's 2,011.23: the
+browser's and the server's area computations differ by 0.0015 %, and the row uses the server's.
+
+**Sizes.** A phone loading the page gets the sign-in page: "basis isn't available on phones.
+Sign in on your computer to open your workspace" (`web/public-entry.js`). This was checked by
+loading the app under phone emulation (375 x 812, Android user agent); the guard decides at load,
+so switching an open tab to a phone size without a reload is not a phone. On a tablet the held
+list fits at 1024 and at 768 px wide, with no sideways scroll and every action visible. At 768
+the Assets table's labels below it are cramped; that table is not changed here.
 
 **Open.**
-* The roof's Verify was not done live. The tool draws a lidar draft on the gather's top-down
-  picture, and a synthetic gather has none, so the tool fell back to the photos. A real gather
-  stores the public aerial, as the sample does, where Verify works end to end. A gather that kept
-  the shell but lost its picture would leave Verify nothing to draw on; the engineer can still
-  type the quantity (Correct).
+* A gather that kept the lidar shell but lost its top-down picture leaves Verify nothing to draw
+  on; the engineer can still type the quantity (Correct).
 * The seeded gather first made `GET .../property/public` answer 500, because the pipeline test
   stores only the lidar fields pricing reads. A real gather writes the rest (`points`,
   `density_per_m2`, `credit`, `terms_*`). It is a test-seed artefact, not a product path.
