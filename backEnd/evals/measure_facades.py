@@ -715,6 +715,7 @@ SETUP_NAMES: Final[dict[str, str]] = {
     "M0.15pct": "Today's formula: openings 15 % of the face, 9 ft a storey",
     "M0.15pct.true-eave": "Today's 15 % share on the true gross face (the share alone)",
     "M1.eave": "M1's main eave from lidar (eave only)",
+    "M0.15pct.m1-eave": "Today's 15 % share on the length x M1's lidar eave",
 }
 
 
@@ -772,6 +773,7 @@ def baseline_rows(facades: Sequence[ft.Facade], m1: Mapping[str, M1Wall] | None)
         w = (m1 or {}).get(f.id)
         if w is not None and w.eave_ft is not None:
             rows.append(Row("M1.eave", f.id, "-", Measured({"eave_height_ft": w.eave_ft})))
+            rows.append(Row("M0.15pct.m1-eave", f.id, "-", formula(f, w.eave_ft)))
     return rows
 
 
@@ -843,6 +845,59 @@ def _g(v: Any, d: int = 1) -> str:
     return str(v)
 
 
+PAIRED_QUANTITIES: Final = ("eave_height_ft", "openings_sf", "net_sf", "trim_lf")
+
+
+def common_table(
+    rows: Sequence[Row], scores: Sequence[Score], name: Mapping[str, str]
+) -> list[str]:
+    """Every setup on the same pairs: those the engineer's metrology measured openings on (a
+    facade-wide setup, ``-`` photo, counts once per pair), repeats pooled."""
+    pairs = [
+        (s.facade, s.photo)
+        for s in scores
+        if s.setup == "M3.engineer" and s.quantity == "openings_sf"
+    ]
+    if not pairs:
+        return []
+    by = {(s.setup, s.facade, s.photo, s.quantity): s for s in scores}
+    bases = list(dict.fromkeys(r.setup.partition("#")[0] for r in rows))
+    lines = [
+        "",
+        f"## Every setup on the engineer's {len(pairs)} pairs (repeats pooled)",
+        "",
+        "Columns: *measured* the pairs where the setup gave an eave (of the engineer's); each "
+        "cell mean absolute / mean signed % over the pairs and repeats it measured.",
+        "",
+        "| Setup | Measured | Eave | Openings SF | Net SF | Trim LF |",
+        "|---|---|---|---|---|---|",
+    ]
+    for base in bases:
+        reps = [base, base + "#2"] if base.startswith("M3.") else [base]
+        cells = []
+        measured = 0
+        for q in PAIRED_QUANTITIES:
+            errs = []
+            for f, p in pairs:
+                for setup in reps:
+                    s = by.get((setup, f, p, q)) or by.get((setup, f, "-", q))
+                    if s is not None:
+                        errs.append(s.signed_pct)
+            if q == "eave_height_ft":
+                measured = sum(
+                    1 for f, p in pairs if by.get((base, f, p, q)) or by.get((base, f, "-", q))
+                )
+            cells.append(
+                f"{statistics.fmean(abs(e) for e in errs):.1f} / {statistics.fmean(errs):+.1f}"
+                if errs
+                else ""
+            )
+        lines.append(
+            f"| {name.get(base, base)} | {measured}/{len(pairs)} | " + " | ".join(cells) + " |"
+        )
+    return lines
+
+
 def render(
     facades: Sequence[ft.Facade],
     rows: Sequence[Row],
@@ -898,6 +953,7 @@ def render(
             f"{_g(r['mean_signed_pct'])} | {_g(r['mean_abs_pct'])} | "
             f"{_g(r['median_abs_pct'])} | {_g(r['worst_abs_pct'])} ({r['worst']}) |"
         )
+    lines += common_table(rows, scores, name)
     lines += ["", "## Openings found", ""]
     lines += [
         "Columns: pairs the setup measured openings on; *true* and *found* openings summed; "
