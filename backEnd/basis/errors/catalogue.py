@@ -76,8 +76,9 @@ AREA_TITLES: Final[dict[str, str]] = {
     "(docs/api/PUBLIC_GEO.md)",
     "SITE": "AI-drafted site-item outlines on a top-down view (basis.vision.site_items, "
     "EVAL_REPORT 106; off by default, not wired into the pipeline)",
-    "MEASURE": "The measure tool's routes: `POST /v1/studies/{id}/property/site-drafts` "
-    "(docs/api/MEASURE_DRAFTS.md, EVAL_REPORT 111)",
+    "MEASURE": "AI-drafted measurements: the drafts in the priced path (the lidar shell, room "
+    "photos, the verify rule; EVAL_REPORT 110) and the measure tool's routes (`POST "
+    "/v1/studies/{id}/property/site-drafts`; EVAL_REPORT 111); docs/api/MEASURE_DRAFTS.md",
 }
 
 
@@ -4692,6 +4693,78 @@ ENTRIES: Final[tuple[Entry, ...]] = (
         "Wait the seconds `Retry-After` gives, then draft again.",
         "yes",
         problem="rate-limited",
+    ),
+    # ------------------------------------------------------------------ MEASURE
+    _e(
+        E.MEASURE_DRAFT_UNVERIFIED,
+        "flag",
+        "process_assets",
+        "basis.domain.measure_drafts",
+        "The row is priced on a measurement Basis drafted (the lidar shell's walls, roof or "
+        "gutters with `MEASURE_DRAFTS_EXTERIOR`, a room's photos with "
+        "`MEASURE_DRAFTS_INTERIOR`) that the engineer has not verified (EVAL_REPORT 110). "
+        "While its exposure (its expected error times its price) is above "
+        "`MEASURE_DRAFT_VERIFY_USD`, the result's `blockers` carry `measure:draft_unverified` "
+        "and no report is rendered or signed.",
+        "`review_reasons` `measure:DRAFT_UNVERIFIED`; `takeoff.inputs.draft` (`verified` "
+        "false, `exposure_usd`, `blocks`); the blocker `measure:draft_unverified` when it holds "
+        "the report.",
+        "Verify or edit this measurement in the measure tool (or enter the measured quantity) "
+        "at the assets review.",
+        "no",
+        signal="measure:DRAFT_UNVERIFIED",
+    ),
+    _e(
+        E.MEASURE_ROOM_NOT_DRAFTED,
+        "outcome",
+        "measure_rooms",
+        "basis.activities.measure_rooms",
+        "A room's photos could not be measured: the provider refused them, or no usable "
+        "answer came back after one retry. The room's rows keep today's formulas (a failed "
+        "call never becomes a number, EVAL_REPORT 78).",
+        "The room's `room_drafts` entry has `status` `refused` or `failed` with this code; "
+        "the assets review is flagged.",
+        "Nothing to do: measure the room's quantities by hand if they matter.",
+        "no",
+    ),
+    _e(
+        E.MEASURE_INTERIOR_FAILED,
+        "outcome",
+        "measure_rooms",
+        "basis.workflow.study_workflow",
+        "The room measurements step failed (a provider error after its retries, an account "
+        "or configuration error, the budget), so no room is drafted and the assets are built "
+        "on today's formulas (patch `measure-drafts-v1`, EVAL_REPORT 110).",
+        "A workflow warning with this code; `needs_review_stages` has `assets_review`.",
+        "Fix the cause; the next reopen of the study measures the rooms again.",
+        "no",
+    ),
+    _e(
+        E.MEASURE_EXTERIOR_NOT_DRAFTED,
+        "outcome",
+        "process_assets",
+        "basis.domain.measure_drafts",
+        "`MEASURE_DRAFTS_EXTERIOR` is on but a shell quantity was not drafted: no gather "
+        "stored a shell (`GEO_SHELL`), the pin is not confirmed or moved since, or the shell "
+        "refused that part (EVAL_REPORT 110). The row keeps today's formula.",
+        "`takeoff.inputs.draft_not_used` names the reason on the roof, siding or gutter row.",
+        "Confirm the pin and gather the public records again with `GEO_SHELL` on, or measure "
+        "the quantity in the measure tool.",
+        "no",
+    ),
+    _e(
+        E.MEASURE_INTERIOR_BUDGET,
+        "error",
+        "measure_rooms",
+        "basis.activities.measure_rooms",
+        "The room measurement calls would exceed the study's remaining budget.",
+        "`BudgetExceededError: room measurements ... ["
+        + E.MEASURE_INTERIOR_BUDGET
+        + "]`; the assets review "
+        "is flagged and the assets are built on today's formulas.",
+        "Raise the budget; the next reopen measures the rooms.",
+        "no",
+        temporal_type="BudgetExceededError",
     ),
 )
 

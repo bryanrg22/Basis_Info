@@ -185,7 +185,13 @@ On the asset page (and the Property page), for any asset with an SF, SY or LF qu
    given the true area, $0.009 a room; multi-view with a door (perimeter 10 %, 9 rooms) is the
    geometry to take further. Nothing shipped; the production M4d step is still to build.*
 6. Wire the winner per quantity into the pipeline behind settings, each as a draft with its
-   expected error, the engineer verifying in the tool of step 2.
+   expected error, the engineer verifying in the tool of step 2. *Pipeline half done (EVAL_REPORT
+   110): `MEASURE_DRAFTS_EXTERIOR` (roof, siding, gutters from M1's shell; siding 32.5 -> 6.4 %
+   through the shipped code) and `MEASURE_DRAFTS_INTERIOR` (M4d, the `measure_rooms` step, patch
+   `measure-drafts-v1`), both off; each draft priced with `measure:DRAFT_UNVERIFIED`, and the
+   report held (`measure:draft_unverified`) while an unverified draft's expected error x price is
+   above `MEASURE_DRAFT_VERIFY_USD` ($250, decision 8.3 (a)); the app's display of the factor,
+   the held drafts and the interior drafts is still to build (FRONTEND_BACKLOG 23).*
 
 ## 8. Decisions for Bryan
 

@@ -15,7 +15,9 @@ started on the old code is still open) with::
 ``components-gate-v1``: a rooms rejection with a flagged photo) are the single rooms review
 and must not be re-recorded while such an execution may be open (``-k record`` would
 re-record them with the current code); ``components_gate`` (v0.12) is the new flow,
-recorded alone with ``-k "record_histories and components_gate"``.
+recorded alone with ``-k "record_histories and components_gate"``; ``measure_drafts``
+(patch ``measure-drafts-v1``, EVAL_REPORT 110) alone with
+``-k "record_histories and measure_drafts"``.
 
 Histories hold synthetic data only (random ids, ``kitchen_1.jpg``-style file names).
 """
@@ -40,7 +42,11 @@ from temporalio.workflow import NondeterminismError
 from basis.db.models import Component, Room
 from basis.db.session import session_scope
 from basis.workflow.contracts import CorrectionInput
-from basis.workflow.study_workflow import COMPONENTS_GATE_PATCH, StudyWorkflow
+from basis.workflow.study_workflow import (
+    COMPONENTS_GATE_PATCH,
+    MEASURE_DRAFTS_PATCH,
+    StudyWorkflow,
+)
 
 pytestmark = [pytest.mark.integration, pytest.mark.asyncio(loop_scope="session")]
 
@@ -152,12 +158,35 @@ async def components_gate_path(harness: Harness) -> Started:
     return started
 
 
+async def measure_drafts_path(harness: Harness) -> Started:
+    """Patch measure-drafts-v1 (EVAL_REPORT 110): the input asks for the room measurements, so
+    ``measure_rooms`` runs before the first ``process_assets`` (the worker's setting is off
+    here: it drafts nothing), then an assets rejection and approvals."""
+    started = await harness.start(measure_drafts_interior=True)
+    handle = started.handle
+    await harness.approve(handle, "appraisal_review")
+    await harness.approve(handle, "rooms_review")
+    status = await harness.wait_for(
+        handle,
+        lambda s: s.awaiting in ("components_review", "assets_review"),
+        "the gate after the rooms review",
+    )
+    if status.awaiting == "components_review":
+        await harness.approve(handle, "components_review", status.revision)
+    await harness.wait_awaiting(handle, "assets_review", status.revision)
+    await harness.decide(handle, harness.decision("assets_review", status.revision, "reject"))
+    await harness.approve(handle, "assets_review", status.revision + 1)
+    await harness.result(handle)
+    return started
+
+
 SCENARIOS: dict[str, Callable[[Harness], Awaitable[Started]]] = {
     "happy_path": happy_path,
     "appraisal_reject": appraisal_reject_path,
     "cancelled": cancelled_path,
     "single_rooms_gate": single_rooms_gate_path,
     "components_gate": components_gate_path,
+    "measure_drafts": measure_drafts_path,
 }
 
 
@@ -215,6 +244,12 @@ async def test_the_recorded_histories_span_both_flows() -> None:
         "localize-background-v1",
     } == set(single)
     assert COMPONENTS_GATE_PATCH in patch_markers(load(HISTORIES / "components_gate.json"))
+    # Patch measure-drafts-v1 is recorded only by an execution whose input asked for it; the
+    # histories recorded before it have no marker and replay without the step.
+    for name in ("happy_path", "appraisal_reject", "cancelled", "single_rooms_gate"):
+        assert MEASURE_DRAFTS_PATCH not in patch_markers(load(HISTORIES / f"{name}.json"))
+    assert MEASURE_DRAFTS_PATCH not in patch_markers(load(HISTORIES / "components_gate.json"))
+    assert MEASURE_DRAFTS_PATCH in patch_markers(load(HISTORIES / "measure_drafts.json"))
 
 
 async def test_replay_detects_an_unguarded_change() -> None:

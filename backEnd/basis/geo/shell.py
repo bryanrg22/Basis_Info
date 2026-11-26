@@ -280,6 +280,10 @@ class Shell:
     overhang_m: float | None = None
     wall_outline_m: tuple[tuple[float, float], ...] = ()
     wall_outline_lonlat: tuple[tuple[float, float], ...] = ()
+    # The roof outline and each edge's ends in lon/lat, for drawing them as a draft
+    # measurement (EVAL_REPORT 110); empty in a shell stored before them.
+    roof_outline_lonlat: tuple[tuple[float, float], ...] = ()
+    edges_lonlat: tuple[tuple[tuple[float, float], tuple[float, float]], ...] = ()
     footprint_m2: float | None = None
     perimeter_m: float | None = None
     long_side_m: float | None = None
@@ -962,11 +966,11 @@ def derive(
             )
 
     perimeter = ring_perimeter(walls) if walls is not None else None
-    lonlat = (
-        tuple(from_mercator(cx + ex / k, cy + ny_ / k) for ex, ny_ in walls)
-        if walls is not None
-        else ()
-    )
+
+    def to_lonlat(point: tuple[float, float]) -> tuple[float, float]:
+        return from_mercator(cx + point[0] / k, cy + point[1] / k)
+
+    lonlat = tuple(to_lonlat(p) for p in walls) if walls is not None else ()
     wall_h = eave_main if eave_main is not None else eave
     first = refusals[0][1] if refusals else None
     return Shell(
@@ -979,6 +983,8 @@ def derive(
         overhang_m=overhang_m,
         wall_outline_m=tuple(walls) if walls is not None else (),
         wall_outline_lonlat=lonlat,
+        roof_outline_lonlat=tuple(to_lonlat(p) for p in roof_ring),
+        edges_lonlat=tuple((to_lonlat(e.start), to_lonlat(e.end)) for e in edges),
         footprint_m2=ring_area(walls) if walls is not None else None,
         perimeter_m=perimeter,
         long_side_m=long_side(walls) if walls is not None else None,
@@ -1145,6 +1151,7 @@ def as_record(s: Shell) -> dict[str, Any]:
         "perimeter_m": s.perimeter_m,
         "long_side_m": s.long_side_m,
         "wall_outline": [[lon, lat] for lon, lat in s.wall_outline_lonlat],
+        "roof_outline": [[lon, lat] for lon, lat in s.roof_outline_lonlat],
         "offset_method": s.offset_method,
         "ground_elevation_m": s.ground_elevation_m,
         "eave_m": s.eave_m,
@@ -1157,8 +1164,18 @@ def as_record(s: Shell) -> dict[str, Any]:
             {"slope_deg": p.slope_deg, "plan_m2": p.plan_m2, "points": p.points} for p in s.planes
         ],
         "edges": [
-            {"kind": e.kind, "facing": e.facing, "length_m": e.length_m, "height_m": e.height_m}
-            for e in s.edges
+            {
+                "kind": e.kind,
+                "facing": e.facing,
+                "length_m": e.length_m,
+                "height_m": e.height_m,
+                **(
+                    {"start": list(s.edges_lonlat[i][0]), "end": list(s.edges_lonlat[i][1])}
+                    if i < len(s.edges_lonlat)
+                    else {}
+                ),
+            }
+            for i, e in enumerate(s.edges)
         ],
         "gutter_m": s.gutter_m,
         "wall_face_m2": s.wall_face_m2,

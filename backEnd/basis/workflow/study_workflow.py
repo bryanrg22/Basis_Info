@@ -132,6 +132,15 @@ Patches in this file:
   ``E.ASSETS_CONVENTION_PROMOTION_FAILED`` and the study goes on to the export: its result
   does not depend on the conventions. Executions recorded before the patch replay without
   it.
+* ``measure-drafts-v1`` (EVAL_REPORT 110; only when the input's ``measure_drafts_interior``
+  is set, from ``MEASURE_DRAFTS_INTERIOR`` when the API started the execution): before the
+  execution's first ``process_assets``, ``measure_rooms`` drafts each measured room's
+  quantities from its photos (one vision call a room), and every ``process_assets`` of the
+  execution receives the drafts (``room_drafts``). A failure of it (the budget, a provider
+  error) is logged with ``E.MEASURE_INTERIOR_FAILED``, flags the assets review, and the
+  assets are built on today's formulas: no draft, no number in its place. With the input
+  unset nothing is scheduled, so executions without it, and every one recorded before the
+  patch, keep their command sequence.
 """
 
 from __future__ import annotations
@@ -179,6 +188,8 @@ with workflow.unsafe.imports_passed_through():
         LocalizePhotoInput,
         LocalizePhotoOutput,
         MarkStalledInput,
+        MeasureRoomsInput,
+        MeasureRoomsOutput,
         NotifyInput,
         ProcessAssetsInput,
         ProcessAssetsOutput,
@@ -191,6 +202,7 @@ with workflow.unsafe.imports_passed_through():
         ResumeInput,
         RetryAck,
         ReviewStage,
+        RoomDraftOut,
         RunEndInput,
         RunStartInput,
         StageName,
@@ -227,6 +239,8 @@ CONVENTIONS_PATCH: Final = "firm-conventions-v1"
 # failure on the study row, so the study reads ``failed`` with the code instead of staying
 # ``processing`` with a closed execution (EVAL_REPORT 62).
 FAILED_END_PATCH: Final = "failed-end-records-failure-v1"
+# Rooms' measurements drafted from their photos before the assets (EVAL_REPORT 110).
+MEASURE_DRAFTS_PATCH: Final = "measure-drafts-v1"
 MAX_FAILURE_CHARS: Final = 1000
 
 _Out = TypeVar("_Out", bound=BaseModel)
@@ -313,6 +327,8 @@ class StudyWorkflow:
         # extract_fields so a revision never pairs its fields with another PDF; None for
         # an ingest recorded before it reported one (the activity then chooses).
         self._report_pdf: ReportPdf | None = None
+        # Patch measure-drafts-v1: the rooms' drafts, once measure_rooms ran in this execution.
+        self._room_drafts: tuple[RoomDraftOut, ...] | None = None
 
     # ------------------------------------------------------------------ handlers
 
@@ -984,6 +1000,12 @@ class StudyWorkflow:
 
     async def _process_assets(self, corrections: tuple[CorrectionInput, ...]) -> None:
         revision = self._revision
+        if (
+            self._input.measure_drafts_interior
+            and self._room_drafts is None
+            and workflow.patched(MEASURE_DRAFTS_PATCH)
+        ):
+            self._room_drafts = await self._measure_rooms(revision)
         output = await self._held(
             "assets_processing",
             lambda suffix: self._assets_once(revision, corrections, suffix),
@@ -1040,6 +1062,7 @@ class StudyWorkflow:
                     idempotency_key=self._key(activity_id),
                     budget_remaining_usd=max(self._budget, 0.0),
                     corrections=corrections,
+                    room_drafts=self._room_drafts or (),
                 ),
                 ProcessAssetsOutput,
                 activity_id,
@@ -1048,6 +1071,38 @@ class StudyWorkflow:
             if not is_budget_exceeded(error):
                 raise
             return None
+
+    async def _measure_rooms(self, revision: int) -> tuple[RoomDraftOut, ...]:
+        """Patch ``measure-drafts-v1``: the rooms' drafts for ``revision``; none when the step
+        fails (logged, the assets review flagged): the assets stand on today's formulas."""
+        activity_id = f"measure_rooms:r{revision}"
+        try:
+            output = await self._activity(
+                "measure_rooms",
+                MeasureRoomsInput(
+                    study_id=self._input.study_id,
+                    revision=revision,
+                    idempotency_key=self._key(activity_id),
+                    budget_remaining_usd=max(self._budget, 0.0),
+                ),
+                MeasureRoomsOutput,
+                activity_id,
+            )
+        except ActivityError as error:
+            if isinstance(error.cause, CancelledError) or self._stopping:
+                raise  # the study is being cancelled
+            workflow.logger.warning(
+                "rooms of revision %s not measured: %s",
+                revision,
+                error.cause or error,
+                extra={"error_code": E.MEASURE_INTERIOR_FAILED},
+            )
+            self._mark_needs_review("assets_review")
+            return ()
+        self._budget -= output.cost_usd
+        if output.not_drafted:
+            self._mark_needs_review("assets_review")
+        return output.drafts
 
     async def _reject(
         self, decision: Decision, back_to: StageName

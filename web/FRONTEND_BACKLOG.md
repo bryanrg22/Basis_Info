@@ -535,7 +535,45 @@ stored, AI_MEASUREMENT_PLAN.md section 2) and to right angles; slope typed onto 
 asset type with a legend; the diagram in the report; phones (measuring needs a larger screen, as
 before); a later assets rejection still does not resend the measurement (section 17).
 
-## 23. Draft it and the facade mode (EVAL_REPORT 111, November 2026)
+## 23. AI-drafted measurements: what the API offers and the app does not use yet (EVAL_REPORT 110)
+
+`docs/api/MEASURE_DRAFTS.md`. Behind `MEASURE_DRAFTS_EXTERIOR` and `MEASURE_DRAFTS_INTERIOR`
+(both off), a drafted row carries `takeoff.inputs.quantity_source: draft`, the record
+`takeoff.inputs.draft` and, for the roof, siding and gutter, `takeoff.inputs.measurement`
+(`drawn_by: model:lidar-shell@v1`, `verified: false`).
+
+**What the app already does with it (section 22, unchanged code):** the exterior drafts are
+model measurements, so the Assets list tags them Draft, the asset page shows the shape read-only
+with its lengths, and Measure opens it dashed as the base; checking Verified and saving sends it
+back `verified: true`, which clears the draft (and its blocker) at the same quantity; an edit is
+sent with the draft as `original`.
+
+**What it lacks:**
+
+1. **The factor.** The tool shows the shape's own quantity (the roof's outline in plan, the walls'
+   gross face); the row is the shape times `draft_factor` (the roof's lidar slope, the siding's
+   15 % openings), and an engineer's edit of a draft keeps the factor. Show "3,412.55 SF in plan x
+   1.2357 slope = 4,216.89 SF" (the record's `factor_reason`) beside the total, so the engineer
+   is not surprised that the row is not the shape's number.
+2. **The blocker.** `GET .../result` `blockers` `measure:draft_unverified` (with `assets`, the
+   count above the threshold) withholds the report; list the held rows (the rows whose
+   `takeoff.inputs.draft.blocks` is true, highest `exposure_usd` first) with a Verify action each.
+3. **Interior drafts have no shape.** A room's floor, wall, trim, countertop and cabinet rows show
+   `draft.quantity` with "Drafted by Basis from N photos of the room · not verified · expected
+   error about X %" and the model's `answer` (length, width, ceiling) and `notes`. Verifying needs
+   a "Use this number" that sends it as a typed quantity (`quantity`, `quantity_unit`,
+   `quantity_source: "verified Basis draft from the room photos"`), or the engineer's own trace on
+   the room's photo (section 22's image mode, the 36 in counter as the scale).
+4. **Who and what it replaced.** `draft.replaces` (today's formula and quantity, or the missing
+   input it supplied) as a "was" line; after verification, `draft.verified` / `replaced_by` with
+   the model's own number kept ("Basis drafted 42 SF; engineer verified").
+5. **Why not drafted.** `takeoff.inputs.draft_not_used` on the roof, siding and gutter rows (the
+   pin is not confirmed, the public records were gathered around an earlier pin, no shell): a
+   hint with the fix (confirm the pin, gather again).
+6. **Exposure.** `draft.exposure_usd` and `verify_above_usd` on the row, so the engineer sees why
+   a draft holds the report and another does not.
+
+## 24. Draft it and the facade mode (EVAL_REPORT 111, November 2026)
 
 Built in `live/property.js` (the tool and the dialog), `live/property-model.js` (the facade
 metrology ported from `basis/geo/facade.py` and checked against the server's numbers,

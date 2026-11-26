@@ -111,6 +111,11 @@ OPTIONS: Final[dict[str, ActivityOptions]] = {
     "reconcile_rooms": ActivityOptions(
         timedelta(minutes=10), PROVIDER_ATTEMPTS, heartbeat=timedelta(seconds=30)
     ),
+    # One vision call per measured room (EVAL_REPORT 110; several concurrently, about 3 s
+    # each in EVAL_REPORT 107), its photos read and prepared first.
+    "measure_rooms": ActivityOptions(
+        timedelta(minutes=10), PROVIDER_ATTEMPTS, heartbeat=timedelta(seconds=30)
+    ),
     "process_assets": ActivityOptions(
         timedelta(minutes=10), PROVIDER_ATTEMPTS, heartbeat=timedelta(seconds=30)
     ),
