@@ -8,14 +8,16 @@ from typing import Literal
 
 from pydantic import Field, model_validator
 
-from basis.api.schemas.common import RequestModel, ResponseModel
+from basis.api.schemas.common import LINE_PATTERN, RequestModel, ResponseModel
 
 
 class PinIn(RequestModel):
     """The whole pin: the address, the point (both or neither) and the engineer's
     confirmation that the point is on the right house."""
 
-    address: str | None = Field(default=None, min_length=1, max_length=300)
+    # One line of visible text: PostgreSQL text refuses NUL, which answered 500 here (found
+    # by the Schemathesis contract test, 2026-11-26); control characters are refused too.
+    address: str | None = Field(default=None, min_length=1, max_length=300, pattern=LINE_PATTERN)
     lat: float | None = Field(default=None, ge=-90, le=90)
     lon: float | None = Field(default=None, ge=-180, le=180)
     confirmed: bool = Field(

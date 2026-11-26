@@ -585,3 +585,53 @@ async def test_interior_drafts_given_with_the_setting_off_are_ignored(
     rows = await rows_by_label(deps, analyzed.study_id, 1)
     assert md.DRAFT not in rows["countertop"][0][1].inputs
     assert "input:cabinet_run" in (rows["countertop"][0][0].review_reason or "")
+
+
+# ------------------------------------------------------- the corrected row first, always
+
+
+@pytest.mark.regression
+async def test_a_typed_roof_on_the_second_row_is_not_counted_twice_with_drafts_off(
+    deps: Deps, analyzed: SeededStudy, activity_env: Env
+) -> None:
+    """EVAL_REPORT 110.6.1, made deterministic: a quantity measured once per property is carried
+    by the first row of its kind, and the rows are ordered by (document, label, id) with ids new
+    on every revision. Correcting the roof row that revision 2 orders SECOND priced today's
+    formula on the first row and the engineer's quantity on the second (2,018 + 2,500 SF in 2 of
+    6 runs). The corrected row now goes first with both draft settings off too: the property's
+    roof is the engineer's 2,500 SF once."""
+    await seed_extraction(deps, analyzed, MEASURED_FIELDS)
+    await add_exterior(deps, analyzed)
+    off = settings_for(deps)
+    await activity_env.run(ProcessAssets(off).run, process(analyzed))
+    await start_revision_two(deps, analyzed, activity_env)
+    async with session_scope(deps.sessionmaker) as session:
+        roofs = list(
+            await session.scalars(
+                select(Component)
+                .where(
+                    Component.study_id == analyzed.study_id,
+                    Component.revision == 2,
+                    Component.label == "roof",
+                )
+                .order_by(Component.document_id, Component.label, Component.id)
+            )
+        )
+        assert len(roofs) == 2
+        second_origin = roofs[1].raw["carried_from"]  # the row today's order processes second
+        target = await session.scalar(
+            select(Asset).where(
+                Asset.study_id == analyzed.study_id,
+                Asset.revision == 1,
+                Asset.component_id == uuid.UUID(str(second_origin)),
+            )
+        )
+    assert target is not None
+    typed = {"quantity": "2500", "quantity_unit": "SF", "quantity_source": "roofer's report"}
+    correction = CorrectionInput(entity_type="asset", entity_id=str(target.id), after=typed)
+    await activity_env.run(
+        ProcessAssets(off).run, process(analyzed, revision=2, corrections=(correction,))
+    )
+    rows = (await rows_by_label(deps, analyzed.study_id, 2))["roof"]
+    quantities = sorted(t.quantity for _, t in rows)
+    assert quantities == [D("0"), D("2500.00")], quantities  # not formula + 2,500

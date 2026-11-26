@@ -737,13 +737,13 @@ async def _write(
         building = _building(structure)
         if building is not None and settings.structure_overhead_allocation == "pro_rata":
             markup = overhead_markup(building.model)
-    if settings.measure_drafts_exterior or settings.measure_drafts_interior:
-        # A quantity measured once per property or room is carried by the first row of its
-        # kind; the components are ordered by id, new on every revision, so the row the
-        # engineer verified or measured could come second and get 0 while the other row priced
-        # the draft again (EVAL_REPORT 110.6). The rows carrying an engineer's quantity go
-        # first (stable: every other row keeps its order). Unchanged with both settings off.
-        components = sorted(components, key=lambda c: not _quantity_override(overrides.get(c.id)))
+    # A quantity measured once per property or room is carried by the first row of its kind;
+    # the components are ordered by (document, label, id) with ids new on every revision, so the
+    # row the engineer verified, measured or typed could come second and the other row price
+    # today's formula (or a draft) beside the engineer's quantity: the roof counted twice
+    # (EVAL_REPORT 110.6.1). The rows carrying an engineer's quantity go first, always (stable:
+    # every other row keeps its order, so a study with no quantity correction is unchanged).
+    components = sorted(components, key=lambda c: not _quantity_override(overrides.get(c.id)))
     for component in components:
         heartbeat(str(component.id))
         room = rooms.get(component.room_id) if component.room_id else None

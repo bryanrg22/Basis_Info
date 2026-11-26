@@ -722,3 +722,25 @@ async def test_the_exclusion_is_carried_into_the_next_revision_and_history_is_ke
     # The decided revision's row cannot be edited from the current one.
     stale = await patch(api, "alice", one(sid, photo, ids["window"]), {"counted": True})
     assert stale.status_code == 404
+
+
+@pytest.mark.regression
+async def test_a_count_again_reason_with_nul_is_422_not_500(
+    api: Api, seed: Seed, sessionmaker: async_sessionmaker[AsyncSession]
+) -> None:
+    """The count-again reason was the one free-text request field without the NUL rule
+    (`NO_NUL_PATTERN`; PostgreSQL text refuses NUL), found beside the pin's address on
+    2026-11-26: it is refused at the schema now."""
+    sid, photo, ids = await seeded_photo(api, seed, sessionmaker)
+    excluded = await patch(
+        api, "alice", one(sid, photo, ids["window"]), {"counted": False, "reason": REASON}
+    )
+    assert excluded.status_code == 200, excluded.text
+    bad = await patch(
+        api, "alice", one(sid, photo, ids["window"]), {"counted": True, "reason": "a\x00b"}
+    )
+    assert bad.status_code == 422, bad.text
+    fine = await patch(
+        api, "alice", one(sid, photo, ids["window"]), {"counted": True, "reason": "a\nb"}
+    )
+    assert fine.status_code == 200, fine.text  # a multi-line reason stays allowed
