@@ -307,6 +307,23 @@
   const ring=[[-8.25,8.35],[4.05,8.5],[4.15,14.9],[-8.1,14.75]].map(([e,n])=>toLonLat(e,n).map(v=>Math.round(v*1e9)/1e9));
   return {unit:'SF',space:'lonlat',shapes:[{kind:'area',ring}],image:{source:SOURCE,captured_on:'2026-06-18',pixel_size_m:CLOSE},drawn_by:'model:sample-drafter@1',verified:false,view:{kind:'capture',label:'aerial-close'}};
  }
+ // The lidar shell's drafts of the roof and the gutters (EVAL_REPORT 110; the bodies
+ // basis.domain.measure_drafts.exterior_drafts writes as takeoff.inputs.measurement, before the
+ // computed keys): the roof outline as flown as one area, times the planes' slope factor (a 6/12
+ // roof, 26.6 degrees: plan x 1.1180), and its three eave edges as lines. The siding is not drafted
+ // in this fixture (the shell refused the walls, BASIS-GEO-020), so its row says why.
+ const SHELL_SOURCE='Sample statewide lidar (synthetic) (2021), public records gather sample-1';
+ const EAVES=[[[-7.2,-5.2],[12.2,-5.2]],[[-7.2,7.2],[5.2,7.2]],[[5.2,2.2],[12.2,2.2]]];
+ function shellDrafts(){
+  const ll=([e,n])=>toLonLat(e,n).map(v=>Math.round(v*1e9)/1e9);
+  const body=(unit,shapes,what)=>({unit,space:'lonlat',shapes,image:{source:`${SHELL_SOURCE}: ${what}`,pixel_size_m:0.5},drawn_by:'model:lidar-shell@v1',verified:false});
+  return {
+   roof:{body:body('SF',[{kind:'area',ring:ROOF_OUTLINE}],"the roof's outline as flown, eaves included"),factor:'1.1180',reason:"the roof planes' slope, 26.6 degrees on average"},
+   gutter:{body:body('LF',EAVES.map(p=>({kind:'line',path:p.map(ll)})),"the roof outline's eave edges"),factor:null,reason:null},
+   siding:{notUsed:'no walls drafted (BASIS-GEO-020)'},
+   source:SHELL_SOURCE,
+  };
+ }
  /* ---------- Draft it (POST .../property/site-drafts, docs/api/MEASURE_DRAFTS.md) ----------
   * The sample's drafter outlines the site item the box holds best (box IoU >= 0.5, as
   * basis.vision.site_items picks SAM 3's instance), a little off as a model would be (2 % larger,
@@ -365,6 +382,6 @@
  }
  const FACADE={camera:FACADE_CAMERA,wall:FACADE_WALL,openings:FACADE_OPENINGS,projection:facadeProjection,svg:facadeSvg,
   truth:{openings_sf:FACADE_OPENINGS.reduce((t,[,,,w,h])=>t+w*h,0)*10.763910416709722,gross_sf:FACADE_WALL.w*FACADE_WALL.h*10.763910416709722}};
- const api={register,truth,HOUSE,aerialSvg,sideSvg,SITE,toLonLat,patioDraft,siteDraft,FACADE,SHELL};
+ const api={register,truth,HOUSE,aerialSvg,sideSvg,SITE,toLonLat,patioDraft,siteDraft,FACADE,SHELL,shellDrafts,variantOf};
  if(typeof module==='object'&&module.exports)module.exports=api;else scope.BasisPropertySample=api;
 })(typeof globalThis==='object'?globalThis:this);

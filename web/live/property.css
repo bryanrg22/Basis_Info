@@ -375,3 +375,34 @@
 .fc-length label,.fc-lens label{display:flex;gap:8px;align-items:center;font-size:13px;font-weight:600}
 .fc-length input,.fc-lens input{width:9em;font:inherit;font-size:14px;padding:6px 8px;border:1px solid #d5dfd8;border-radius:8px}
 .fc-length .mt-known{margin:6px 0}
+/* AI-drafted measurements (EVAL_REPORT 110, live/measure-drafts.js): the asset page's card, the
+ * held rows on Assets and Results, the factor in the measure tool. The Property tokens; amber for
+ * a draft that holds the report, as the Draft tag. */
+.md-card{--pa-ink:#1d3328;--pa-muted:#4f6258;--pa-line:#d5dfd8;--pa-soft:#f4f8f5}
+.md-card.is-held{border-color:#e9c98f;background:#fffdf8}
+.md-card p{margin:4px 0;font-size:13.5px;line-height:1.45}
+.md-card .md-line{color:var(--pa-muted);font-size:13px}
+.md-card .md-done{font-weight:600;color:#2f6b4a}
+.md-card .md-factor,.pa-readout .md-factor{font-variant-numeric:tabular-nums;color:#5d3a00}
+.pa-readout .md-factor{font-size:12.5px;font-weight:600}
+.md-card .md-notes span{font-weight:600;margin-right:4px}
+.md-card .md-was{color:var(--pa-muted)}
+.md-card .md-exposure{font-size:13px}
+.md-card .md-queued{font-weight:600;color:#245d8f}
+.md-card .md-actions{margin-top:8px}
+.md-card .md-answer{grid-template-columns:repeat(auto-fit,minmax(96px,1fr))}
+.nd-tag.md-tag-held,.nd-tag.nd-tag-draft.is-held{background:#fbe6c4;color:#6b3900;box-shadow:inset 0 0 0 1px #e9c98f}
+.md-held{margin-bottom:16px;border-color:#e9c98f;background:#fffdf8}
+.md-held header{display:flex;justify-content:space-between;align-items:baseline;gap:12px}
+#app .md-held h2{margin:0;font-size:17px;color:var(--nd-ink,#1d3328)}
+.md-held>p{margin:6px 0;font-size:13.5px;color:var(--nd-ink,#1d3328)}
+.md-held .pa-muted{color:var(--nd-muted,#4f6258)}
+.md-held-list{list-style:none;margin:10px 0 6px;padding:0;display:grid;gap:8px}
+.md-held-row{display:grid;grid-template-columns:minmax(0,1fr) auto auto;gap:12px;align-items:center;padding:10px 12px;border-radius:10px;background:#fff;border:1px solid #efdcb6}
+.md-held-row a{color:inherit;text-decoration:none}.md-held-row a:hover strong{text-decoration:underline}
+.md-held-q{display:block;font-size:12.5px;color:var(--nd-muted,#4f6258);margin-top:2px}
+.md-held-x{display:grid;text-align:right;font-variant-numeric:tabular-nums}.md-held-x small{font-size:11.5px;color:var(--nd-muted,#4f6258)}
+.md-blockers{margin-bottom:16px}.md-blockers ul{margin:8px 0 0;padding-left:18px;display:grid;gap:6px;font-size:13.5px}
+.md-blockers li span{color:var(--nd-muted,#4f6258)}
+@media (max-width:640px){.md-held-row{grid-template-columns:1fr auto}.md-held-row>:last-child{grid-column:1/-1;justify-self:start}}
+.pa-measure .md-factor{font-weight:600;color:#5d3a00;font-variant-numeric:tabular-nums}
