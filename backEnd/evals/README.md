@@ -513,6 +513,25 @@ runs' ledgers). Free.
   Component `site_drafts`, version `v1`.
 * `python -m evals.site_fence --out <dir>`: the fence probe (a phrase with and without points
   along the lot line), paid, cents.
+`--points <dir>` (EVAL_REPORT 105, version `v2`) adds M1, the building shell from 3DEP lidar
+(`basis.geo.shell.derive`), and its variants (`M1_SETUPS`: the overhang taken off, the
+classification, the wall height, the neck split, the edge growth, the returns rule, the roof's
+slope factor, the USA Structures footprint), plus the paired tables against M0 (the same
+houses, the difference of absolute errors with its 95 % interval, on the houses that stand
+unchanged and on every house drafted) and a per-house table of what each setup read. The
+directory is what `evals.measure_points --geo <dir> [--structures]` writes: each house's lidar
+box read again through `basis.geo.shell.read_points` (the production client and octree walk,
+the return numbers kept) as `points.npz` (the box's points only, never tiles) and the USA
+Structures polygon query as `structures.json`, privately under
+`$BASIS_EVAL_DATA_DIR/measure_truth/geo/`.
+M5, a vision model asked for each quantity (EVAL_REPORT 108): `--m5 <model:prompt,...>
+--captures <captures dir> [--m5-repeats N] [--m5-repeat-houses ids] [--budget-usd D]
+[--m5-estimate] [--m5-replay <run dir>] [--houses ids]`. Models `sol`, `luna`, `opus`,
+`sonnet` at the settings of the production call each copies (`evals.measure_vlm`); prompts
+`plain`, `pixels`, `reference` (`basis/prompts/measure_exterior_*/v1`). **Paid**: every call
+goes through `call_model` into the run's `llm_calls.jsonl` under `--budget-usd` (default $1);
+`--m5-estimate` prints the worst case and calls nothing; `--m5-replay` rescores a recorded run
+for free. Houses without pictures, changed since drawn or not located are listed, not run.
 
 ### `structure_replay` (the structure model over a stored export)
 

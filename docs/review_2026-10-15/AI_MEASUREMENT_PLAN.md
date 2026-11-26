@@ -164,7 +164,10 @@ On the asset page (and the Property page), for any asset with an SF, SY or LF qu
    lengths, verified state, persistence; image space for photos with a known length. Tests
    in `web/tests`, a live walk-through, phone checks.
 3. **M1, the building shell** (free), against M0 and M6 on the HABS houses. If it wins, it
-   drafts the shell quantities behind a setting.
+   drafts the shell quantities behind a setting. *Done (EVAL_REPORT 105, against M0): wall
+   face 32.5 -> 6.4 %, wall height 19.0 -> 2.3 %, perimeter 16.0 -> 5.8 % on six houses; the
+   footprint stays with the GLA (porches); `basis/geo/shell.py` behind `GEO_SHELL`, off; the
+   takeoff wiring is still to do.*
 4. **M2 / M2v, site items**, on HABS site plans and the county shapes; the Google view against
    the public ortho.
 5. **M4 interiors** on ARKitScenes, then **M3 facades** (the novel one), then **M5** as the

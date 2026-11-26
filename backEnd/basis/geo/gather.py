@@ -10,7 +10,8 @@ In order, each source on its own (one failing never stops the others):
 3. **History** (``GEO_HISTORY``): for every year a covering source has, the best source of that
    year, as ``history``; the current view's own year is not fetched twice.
 4. **Lidar** (``GEO_LIDAR``): the summary over the parcel's outline plus 10 m, else 40 m each way
-   from the pin (:mod:`.lidar`).
+   from the pin (:mod:`.lidar`); with ``GEO_SHELL``, the building shell drafted from the same
+   tiles beside it (:mod:`.shell`, EVAL_REPORT 105; stored, never priced).
 5. **The site check** against the appraisal (:mod:`.site_check`), recorded on the timeline.
 
 Each source's outcome (``ok``, ``blank``: the point is outside its coverage, ``none``: nothing
@@ -21,6 +22,7 @@ source) and a ``geo.source_failed`` timeline event, and the worker logs it with 
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import logging
 import time
@@ -31,8 +33,8 @@ from datetime import UTC, datetime
 from typing import Any, Final
 
 from basis.errors.codes import E
-from basis.geo import imagery, lidar, parcels, registry, site_check
-from basis.geo.geometry import geojson_bounds
+from basis.geo import imagery, lidar, parcels, registry, shell, site_check
+from basis.geo.geometry import geojson_bounds, to_mercator
 from basis.geo.http import PoliteClient, SourceError
 from basis.geo.registry import Source
 from basis.geo.store import GatherRow, GeoStore, Incident, ViewRecord
@@ -53,6 +55,7 @@ class GatherConfig:
     lidar: bool = True
     lidar_max_nodes: int = 64
     tolerance_pct: float = 5.0
+    shell: bool = False
 
     @classmethod
     def of(cls, settings: Any) -> GatherConfig:
@@ -63,6 +66,7 @@ class GatherConfig:
             lidar=settings.geo_lidar,
             lidar_max_nodes=settings.geo_lidar_max_nodes,
             tolerance_pct=settings.geo_site_tolerance_pct,
+            shell=settings.geo_shell,
         )
 
 
@@ -398,7 +402,37 @@ class Gatherer:
             out["code"] = E.GEO_LIDAR_FOOTPRINT_UNCERTAIN
         else:
             out["code"] = None
+        if self._config.shell:
+            out["shell"] = await self._shell(row, box)
         return out
+
+    async def _shell(
+        self, row: GatherRow, box: tuple[float, float, float, float]
+    ) -> dict[str, Any]:
+        """``GEO_SHELL``: the building shell drafted from the same lidar (EVAL_REPORT 105), kept
+        beside the summary; nothing prices it. The tiles are read a second time, with their
+        return numbers (the summary's reader drops them)."""
+        self._beat("lidar shell")
+        started = time.monotonic()
+        try:
+            read = await shell.read_points(
+                self._client, row.lon, row.lat, box, max_nodes=self._config.lidar_max_nodes
+            )
+        except SourceError as exc:
+            return {"code": exc.code, "detail": exc.detail}
+        if read is None:
+            return {"code": E.GEO_NO_LIDAR}
+        x0, y0 = to_mercator(box[0], box[1])
+        x1, y1 = to_mercator(box[2], box[3])
+        got = await asyncio.to_thread(shell.derive, read.points, row.lon, row.lat, (x0, y0, x1, y1))
+        record = shell.as_record(got)
+        record.update(
+            project=read.project,
+            nodes=read.nodes,
+            bytes=read.bytes,
+            seconds=round(time.monotonic() - started, 2),
+        )
+        return record
 
     async def _site_check(self, row: GatherRow, found: Sequence[parcels.Parcel]) -> None:
         appraisal = await self._store.appraisal_site_sqft(row.study_id)

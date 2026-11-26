@@ -106,7 +106,7 @@ def test_the_dry_run_leaves_its_record(tmp_path: Path, monkeypatch: pytest.Monke
     assert me.main(["--dry-run", "--out", str(out)]) == 0
     manifest = json.loads((out / "manifest.json").read_text())
     assert manifest["tree"]["component"] == "measure_eval"
-    assert manifest["tree"]["version"] == "v1"
+    assert manifest["tree"]["version"] == "v2"
     results = json.loads((out / "results.json").read_text())
     assert results["summary"]["passed"] == 2 and results["summary"]["failed"] == 0
     body = json.loads((out / "measure_eval.json").read_text())

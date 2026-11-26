@@ -16455,6 +16455,263 @@ name over another shape, the key outside the stage's view. Web suite 578.
 building is not drawn in photo mode (only snapped to); the outline is not checked against a surveyed
 footprint.
 
+## 105. M1: the building shell from 3DEP lidar, no model call (2026-11-25)
+
+**Answer first.** On the six HABS houses that stand unchanged, deriving the shell from the
+federal lidar (`basis/geo/shell.py`) takes the **wall face from 32.5 % to 6.4 % mean absolute
+error** (closer on 6 of 6, the paired difference -26.1 % +- 7.2), **the wall height from 19.0 %
+to 2.3 %** (6 of 6, -16.7 % +- 10.4) and **the wall perimeter from 16.0 % to 5.8 %** (5 of 6,
+-10.3 % +- 16.9: better on average but not separated from M0 at 95 % on six houses); on the two
+houses with a gutter truth the **gutter goes from 49 % low to 6 % low**. It does **not** beat
+M0's footprint (20.8 % against 8.4 %): the lidar sees the roof, and the roof covers the porches
+the drawings leave out (M0 here is fed a perfect GLA, its best case). On the client property the
+ground perimeter moves from 31 % low to 6 % high against the appraisal sketch. 6 of the 8
+houses with lidar have no building class; classifying the roof here (heights above the ground
+class, planarity, single returns) drafts 5 of them and refuses the sixth (a roof under trees).
+Shipped behind `GEO_SHELL` (off): the geo gather stores the draft beside the lidar summary;
+nothing prices it. Cost $0, no model call, 0.08 to 0.73 s of CPU and 2.5 to 7.3 MB of public
+tiles a house.
+
+**Question.** Step 3 of `AI_MEASUREMENT_PLAN.md` section 7: does the building shell from free
+government data (M1) beat today's formulas (M0, EVAL 103: perimeter 14.5 % low on average and
+low on every house, wall face 26 % low, gutter 49 % low) on the quantities it covers, within
+the noise of ten houses, and what does it do where the lidar project never classified
+buildings?
+
+**The standard (research before the build).**
+
+* *Building points from lidar.* LAStools' `lasclassify` README (rapidlasso; read 2026-11-25):
+  points at least `-ground_offset 2` m above an already classified ground that form planar
+  regions (`-planar 0.1`, the standard deviation in a grid cell) are roofs, rugged ones
+  (`-rugged 0.4`) are trees; the same two tests are ArcGIS Pro's *Classify LAS Building*. The
+  number of returns separates them better still: on the two projects here that classify both
+  (Illinois classes 3 to 6, and the client's Wisconsin project for class 6), 77 to 88 % of the
+  class-6 points are single returns against 1 to 2 % of the vegetation points (measured below).
+* *Roof planes.* RANSAC (Fischler and Bolles, 1981) with the normal check of Schnabel, Wahl and
+  Klein, "Efficient RANSAC for point-cloud shape detection" (2007); the pitch from the plane's
+  normal; roof area = plan / cos(pitch) = plan x sqrt(1 + (rise/run)^2) (1.118 at 6/12). The
+  only published accuracy found for low-density lidar pitch is 3.76 degrees mean absolute
+  (Leeds, 2020: about 5 % of a 6/12 roof's area); none for 3DEP specifically
+  (`$BASIS_EVAL_DATA_DIR/work/measure_research/cv_methods.md` 1b). 3DEP QL2 is at least 2
+  pulses a m2 with 10 cm RMSEz (USGS Lidar Base Specification).
+* *The overhang.* Airborne lidar sees the roof's edge, not the wall: an outline taken as the
+  walls overstates the perimeter by about 8 x the overhang (EVAL 103.6). Trade guides put a
+  house's eave overhang at 12 to 24 in (GAF; engineering guides; the IRC caps an unsupported
+  eave at 24 in); no survey of real houses was found. The prior is the middle, **18 in**,
+  chosen before measuring; 12 and 24 in and the drawing's own overhang were then measured.
+* *Footprints from other public layers.* **USA Structures** (ORNL and FEMA; one polygon layer
+  for the country, queried per point through its ArcGIS service; licence stated as CC BY 4.0 on
+  the hosted view and US government work on data.gov, attribution to ORNL and FEMA either way;
+  footprints over 450 SF from imagery, regularised): one request a house. **Microsoft's
+  building footprints** (CDLA-Permissive-2.0) are distributed only as country files split by
+  level-9 quadkey with no point query: not cheap for one house, not measured. **County parcel
+  layers** with a building area exist only in MD and NC among the registry's layers, and those
+  two houses are the changed one and the one not located: not testable here.
+
+**Setup.** `basis.geo.shell.derive`, deterministic (RANSAC seed 105), on the points the
+production code reads: `evals.measure_points` read each house's lidar box (the box its EVAL 103
+gather used) again through `shell.read_points` (the production `PoliteClient`, the project
+index and octree walk of `basis.geo.lidar`, one request at a time, 1 s apart; 16 to 35
+requests and 15.7 to 34.5 s a house) and kept only the box's points with their return numbers
+(10 MB in all, under `$BASIS_EVAL_DATA_DIR/measure_truth/geo/`; no tile is kept). M1's exact
+settings: class 6 when the project finds the building under the pin, else the own
+classification (height above a 1 m ground surface at least 2 m, single returns only, a plane
+through the 10 nearest neighbours within 0.10 m and 2 m reach, slope at most 65 degrees); the
+0.5 m grid, closing and hole filling of `basis.geo.lidar.measure`; parts joined only by a neck
+under about 2 m cut off (`NECK_M` 1.0 m); the own classification's roof edge grown back by 1 m
+on the roof's own planes (`GROW_M`); the roof outline simplified at 0.71 m (EVAL 104.2); the
+walls = that outline moved 18 in inward (mitred; a 5 cm raster where the mitre folds); planes
+by RANSAC (0.15 m, 20 degrees, at least 12 points, 300 tries, up to 24 planes); an outline edge
+an eave where the roof within 1.5 m inside slopes down toward it (45 degrees), its height where
+its planes meet the edge; the wall height = the **main eave** (the eave heights grouped into
+levels 1.5 m apart, the highest level holding a quarter of the eave length, its median by
+length); a roof with first-of-many returns 0.5 m above it over a quarter of its cells refused.
+M0 is EVAL 103's (fed the plan's GLA, so exact on equal floors). Scored by `python -m
+evals.measure_eval --points ... --geo ...` (component `measure_eval`, version `v2`).
+
+How to read the tables: *n* the houses where both M1 (or the variant) and M0 have the quantity;
+*signed / abs* each one's mean signed (bias) and mean absolute error on exactly those houses;
+*SD* and *worst* the setup's; *diff* the setup's absolute error minus M0's per house, its mean
+and the half-width of its 95 % interval (Student's t, n - 1 degrees of freedom; negative = the
+setup is closer; an interval wider than the mean means not separated); *closer* the houses
+where the setup was closer.
+
+### 105.1 M1 against today's formulas
+
+Houses standing unchanged (EVAL 103.4: il0491, mo1222, mo1223, mo1224, mo1857, va1914):
+
+| Setup | Quantity | n | M0 signed / abs % | M1 signed / abs % | M1 SD % | M1 worst % | Diff mean % (95 % +-) | Closer |
+|---|---|---|---|---|---|---|---|---|
+| M1 | wall perimeter | 6 | -16.0 / 16.0 | +3.3 / 5.8 | 9.1 | 20.8 (mo1222) | -10.3 (16.9) | 5 of 6 |
+| M1 | wall height (eave above grade) | 6 | -19.0 / 19.0 | -1.9 / 2.3 | 2.4 | 6.0 | -16.7 (10.4) | 6 of 6 |
+| M1 | wall face before openings | 6 | -32.5 / 32.5 | +1.3 / 6.4 | 9.5 | 19.2 | -26.1 (7.2) | 6 of 6 |
+| M1 | ground-floor footprint | 6 | -8.4 / 8.4 | +16.4 / 20.8 | 16.0 | 31.6 | +12.4 (17.7) | 2 of 6 |
+| M1 | long side | 6 | -13.6 / 13.6 | +13.7 / 13.7 | 10.7 | 31.6 | 0.0 (19.0) | 3 of 6 |
+| M1 | roof outline in plan | 2 | -20.7 / 20.7 | +3.2 / 7.9 | 11.1 | 11.0 | -12.8 (163) | 1 of 2 |
+| M1 | roof surface | 2 | -18.8 / 18.8 | +5.1 / 10.4 | 14.7 | 15.5 | -8.4 (256) | 1 of 2 |
+| M1 | gutter length | 2 | -49.1 / 49.1 | -6.2 / 6.2 | 0.7 | 6.7 | -42.9 (29.7) | 2 of 2 |
+
+Every house M1 drafted (the six and ga0157, whose standing is unknown and whose roof covers two
+porches): perimeter 14.4 -> 8.8 % (5 of 7, -5.7 +- 17.6), wall height 17.6 -> 3.4 % (6 of 7,
+-14.2 +- 10.4), wall face 29.8 -> 11.1 % (6 of 7, -18.7 +- 19.1), footprint 7.2 -> 23.9 % (2 of
+7). Ridge height (no M0): -4.8 to +3.6 % on the seven.
+
+Per house, M1's signed error % (M0's in brackets):
+
+| House | Classified by | Perimeter | Wall height | Wall face | Footprint | Why the footprint is high |
+|---|---|---|---|---|---|---|
+| il0491 | class 6 | +4.1 (-5.5) | -2.6 (-20.9) | +1.4 (-25.2) | +19.7 (-0.1) | a rear enclosure and steps under the roof's notch |
+| mo1222 | own | +20.8 (-2.0) | -1.3 (-33.8) | +19.2 (-35.1) | +27.6 (0.0) | the front porch (9 x 26 ft) under the main hip |
+| mo1223 | own | +0.9 (-19.7) | -6.0 (-11.2) | -5.2 (-28.8) | +20.4 (0.0) | the front porch under the front gable |
+| mo1224 | own | -4.9 (-25.4) | -1.4 (-16.1) | -6.2 (-37.4) | -13.2 (-23.3) | |
+| mo1857 | own | +1.5 (-22.3) | +1.2 (-9.1) | +2.7 (-29.3) | +31.6 (-6.8) | the west porch and two screened porches |
+| va1914 | own | -2.4 (-21.3) | -1.4 (-23.0) | -3.7 (-39.5) | +12.2 (-20.1) | the porch of the west wing |
+| ga0157 (standing unknown) | class 6 | +26.7 (-4.8) | +9.9 (-8.9) | +39.2 (-13.2) | +42.6 (0.0) | a screened and an open porch under the main hip |
+| la0726 | refused `BASIS-GEO-022` | | | | | trees over 31 % of the roof (the house is under canopy on every ortho, EVAL 103.4) |
+| md1464, nc0490 | no lidar (EVAL 103.4) | | | | | |
+
+The roof truths (il0491, mo1222; both hips): roof outline +11.0 / -4.7 %, roof surface +15.5 /
+-5.3 %, gutter -5.7 / -6.7 %. The fitted pitch on mo1222 is 31.0 degrees against the 31.9 its
+roof truth implies; on il0491 25 degrees (main planes) against 14.8, but that truth's slope runs
+from the gutter to a flat deck at the top and is under the true pitch (EVAL 103.1), so it is
+not a pitch check.
+
+What it says:
+
+* **The wall face and the wall height are where M1 wins outright.** M0's 9 ft a storey misses
+  the floor's height above grade and the wall above the ceiling; the lidar measures the eave.
+  The *main eave* matters: the lidar summary's own eave (the roof's 5th percentile) reads the
+  lowest roof, a porch or a one-storey wing, and on the three two-storey houses with low wings
+  it is 38 to 53 % low (the variant below).
+* **The perimeter is right where the walls are the roof less the overhang** (il0491, mo1223,
+  mo1224, mo1857, va1914: -4.9 to +4.1 %) **and high where a porch sits under the main roof**
+  (mo1222 +20.8 %, ga0157 +26.7 %): lidar cannot tell a porch roof from a room's. M0's error is
+  structural (low on every house); M1's is a porch, and the sign is always high.
+* **The footprint is not M1's to draft.** Porches put it 12 to 43 % high on six of seven; M0 with the
+  appraisal's GLA is better whenever the GLA is right. The shell keeps the footprint as a
+  check, never as the quantity.
+
+### 105.2 The variants, on the six unchanged houses
+
+| Setup | Perimeter abs % (diff +- 95 %) | Footprint abs % | Wall face abs % (diff +- 95 %) | Wall height abs % |
+|---|---|---|---|---|
+| M1 (18 in off, main eave, own classification where no class 6, necks cut, edges grown) | 5.8 (-10.3 +- 16.9) | 20.8 | 6.4 (-26.1 +- 7.2) | 2.3 |
+| Roof outline taken as the walls (nothing off) | 9.8 (-6.2 +- 19.9) | 36.7 | 7.7 (-24.8 +- 12.6) | 2.3 |
+| 12 in off (M0's overhang) | 6.7 (-9.3 +- 18.1) | 25.3 | 6.6 (-25.9 +- 8.9) | 2.3 |
+| 24 in off | 5.5 (-10.5 +- 15.2) | 16.3 | 6.4 (-26.1 +- 6.0) | 2.3 |
+| Diagnostic: the drawing's own overhang off (reads the truth) | 4.3 (-11.7 +- 13.8) | 15.2 | 5.6 (-26.9 +- 7.1) | 2.3 |
+| Own classification on every house (class 6 ignored) | 5.7 | 20.8 | 6.5 | 2.2 |
+| Wall height = the roof's 5th percentile (the lidar summary's eave) | 5.8 | 20.8 | 28.4 (-4.1 +- 22.3) | 24.9 |
+| No neck split | 15.8 (-0.3 +- 26.7) | 41.4 | 23.5 | 6.6 |
+| No edge growth | 7.4 (-8.6 +- 11.4) | 15.6 | 6.6 | 2.3 |
+| Every return may be roof, no growth (3 of 6 drafted: 2 refused under trees, 1 merged to the area's edge) | 12.4 on 3 | 42.4 on 3 | 10.3 on 3 | 2.5 on 4 |
+| Roof surface = lidar plan x 1.118 (M0's 6/12) instead of the planes | roof surface 14.8 % on 2 (planes 10.4) | | | |
+| USA Structures footprint less 18 in, lidar heights (5 houses: no polygon holds mo1223's point) | 16.7 (+1.4 +- 22.4) | 36.9 | 17.0 | 2.3 |
+
+* **The overhang prior hardly matters against the porches.** 12, 18 and 24 in, and the
+  drawing's own overhang, are all within each other's noise (perimeter 4.3 to 6.7 %); taking
+  nothing off is worse (9.8 %, high on every house). 24 in reads slightly better here and on
+  the client; the default stays at the 18 in chosen before measuring (six houses cannot pick
+  between them, and tuning to them would be fitting the truth).
+* **The overhang cannot be measured from this lidar.** Under the eaves (0 to 1 m inside the roof
+  outline, 1 m above the ground to 0.5 m under the eave) the four one-level roofs have 3 to 29
+  returns each (1 to 22 % of the band's roof returns; on il0491, mo1222 and mo1223 95 to 100 %
+  of them second returns of pulses split at the eave, on ga0157 its porch roofs); on the three
+  mixed houses that band is the lower roofs, not walls. At 3 to 14 points a m2
+  the walls are not seen; the overhang stays a prior until a photo or the elevations give it.
+* **The neck split is needed**: without it va1914's roof merges with the neighbour's 1 m away
+  (both closed into one by the 0.5 m grid's closing): perimeter +62 %, footprint +136 %.
+* **Single returns are what makes the own classification work**: with every return allowed,
+  trees join the roof on 3 of the 6 houses (two refused as under trees, one merged across the
+  lot to the area's edge). Growing the roof's edge back on its planes (the edge pulses come back
+  twice: eave and ground) recovers what the returns rule takes off the outline: without it the
+  perimeter reads 2.4 % short on average, with it 3.3 % long (the porches).
+* **The plane fit beats the fixed factor on the two roofs** (10.4 against 14.8 % mean absolute;
+  two houses, not a finding).
+* **USA Structures is worse than the lidar outline here**: its polygons are regularised to 4 to
+  8 corners, merge va1914 with its neighbour (5,165 SF) and miss mo1223's point; its imagery is
+  2008 to 2024.
+
+**The own classification against class 6**, on the three projects that have class 6 (both read
+the same points; IoU of the two roof outlines on a 0.1 m raster): Illinois (9 points a m2) IoU
+0.949, plan -3.3 %, roof perimeter -0.5 %; Georgia (3 points a m2) IoU 0.844, plan -12.8 %,
+perimeter +13.6 % (the outline is ragged at 3 points a m2); the client's Wisconsin project
+(3.4 points a m2) IoU 0.977, plan -1.7 %, perimeter +2.6 %. *Single returns* among class-6
+points: 77 % (IL) and 88 % (GA); among IL's vegetation (classes 3 to 5) 1 %; among GA's unclassified points
+(class 1: its trees and the rest), 2 %. *Planarity* (10 neighbours within 0.10 m): 96 % of IL's class-6 points, 16 %
+of its vegetation.
+
+### 105.3 The client property (private figures in `$BASIS_EVAL_DATA_DIR/reports/M1_CLIENT_2026-11-25.md`)
+
+Against the appraisal sketch (ground floor and attached garage, EVAL 96 and 100): the ground
+perimeter moves from **31.3 % low (M0) to 6.3 % high (M1)**; 4.9 % high with 24 in off, 10.7 %
+high with nothing off; the footprint from 5.3 % low to 10.9 % high (the sketch's porch and deck
+are outside the walls, under or beside the roof). Class 6 drafts it; the own classification
+agrees (IoU 0.977, perimeter 9.2 % high). No wall-height truth (the sketch prints none). The
+client's lidar box was read again through `shell.read_points` (18 requests, 4.1 MB, 17 s); its
+points are kept with the private work files.
+
+### 105.4 What ships
+
+* `basis/geo/shell.py`: `derive` (pure, deterministic) and `read_points` (the production
+  reader with the return numbers kept); `as_record` the stored form.
+* **`GEO_SHELL` (default off).** When on, the geo gather drafts the shell from the same lidar
+  box and stores it beside the summary (`lidar.shell`): never priced, not yet in the API (the
+  public route's typed `LidarOut` ignores it), read by nothing. It reads the tiles a second time
+  (the summary's reader drops the return numbers): about as many requests again as the summary
+  (16 to 35 a house here). The takeoff wiring is the next step and should take only the
+  perimeter, the main eave, the wall face, the gutter and the roof, each as a draft for the
+  engineer, never the footprint.
+* Codes `BASIS-GEO-018` (no building under the pin), `019` (no ground class), `020` (walls do not
+  survive the overhang), `021` (no roof plane), `022` (trees over the roof); `017` reused for a
+  building at the edge of the area read (no walls drafted).
+* Tests (LEDGER): `test_shell.py` 30 (synthetic gable, hip and flat roofs of known shell, the own
+  classification with a tree, the returns rule and edge growth, necks, eave levels, every
+  refusal, the offsets, the class-6 roof equal to the lidar summary's cells, eave and peak;
+  mutation-checked), `test_measure_m1.py` 7, `test_geo_shell_settings.py` 5, one more gather
+  test. `basis/geo/lidar.py` is unchanged; its tests pass as before.
+
+**Verdict.** M1 beats M0 on the wall face and the wall height beyond the noise of six houses,
+and on the gutter on the two houses that have its truth; on the perimeter it is better on 5 of
+6 houses and on average (16.0 -> 5.8 %) but the interval still includes no difference, because
+a porch under the main roof puts M1 20 % high where M0 happened to be close. On the client it
+fixes the 31 % perimeter error. It is shipped behind `GEO_SHELL`, off, as a draft; the footprint
+stays with the appraisal's GLA.
+
+**Deviations from the brief.** The overhang is a prior, not estimated (no wall returns, above);
+Microsoft's footprints were not fetched (bulk files only); the parcel layers' building areas
+could not be tested on these houses. `GEO_SHELL` stores the draft in the gather rather than
+being an unused flag.
+
+**Surprises, re-run before recording.** The lidar summary's eave reads porch roofs (the 38 to
+53 % low wall heights on mo1224, mo1857, va1914 were re-read edge by edge: their eave edges
+sit at two levels, 3 m apart). va1914's first own outline covered two houses: confirmed on
+Google's straight-down view (EVAL 103's capture: the neighbour's roof about 1 m east of "201").
+Every number above is the run recorded below; a second run gave the same figures (deterministic).
+
+**Verified, and not.** Verified: the six-house tables and per-house values are the recorded
+run's; the own classification against class 6 on three projects; the synthetic shells in the
+unit tests; the client's perimeter against its sketch. *Not verified:* the perimeter's win is
+not significant at 95 % on six houses (the paired difference's SD here, 16 %, needs about 12
+houses to separate a 10-point difference at 95 %, more if the porch houses are common); roof area
+and gutter rest on two hip roofs, so the eave/rake classification is tested on real gables only
+qualitatively (the client's gables read as rakes) and on synthetic ones in the tests; wall face
+truth is EVAL 103's derived one (perimeter x main eave), which overstates houses with low wings,
+so M1's per-edge eave heights are not scored; pitch has no firm truth; porches are not
+separated; houses under trees are refused, not measured; nothing was run on a live study.
+
+**Run record.** `$BASIS_EVAL_DATA_DIR/verification/measure_eval/v2/measure_eval_m1_2026-11-25`
+(code at 1ce5a79, this section's text not yet committed; 23 cases passed, $0; `python -m
+evals.registry --component measure_eval` lists it; a run before that commit gave all 628
+scores identical); the cached
+points and USA Structures answers under `measure_truth/geo/<id>/`; the client's in
+`work/measure_m1/`.
+
+**Open.** A porch finder (a lower roof plane along one wall, from the lidar levels or the
+photos); the overhang from the photos or the elevations; 15 to 20 more houses (the paired spread
+sizes it); the takeoff wiring behind `GEO_SHELL`; the shell in the API and the measure tool's
+diagram (the walls as a dashed shape under the roof outline); one read of the tiles for both
+the summary and the shell.
 ## 106. AI-drafted site items: SAM 3 from an engineer's box, a vision model's proposals, and the fence (2026-11-25)
 
 **Answer first.** On 35 Fairfax County lots with the county's own outlines of 90 driveways, patios,
@@ -16946,3 +17203,364 @@ overlays and registrations under `$BASIS_EVAL_DATA_DIR/site_truth/`; captures un
 **Open.** A second county (Peoria IL's driveways and sidewalks with the 15 cm IL ortho); the
 engineer's edit time per draft; a stronger vision model for M2v; Google's pixel size on more parcels
 and leaf-off dates; wiring the drafts into the assets review behind the setting (plan step 6).
+
+## 108. M5, a vision model asked for each exterior quantity: the floor every measuring method must beat (2026-11-25)
+
+**Answer first.** Asked directly, with the Google straight-down view (a scale bar drawn on it),
+the four obliques, the street picture and the appraisal's GLA and storeys, **gpt-6.1-sol at
+the production photo settings reads the ground-floor perimeter 3.3 % off on average (worst 5 %)
+on the five standing houses, against today's formulas' 14.8 %, and the gross wall face 12.7 %
+against 33.2 %**, for $0.012 a house and about 18 s. That is far better than the research led us
+to expect (AI_MEASUREMENT_PLAN 1.2: chat models "cannot measure"), probably because the scale bar
+and the straight-down view turn it into reading a scaled map, not guessing a length from a photo
+(suspected: no run without the scale bar was made). Heights stay weak (eave 9 to 11 % on sol, 12 to 18 % on the others, every
+non-sol model low). Telling the model to count pixels or giving it reference objects did not
+help: the plain ask is as good as either on every model. On the narrower job, sol and Claude
+judge the outline, the roof's eaves and "today's rectangle understates this perimeter by more
+than 10 %" right on 5 or 6 of 6 houses, both repeats. Five houses are few: only the wall face's
+gain over M0 clears a 5 % significance line on its own (t -8.9); the perimeter's is borderline
+(t -2.6, 4 of 5 houses). Nothing in production changed. Spent **$3.30** from the ledger (148
+calls), under the $6 cap; HABS houses only, no client data.
+
+**Question.** AI_MEASUREMENT_PLAN section 5, M5: how well does a vision model, asked for each
+exterior quantity straight from the property's pictures, do against the HABS truth and against
+M0, per quantity, per model and prompt, at what cost, tokens and latency, and how much does a
+second call differ from the first? And is it useful for the narrower job: picking what to
+measure and flagging that a formula number is implausible?
+
+**The standard.**
+
+* *Chat models on metric estimates* (`measure_research/cv_methods.md` 6): VSI-Bench room size
+  about 50 of 100 mean relative accuracy for GPT-5 and Gemini-2.5-pro; Q-Spatial, GPT-4o within a
+  factor of two only 61 to 72 % of the time. Both ask for lengths from ordinary photos with no
+  scale in view.
+* *SpatialPrompt-style reference prompting* (the same notes): give the model objects of known
+  size (a door 80 in tall, a storey about 9 to 10 ft) and ask it to measure against them;
+  reported gains are on photos without a scale.
+* *Structured output*: one JSON schema per prompt, the providers' native structured output
+  (OpenAI strict JSON schema, Claude `output_config.format`), refused answers retried once
+  (the production photo runner's rule).
+* *Scoring*: EVAL_REPORT 103.2's harness (signed and absolute % error per quantity per house,
+  bias, worst), the paired comparison against M0 on the same houses, repeated calls for the
+  noise (DEVELOPING.md 4.4).
+
+### 108.1 Setup
+
+**The houses.** M5 needs pictures of today's building. Of the ten: **run on six** (il0491,
+mo1222, mo1223, mo1224, va1914, standing unchanged; la0726, standing unknown, under canopy);
+not run: ga0157 (the house sits 17 m from the wide view's edge, cut off; the harness refuses a
+house closer than 20 m to every straight-down view's edge), md1464 (changed since drawn,
+103.4), nc0490 (the building never located, 103.4), mo1857 (no pictures, 103.5). The headline
+tables use the **five standing houses**; the six-house tables are in the run file (la0726 adds
+a 46 to 77 % ridge error on every model: the house is under trees).
+
+**The pictures** (`evals.measure_vlm.load_pictures`): the straight-down view (`aerial-close`,
+0.0841 m a pixel) cropped to 768 x 768 px at its native pixels around the house (neither
+provider rescales it: Claude under 1.15 MP, OpenAI's high detail at 768 px), a small red cross
+on the house's located centre (the truth file's point, as a confirmed pin gives) and a 30 ft
+scale bar drawn on it; the four obliques and the street picture as `basis.vision.prep` prepares
+any photo (1024 px JPEG); the GLA (whole SF) and storeys, as M0 gets them. The message says where
+the house is from the capture's point when they differ (mo1223 is in mo1222's views, 17 m west;
+il0491's pin is 13 m north). No name, address or place in any prompt; but Google draws its own
+labels into the view: the crop over mo1224 carries "Noland House" beside the cross, and those
+over la0726 and va1914 carry house numbers (108.11).
+
+**The prompts** (`basis/prompts/measure_exterior_*/v1`, released with their sha256): the same
+definitions in all three (each quantity defined as the truth is: the ground floor's wall outline
+without porches, the main eave above grade, the roof outline seen from above with its porches,
+the eave length) and five judgments; then *plain ask*: "estimate each quantity"; *pixel size,
+count pixels*: the ground size of a pixel in the message, the roof's corners asked as pixel
+coordinates and lengths computed from them, the overhang taken off; *objects of known size*:
+door 80 in x 36 in, storey 9 to 10 ft, floor 1 to 3 ft above grade, window, step, car, siding
+course, brick course as rulers.
+
+How to read this table: one row per setup family; every setup is one model at the exact
+settings of the production call named, times each of the three prompts. *Temperature*: not
+sent (these reasoning models refuse it). *Answer budget*: the request's `max_tokens`; Claude's
+wire budget adds the 4,096-token thinking headroom (`basis.llm.cost.output_ceiling`).
+
+| Model (exact id) | Effort | Answer budget | Temperature | Production call it copies | Prompts |
+|---|---|---|---|---|---|
+| gpt-6.1-sol | low | 6000 | not sent | per-photo vision (`VISION_MODEL`, `VISION_REASONING_EFFORT`) | plain v1 (3fe313c50061), pixels v1 (e17af2075359), reference v1 (b3c9387e6967) |
+| gpt-6-luna | low | 6000 | not sent | per-photo surfaces (`VISION_SURFACES_MODEL`) | the same three |
+| claude-opus-5-5 | medium | 1200 (+4096) | not sent | count fusion (`VISION_FUSION_MODEL`, `VISION_FUSION_REASONING_EFFORT`) | the same three |
+| claude-sonnet-5-5 | low | 1200 (+4096) | not sent | surface crops (`SURFACE_CROP_MODEL`, `SURFACE_CROP_REASONING_EFFORT`) | the same three |
+
+Every call went through `basis.llm.call.call_model` (the production path) with the run's ledger
+(`llm_calls.jsonl`: model, prompt version and sha256, tokens, cost, latency), the OpenAI and
+Anthropic providers only (Azure left out: its deployment is gpt-4o-mini, and a `gpt-*` call that
+fell back there would be scored as the model it named; every row reports the model it asked
+for). Each setup ran twice on each of the six houses: 12 setups x 6 houses x 2 = 144 calls,
+none unusable, none retried. Gemini is not configured in `backEnd/.env` and was not run.
+
+### 108.2 The plan: footprint, perimeter, long side
+
+How to read this table: the five standing houses, the first call of each setup. Each cell is
+*mean absolute % error / mean signed % error* (negative: reads low). M0 is today's formulas on
+the same houses (103.3). Footprint: for the three one-storey houses GLA is the footprint, so a
+model that echoes the GLA scores 0 there.
+
+| Setup | Footprint | Perimeter | Long side |
+|---|---|---|---|
+| Today's formulas (M0) | 8.7 / -8.7 | 14.8 / -14.8 | 13.3 / -13.3 |
+| gpt-6.1-sol, plain ask | 5.1 / +1.3 | **3.3 / -0.1** | 3.7 / -3.0 |
+| gpt-6.1-sol, pixel size, count pixels | 8.4 / +3.3 | 4.3 / -0.5 | 3.6 / -2.8 |
+| gpt-6.1-sol, objects of known size | 7.8 / -0.7 | 3.8 / -3.5 | 10.2 / -5.9 |
+| gpt-6-luna, plain ask | 8.3 / -8.3 | 11.2 / -11.2 | 15.3 / -9.7 |
+| gpt-6-luna, pixel size, count pixels | 8.3 / -7.3 | 11.1 / -10.7 | 15.3 / -13.9 |
+| gpt-6-luna, objects of known size | 9.0 / -9.0 | 10.9 / -10.9 | 19.2 / -9.8 |
+| claude-opus-5-5, plain ask | 11.8 / +6.5 | 8.6 / -0.2 | 7.6 / -0.1 |
+| claude-opus-5-5, pixel size, count pixels | 20.0 / +11.8 | 9.7 / +2.9 | 13.6 / +3.6 |
+| claude-opus-5-5, objects of known size | 8.0 / +2.6 | 9.3 / -2.6 | 11.0 / -3.8 |
+| claude-sonnet-5-5, plain ask | 2.8 / -0.5 | 8.9 / -8.9 | 8.6 / -3.6 |
+| claude-sonnet-5-5, pixel size, count pixels | 5.8 / -4.8 | 10.2 / -9.8 | 9.9 / -4.9 |
+| claude-sonnet-5-5, objects of known size | 5.2 / -1.4 | 9.5 / -9.3 | 10.8 / -5.8 |
+
+sol plain per house (perimeter, first and second call against the truth): il0491 +1.6 / -5.3,
+mo1222 +1.2 / +3.3, mo1223 -3.4 / -5.7, mo1224 -4.9 / -8.4, va1914 +5.2 / +6.5; M0 -5.5, -2.0,
+-19.7, -25.4, -21.3. The model wins where M0 is worst (the L, the wings, the long plan) and
+ties where M0 is already close (the plain boxes). luna mostly echoes GLA / storeys and reads the
+perimeter low like M0.
+
+### 108.3 Heights and the wall face
+
+How to read this table: as 108.2. *Wall face*: the model's perimeter x its eave height, the
+truth's own definition (no openings, no gables); the model was not asked for it. M0 has no
+ridge.
+
+| Setup | Eave above grade | Ridge above grade | Wall face |
+|---|---|---|---|
+| Today's formulas (M0) | 21.0 / -21.0 | | 33.2 / -33.2 |
+| gpt-6.1-sol, plain ask | 11.4 / -0.8 | 11.5 / +8.6 | **12.7 / -0.9** |
+| gpt-6.1-sol, pixel size, count pixels | 9.3 / -1.9 | 7.2 / +4.6 | 10.5 / -2.3 |
+| gpt-6.1-sol, objects of known size | 8.8 / -1.1 | 10.3 / +4.1 | 11.6 / -4.3 |
+| gpt-6-luna, plain ask | 15.9 / -15.9 | 7.3 / -3.6 | 25.8 / -25.8 |
+| gpt-6-luna, pixel size, count pixels | 18.4 / -18.4 | 12.3 / -5.5 | 27.9 / -27.9 |
+| gpt-6-luna, objects of known size | 16.4 / -16.4 | 9.1 / -1.9 | 26.2 / -26.2 |
+| claude-opus-5-5, plain ask | 14.4 / -14.4 | 8.7 / +0.3 | 17.4 / -14.4 |
+| claude-opus-5-5, pixel size, count pixels | 13.0 / -13.0 | 11.9 / +0.3 | 13.6 / -11.0 |
+| claude-opus-5-5, objects of known size | 11.6 / -11.6 | 10.8 / +3.1 | 14.3 / -14.3 |
+| claude-sonnet-5-5, plain ask | 14.0 / -14.0 | 10.1 / +5.0 | 22.2 / -22.2 |
+| claude-sonnet-5-5, pixel size, count pixels | 14.0 / -14.0 | 12.0 / +4.3 | 23.1 / -23.1 |
+| claude-sonnet-5-5, objects of known size | 13.2 / -13.2 | 12.8 / +5.2 | 21.7 / -21.7 |
+
+Every model but sol puts the eave low on every house (it reads storeys x 9 to 10 ft and misses
+the floor's height above grade and the wall above the ceiling, M0's own error, 103.3); sol is
+unbiased but swings -19 to +18 % from house to house. The reference prompt, which names the
+floor's 1 to 3 ft above grade, moved the Claude eaves by only 1 to 3 points.
+
+### 108.4 The roof and the gutter (two houses)
+
+How to read this table: il0491 and mo1222, the only houses with roof truths (103.1); first
+call; as 108.2. Two houses say direction, not size.
+
+| Setup | Roof plan | Roof surface | Gutter |
+|---|---|---|---|
+| Today's formulas (M0) | 20.7 / -20.7 | 18.8 / -18.8 | 49.1 / -49.1 |
+| gpt-6.1-sol, plain ask | 3.9 / +3.9 | 8.8 / +8.8 | 3.3 / +3.3 |
+| gpt-6.1-sol, pixel size, count pixels | 4.2 / +4.2 | 3.4 / +3.4 | 4.8 / -0.4 |
+| gpt-6.1-sol, objects of known size | 5.7 / +5.7 | 5.8 / +5.8 | 5.9 / -1.5 |
+| gpt-6-luna, plain ask | 11.0 / -10.5 | 20.0 / -3.3 | 33.3 / -33.3 |
+| gpt-6-luna, pixel size, count pixels | 10.2 / +10.2 | 10.8 / +10.8 | 35.2 / -35.2 |
+| gpt-6-luna, objects of known size | 4.9 / +0.4 | 5.4 / +3.9 | 24.8 / -22.6 |
+| claude-opus-5-5, plain ask | 5.4 / +3.4 | 4.6 / +4.6 | 1.1 / +1.1 |
+| claude-opus-5-5, pixel size, count pixels | 10.0 / +10.0 | 9.7 / +9.7 | 5.7 / +5.7 |
+| claude-opus-5-5, objects of known size | 6.7 / +3.2 | 3.8 / +3.8 | 1.9 / +1.9 |
+| claude-sonnet-5-5, plain ask | 6.6 / -6.1 | 14.5 / -2.7 | 14.9 / -14.9 |
+| claude-sonnet-5-5, pixel size, count pixels | 11.0 / -10.5 | 21.3 / -4.6 | 12.3 / -12.3 |
+| claude-sonnet-5-5, objects of known size | 13.7 / -13.7 | 8.8 / -8.8 | 20.2 / -20.2 |
+
+Both houses are hip roofs: sol and Opus put a gutter on every eave (M0 puts it on two).
+
+### 108.5 Paired against M0 (both calls pooled)
+
+How to read this table: the five standing houses; for each house the setup's absolute error
+(the mean of its two calls) minus M0's; the cell is the mean over houses (negative: better than
+M0), *t* the mean over its standard error (4 degrees of freedom: |t| above 2.78 is the two-sided
+5 % line), and the houses where the setup was closer. Footprint and the two-house roof columns
+are in the run file.
+
+| Setup | Perimeter | Long side | Eave | Wall face |
+|---|---|---|---|---|
+| gpt-6.1-sol, plain ask | -10.2 (t -2.6, 4/5) | -8.1 (t -1.7, 4/5) | -11.3 (t -2.2, 4/5) | **-22.0 (t -8.9, 5/5)** |
+| gpt-6.1-sol, pixel size, count pixels | -8.5 (t -2.3, 4/5) | -7.5 (t -2.3, 5/5) | -11.1 (t -2.0, 4/5) | -21.2 (t -6.4, 5/5) |
+| gpt-6.1-sol, objects of known size | -10.1 (t -2.5, 5/5) | -3.9 (t -1.2, 3/5) | -12.6 (t -2.2, 4/5) | -21.4 (t -5.0, 5/5) |
+| gpt-6-luna, plain ask | -3.9 (t -1.6, 5/5) | -0.5 (t -0.5, 3/5) | -5.2 (t -2.6, 5/5) | -8.0 (t -2.3, 5/5) |
+| gpt-6-luna, pixel size, count pixels | -3.5 (t -2.2, 4/5) | +0.7 (t 0.5, 2/5) | -1.8 (t -1.1, 2/5) | -4.4 (t -1.8, 4/5) |
+| gpt-6-luna, objects of known size | -4.3 (t -1.7, 4/5) | +2.3 (t 1.1, 3/5) | -5.4 (t -3.0, 5/5) | -8.0 (t -2.7, 4/5) |
+| claude-opus-5-5, plain ask | -7.1 (t -2.8, 4/5) | -3.3 (t -0.7, 3/5) | -7.1 (t -2.4, 4/5) | -16.2 (t -3.3, 5/5) |
+| claude-opus-5-5, pixel size, count pixels | -3.2 (t -0.6, 4/5) | -0.2 (t -0.0, 3/5) | -8.8 (t -4.8, 5/5) | -19.6 (t -6.5, 5/5) |
+| claude-opus-5-5, objects of known size | -6.8 (t -1.8, 4/5) | -3.5 (t -0.7, 3/5) | -9.5 (t -5.8, 5/5) | -19.1 (t -4.4, 5/5) |
+| claude-sonnet-5-5, plain ask | -6.5 (t -2.3, 5/5) | -4.8 (t -1.1, 4/5) | -7.4 (t -3.9, 5/5) | -12.0 (t -3.9, 5/5) |
+| claude-sonnet-5-5, pixel size, count pixels | -7.0 (t -2.5, 4/5) | -3.5 (t -1.0, 4/5) | -7.8 (t -4.9, 5/5) | -13.1 (t -3.9, 5/5) |
+| claude-sonnet-5-5, objects of known size | -6.0 (t -1.9, 4/5) | -2.3 (t -0.5, 3/5) | -7.4 (t -5.7, 5/5) | -11.7 (t -3.7, 5/5) |
+
+Every setup beats M0 on the wall face on all five houses; the margin is what differs.
+
+### 108.6 Where the error is: the model's corners measured by code
+
+The pixel prompt's answer lists the roof edge's corners in pixels; `corner_quantities`
+measures them in code (roof plan by the shoelace, the walls by taking the model's overhang off,
+`A - P d + 4 d^2`, `P - 8 d`). How to read this table: first call, five standing houses, as
+108.2; *the model's own number* is the same answer's stated quantity.
+
+| Model | Roof plan, corners by code | Footprint, by code / model's own | Perimeter, by code / model's own | Long side, by code / model's own |
+|---|---|---|---|---|
+| gpt-6.1-sol | 4.2 / +4.1 | 19.7 / 8.4 | 6.6 / 4.3 | 9.9 / 3.6 |
+| gpt-6-luna | 10.5 / +10.5 | 21.9 / 8.3 | 18.0 / 11.1 | 15.6 / 15.3 |
+| claude-opus-5-5 | 5.2 / +5.2 | 27.2 / 20.0 | 11.3 / 9.7 | 16.3 / 13.6 |
+| claude-sonnet-5-5 | 3.8 / +3.8 | 43.2 / 4.8 | 19.6 / 10.2 | 16.5 / 9.9 |
+
+The corners place the roof's edge within 4 to 5 % of the area on three models (two houses; the
+roof plan reads 4 % large, the same direction as 103.6's pixel check). The walls from those
+corners are worse than the model's own wall numbers: the roof covers porches (mo1222's roof plan
+is 60 % over its walls, 103.6) that the simple inset keeps in, and the models' stated numbers
+take the porch and the GLA into account. Counting pixels is not where the model loses; turning a
+roof into walls is.
+
+### 108.7 The narrower job: judgments
+
+How to read this table: six houses; *right / asked* over the first calls (and over both). The
+truths: the outline is a rectangle when it has four edges (yes on 1 of 6); eaves on every side
+when the truth file says `all` (2 of 6); today's 1.5:1 rectangle reads the perimeter more than
+10 % low (4 of 6: la0726, mo1223, mo1224, va1914); the ground floor is more than 5 % over GLA /
+storeys (2 of 6: mo1224, va1914). A constant guess of the commoner answer scores 5, 4, 4 and 4
+of 6.
+
+| Setup | Outline is a rectangle | Eaves all round | Rectangle understates perimeter | Footprint over GLA / storeys |
+|---|---|---|---|---|
+| gpt-6.1-sol, plain ask | 6/6 (11/12) | 5/6 (10/12) | **6/6 (12/12)** | 5/6 (10/12) |
+| gpt-6.1-sol, pixel size, count pixels | 6/6 (12/12) | 4/6 (9/12) | 6/6 (11/12) | 2/6 (5/12) |
+| gpt-6.1-sol, objects of known size | 5/6 (10/12) | 5/6 (11/12) | 6/6 (12/12) | 4/6 (8/12) |
+| gpt-6-luna, plain ask | 4/6 (8/12) | 2/6 (6/12) | 4/6 (8/12) | 4/6 (9/12) |
+| gpt-6-luna, pixel size, count pixels | 4/6 (9/12) | 3/6 (6/12) | 3/6 (6/12) | 4/6 (8/12) |
+| gpt-6-luna, objects of known size | 5/6 (10/12) | 3/6 (6/12) | 4/6 (9/12) | 4/6 (9/12) |
+| claude-opus-5-5, plain ask | 6/6 (12/12) | 5/6 (10/12) | 6/6 (11/12) | 4/6 (9/12) |
+| claude-opus-5-5, pixel size, count pixels | 6/6 (12/12) | 5/6 (10/12) | 5/6 (9/12) | 2/6 (5/12) |
+| claude-opus-5-5, objects of known size | 6/6 (12/12) | 5/6 (10/12) | 4/6 (9/12) | 5/6 (9/12) |
+| claude-sonnet-5-5, plain ask | 6/6 (12/12) | 6/6 (12/12) | 5/6 (10/12) | 5/6 (9/12) |
+| claude-sonnet-5-5, pixel size, count pixels | 6/6 (12/12) | 5/6 (10/12) | 5/6 (10/12) | 5/6 (10/12) |
+| claude-sonnet-5-5, objects of known size | 6/6 (12/12) | 5/6 (10/12) | 6/6 (11/12) | 6/6 (11/12) |
+
+The shape and the "the rectangle is wrong here" flag are what the models do best: sol plain
+named the four houses whose M0 perimeter is 11 to 25 % low, and not the two where it is 2 to 6 %
+low, on all twelve calls. The pixel prompt hurt the footprint judgment on sol and Opus (2/6): their
+pixel-measured footprints exceeded the GLA on the one-storey houses (sol: mo1222 1,305 and 1,430
+SF against 1,216; mo1223 1,340 and 1,380 against 1,170), and the judgment followed the number.
+
+### 108.8 Run to run
+
+How to read this table: the six houses, each setup called twice; *mean (largest)* of |second -
+first| in % of the truth; *judgments*: of the 24 (6 houses x 4), how many the two calls agree
+on.
+
+| Setup | Footprint | Perimeter | Eave | Wall face | Judgments agree |
+|---|---|---|---|---|---|
+| gpt-6.1-sol, plain ask | 2.5 (6.8) | 3.3 (6.9) | 4.3 (9.3) | 6.5 (12.9) | 21/24 |
+| gpt-6.1-sol, pixel size, count pixels | 6.4 (11.6) | 4.4 (7.2) | 2.1 (8.8) | 4.9 (10.7) | 21/24 |
+| gpt-6.1-sol, objects of known size | 1.7 (3.0) | 1.4 (7.2) | 0.8 (4.7) | 1.7 (7.0) | 23/24 |
+| gpt-6-luna, plain ask | 0.4 (2.2) | 1.8 (3.5) | 5.8 (9.9) | 5.0 (7.8) | 21/24 |
+| gpt-6-luna, pixel size, count pixels | 2.0 (4.3) | 1.9 (2.9) | 4.4 (12.8) | 4.1 (10.7) | 19/24 |
+| gpt-6-luna, objects of known size | 1.3 (4.3) | 1.8 (3.5) | 4.1 (8.8) | 5.5 (11.0) | 20/24 |
+| claude-opus-5-5, plain ask | 6.7 (25.9) | 4.5 (9.0) | 2.3 (9.3) | 6.4 (13.6) | 22/24 |
+| claude-opus-5-5, pixel size, count pixels | 6.7 (18.8) | 7.5 (22.4) | 1.3 (4.3) | 8.3 (25.5) | 22/24 |
+| claude-opus-5-5, objects of known size | 3.2 (6.6) | 4.0 (6.9) | 2.1 (4.7) | 2.7 (6.6) | 22/24 |
+| claude-sonnet-5-5, plain ask | 1.4 (8.5) | 2.3 (6.9) | 2.2 (8.6) | 4.1 (12.1) | 23/24 |
+| claude-sonnet-5-5, pixel size, count pixels | 0.6 (3.4) | 5.7 (21.8) | 1.4 (8.6) | 6.8 (21.5) | 24/24 |
+| claude-sonnet-5-5, objects of known size | 1.9 (11.3) | 2.1 (4.5) | 0.7 (4.3) | 1.3 (3.4) | 20/24 |
+
+A second call moves sol plain's perimeter by 3.3 % on average, about its whole error against the
+truth: the difference between setups below about 3 to 4 points is inside the noise of one call.
+
+### 108.9 Cost, tokens, latency
+
+How to read this table: per house-call over the 12 calls of each setup (6 houses x 2), from the
+ledger; *reasoning*: the part of the output OpenAI reports as reasoning (Anthropic reports
+thinking inside the output and not apart, so 0 there); seconds: the whole call, mean (max), four
+calls at a time.
+
+| Setup | $ / house | Input tokens | Output tokens | Reasoning | Seconds |
+|---|---|---|---|---|---|
+| gpt-6.1-sol, plain ask | 0.0121 | 5,729 | 593 | 368 | 18.5 (27.0) |
+| gpt-6.1-sol, pixel size, count pixels | 0.0157 | 6,106 | 906 | 545 | 23.5 (36.9) |
+| gpt-6.1-sol, objects of known size | 0.0128 | 5,974 | 631 | 411 | 17.8 (26.0) |
+| gpt-6-luna, plain ask | 0.0007 | 5,729 | 652 | 457 | 7.4 (9.8) |
+| gpt-6-luna, pixel size, count pixels | 0.0008 | 6,106 | 874 | 565 | 9.1 (10.8) |
+| gpt-6-luna, objects of known size | 0.0008 | 5,974 | 717 | 504 | 7.6 (9.7) |
+| claude-opus-5-5, plain ask | 0.0504 | 7,768 | 967 | 0 | 11.9 (15.3) |
+| claude-opus-5-5, pixel size, count pixels | 0.0610 | 8,433 | 1,364 | 0 | 15.2 (20.9) |
+| claude-opus-5-5, objects of known size | 0.0544 | 8,103 | 1,099 | 0 | 13.1 (17.4) |
+| claude-sonnet-5-5, plain ask | 0.0183 | 7,768 | 279 | 0 | 4.1 (7.8) |
+| claude-sonnet-5-5, pixel size, count pixels | 0.0208 | 8,433 | 394 | 0 | 5.0 (7.2) |
+| claude-sonnet-5-5, objects of known size | 0.0191 | 8,103 | 286 | 0 | 3.8 (4.5) |
+
+Six pictures cost about 5,000 input tokens on OpenAI and 7,000 on Claude. **Dollars: $3.2038
+for the 144-call run and $0.0969 for a 4-call smoke run before it (one house, the pixel prompt
+on each model), $3.30 in all**, every call in a ledger; the pre-run worst-case estimate was
+$10.38 (every call spending its whole output budget), the cap $4.50 for the run.
+
+### 108.10 Verdict
+
+* **The floor is higher than expected.** A vision model handed the scaled straight-down view and
+  the obliques is not the chat model of VSI-Bench and Q-Spatial: gpt-6.1-sol reads the plan
+  lengths within about 3 to 5 % and the wall face within about 12 %, at a cent a house. M1 to M4
+  must beat **perimeter about 3 to 5 %, long side 4 to 5 %, eave about 10 %, wall face 11 to
+  13 %, roof plan about 4 %** (sol, five houses), not today's formulas, to be worth building.
+* **Per quantity, the cheapest within the noise of the best**: gpt-6.1-sol, plain ask, for every
+  plan and wall quantity (Opus is 4x the price and worse on the plan; Sonnet and luna read the
+  perimeter 9 to 11 % low; the pixel and reference prompts are within one call's noise of plain,
+  never clearly better). luna, the cheapest, is not within the noise: it echoes GLA / storeys.
+* **Heights are where a model is weakest** (sol's eave swings -19 to +18 % by house; the others
+  are 12 to 18 % low on every house). Lidar's eave (103.4: 4 to 7 % on the two houses it found)
+  is the obvious better source: M1.
+* **The narrower job works**: outline shape and the "today's rectangle understates this
+  perimeter" flag were right on every house on both sol plain calls; an engineer-facing check
+  ("this house is not a rectangle: the formula perimeter is likely 10 % or more low") is
+  supported by these six houses, not more.
+* **No production change.** The plan (section 7, step 6) wires the winner per quantity after M1
+  to M4 are measured on the same houses; five houses do not size a default (only the wall
+  face's gain clears the 5 % line on its own), and a production M5 would need the capture in the
+  study, a new activity and its workflow patch. Recorded as the candidate to beat.
+
+### 108.11 Verified, and not
+
+**Verified.** Every number above is the recorded run's (`measure_eval.md` of
+`measure_m5_2026-11-25`, and its free rescore `measure_m5_rescore_2026-11-25` for 108.5, which
+made no call); 144 + 4 ledger rows, every one `ok`, answered by the model it named; every
+answer parsed on the first attempt; the houses not run and why are listed by the harness; the
+six crops the models saw were looked at (the cross on the right building, the scale bar); the
+unit tests
+(25, scripted model) cover parsing, the schema's refusals, missing pictures, the crop, the
+corners, the judgments' truths and the cost accounting; mutating the overhang inset or the
+per-house ledger filter fails them.
+
+**Not verified, or suspected only.**
+
+* Five houses (six with la0726): a 3-point difference between setups is inside one call's
+  noise; the significance figures are paired t on 4 degrees of freedom.
+* Whether a model recognizes these public landmarks: no name, address or place was in any
+  prompt, but Google's own labels are in the pictures ("Noland House" next to the cross on
+  mo1224; house numbers on la0726 and va1914; ga0157, whose view says "Jimmy Carter Boyhood
+  Farm", was not run). mo1224's answers are not suspiciously exact (sol plain perimeter -4.9 and
+  -8.4 %), but recall cannot be ruled out; a production capture would carry the same labels.
+* The footprint on one-storey houses is the GLA the message gives; the footprint column tests
+  two-storey houses only in effect.
+* Heights rest on 103's truth tiers (3 printed, 3 derived, 4 scaled) and one eave for the whole
+  building; the roof and gutter on two hip roofs.
+* Google's straight-down view: the scale bar uses the recorded pixel size, which 103.6 suspects
+  is 2.7 % fine at the ground (a roof edge reads about right); not separated here.
+* Gemini not run (not configured). The run's code was the working tree before this commit (the
+  manifest says dirty); the committed M5 code differs only in the 108.5 table and two guards
+  for a setup with no house to run.
+
+**Run record.** `$BASIS_EVAL_DATA_DIR/verification/measure_eval/v1/measure_m5_2026-11-25`
+(manifest, `llm_calls.jsonl` with 144 rows and their payloads, 187 cases passed, $3.20), the
+smoke run `measure_m5_smoke_2026-11-25` ($0.10), the rescore `measure_m5_rescore_2026-11-25`
+($0); `python -m evals.registry --component measure_eval` lists them. Command:
+`python -m evals.measure_eval --out <dir> --m5 "*" --captures
+$BASIS_EVAL_DATA_DIR/measure_truth/captures --m5-repeats 2 --budget-usd 4.5`.
+
+**Open.** M1 against this floor on the same houses (heights first); a sol "flag" mode (outline
+shape and the understatement flag only, cheaper output) if the engineer's screen wants it; more
+standing houses with pictures (ga0157 needs a capture centred on the house, mo1857 a point
+search); the plain prompt on Gemini if it is configured.
