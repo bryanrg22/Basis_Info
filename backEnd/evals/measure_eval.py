@@ -30,6 +30,13 @@ against the truth. Not a method (M1 will be): the raw numbers, as read.
 straight-down view and the public ortho (:mod:`evals.measure_pixels`), the implied metres per
 pixel against the view's recorded ``pixel_size_m``.
 
+**M5, a vision model asked** (``--m5 SETUPS --captures DIR``, EVAL_REPORT 108): each setup is a
+model at a production call's settings times a prompt (:mod:`evals.measure_vlm`); the calls run
+once, concurrently, through the production call path into the run's ledger under
+``--budget-usd``, and each setup and repeat is then one more :class:`Method`. ``--m5-estimate``
+prints the worst-case dollars and calls nothing. M5 adds its own tables (``render_m5``): error
+matrices against M0 on the same houses, the judgments, run-to-run differences, cost per house.
+
 Deterministic for M0, no model call, $0. ``--dry-run`` scores a synthetic house only (CI and the
 unit test). The run files under ``verification/measure_eval/v1/``.
 
@@ -43,6 +50,7 @@ Usage (from ``backEnd/``)::
 from __future__ import annotations
 
 import argparse
+import asyncio
 import json
 import math
 import statistics
@@ -55,7 +63,9 @@ from pathlib import Path
 from typing import Any, Final
 
 from basis.domain import measurements as ms
-from evals import measure_pixels, record
+from basis.llm import prompts
+from basis.llm.errors import ProviderError
+from evals import measure_pixels, measure_vlm, record
 from evals import measure_truth as mt
 
 COMPONENT: Final = "measure_eval"
@@ -229,6 +239,397 @@ def summarize(scores: Sequence[Score]) -> list[dict[str, Any]]:
     return rows
 
 
+# ------------------------------------------------------------------ M5: a vision model asked
+
+
+def _m5_result(outcome: measure_vlm.Outcome | None, corners: bool = False) -> MethodResult:
+    if outcome is None:
+        return MethodResult({}, notes={"skipped": "not run"})
+    if outcome.skipped is not None:
+        return MethodResult({}, notes={"skipped": outcome.skipped})
+    if corners:
+        # The same answer measured by code: no second call, so no second cost.
+        return MethodResult(dict(outcome.corner_quantities), notes={"from": outcome.setup})
+    return MethodResult(
+        dict(outcome.quantities),
+        cost_usd=outcome.cost_usd,
+        input_tokens=outcome.input_tokens,
+        output_tokens=outcome.output_tokens,
+        seconds=outcome.seconds,
+        notes={
+            "calls": str(outcome.calls),
+            "models": ",".join(outcome.models),
+            "errors": " | ".join(outcome.errors),
+        },
+    )
+
+
+def m5_method_id(setup: measure_vlm.Setup, repeat: int, corners: bool = False) -> str:
+    base = setup.id + (".corners" if corners else "")
+    return base if repeat == 1 else f"{base}#{repeat}"
+
+
+def m5_methods(
+    setups: Sequence[measure_vlm.Setup], outcomes: Sequence[measure_vlm.Outcome]
+) -> list[Method]:
+    """One :class:`Method` per setup and repeat (and the pixel prompt's corners measured by
+    code), each reading its precomputed outcomes: the calls run once, concurrently, before
+    the harness scores."""
+    by_key = {(o.setup, o.house, o.repeat): o for o in outcomes}
+    repeats = sorted({o.repeat for o in outcomes}) or [1]
+    methods = []
+    for setup in setups:
+        for repeat in repeats:
+            if not any(
+                o.setup == setup.id and o.repeat == repeat and o.skipped is None for o in outcomes
+            ):
+                continue  # ran on no house: nothing to score
+            variants = [False, True] if setup.prompt == "pixels" else [False]
+            for corners in variants:
+
+                def run(
+                    house: mt.House,
+                    _s: str = setup.id,
+                    _r: int = repeat,
+                    _c: bool = corners,
+                ) -> MethodResult:
+                    return _m5_result(by_key.get((_s, house.id, _r)), _c)
+
+                name = setup.name + (", corners measured by code" if corners else "")
+                methods.append(
+                    Method(
+                        id=m5_method_id(setup, repeat, corners),
+                        setup=name if repeat == 1 else f"{name}, repeat {repeat}",
+                        settings=setup.settings() | {"repeat": repeat, "corners_by_code": corners},
+                        run=run,
+                        paid=not corners,
+                    )
+                )
+    return methods
+
+
+def m5_jobs(
+    houses: Sequence[mt.House],
+    setups: Sequence[measure_vlm.Setup],
+    captures: Path,
+    *,
+    repeats: int,
+    repeat_houses: set[str] | None,
+) -> tuple[
+    list[tuple[measure_vlm.Setup, mt.House, measure_vlm.Pictures, int]], list[measure_vlm.Outcome]
+]:
+    """The calls to make, and the outcomes of the houses M5 does not run on (with why)."""
+    jobs = []
+    skipped = []
+    for house in houses:
+        reason = measure_vlm.skip_reason(house, captures)
+        pictures = None
+        if reason is None:
+            try:
+                pictures = measure_vlm.load_pictures(house, captures)
+            except LookupError as exc:
+                reason = str(exc)
+        for setup in setups:
+            for repeat in range(1, repeats + 1):
+                if repeat > 1 and repeat_houses is not None and house.id not in repeat_houses:
+                    continue
+                if pictures is None:
+                    skipped.append(measure_vlm.Outcome(setup.id, house.id, repeat, skipped=reason))
+                else:
+                    jobs.append((setup, house, pictures, repeat))
+    return jobs, skipped
+
+
+def _cell(rows: Sequence[Mapping[str, Any]], method: str, quantity: str, key: str) -> str:
+    hit = [r for r in rows if r["method"] == method and r["quantity"] == quantity]
+    return _g(hit[0][key]) if hit else ""
+
+
+def render_m5(
+    houses: Sequence[mt.House],
+    methods: Sequence[Method],
+    scores: Sequence[Score],
+    outcomes: Sequence[measure_vlm.Outcome],
+    setups: Sequence[measure_vlm.Setup],
+) -> str:
+    """M5's tables: the setups, error matrices against M0 on the same houses, the judgments,
+    run-to-run differences and the cost per house."""
+    ran = [o for o in outcomes if o.skipped is None]
+    run_houses = sorted({o.house for o in ran})
+    by_id = {h.id: h for h in houses}
+    lines = ["", "## M5: a vision model asked for each quantity", ""]
+    lines += ["| House | Run | Why not |", "|---|---|---|"]
+    for h in houses:
+        why = next((o.skipped for o in outcomes if o.house == h.id and o.skipped), "")
+        lines.append(f"| {h.id} | {'yes' if h.id in run_houses else 'no'} | {why or ''} |")
+    lines += ["", "### Setups", ""]
+    lines += [
+        "| Id | Model | Effort | Answer budget | Prompt (sha256) | Production call it copies |",
+        "|---|---|---|---|---|---|",
+    ]
+    for s in setups:
+        st = s.settings()
+        lines.append(
+            f"| {s.id} | {s.model.model} | {s.model.effort} | {s.model.max_tokens} | "
+            f"{st['prompt']} ({st['prompt_sha256'][:12]}) | {s.model.production_call} |"
+        )
+    quantities = [q for q in QUANTITIES if q != "gla_sf" and any(s.quantity == q for s in scores)]
+    first = [m for m in methods if "#" not in m.id]
+    subsets = {
+        "standing unchanged": [h for h in run_houses if by_id[h].standing.status == "unchanged"],
+        "every house M5 ran on": run_houses,
+    }
+    for title, subset in subsets.items():
+        chosen = [s for s in scores if s.house in subset]
+        rows = summarize(chosen)
+        for key, what in (("mean_abs_pct", "mean absolute"), ("mean_signed_pct", "mean signed")):
+            lines += [
+                "",
+                f"### {what.capitalize()} % error, {title} ({len(subset)} houses: "
+                f"{', '.join(subset)})",
+                "",
+                "Rows: setups (repeat 1); columns: quantities; each cell over the houses that have "
+                "a truth for the quantity and an answer from the setup. M0 on the same houses.",
+                "",
+                "| Setup | " + " | ".join(quantities) + " |",
+                "|---|" + "---|" * len(quantities),
+            ]
+            for m in first:
+                cells = [_cell(rows, m.id, q, key) for q in quantities]
+                if any(cells):
+                    lines.append(f"| {m.setup} | " + " | ".join(cells) + " |")
+    # Paired against M0 on the standing houses, every repeat pooled per house.
+    standing = subsets["standing unchanged"]
+    signed = {(sc.method, sc.house, sc.quantity): sc.signed_pct for sc in scores}
+    lines += [
+        "",
+        f"### Paired against M0, standing unchanged ({len(standing)} houses), repeats pooled",
+        "",
+        "Cells: the mean over houses of (the setup's absolute % error, averaged over its "
+        "repeats on the house) minus M0's absolute % error on the same house: negative is "
+        "better than M0; *t*: that mean over its standard error (houses - 1 degrees of "
+        "freedom; 2.78 is the two-sided 5 % line at 4); *wins*: houses where the setup was "
+        "closer than M0.",
+        "",
+        "| Setup | " + " | ".join(quantities) + " |",
+        "|---|" + "---|" * len(quantities),
+    ]
+    for m in first:
+        if m.id == "M0" or not m.id.startswith("M5"):
+            continue
+        reps = [x.id for x in methods if x.id == m.id or x.id.startswith(m.id + "#")]
+        cells = []
+        for q in quantities:
+            diffs = []
+            for hid in standing:
+                base = signed.get(("M0", hid, q))
+                own = [abs(signed[(r, hid, q)]) for r in reps if (r, hid, q) in signed]
+                if base is None or not own:
+                    continue
+                diffs.append(statistics.fmean(own) - abs(base))
+            if len(diffs) < 2:
+                cells.append("")
+                continue
+            sd = statistics.stdev(diffs)
+            mean = statistics.fmean(diffs)
+            t_stat = mean / (sd / math.sqrt(len(diffs))) if sd > 0 else math.nan
+            cells.append(
+                f"{mean:+.1f} (t {_g(t_stat)}, {sum(1 for d in diffs if d < 0)}/{len(diffs)})"
+            )
+        if any(cells):
+            lines.append(f"| {m.setup} | " + " | ".join(cells) + " |")
+    # Judgments, repeat 1 and every repeat.
+    lines += [
+        "",
+        "### Judgments (the narrower job), every house M5 ran on",
+        "",
+        "Cells: right / asked, over repeat 1 (and over every repeat). *Truth*: the outline is a "
+        "rectangle when it has four edges; eaves all round when the truth file's eaves are "
+        "'all'; the rectangle understates the perimeter when M0's perimeter is more than 10 % "
+        "low; the footprint exceeds GLA / storeys by more than 5 %.",
+        "",
+        "| Setup | " + " | ".join(measure_vlm.JUDGMENTS) + " | Truth yes / houses |",
+        "|---|" + "---|" * (len(measure_vlm.JUDGMENTS) + 1),
+    ]
+    truths = {
+        hid: measure_vlm.judgment_truths(by_id[hid], run_m0(by_id[hid]).quantities["perimeter_ft"])
+        for hid in run_houses
+    }
+    yes = {}
+    for j in measure_vlm.JUDGMENTS:
+        known = [t[j] for t in truths.values() if j in t]
+        yes[j] = f"{sum(1 for v in known if v)}/{len(known)}"
+    for s in setups:
+        cells = []
+        for j in measure_vlm.JUDGMENTS:
+            parts = []
+            for only_first in (True, False):
+                asked = right = 0
+                for o in ran:
+                    if o.setup != s.id or (only_first and o.repeat != 1):
+                        continue
+                    if j not in o.judgments or j not in truths.get(o.house, {}):
+                        continue
+                    asked += 1
+                    right += o.judgments[j] == truths[o.house][j]
+                parts.append(f"{right}/{asked}")
+            cells.append(f"{parts[0]} ({parts[1]})")
+        lines.append(f"| {s.name} | " + " | ".join(cells) + f" | {', '.join(yes.values())} |")
+    lines += ["", "Judgment truths per house:", ""]
+    lines += ["| House | " + " | ".join(measure_vlm.JUDGMENTS) + " |"]
+    lines += ["|---|" + "---|" * len(measure_vlm.JUDGMENTS)]
+    for hid, t in truths.items():
+        lines.append(
+            f"| {hid} | " + " | ".join(str(t.get(j, "")) for j in measure_vlm.JUDGMENTS) + " |"
+        )
+    # Run to run.
+    lines += [
+        "",
+        "### Run to run (the same setup, the same house, called again)",
+        "",
+        "Cells: mean (and largest) |repeat 2 - repeat 1| in % of the truth, over the houses "
+        "called twice; *judgments*: the share of judgments the two calls agree on.",
+        "",
+        "| Setup | Houses | " + " | ".join(quantities) + " | Judgments agree |",
+        "|---|---|" + "---|" * (len(quantities) + 1),
+    ]
+    for s in setups:
+        pairs = [
+            (a, b)
+            for a in ran
+            for b in ran
+            if a.setup == b.setup == s.id and a.house == b.house and a.repeat == 1 and b.repeat == 2
+        ]
+        if not pairs:
+            continue
+        cells = []
+        for q in quantities:
+            diffs = []
+            for a, b in pairs:
+                truth_q = mt.truths(by_id[a.house]).get(q)
+                if truth_q is None or q not in a.quantities or q not in b.quantities:
+                    continue
+                diffs.append(abs(b.quantities[q] - a.quantities[q]) / truth_q.value * 100)
+            cells.append(f"{statistics.fmean(diffs):.1f} ({max(diffs):.1f})" if diffs else "")
+        same = sum(
+            a.judgments.get(j) == b.judgments.get(j)
+            for a, b in pairs
+            for j in measure_vlm.JUDGMENTS
+            if j in a.judgments
+        )
+        total = sum(1 for a, _ in pairs for j in measure_vlm.JUDGMENTS if j in a.judgments)
+        lines.append(f"| {s.name} | {len(pairs)} | " + " | ".join(cells) + f" | {same}/{total} |")
+    # Cost.
+    lines += [
+        "",
+        "### Cost per house (every call, every repeat; from the run's ledger)",
+        "",
+        "Columns: *calls*: model calls made (a second attempt after an unusable answer counts); "
+        "*unusable*: calls with no valid answer after both attempts; dollars, tokens and seconds "
+        "are means per house-call; *reasoning*: the part of the output spent thinking, where "
+        "the provider reports it; *answered by*: the model the provider says answered.",
+        "",
+        "| Setup | House-calls | Calls | Unusable | $ / house | Input tokens | Output tokens | "
+        "Reasoning | Seconds (max) | Answered by |",
+        "|---|---|---|---|---|---|---|---|---|---|",
+    ]
+    for s in setups:
+        mine = [o for o in ran if o.setup == s.id]
+        if not mine:
+            continue
+        lines.append(
+            f"| {s.name} | {len(mine)} | {sum(o.calls for o in mine)} | "
+            f"{sum(1 for o in mine if o.answer is None)} | "
+            f"{statistics.fmean(o.cost_usd for o in mine):.4f} | "
+            f"{statistics.fmean(o.input_tokens for o in mine):,.0f} | "
+            f"{statistics.fmean(o.output_tokens for o in mine):,.0f} | "
+            f"{statistics.fmean(o.reasoning_tokens for o in mine):,.0f} | "
+            f"{statistics.fmean(o.seconds for o in mine):.1f} "
+            f"({max(o.seconds for o in mine):.1f}) | "
+            f"{', '.join(sorted({m for o in mine for m in o.models}))} |"
+        )
+    spent = sum(o.cost_usd for o in ran)
+    lines += [
+        "",
+        f"M5 dollars in all (ledger): {spent:.4f} over {sum(o.calls for o in ran)} calls.",
+    ]
+    return "\n".join(lines) + "\n"
+
+
+def m5_provider(settings: Any) -> Any:
+    """The pool of the OpenAI and Anthropic providers only (no Azure: its deployment is
+    another model, module doc of :mod:`evals.measure_vlm`), guarded to stop at the first
+    account error."""
+    from basis.llm.pool import ProviderPool
+    from basis.llm.providers import AzureOpenAIProvider, providers_from_settings
+    from evals.account_stop import guard
+
+    chosen = [
+        p for p in providers_from_settings(settings) if not isinstance(p, AzureOpenAIProvider)
+    ]
+    if not chosen:
+        raise ValueError("M5 needs OPENAI_API_KEY or ANTHROPIC_API_KEY")
+    return guard(ProviderPool(chosen, concurrency=settings.llm_concurrency))
+
+
+def run_m5(
+    args: argparse.Namespace, houses: Sequence[mt.House], run: record.EvalRun
+) -> tuple[list[measure_vlm.Setup], list[measure_vlm.Outcome]] | None:
+    """M5's calls (or, with ``--m5-estimate``, the estimate and no call; with
+    ``--m5-replay RUN``, a recorded run's outcomes rescored and no call)."""
+    from basis.config import load_settings
+    from basis.llm.provider import Budget
+
+    settings = load_settings()
+    setups = measure_vlm.parse_setups(args.m5, measure_vlm.models_from_settings(settings))
+    for prompt_key in sorted({s.prompt for s in setups}):
+        run.prompt(prompts.load(measure_vlm.PROMPTS[prompt_key], measure_vlm.PROMPT_VERSION))
+    if args.m5_replay is not None:
+        recorded = args.m5_replay / "measure_eval.json"
+        run.input("m5_replay", recorded)
+        data = json.loads(recorded.read_text(encoding="utf-8"))
+        wanted = {s.id for s in setups}
+        ids = {h.id for h in houses}
+        replayed = [measure_vlm.Outcome(**o) for o in data.get("m5") or []]
+        return setups, [o for o in replayed if o.setup in wanted and o.house in ids]
+    if args.captures is None:
+        raise ValueError("--m5 needs --captures")
+    run.input("captures", args.captures)
+    repeat_houses = None if not args.m5_repeat_houses else set(args.m5_repeat_houses.split(","))
+    jobs, skipped = m5_jobs(
+        houses, setups, args.captures, repeats=args.m5_repeats, repeat_houses=repeat_houses
+    )
+    estimate = sum(measure_vlm.estimate_job_usd(s, h, p) for s, h, p, _ in jobs)
+    print(
+        f"M5: {len(jobs)} calls, worst-case estimate ${estimate:.2f} "
+        f"(budget ${args.budget_usd:.2f})",
+        file=sys.stderr,
+    )
+    run.note(m5_estimate_usd=round(estimate, 4), m5_calls_planned=len(jobs))
+    if args.m5_estimate:
+        return None
+    if not jobs:
+        return setups, skipped
+    budget = Budget(remaining_usd=args.budget_usd)
+    ctx = measure_vlm.new_context(budget, run.recorder)
+    provider = m5_provider(settings)
+    outcomes = asyncio.run(
+        measure_vlm.run_jobs(
+            provider, ctx, run.recorder.records, jobs, concurrency=args.m5_concurrency
+        )
+    )
+    for o in outcomes:
+        run.case(
+            f"m5/{o.setup}/{o.house}#{o.repeat}",
+            "passed" if o.answer is not None else "failed",
+            kind="m5_call",
+            detail={"cost_usd": o.cost_usd, "calls": o.calls, "errors": o.errors},
+            seconds=round(o.seconds, 2),
+        )
+    print(f"M5 spent ${budget.spent_usd:.4f} (ledger)", file=sys.stderr)
+    return setups, outcomes + skipped
+
+
 # ------------------------------------------------------------------ the lidar first look
 
 
@@ -342,6 +743,7 @@ def run_all(
                     "seconds": result.seconds,
                     "quantities": result.quantities,
                     "notes": result.notes,
+                    "skipped": result.notes.get("skipped"),
                 }
             )
     return scores, costs
@@ -426,7 +828,10 @@ def render(
         "|---|---|---|---|---|---|",
     ]
     for m in methods:
-        mine = [c for c in costs if c["method"] == m.id]
+        mine = [c for c in costs if c["method"] == m.id and not c.get("skipped")]
+        if not mine:
+            lines.append(f"| {m.setup} | 0 | | | | |")
+            continue
         tokens_in = [c["input_tokens"] for c in mine if c["input_tokens"] is not None]
         tokens_out = [c["output_tokens"] for c in mine if c["output_tokens"] is not None]
         lines.append(
@@ -486,6 +891,26 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--geo", type=Path, help="per-house gathers (measure_gather)")
     parser.add_argument("--pixels", type=Path, help="the pixel check's result (measure_pixels)")
     parser.add_argument("--dry-run", action="store_true", help="the synthetic house only")
+    parser.add_argument(
+        "--m5",
+        help="M5 setups, model:prompt pairs ('opus:plain,sol:*', '*'); paid calls",
+    )
+    parser.add_argument("--captures", type=Path, help="per-house captures (measure_capture)")
+    parser.add_argument("--m5-repeats", type=int, default=1, help="calls per setup and house")
+    parser.add_argument(
+        "--m5-repeat-houses", help="comma-separated houses the repeats run on (default all)"
+    )
+    parser.add_argument("--m5-concurrency", type=int, default=4)
+    parser.add_argument(
+        "--budget-usd", type=float, default=1.0, help="M5's hard cap, from the ledger"
+    )
+    parser.add_argument(
+        "--m5-estimate", action="store_true", help="print M5's worst-case cost, call nothing"
+    )
+    parser.add_argument(
+        "--m5-replay", type=Path, help="a recorded run directory: rescore its M5 outcomes"
+    )
+    parser.add_argument("--houses", help="comma-separated house ids (default all)")
     return parser.parse_args(argv)
 
 
@@ -509,6 +934,9 @@ def main(argv: Sequence[str] | None = None) -> int:
             for p in paths:
                 run.dataset(p, name=f"measure_truth/{p.stem}")
             houses = [mt.load(p) for p in paths]
+            if args.houses:
+                wanted_houses = set(args.houses.split(","))
+                houses = [h for h in houses if h.id in wanted_houses]
         for house in houses:
             missing = mt.undeclared(house)
             run.case(
@@ -519,6 +947,15 @@ def main(argv: Sequence[str] | None = None) -> int:
                     "undeclared": [asdict(f) for f in missing],
                 },
             )
+        m5_setups: list[measure_vlm.Setup] = []
+        m5_outcomes: list[measure_vlm.Outcome] = []
+        if args.m5:
+            got = run_m5(args, houses, run)
+            if got is None:  # --m5-estimate: nothing was called
+                run.finish({"m5_estimate_only": True, "cost_usd": 0.0})
+                return 0
+            m5_setups, m5_outcomes = got
+            methods = methods + m5_methods(m5_setups, m5_outcomes)
         scores, costs = run_all(houses, methods)
         lidar = lidar_rows(houses, args.geo) if args.geo is not None else None
         pixels = (
@@ -536,6 +973,8 @@ def main(argv: Sequence[str] | None = None) -> int:
                 detail={"scores": len(mine), "houses": len({s.house for s in mine})},
             )
         text = render(houses, methods, scores, costs, lidar, pixels)
+        if m5_setups:
+            text += render_m5(houses, methods, scores, m5_outcomes, m5_setups)
         (args.out / "measure_eval.md").write_text(text, encoding="utf-8")
         result = {
             "houses": [h.id for h in houses],
@@ -545,6 +984,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             "costs": costs,
             "lidar": lidar,
             "pixels": pixels,
+            "m5": [asdict(o) for o in m5_outcomes],
         }
         (args.out / "measure_eval.json").write_text(
             json.dumps(result, indent=1) + "\n", encoding="utf-8"
@@ -557,10 +997,11 @@ def main(argv: Sequence[str] | None = None) -> int:
                 "methods": wanted,
                 "summary": summarize(scores),
                 "cost_usd": sum(c["cost_usd"] for c in costs),
-                "tokens": None,
+                "tokens": sum((c["input_tokens"] or 0) + (c["output_tokens"] or 0) for c in costs)
+                or None,
             }
         )
-    except (ValueError, OSError, ArithmeticError) as exc:
+    except (ValueError, OSError, ArithmeticError, LookupError, RuntimeError, ProviderError) as exc:
         print(f"error: {exc}", file=sys.stderr)
         run.finish(None, status=record.STATUS_FAILED, exit_code=2, error=str(exc))
         return 2
@@ -576,8 +1017,11 @@ __all__ = [
     "appraisal_inputs",
     "error_pct",
     "lidar_rows",
+    "m5_jobs",
+    "m5_methods",
     "main",
     "render",
+    "render_m5",
     "run_all",
     "run_m0",
     "score_house",
