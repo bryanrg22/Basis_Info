@@ -30,6 +30,7 @@ from __future__ import annotations
 
 import asyncio
 import uuid
+from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Final
 
@@ -45,6 +46,7 @@ from basis.activities._model_calls import (
 )
 from basis.activities._support import budget_exceeded, heartbeat, parse_uuid, run_once
 from basis.activities.deps import Deps
+from basis.config import Settings
 from basis.db.repositories.activity_result import COMPLETED, ActivityResultRepository
 from basis.db.repositories.document import DocumentRepository
 from basis.db.repositories.room import RoomRepository
@@ -53,13 +55,14 @@ from basis.domain.measure_drafts import INTERIOR_ROOM_TYPES
 from basis.domain.rooms import normalize_room_type
 from basis.errors.codes import E, tag
 from basis.llm.call import CallContext, call_model, estimate_request_usd
+from basis.llm.cost import cost_usd
 from basis.llm.errors import (
     ProviderAccountError,
     ProviderBadResponse,
     ProviderError,
     ProviderRequestRejected,
 )
-from basis.llm.provider import Budget, BudgetExceededError, ChatRequest
+from basis.llm.provider import Budget, BudgetExceededError, ChatProvider, ChatRequest
 from basis.storage import ObjectNotFound
 from basis.vision import measure_interior
 from basis.vision.measure_interior import InteriorAnswer
@@ -201,61 +204,13 @@ class MeasureRooms:
         return out
 
     def _request(self, room: PlannedRoom, jpegs: list[bytes], study_id: uuid.UUID) -> ChatRequest:
-        settings = self._deps.settings
-        return measure_interior.build_request(
-            model=settings.measure_interior_model,
-            reasoning_effort=settings.measure_interior_reasoning_effort,
-            max_tokens=settings.measure_interior_max_tokens,
-            room_type=MESSAGE_TYPE[room.room_type],
-            jpegs=jpegs,
-            ref=f"room:{room.room_id}",
-            study_id=str(study_id),
-            activity=ACTIVITY,
-        )
+        return room_request(self._deps.settings, room, jpegs, str(study_id))
 
     async def _measure(
         self, room: PlannedRoom, request: ChatRequest, call: CallContext
     ) -> RoomDraftOut:
-        """One room's call, asked once more on an unusable answer (module doc)."""
         assert self._deps.llm is not None
-        ctx = call.about("room", room.room_id)
-        spent = ctx.budget.spent_usd
-        reason = "no usable answer"
-        for _ in range(ATTEMPTS):
-            heartbeat(f"room {room.room_id}")
-            try:
-                response = await call_model(self._deps.llm, request, ctx)
-            except ProviderRequestRejected as exc:
-                return _not_drafted(room, "refused", f"the provider refused the photos: {exc}")
-            except ProviderBadResponse as exc:
-                reason = f"unusable answer: {exc}"
-                continue
-            except ProviderAccountError:
-                raise
-            except ProviderError as exc:
-                return _not_drafted(room, "failed", f"the provider failed: {exc}")
-            answer = response.parsed
-            if not isinstance(answer, InteriorAnswer):
-                reason = "no structured answer"
-                continue
-            return RoomDraftOut(
-                room_id=str(room.room_id),
-                room_type=room.room_type,
-                photos=tuple(str(p) for p in room.photos),
-                status="drafted",
-                quantities={
-                    k: float(v)
-                    for k in measure_interior.QUANTITIES
-                    if (v := getattr(answer, k)) is not None
-                },
-                model=response.model,
-                prompt_version=request.prompt_version,
-                confidence=answer.confidence,
-                room_fully_seen=answer.room_fully_seen,
-                notes=answer.notes or None,
-                cost_usd=round(ctx.budget.spent_usd - spent, 6),
-            )
-        return _not_drafted(room, "failed", reason, cost=round(ctx.budget.spent_usd - spent, 6))
+        return await draft_room(self._deps.llm, room, request, call)
 
     async def _complete(
         self, input: MeasureRoomsInput, output: MeasureRoomsOutput
@@ -272,6 +227,70 @@ class MeasureRooms:
         )
 
 
+def room_request(
+    settings: Settings, room: PlannedRoom, jpegs: Sequence[bytes], study_id: str
+) -> ChatRequest:
+    """The room's request at the ``MEASURE_INTERIOR_*`` settings (section 107's setup)."""
+    return measure_interior.build_request(
+        model=settings.measure_interior_model,
+        reasoning_effort=settings.measure_interior_reasoning_effort,
+        max_tokens=settings.measure_interior_max_tokens,
+        room_type=MESSAGE_TYPE[room.room_type],
+        jpegs=jpegs,
+        ref=f"room:{room.room_id}",
+        study_id=study_id,
+        activity=ACTIVITY,
+    )
+
+
+async def draft_room(
+    provider: ChatProvider, room: PlannedRoom, request: ChatRequest, call: CallContext
+) -> RoomDraftOut:
+    """One room's call, asked once more on an unusable answer (module doc); its cost is its
+    own calls' (the budget is shared by the rooms in flight)."""
+    ctx = call.about("room", room.room_id)
+    cost = 0.0
+    reason = "no usable answer"
+    for _ in range(ATTEMPTS):
+        heartbeat(f"room {room.room_id}")
+        try:
+            response = await call_model(provider, request, ctx)
+        except ProviderRequestRejected as exc:
+            return _not_drafted(room, "refused", f"the provider refused the photos: {exc}")
+        except ProviderBadResponse as exc:
+            if exc.usage is not None:
+                cost += cost_usd(exc.model or request.model, exc.usage)
+            reason = f"unusable answer: {exc}"
+            continue
+        except ProviderAccountError:
+            raise
+        except ProviderError as exc:
+            return _not_drafted(room, "failed", f"the provider failed: {exc}", cost=cost)
+        cost += cost_usd(response.model, response.usage)
+        answer = response.parsed
+        if not isinstance(answer, InteriorAnswer):
+            reason = "no structured answer"
+            continue
+        return RoomDraftOut(
+            room_id=str(room.room_id),
+            room_type=room.room_type,
+            photos=tuple(str(p) for p in room.photos),
+            status="drafted",
+            quantities={
+                k: float(v)
+                for k in measure_interior.QUANTITIES
+                if (v := getattr(answer, k)) is not None
+            },
+            model=response.model,
+            prompt_version=request.prompt_version,
+            confidence=answer.confidence,
+            room_fully_seen=answer.room_fully_seen,
+            notes=answer.notes or None,
+            cost_usd=round(cost, 6),
+        )
+    return _not_drafted(room, "failed", reason, cost=round(cost, 6))
+
+
 def _not_drafted(room: PlannedRoom, status: str, reason: str, *, cost: float = 0.0) -> RoomDraftOut:
     return RoomDraftOut(
         room_id=str(room.room_id),
@@ -284,4 +303,4 @@ def _not_drafted(room: PlannedRoom, status: str, reason: str, *, cost: float = 0
     )
 
 
-__all__ = ["ACTIVITY", "MeasureRooms", "PlannedRoom", "plan"]
+__all__ = ["ACTIVITY", "MeasureRooms", "PlannedRoom", "draft_room", "plan", "room_request"]

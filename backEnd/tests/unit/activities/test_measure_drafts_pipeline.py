@@ -38,6 +38,7 @@ from basis.activities.process_assets import ProcessAssets
 from basis.db.models import (
     Asset,
     Citation,
+    ClientError,
     Component,
     CostEstimate,
     GeoGather,
@@ -302,6 +303,14 @@ async def test_exterior_on_the_shell_drafts_roof_siding_and_gutter(
     draft_blockers = [b for b in result.blockers if b.code == md.BLOCKER]
     assert len(draft_blockers) == 1 and draft_blockers[0].assets == 1
     assert draft_blockers[0].fix == "verify or edit this measurement in the measure tool"
+    # Verifying is the engineer's ordinary step: not an issue recorded for the operators.
+    async with session_scope(deps.sessionmaker) as session:
+        recorded = (
+            await session.scalars(
+                select(ClientError.error_type).where(ClientError.study_id == analyzed.study_id)
+            )
+        ).all()
+    assert md.BLOCKER not in recorded
 
 
 @pytest.mark.parametrize(

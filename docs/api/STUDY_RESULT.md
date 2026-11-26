@@ -322,6 +322,7 @@ route follows a later intake change.
   | `unclassified` | the classifier was unavailable or gave no usable answer | assets review: the asset's class |
   | `appraisal_fields` | no extracted appraisal fields | the appraisal review |
   | `building_rcn`, `depreciation`, `cost_index` | as in `missing` | as in `missing` |
+  | `measure:draft_unverified` | a row priced on a measurement Basis drafted (`MEASURE_DRAFTS_EXTERIOR`, `MEASURE_DRAFTS_INTERIOR`), not verified, whose exposure (its expected error times its priced total) was above `MEASURE_DRAFT_VERIFY_USD` (default $250) when it was priced; `assets` counts them (docs/api/MEASURE_DRAFTS.md, EVAL_REPORT 110) | assets review: verify or edit this measurement in the measure tool, or enter the measured quantity |
 
   A row held by a missing input is written with quantity 0, no cost, the review reason
   `input:<code>` and its cost row reading `missing input: <what>`: no typical area, default

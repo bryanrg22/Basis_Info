@@ -1,0 +1,141 @@
+{
+ "siding": {
+  "measurement": {
+   "unit": "SF",
+   "space": "lonlat",
+   "shapes": [
+    {
+     "kind": "line",
+     "path": [
+      [
+       -93.60009610244214,
+       41.599955084220156
+      ],
+      [
+       -93.59990389755784,
+       41.599955084220156
+      ],
+      [
+       -93.59990389755784,
+       41.60004491574859
+      ],
+      [
+       -93.60009610244214,
+       41.60004491574859
+      ],
+      [
+       -93.60009610244214,
+       41.599955084220156
+      ]
+     ]
+    }
+   ],
+   "image": {
+    "source": "USGS 3DEP lidar IA_Test_2020 (2020), public records gather g-1: walls 18 in inside the roof's edge, main eave height",
+    "pixel_size_m": 0.5
+   },
+   "height_ft": 9.84,
+   "drawn_by": "model:lidar-shell@v1",
+   "verified": false,
+   "quantity": "1678.79",
+   "method": "local_tangent_plane_wgs84",
+   "expected_error_pct": "1.92",
+   "shape_count": 1,
+   "corner_count": 5,
+   "cutout_count": 0,
+   "length_ft": "170.61"
+  },
+  "quantity": "1426.97"
+ },
+ "roof": {
+  "measurement": {
+   "unit": "SF",
+   "space": "lonlat",
+   "shapes": [
+    {
+     "kind": "area",
+     "ring": [
+      [
+       -93.60010210884478,
+       41.599950592640454
+      ],
+      [
+       -93.59989789115521,
+       41.599950592640454
+      ],
+      [
+       -93.59989789115521,
+       41.600049407321706
+      ],
+      [
+       -93.60010210884478,
+       41.600049407321706
+      ]
+     ]
+    }
+   ],
+   "image": {
+    "source": "USGS 3DEP lidar IA_Test_2020 (2020), public records gather g-1: the roof's outline as flown, eaves included",
+    "pixel_size_m": 0.5
+   },
+   "drawn_by": "model:lidar-shell@v1",
+   "verified": false,
+   "quantity": "2011.23",
+   "method": "local_tangent_plane_wgs84",
+   "expected_error_pct": "14.99",
+   "shape_count": 1,
+   "corner_count": 4,
+   "cutout_count": 0,
+   "area_sf": "2011.23"
+  },
+  "quantity": "2316.53"
+ },
+ "gutter": {
+  "measurement": {
+   "unit": "LF",
+   "space": "lonlat",
+   "shapes": [
+    {
+     "kind": "line",
+     "path": [
+      [
+       -93.60010210884478,
+       41.599950592640454
+      ],
+      [
+       -93.59989789115521,
+       41.599950592640454
+      ]
+     ]
+    },
+    {
+     "kind": "line",
+     "path": [
+      [
+       -93.59989789115521,
+       41.600049407321706
+      ],
+      [
+       -93.60010210884478,
+       41.600049407321706
+      ]
+     ]
+    }
+   ],
+   "image": {
+    "source": "USGS 3DEP lidar IA_Test_2020 (2020), public records gather g-1: the roof outline's eave edges",
+    "pixel_size_m": 0.5
+   },
+   "drawn_by": "model:lidar-shell@v1",
+   "verified": false,
+   "quantity": "111.71",
+   "method": "local_tangent_plane_wgs84",
+   "expected_error_pct": "5.87",
+   "shape_count": 2,
+   "corner_count": 4,
+   "cutout_count": 0,
+   "length_ft": "111.71"
+  },
+  "quantity": "111.71"
+ }
+}

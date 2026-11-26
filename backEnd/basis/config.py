@@ -672,15 +672,18 @@ class Settings(BaseSettings):
     # MEASURE_INTERIOR_REASONING_EFFORT (low) and MEASURE_INTERIOR_MAX_TOKENS (1200): section
     # 107's chosen setup (the cheapest within one call's noise of the best on every room
     # quantity but the ceiling), with the prompt measure_interior_reference/v1.
-    # MEASURE_DRAFT_VERIFY_USD (see section 110.4): an unverified draft whose exposure, its
-    # measured expected error times its priced total, is above this many dollars holds the
-    # report (`blockers` `measure:draft_unverified`) until the engineer verifies or edits it.
+    # MEASURE_DRAFT_VERIFY_USD (250): an unverified draft whose exposure, its measured expected
+    # error times its priced total, is above this many dollars holds the report (`blockers`
+    # `measure:draft_unverified`) until the engineer verifies or edits it. Section 110.4 chose
+    # it on the two replayed client exports: it holds 8 of 20 and 6 of 13 drafts, which carry
+    # 85 and 86 % of the drafts' exposure (the smallest round threshold holding at least 80 % of
+    # it with at most half the drafts; one property: the maintainer's to confirm).
     measure_drafts_exterior: bool = False
     measure_drafts_interior: bool = False
     measure_interior_model: str = "claude-sonnet-5-5"
     measure_interior_reasoning_effort: Effort = "low"
     measure_interior_max_tokens: int = Field(default=1200, ge=256, le=8000)
-    measure_draft_verify_usd: float = Field(default=100.0, ge=0, le=1_000_000)
+    measure_draft_verify_usd: float = Field(default=250.0, ge=0, le=1_000_000)
 
     # Property pictures (docs/review_2026-10-15/PROPERTY_CAPTURE.md, docs/api/PROPERTY_CAPTURE.md,
     # EVAL_REPORT section 98): a separate worker (`python -m basis.capture`) opens the property in

@@ -117,6 +117,9 @@ async def test_each_measured_room_is_one_call_at_the_production_settings(
     assert {str(c.entity_id) for c in ledger} == {ids["Kitchen"], ids["Bathroom"]}
     assert out.cost_usd == pytest.approx(sum(float(c.cost_usd) for c in ledger), abs=1e-6)
     assert out.cost_usd > 0
+    # Each room's own calls, though the rooms share one budget in flight.
+    assert sum(d.cost_usd for d in out.drafts) == pytest.approx(out.cost_usd, abs=1e-6)
+    assert by_room[ids["Kitchen"]].cost_usd == pytest.approx(out.cost_usd / 2, abs=1e-6)
 
 
 async def test_an_unusable_answer_is_asked_once_more_then_the_room_keeps_todays_rows(

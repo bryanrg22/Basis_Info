@@ -120,6 +120,7 @@ takeoff carries ``concealed``, the label, the system, the formula and the assump
 from __future__ import annotations
 
 import asyncio
+import functools
 import logging
 import uuid
 from collections import Counter
@@ -707,7 +708,8 @@ async def _write(
     assets = AssetRepository(session)
     budget = prepared.budget
     table = cost_table_for(settings.cost_table_path)
-    plan = TakeoffPlan.build(
+    build = functools.partial(
+        TakeoffPlan.build,
         settings,
         prepared.measurements,
         list(rooms.values()),
@@ -717,6 +719,9 @@ async def _write(
         exterior_reason=prepared.exterior_reason,
         room_drafts=prepared.room_drafts,
     )
+    # The shell's drafts measure its outlines (geometry, as an engineer's trace: off the event
+    # loop; about 0.2 ms on the client's 24-corner shell, EVAL_REPORT 110.5).
+    plan = await asyncio.to_thread(build) if prepared.exterior is not None else build()
     context = TrailContext(prepared.intake_version, property_class, pricing_method(settings))
     measured: dict[tuple[str, str], uuid.UUID] = {}
     cache_hits: Counter[str] = Counter()

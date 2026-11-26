@@ -10,8 +10,10 @@ nothing for that row and says why."""
 
 from __future__ import annotations
 
+import json
 import math
 from decimal import Decimal
+from pathlib import Path
 from typing import Any
 
 import pytest
@@ -162,6 +164,19 @@ def test_a_shell_stored_before_the_roof_outline_and_edge_ends_drafts_the_siding_
     assert set(got) == {"siding"}
     assert skipped["roof"] == "no roof outline stored with the shell"
     assert skipped["gutter"] == "the eaves' ends are not stored with the shell"
+
+
+WEB_FIXTURE = (
+    Path(__file__).resolve().parents[4] / "web" / "tests" / "fixtures" / "measure-drafts.json"
+)
+
+
+def test_the_web_fixture_is_the_servers_record() -> None:
+    """``web/tests/measure-drafts.test.cjs`` checks the measure tool's model on these records; a
+    change to the record the server stores must regenerate them."""
+    got, _ = drafts(record(), replaced={}, missing={})
+    want = {k: {"measurement": d.measurement, "quantity": str(d.quantity)} for k, d in got.items()}
+    assert json.loads(WEB_FIXTURE.read_text()) == json.loads(json.dumps(want))
 
 
 @pytest.mark.parametrize("bad", [None, "x", [[1.0, 2.0]], [[1.0, float("nan")], [0, 0], [1, 1]]])
