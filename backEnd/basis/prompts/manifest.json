@@ -172,6 +172,11 @@
       "v1": {
         "sha256": "b3c9387e69679e1ecc34c1d746ab14a4b2226b285f5bd9a83e735da199cfdf54"
       }
+    },
+    "measure_interior_reference": {
+      "v1": {
+        "sha256": "f080224249868acd54d64f28f09e7fee4f112bb4156d5f0580734429cfc76484"
+      }
     }
   }
 }

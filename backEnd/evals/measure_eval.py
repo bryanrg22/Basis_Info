@@ -37,6 +37,11 @@ once, concurrently, through the production call path into the run's ledger under
 prints the worst-case dollars and calls nothing. M5 adds its own tables (``render_m5``): error
 matrices against M0 on the same houses, the judgments, run-to-run differences, cost per house.
 
+**M4, interiors** (``--m4 DIR``, EVAL_REPORT 107): rooms, not houses: the ARKitScenes rooms under
+``DIR`` scored by :mod:`evals.measure_interior` (M0 on the rooms, the depth setups, and with
+``--m4d`` the vision model asked, :mod:`evals.measure_interior_vlm`); its tables are appended
+(:func:`run_m4`).
+
 Deterministic for M0, no model call, $0. ``--dry-run`` scores a synthetic house only (CI and the
 unit test). The run files under ``verification/measure_eval/v1/``.
 
@@ -67,7 +72,14 @@ from basis.geo import shell
 from basis.geo.geometry import point_in_geojson, to_mercator
 from basis.llm import prompts
 from basis.llm.errors import ProviderError
-from evals import measure_pixels, measure_points, measure_vlm, record
+from evals import (
+    measure_interior,
+    measure_interior_vlm,
+    measure_pixels,
+    measure_points,
+    measure_vlm,
+    record,
+)
 from evals import measure_truth as mt
 from evals import site_score as ss
 from evals import site_truth as st
@@ -970,6 +982,225 @@ def run_m5(
     return setups, outcomes + skipped
 
 
+# ------------------------------------------------------------------ M4: interiors (EVAL 107)
+
+
+def m4_arguments(parser: argparse.ArgumentParser) -> None:
+    """The interior eval's options (:mod:`evals.measure_interior`)."""
+    parser.add_argument(
+        "--m4", type=Path, help="the interior rooms' directory (measure_truth/interiors): M4"
+    )
+    parser.add_argument(
+        "--m4d", help="M4d setups, model keys with repeats ('sol:2,luna:2,sonnet:1'); paid calls"
+    )
+    parser.add_argument("--m4d-budget-usd", type=float, default=0.0, help="M4d's hard cap")
+    parser.add_argument(
+        "--m4d-estimate", action="store_true", help="print M4d's worst-case cost, call nothing"
+    )
+    parser.add_argument(
+        "--m4d-replay",
+        type=Path,
+        action="append",
+        help="a recorded run directory: rescore its M4d outcomes (repeatable: a later run's "
+        "calls of a model already replayed count as its next repeats)",
+    )
+
+
+def m4d_jobs(
+    rooms: Sequence[measure_interior.Room], spec: str, models: Mapping[str, Any]
+) -> tuple[list[measure_interior_vlm.Setup], list[tuple[Any, Any, int]]]:
+    setups, jobs = [], []
+    photos = {
+        r.id: measure_interior_vlm.load_photos(r.photos, r.room_type)
+        for r in rooms
+        if (r.photos / "photos.json").exists()
+    }
+    for part in (p.strip() for p in spec.split(",") if p.strip()):
+        key, _, repeats = part.partition(":")
+        if key not in models:
+            raise ValueError(f"unknown M4d model {key!r}; known {list(models)}")
+        setup = measure_interior_vlm.Setup(models[key])
+        setups.append(setup)
+        for repeat in range(1, int(repeats or 1) + 1):
+            jobs += [(setup, photos[r.id], repeat) for r in rooms if r.id in photos]
+    return setups, jobs
+
+
+def m4d_renumbered(
+    earlier: Sequence[measure_interior_vlm.Outcome],
+    later: Sequence[measure_interior_vlm.Outcome],
+) -> list[measure_interior_vlm.Outcome]:
+    """``later``'s outcomes with their repeats moved past ``earlier``'s for the same setup."""
+    top: dict[str, int] = {}
+    for o in earlier:
+        top[o.setup] = max(top.get(o.setup, 0), o.repeat)
+    out = []
+    for o in later:
+        o.repeat += top.get(o.setup, 0)
+        out.append(o)
+    return out
+
+
+def m4d_results(
+    outcomes: Sequence[measure_interior_vlm.Outcome], setups: Sequence[measure_interior_vlm.Setup]
+) -> tuple[list[measure_interior.Setup], dict[str, dict[str, measure_interior.Result]]]:
+    """One scored setup per model and repeat (``M4d.sol#1``), as M5 scores its repeats."""
+    out_setups: list[measure_interior.Setup] = []
+    results: dict[str, dict[str, measure_interior.Result]] = {}
+    for setup in setups:
+        for repeat in sorted({o.repeat for o in outcomes if o.setup == setup.id}):
+            sid = f"{setup.id}#{repeat}"
+            out_setups.append(
+                measure_interior.Setup(
+                    sid,
+                    f"{setup.name}, call {repeat}",
+                    setup.settings(),
+                    lambda room: measure_interior.Result({}),
+                    paid=True,
+                )
+            )
+            results[sid] = {
+                o.room: measure_interior.Result(
+                    o.quantities,
+                    cost_usd=o.cost_usd,
+                    input_tokens=o.input_tokens,
+                    output_tokens=o.output_tokens,
+                    seconds=o.seconds,
+                    notes={"refused": "no answer"} if o.answer is None else {},
+                )
+                for o in outcomes
+                if o.setup == setup.id and o.repeat == repeat
+            }
+    return out_setups, results
+
+
+def m4d_noise(outcomes: Sequence[measure_interior_vlm.Outcome]) -> list[dict[str, Any]]:
+    """Run to run: |second - first| in % of the first, per setup and quantity."""
+    rows = []
+    by: dict[tuple[str, str], dict[int, dict[str, float]]] = {}
+    for o in outcomes:
+        by.setdefault((o.setup, o.room), {})[o.repeat] = o.quantities
+    for setup in sorted({o.setup for o in outcomes}):
+        for q in measure_interior.QUANTITIES:
+            diffs = [
+                100 * abs(r[2][q] - r[1][q]) / r[1][q]
+                for (s, _), r in by.items()
+                if s == setup and 1 in r and 2 in r and q in r[1] and q in r[2] and r[1][q] > 0
+            ]
+            if diffs:
+                rows.append(
+                    {
+                        "setup": setup,
+                        "quantity": q,
+                        "rooms": len(diffs),
+                        "mean_pct": statistics.fmean(diffs),
+                        "max_pct": max(diffs),
+                    }
+                )
+    return rows
+
+
+def run_m4(args: argparse.Namespace, run: record.EvalRun) -> dict[str, Any] | None:
+    """M4 on the interior rooms (EVAL_REPORT 107): M0, the depth setups and M4d's calls (or,
+    with ``--m4d-estimate``, the estimate and no call; ``--m4d-replay``, recorded calls)."""
+    if args.m4 is None:
+        return None
+    base: Path = args.m4
+    run.input("m4_accepted", base / "accepted.json")
+    rooms = measure_interior.load_rooms(base)
+    true_area = {r.id: r.truth["floor_area_sf"] for r in rooms}
+    setups = measure_interior.m0_setups(true_area) + measure_interior.depth_setups(base)
+    extra: dict[str, dict[str, measure_interior.Result]] = {}
+    outcomes: list[measure_interior_vlm.Outcome] = []
+    cost = 0.0
+    if args.m4d:
+        from basis.config import load_settings
+        from basis.llm.provider import Budget
+
+        settings = load_settings()
+        run.prompt(prompts.load(measure_interior_vlm.PROMPT, measure_interior_vlm.PROMPT_VERSION))
+        vlm_setups, jobs = m4d_jobs(rooms, args.m4d, measure_vlm.models_from_settings(settings))
+        if args.m4d_replay:
+            for k, folder in enumerate(args.m4d_replay):
+                data = json.loads((folder / "measure_eval.json").read_text())
+                run.input(f"m4d_replay_{k + 1}", folder / "measure_eval.json")
+                outcomes += m4d_renumbered(
+                    outcomes, [measure_interior_vlm.Outcome(**o) for o in data["m4"]["m4d"]]
+                )
+        else:
+            estimate = sum(measure_interior_vlm.estimate_job_usd(s, p) for s, p, _ in jobs)
+            print(
+                f"M4d: {len(jobs)} calls, worst-case estimate ${estimate:.2f} "
+                f"(budget ${args.m4d_budget_usd:.2f})",
+                file=sys.stderr,
+            )
+            run.note(m4d_estimate_usd=round(estimate, 4), m4d_calls_planned=len(jobs))
+            if args.m4d_estimate:
+                return {"text": "", "json": {"rooms": len(rooms)}, "cost_usd": 0.0}
+            budget = Budget(remaining_usd=args.m4d_budget_usd)
+            ctx = measure_vlm.new_context(budget, run.recorder, "evals.measure_interior_vlm")
+            outcomes = asyncio.run(
+                measure_interior_vlm.run_jobs(
+                    m5_provider(settings), ctx, run.recorder.records, jobs, concurrency=4
+                )
+            )
+            print(f"M4d spent ${budget.spent_usd:.4f} (ledger)", file=sys.stderr)
+        for o in outcomes:
+            run.case(
+                f"m4d/{o.setup}/{o.room}#{o.repeat}",
+                "passed" if o.answer is not None else "failed",
+                kind="m4d_call",
+                detail={"cost_usd": o.cost_usd, "calls": o.calls, "errors": o.errors},
+                seconds=round(o.seconds, 2),
+            )
+        scored, extra = m4d_results(outcomes, vlm_setups)
+        setups += scored
+        cost = sum(o.cost_usd for o in outcomes)
+    got = measure_interior.evaluate(setups, rooms, extra)
+    for s in setups:
+        n = sum(1 for x in got["scores"] if x.setup == s.id)
+        run.case(f"m4_setup/{s.id}", "passed" if n else "failed", detail={"scores": n})
+    text = measure_interior.render(
+        setups,
+        rooms,
+        got["summary"],
+        got["costs"],
+        got["reconcile"],
+        got["pairs"],
+        got["refusals"],
+    )
+    noise = m4d_noise(outcomes)
+    if noise:
+        text += (
+            "\n### M4d run to run\n\n| Setup | Quantity | Rooms | Mean abs change % | Largest % |\n"
+            "|---|---|---|---|---|\n"
+            + "".join(
+                f"| {r['setup']} | {r['quantity']} | {r['rooms']} | {r['mean_pct']:.1f} | "
+                f"{r['max_pct']:.1f} |\n"
+                for r in noise
+            )
+        )
+    return {
+        "text": text,
+        "cost_usd": cost,
+        "json": {
+            "rooms": len(rooms),
+            "setups": {s.id: {"name": s.name, "settings": s.settings} for s in setups},
+            "summary": got["summary"],
+            "costs": got["costs"],
+            "reconcile": got["reconcile"],
+            "pairs": got["pairs"],
+            "refusals": got["refusals"],
+            "scores": [{**asdict(x), "signed_pct": x.signed_pct} for x in got["scores"]],
+            "notes": {
+                sid: {rid: res.notes for rid, res in r.items()} for sid, r in got["results"].items()
+            },
+            "m4d": [asdict(o) for o in outcomes],
+            "m4d_noise": noise,
+        },
+    }
+
+
 # ------------------------------------------------------------------ the lidar first look
 
 
@@ -1459,6 +1690,7 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         "--m5-replay", type=Path, help="a recorded run directory: rescore its M5 outcomes"
     )
     parser.add_argument("--houses", help="comma-separated house ids (default all)")
+    m4_arguments(parser)
     return parser.parse_args(argv)
 
 
@@ -1545,6 +1777,9 @@ def main(argv: Sequence[str] | None = None) -> int:
                 )
         if m5_setups:
             text += render_m5(houses, methods, scores, m5_outcomes, m5_setups)
+        m4 = run_m4(args, run)
+        if m4 is not None:
+            text += "\n" + m4["text"]
         (args.out / "measure_eval.md").write_text(text, encoding="utf-8")
         result = {
             "houses": [h.id for h in houses],
@@ -1558,6 +1793,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             "paired_unchanged": paired(scores, houses, standing="unchanged"),
             "paired_all": paired(scores, houses, standing=None),
             "m5": [asdict(o) for o in m5_outcomes],
+            "m4": None if m4 is None else m4["json"],
         }
         (args.out / "measure_eval.json").write_text(
             json.dumps(result, indent=1) + "\n", encoding="utf-8"
@@ -1569,7 +1805,9 @@ def main(argv: Sequence[str] | None = None) -> int:
                 "houses": len(houses),
                 "methods": wanted,
                 "summary": summarize(scores),
-                "cost_usd": sum(c["cost_usd"] for c in costs),
+                "cost_usd": sum(c["cost_usd"] for c in costs)
+                + (0.0 if m4 is None else m4["cost_usd"]),
+                "m4_rooms": None if m4 is None else m4["json"]["rooms"],
                 "site_parcels": None if site is None else len(site["parcels"]),
                 "tokens": sum((c["input_tokens"] or 0) + (c["output_tokens"] or 0) for c in costs)
                 or None,
@@ -1595,6 +1833,11 @@ __all__ = [
     "lidar_rows",
     "m1_method",
     "m1_methods",
+    "m4_arguments",
+    "m4d_jobs",
+    "m4d_noise",
+    "m4d_renumbered",
+    "m4d_results",
     "m5_jobs",
     "m5_methods",
     "main",
@@ -1605,6 +1848,7 @@ __all__ = [
     "site_results",
     "run_m0",
     "run_m1",
+    "run_m4",
     "score_house",
     "summarize",
     "synthetic_house",
