@@ -15,9 +15,9 @@ from __future__ import annotations
 import unicodedata
 import uuid
 from datetime import datetime
-from typing import Annotated, Final, Literal
+from typing import Annotated, Any, Final, Literal
 
-from pydantic import ConfigDict, Field, field_validator
+from pydantic import ConfigDict, Field, field_validator, model_validator
 
 from basis.api.schemas.common import JSON_NUMBER, RequestModel, ResponseModel
 from basis.db.enums import DocumentKind
@@ -135,6 +135,19 @@ class OtherUpload(_UploadBase):
 UploadRequest = Annotated[AppraisalUpload | PhotoUpload | OtherUpload, Field(discriminator="kind")]
 
 
+class CameraOut(ResponseModel):
+    """A photo's camera, read from its EXIF when the upload was confirmed (nothing else of the
+    EXIF is kept: never the location, dates, names or serial numbers)."""
+
+    focal_length_mm: float | None = Field(description="EXIF `FocalLength`, in millimetres.")
+    focal_length_35mm: float | None = Field(
+        description="EXIF `FocalLengthIn35mmFilm`: the 35 mm equivalent focal length (CIPA "
+        "DC-008, on the diagonal). With the photo's size it gives the field of view a facade "
+        "measurement needs (docs/api/OVERRIDES.md section 4.1)."
+    )
+    model: str | None = Field(description="EXIF `Make` and `Model`, up to 100 characters.")
+
+
 class DocumentOut(ResponseModel):
     id: uuid.UUID
     study_id: uuid.UUID
@@ -145,6 +158,30 @@ class DocumentOut(ResponseModel):
     sha256: str
     uploaded_at: datetime | None = Field(description="Null until the upload is confirmed.")
     created_at: datetime
+    camera: CameraOut | None = Field(
+        default=None,
+        description="A confirmed photo's camera fields when its EXIF had any (EVAL_REPORT 111); "
+        "null otherwise (other documents, photos without them, photos confirmed before them).",
+    )
+
+    @model_validator(mode="before")
+    @classmethod
+    def _camera_of_row(cls, value: Any) -> Any:
+        """A ``documents`` row's three camera columns as ``camera`` (null when all are)."""
+        if isinstance(value, dict) or not hasattr(value, "focal_length_35mm"):
+            return value
+        fields = {
+            "focal_length_mm": value.focal_length_mm,
+            "focal_length_35mm": value.focal_length_35mm,
+            "model": value.camera_model,
+        }
+        out = {
+            name: getattr(value, name)
+            for name in cls.model_fields
+            if name != "camera" and hasattr(value, name)
+        }
+        out["camera"] = None if all(v is None for v in fields.values()) else fields
+        return out
 
 
 class SignedUploadOut(ResponseModel):

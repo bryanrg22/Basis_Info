@@ -5,7 +5,7 @@ from __future__ import annotations
 import re
 import uuid
 from dataclasses import dataclass
-from typing import Final
+from typing import TYPE_CHECKING, Final
 
 from sqlalchemy import exists, select, update
 from sqlalchemy.exc import IntegrityError
@@ -15,6 +15,9 @@ from sqlalchemy.sql import func
 from basis.db.enums import DocumentKind
 from basis.db.errors import DuplicateDocumentError, NotVisibleError, constraint_name
 from basis.db.models import Document
+
+if TYPE_CHECKING:
+    from basis.vision.camera import Camera
 
 SHA256_RE: Final = re.compile(r"^[0-9a-f]{64}$")
 _DUPLICATE_CONSTRAINTS: Final = frozenset({"uq_documents_study_id_sha256", "uq_documents_gcs_uri"})
@@ -120,11 +123,23 @@ class DocumentRepository:
         """Set ``uploaded_at = now()`` once. Idempotent: a second call returns the row as is."""
         return (await self.confirm_upload(study_id, document_id)).document
 
-    async def confirm_upload(self, study_id: uuid.UUID, document_id: uuid.UUID) -> Confirmed:
+    async def confirm_upload(
+        self, study_id: uuid.UUID, document_id: uuid.UUID, *, camera: Camera | None = None
+    ) -> Confirmed:
         """:meth:`mark_uploaded`, saying whether this call set ``uploaded_at``: the
         compare-and-set (``WHERE uploaded_at IS NULL``) decides under the row lock, so of
         two confirmations at once exactly one is ``confirmed`` and records the upload
-        (both recorded it before this; EVAL_REPORT 62)."""
+        (both recorded it before this; EVAL_REPORT 62). ``camera``: a photo's camera fields
+        (:mod:`basis.vision.camera`), written by the confirming call only."""
+        fields = (
+            {}
+            if camera is None
+            else {
+                "focal_length_mm": camera.focal_length_mm,
+                "focal_length_35mm": camera.focal_length_35mm,
+                "camera_model": camera.camera_model,
+            }
+        )
         stmt = (
             update(Document)
             .where(
@@ -132,7 +147,7 @@ class DocumentRepository:
                 Document.study_id == study_id,
                 Document.uploaded_at.is_(None),
             )
-            .values(uploaded_at=func.now())
+            .values(uploaded_at=func.now(), **fields)
             .returning(Document)
             .execution_options(synchronize_session=False, populate_existing=True)
         )
