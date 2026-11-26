@@ -487,6 +487,18 @@ size). `evals.measure_capture` takes the Google views through the production cap
 with its own page-load ledger. Writes `measure_eval.md` and `measure_eval.json`. No model
 call; cost $0. Component `measure_eval`, version `v1`.
 
+`--points <dir>` (EVAL_REPORT 105, version `v2`) adds M1, the building shell from 3DEP lidar
+(`basis.geo.shell.derive`), and its variants (`M1_SETUPS`: the overhang taken off, the
+classification, the wall height, the neck split, the edge growth, the returns rule, the roof's
+slope factor, the USA Structures footprint), plus the paired tables against M0 (the same
+houses, the difference of absolute errors with its 95 % interval, on the houses that stand
+unchanged and on every house drafted) and a per-house table of what each setup read. The
+directory is what `evals.measure_points --geo <dir> [--structures]` writes: each house's lidar
+box read again through `basis.geo.shell.read_points` (the production client and octree walk,
+the return numbers kept) as `points.npz` (the box's points only, never tiles) and the USA
+Structures polygon query as `structures.json`, privately under
+`$BASIS_EVAL_DATA_DIR/measure_truth/geo/`.
+
 ### `structure_replay` (the structure model over a stored export)
 
 `python -m evals.structure_replay export/rev-5.json --out export/rev-5.structure.json
