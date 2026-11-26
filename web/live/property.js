@@ -598,7 +598,8 @@ ${toolPanel('property',s,a,t,v,{})}
   else{doc=pick.doc;const d=dimsOf(doc.id);if(!d)return wrap(`${chips(views,pick)}${Live.loading('Loading the photo…')}`);[w,h]=d;v={id:'doc:'+doc.id,kind:'document',width:w,height:h};imgHtml=Live.photo(doc.id,doc.filename,'pa-photo')}
   const space=pick.kind==='view'?'lonlat':'image';
   // A photo of a wall: the facade mode (the siding opens in it; Trace stays one click away).
-  if(pick.kind==='photo'&&facadeOffered(a)){D.mode??=a.label==='siding'?'facade':'trace';if(D.mode==='facade')return wrap(facadeDialog(s,a,D,pick,w,h,imgHtml,views,title))}
+  D.facadeShown=false;
+  if(pick.kind==='photo'&&facadeOffered(a)){D.mode??=a.label==='siding'?'facade':'trace';if(D.mode==='facade'){D.facadeShown=true;return wrap(facadeDialog(s,a,D,pick,w,h,imgHtml,views,title))}}
   if(!D.trace||D.trace.assetId!==a.id)D.trace=newTrace(a,v,{space,doc,w,h});
   else if(D.trace.viewId!==v.id){
    const t=D.trace;if(t.space==='lonlat'&&space==='lonlat'){const from=views.find(x=>x.key===t.viewId)?.view;if(from){const g1=PM.georef(from),g2=PM.georef(v),mv=p=>rp(g2.toPixel(...g1.toLonLat(p[0],p[1])));t.shapes=t.shapes.map(sh=>sh.kind==='line'?{kind:'line',path:sh.path.map(mv)}:{kind:'area',ring:sh.ring.map(mv),...(sh.cutouts?{cutouts:sh.cutouts.map(c=>c.map(mv))}:{})});t.draft=t.draft.map(mv)}}
@@ -711,7 +712,7 @@ ${table}
   D.facade=null;Live.render();
  }
  function facadeClick(svg,ev){
-  const c=scopes.facade;if(!c||!L.mtDialog||L.mtDialog.mode!=='facade')return;const F=c.F;
+  const c=scopes.facade;if(!c||!L.mtDialog?.facadeShown)return;const F=c.F;
   if(ev.target.closest?.('[data-fc-vertex]'))return;
   const [x,y]=pixelOf(svg,ev),p=rp([Math.max(0,Math.min(c.w,x)),Math.max(0,Math.min(c.h,y))]);
   facadeRemember(F);F.msg=null;F.sel=null;F.current.push(p);
@@ -1126,6 +1127,7 @@ ${noViews?'':`<section class="pa-history" aria-label="Dated views">${strips(s,ca
    return;
   }
   if(!t||!measuring(scope))return;
+  if(scope==='dialog'&&L.mtDialog?.facadeShown)return;// the facade's corners are edited with the pointer; the hidden trace is left alone
   const onLabel=ev.target.closest?.('[data-mt-edge]'),onVertex=ev.target.closest?.('[data-mt-vertex],[data-mt-scale]');
   if(onLabel&&(ev.key==='Enter'||ev.key===' ')){ev.preventDefault();openEdit(scope,parseRef(onLabel.dataset.mtEdge));return}
   if(onVertex&&(ev.key==='Enter'||ev.key===' ')){ev.preventDefault();const r=onVertex.dataset.mtVertex;t.sel=r?parseRef(r):{scale:true,i:Number(onVertex.dataset.mtScale)};t.focusSel=true;Live.render();return}
