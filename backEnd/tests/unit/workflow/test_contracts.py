@@ -40,6 +40,7 @@ def fields(model: type[BaseModel]) -> list[str]:
                 "components_gate",  # v0.12 (patch components-gate-v1): additive, default True
                 "review_reminder_days",
                 "review_deadline_days",
+                "measure_drafts_interior",  # patch measure-drafts-v1: additive, default False
                 "simulate_photos",
                 "resume",  # docs/api/REVISIONS.md: additive, default None (the intake runs)
             ],
