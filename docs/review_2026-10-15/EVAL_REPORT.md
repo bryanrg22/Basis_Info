@@ -16455,7 +16455,6 @@ name over another shape, the key outside the stage's view. Web suite 578.
 building is not drawn in photo mode (only snapped to); the outline is not checked against a surveyed
 footprint.
 
-
 ## 105. M1: the building shell from 3DEP lidar, no model call (2026-11-25)
 
 **Answer first.** On the six HABS houses that stand unchanged, deriving the shell from the
@@ -16713,6 +16712,498 @@ photos); the overhang from the photos or the elevations; 15 to 20 more houses (t
 sizes it); the takeoff wiring behind `GEO_SHELL`; the shell in the API and the measure tool's
 diagram (the walls as a dashed shape under the roof outline); one read of the tiles for both
 the summary and the shell.
+## 106. AI-drafted site items: SAM 3 from an engineer's box, a vision model's proposals, and the fence (2026-11-25)
+
+**Answer first.** On 35 Fairfax County lots with the county's own outlines of 90 driveways, patios,
+decks and pools as truth, SAM 3 given **an engineer's box alone** (no phrase) on the county's 3-inch
+ortho drafts every item, unbiased overall, with a median area error of 13.6 % (driveways 11.8 %),
+overlap 0.67, 18 corners a draft, for about $0.001 a property. That is a starting outline, not a
+measurement: the county outlines themselves sit 0.1 to 0.2 m from the visible edge (a 3 to 6 % area
+effect) and a careful hand trace's one-pixel bound is 5.9 %. The phrase adds nothing within the
+noise; one click is far worse (34 %, a quarter missed); a phrase with no click misses 55 of 90
+items. On Google's straight-down capture (8 lots, leaf-on, 2025) the box drafts every item at a
+median of 26 %; on the federal 0.6 m view drafting fails (30 %; the hand bound alone is 41 %) and is
+refused. **M2v fails with the two models configured here** (gpt-4o-mini, gpt-5-nano): their boxes
+miss the items, 3 and 5 of 90 drafted. **Fences fail**: SAM 3 finds no fence from above on 36 lots,
+and a lot-line prior only echoes itself. Google's ground pixel reads about 2 % larger than recorded
+(k 1.018, SE 0.009, 8 lots; EVAL 103 suspected 2.7 %): suspected, kept as a setting at 1.0. Shipped
+off by default and not wired: the drafting function (`basis.vision.site_items`, `SITE_DRAFTS`), with
+every refusal coded. Spent $0.45 of $4; 8 Google page loads (25 in the day); no client data.
+
+**Question.** Step 4 of `AI_MEASUREMENT_PLAN.md` section 7 (methods M2 and M2v of section 5): can
+SAM 3 outline the site items an engineer measures from above (driveway, patio, deck, pool, walk, the
+fence line) well enough to be a draft the engineer checks in the measure tool (EVAL_REPORT 104),
+from a box or a click (M2) or from a vision model's proposals (M2v); on which picture (Google's
+straight-down capture, a sharp public ortho, the federal 0.6 m view); and is Google's recorded pixel
+size right on the ground? Paid budget $4 (SAM 3 and the vision models, counted from the ledgers). No
+client data.
+
+**The standard.**
+
+* *Prompting SAM on overhead imagery.* Boxes beat points on building footprints (box IoU 63.8
+  against 47.2 for one point, arXiv 2310.01845; "Segment anything, from space?", arXiv 2304.13000:
+  IoU falls as the prompt carries less); on overhead imagery a text prompt adds a ground-level prior
+  that hurts localization and visual prompts help (Dabaja and Celik, arXiv 2607.09583). SAM 3's
+  concept mode treats a box or a point as an exemplar and returns every similar instance
+  (EVAL_REPORT 10), so the instance is chosen by the box (box IoU at least 0.5, the PASCAL VOC match
+  criterion) or the point (the instance under it), as the photo box-to-add already does
+  (`basis.vision.localize.pick_prompted`).
+* *Mask to polygon.* The mask's pixel-edge boundary, then Douglas-Peucker (Douglas and Peucker,
+  1973), the code that outlines the lidar roof (EVAL 104.2); no new library.
+* *Scoring an outline.* Per item, the area against the truth's (signed and absolute percent) and the
+  overlap (intersection over union); an item found without a click is matched to the truth at IoU
+  0.5 or more (PASCAL VOC), so misses and false items are counted.
+* *The engineer's own trace* (no method, typed or traced by hand): its best case is one pixel of
+  error on every edge (`traced.expected_error_pct`; AI_MEASUREMENT_PLAN 1.4: 4.5 % on a 6 x 10 m
+  driveway at 8.4 cm). No study of residential site-work area error in Google Earth was found
+  (research `products_and_practice.md`); the vendors' "98 %" claims publish no method.
+* *County planimetric truth.* Mapped at about 1 to 2 ft at the edge at 1:1200 [research, secondary],
+  8 to 15 % on a 12 x 40 ft driveway: "a bias check, not a ranking" (AI_MEASUREMENT_PLAN section 4).
+  Its own edge error is measured here (106.1) rather than assumed. The layers are served in Web
+  Mercator, whose stored areas are inflated 1.64 times at 38.7 degrees north: every area here is
+  measured on the ellipsoid from WGS84 coordinates.
+* *Registering two pictures* (for Google's pixel size): area-based normalized cross-correlation (J.
+  P. Lewis, 1995) on gradient images, over a grid of scales.
+* *Fences from above:* no published LF accuracy; 1 to 3 pixels wide at 8.4 cm and often under trees;
+  the lot line as the prior, confirmed by detection (research `cv_methods.md` 1c).
+
+### 106.1 The truth: 35 Fairfax parcels, 90 outlines
+
+**Built** by `evals.site_truth` (files in `backEnd/evals/fixtures/site_truth/`, public data, PIN and
+type only, no owner). Six suburban areas of Fairfax County (Chantilly, Vienna, Kings Park, West
+Springfield, Little Rocky Run, Oakton), six parcels each: ordinary lots of 300 to 5,000 m2 with
+exactly one paved driveway at least 70 % on the lot, and every patio, deck, pool and walk whose
+centre lies on the lot and at least half of whose area does. A lot with more than a driveway is
+taken first (then a fixed order by a hash of the PIN). Per-feature `SOURCE` from the driveway and
+building-addition layers dates each outline. The other candidate counties were looked at and set
+aside: Montgomery County MD publishes its planimetrics only as CAD or file-geodatabase downloads
+(gigabytes on this disk); Howard County MD's impervious layer has no type; Frederick's driveway
+layer is Frederick, Colorado (no sharp public ortho registered); Peoria County IL publishes
+driveways and sidewalks (2015 imagery) but no patios or decks: left for a second county.
+
+**Found in testing and fixed before any number below:** the truth builder's centroid summed the
+shoelace on raw degrees, which cancels for a few square metres (centres up to 25 m off); 27 of the
+55 patios, decks and pools were left out and most per-feature sources were not matched. Rebuilt for
+the same parcels (`--keep`), every view fetched again and every paid run repeated; the first run
+($0.16) is superseded and not scored (a regression test pins the centroid).
+
+| Area | Parcels | Driveways | Patios | Decks | Pools | Walks |
+|---|---|---|---|---|---|---|
+| all six | 36 (35 scored) | 36 | 21 | 25 | 8 | 1 |
+
+Imagery each outline was last drawn from (the layers' `SOURCE`): stereo models 2007 (7), 2009 (44),
+2017 (24); EagleView orthophotos 2023 (15); the one walk unrecorded. The county states no positional
+accuracy on these layers.
+
+**The visual check** (overlays of every outline on the county's 2023 3-inch picture, by eye): 1
+parcel dropped, `ffx11` (its "paved driveway" reads as grass and trees); kept with a note: two
+driveways partly under canopy or in shade (`ffx10`, `ffx12`) and one pool outline that takes in its
+paved surround (`ffx34`). The checks are in each file (`checks`).
+
+**The truth's own edges.** For each outline, where the county picture's strongest edge lies against
+it (`site_register.edge_offset_px`: the mean gradient in one-pixel rings inside and outside the
+outline, 7.8 cm a ring; positive: the visible edge is outside the outline):
+
+| Family | Items | Median offset m | Median abs offset m | Median area effect % | P90 abs area effect % |
+|---|---|---|---|---|---|
+| all | 90 | 0.04 | 0.19 | 2.9 | 47.9 |
+| driveway | 35 | 0.11 | 0.12 | 5.9 | 33.0 |
+| patio | 21 | 0.04 | 0.34 | 3.1 | 47.0 |
+| deck | 25 | 0.04 | 0.19 | 2.6 | 70.1 |
+| pool | 8 | -0.01 | 0.38 | -0.1 | 39.1 |
+
+So a typical county outline sits about 0.1 to 0.2 m from the visible edge (1.5 to 2.5 pixels), a 3
+to 6 % area effect, with a long tail (the strongest edge in reach is sometimes a curb, a shadow or a
+deck rail rather than the paving's edge, so the tail overstates the truth's error; read the median,
+not the 90th percentile). This is the scale of error below which the truth cannot rank a method:
+AI_MEASUREMENT_PLAN's "bias check, not a ranking" holds.
+
+### 106.2 The pictures, and Google's pixel on the ground
+
+| View | Source (how fetched) | Pixel as fetched | Date | Parcels |
+|---|---|---|---|---|
+| County ortho | Fairfax `AerialPhotography/2023AerialPhotography3inch` ImageServer, eval-only source, through `basis.geo.imagery.fetch` | 7.8 cm (3 in native, the square cut to 1,008 px) | 2023, spring (leaf-off in most areas, leaves out in Vienna) | 36 |
+| Federal | registry `us-naip-plus` (what the gather fetches in Virginia) | 0.6 m | as served (year not read) | 36 |
+| Google straight-down | `evals.measure_capture` (production `CaptureRunner`, headless, history and street view off, one load a parcel) | 8.41 cm recorded | 9/19/2025, leaf-on | 8 |
+
+Google page loads: 8 (one a parcel, street view off) today, all ledgered in
+`measure_truth/captures/loads.jsonl` with EVAL 103's 17 (25 in the day: the 25 allowed), no block
+signal, no sign-in. The first attempt failed before any load (Playwright 1.65.2 wants a Chromium
+build not on this machine); run with Playwright 1.64.1 and its installed build 1248, as EVAL 103
+was.
+
+**Google's ground pixel** (`evals.site_register`): Google's close view registered on the county view
+by normalized cross-correlation of gradient images (Lewis 1995) over scales 0.94 to 1.06 in steps of
+0.005, refined by a parabola, with the county's building outlines (dilated 1.5 m) left out so that
+ground is matched, not roofs; `k` is Google's ground pixel over its recorded 0.0841 m. The synthetic
+test recovers a known 1.03 to within 0.006.
+
+| Parcel | Google imagery date | k | Correlation | k used for it (others' median) |
+|---|---|---|---|---|
+| ffx03 | 9/19/2025 | 1.0496 | 0.075 | 1.0208 |
+| ffx07 | 9/19/2025 | 1.0435 | 0.181 | 1.0208 |
+| ffx08 | 9/19/2025 | 1.0218 | 0.208 | 1.0208 |
+| ffx13 | 9/19/2025 | 1.0208 | 0.206 | 1.0218 |
+| ffx14 | 9/19/2025 | 0.9948 | 0.260 | 1.0218 |
+| ffx19 | 9/19/2025 | 1.0049 | 0.162 | 1.0218 |
+| ffx25 | 9/19/2025 | 1.0293 | 0.222 | 1.0208 |
+| ffx30 | 9/19/2025 | 0.9767 | 0.224 | 1.0218 |
+
+Median k 1.0213, mean 1.0177, SD 0.0245 over 8 parcels (standard error of the mean 0.0087).
+
+**Verdict on the pixel size.** Google's ground pixel is about 2 % larger than recorded (mean k
+1.018, standard error 0.009, 8 parcels; 6 of 8 above 1), the same direction and size as EVAL 103's
+height-corrected 1.027 on three roofs by a different method: suspected real, not proven (the 95 %
+interval is about 1.001 to 1.035). Tree crowns stand nearer Google's camera and are matched with the
+ground, which biases k low, so the true ground figure is if anything larger. Applied to the drafts
+(each parcel corrected by the other seven's median), it moves the Google drafts' bias from -8.6 % to
+-4.7 % but their absolute error from 23.0 % to 24.5 % (median 26.0 to 27.4 %): occlusion and shadow,
+not the scale, dominate. So the setting `SITE_DRAFT_CAPTURE_SCALE` carries the correction and
+defaults to 1.0, as recorded; more parcels and a leaf-off date would settle it.
+
+### 106.3 M2: SAM 3 from an engineer's box or click
+
+**Setup** (`evals.site_draft_run`; one SAM 3 prediction per view on Replicate, `vufinder/sam3` at
+version `1bf97763...`, confidence floor 0.5, compact masks; every draft built by the production
+`site_items.draft_from_instance`, tolerance 0.3 m, scored free by `measure_eval --site`). The prompt
+modes, all from the truth outline as an engineer would place them on the picture:
+
+* **Box alone**: the item's box plus 0.5 m a side, no phrase (the shipped default).
+* **Click alone**: one point at the item's innermost pixel (the distance transform's maximum), no
+  phrase. It can land on a parked car, as a careless click would.
+* **Phrase and box**: the family's phrase (`driveway`, `patio`, `deck`, `swimming pool`, `sidewalk`)
+  with the same box: how the photo box-to-add prompts today.
+* **Phrase alone**: the five phrases, no click; every instance on the lot is matched to the truth at
+  IoU 0.5 or more.
+
+The hand bound is the engineer's own careful trace on the same view: one pixel on every edge.
+
+**County ortho (7.8 cm), 35 parcels.**
+
+Columns: *items*: truth items in the views; *drafted*: drafts (prompted) or drafts matched to a
+truth item at IoU 0.5 or more (no click); *misses*: items with no draft, with the refusal codes
+(SITE-003 nothing at the prompt, -004 at the picture's edge, -005 under 3 m2); *false*: drafts on
+the lot matching no county item; *signed* / *abs*: area against the county's; *IoU*: overlap with
+the county outline; *hand bound*: one pixel on every edge of the county outline
+(`traced.expected_error_pct`); *corners*: per draft.
+
+| Setup | Family | Items | Drafted | Misses (codes) | False | Mean signed % | Mean abs % | Median abs % | P90 abs % | Mean IoU | Hand bound % | Corners |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| Box alone | all | 90 | 90 | 0 | 0 | 0.0 | 20.8 | 13.6 | 47.0 | 0.67 | 5.9 | 18 |
+| Box alone | driveway | 35 | 35 | 0 | 0 | -8.7 | 17.4 | 11.8 | 33.1 | 0.71 | 4.8 | 23 |
+| Box alone | patio | 21 | 21 | 0 | 0 | 1.8 | 26.7 | 22.8 | 46.0 | 0.58 | 6.6 | 13 |
+| Box alone | deck | 25 | 25 | 0 | 0 | 8.7 | 16.3 | 14.0 | 28.0 | 0.68 | 7.4 | 14 |
+| Box alone | pool | 8 | 8 | 0 | 0 | -11.4 | 19.5 | 11.5 | 53.1 | 0.76 | 3.1 | 23 |
+| Click alone | all | 90 | 68 | 22 (SITE-003 10, SITE-004 2, SITE-005 10) | 0 | 7.8 | 76.8 | 33.8 | 93.3 | 0.47 | 5.9 | 14 |
+| Click alone | driveway | 35 | 31 | 4 (SITE-003 2, SITE-004 2) | 0 | -38.9 | 38.9 | 29.4 | 85.7 | 0.53 | 4.8 | 16 |
+| Click alone | patio | 21 | 14 | 7 (SITE-003 6, SITE-005 1) | 0 | 16.6 | 79.6 | 40.0 | 128.7 | 0.44 | 6.6 | 12 |
+| Click alone | deck | 25 | 14 | 11 (SITE-003 2, SITE-005 9) | 0 | 141.2 | 171.2 | 28.0 | 560.1 | 0.45 | 7.4 | 14 |
+| Click alone | pool | 8 | 8 | 0 | 0 | -60.7 | 60.7 | 60.2 | 91.8 | 0.39 | 3.1 | 15 |
+| Phrase and box | all | 90 | 90 | 0 | 0 | -4.6 | 18.6 | 13.3 | 45.7 | 0.69 | 5.9 | 16 |
+| Phrase and box | driveway | 35 | 35 | 0 | 0 | -16.2 | 18.1 | 11.2 | 40.7 | 0.72 | 4.8 | 20 |
+| Phrase and box | patio | 21 | 21 | 0 | 0 | 6.5 | 23.6 | 18.6 | 48.5 | 0.63 | 6.6 | 12 |
+| Phrase and box | deck | 25 | 25 | 0 | 0 | 4.7 | 16.2 | 13.4 | 24.6 | 0.67 | 7.4 | 13 |
+| Phrase and box | pool | 8 | 8 | 0 | 0 | -5.3 | 10.5 | 10.4 | 19.8 | 0.84 | 3.1 | 23 |
+| Phrase alone (no click) | all | 90 | 35 | 55 (not found 55) | 14 | -21.8 | 22.1 | 19.3 | 42.5 | 0.71 | 5.9 | 18 |
+| Phrase alone (no click) | driveway | 35 | 24 | 11 (not found 11) | 7 | -26.0 | 26.0 | 27.7 | 42.7 | 0.69 | 4.8 | 19 |
+| Phrase alone (no click) | patio | 21 | 3 | 18 (not found 18) | 2 | -15.6 | 17.8 | 6.4 | 36.2 | 0.72 | 6.6 | 13 |
+| Phrase alone (no click) | deck | 25 | 5 | 20 (not found 20) | 0 | -8.9 | 9.4 | 1.9 | 25.3 | 0.72 | 7.4 | 13 |
+| Phrase alone (no click) | pool | 8 | 3 | 5 (not found 5) | 1 | -16.0 | 16.0 | 6.3 | 31.6 | 0.82 | 3.1 | 25 |
+
+
+**Google straight-down, 8 parcels, as recorded.**
+
+Columns: *items*: truth items in the views; *drafted*: drafts (prompted) or drafts matched to a
+truth item at IoU 0.5 or more (no click); *misses*: items with no draft, with the refusal codes
+(SITE-003 nothing at the prompt, -004 at the picture's edge, -005 under 3 m2); *false*: drafts on
+the lot matching no county item; *signed* / *abs*: area against the county's; *IoU*: overlap with
+the county outline; *hand bound*: one pixel on every edge of the county outline
+(`traced.expected_error_pct`); *corners*: per draft.
+
+| Setup | Family | Items | Drafted | Misses (codes) | False | Mean signed % | Mean abs % | Median abs % | P90 abs % | Mean IoU | Hand bound % | Corners |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| Box alone | all | 19 | 19 | 0 | 0 | -8.6 | 23.0 | 26.0 | 46.6 | 0.62 | 5.2 | 18 |
+| Box alone | driveway | 8 | 8 | 0 | 0 | -25.6 | 26.3 | 20.9 | 61.1 | 0.62 | 5.1 | 15 |
+| Box alone | patio | 5 | 5 | 0 | 0 | 4.3 | 16.8 | 14.8 | 29.2 | 0.62 | 5.9 | 18 |
+| Box alone | deck | 4 | 4 | 0 | 0 | 16.1 | 24.0 | 26.1 | 27.5 | 0.62 | 5.6 | 17 |
+| Box alone | pool | 2 | 2 | 0 | 0 | -22.5 | 22.5 | 22.5 | 40.4 | 0.65 | 2.9 | 34 |
+| Click alone | all | 19 | 16 | 3 (SITE-003 3) | 0 | 55.5 | 141.3 | 60.7 | 423.2 | 0.40 | 5.2 | 14 |
+| Phrase and box | all | 19 | 19 | 0 | 0 | -8.0 | 23.6 | 23.5 | 47.3 | 0.64 | 5.2 | 20 |
+| Phrase alone (no click) | all | 19 | 4 | 15 (not found 15) | 2 | -28.8 | 28.8 | 28.4 | 32.3 | 0.66 | 5.2 | 10 |
+
+**The same, each parcel's areas corrected by the other parcels' median k.**
+
+Columns: *items*: truth items in the views; *drafted*: drafts (prompted) or drafts matched to a
+truth item at IoU 0.5 or more (no click); *misses*: items with no draft, with the refusal codes
+(SITE-003 nothing at the prompt, -004 at the picture's edge, -005 under 3 m2); *false*: drafts on
+the lot matching no county item; *signed* / *abs*: area against the county's; *IoU*: overlap with
+the county outline; *hand bound*: one pixel on every edge of the county outline
+(`traced.expected_error_pct`); *corners*: per draft.
+
+| Setup | Family | Items | Drafted | Misses (codes) | False | Mean signed % | Mean abs % | Median abs % | P90 abs % | Mean IoU | Hand bound % | Corners |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| Box alone | all | 19 | 19 | 0 | 0 | -4.7 | 24.5 | 27.4 | 44.3 | 0.62 | 5.2 | 18 |
+| Click alone | all | 19 | 16 | 3 (SITE-003 3) | 0 | 62.1 | 145.1 | 59.0 | 441.0 | 0.40 | 5.2 | 14 |
+| Phrase and box | all | 19 | 19 | 0 | 0 | -4.1 | 24.8 | 23.3 | 44.9 | 0.64 | 5.2 | 20 |
+| Phrase alone (no click) | all | 19 | 4 | 15 (not found 15) | 2 | -25.8 | 25.8 | 25.3 | 29.5 | 0.66 | 5.2 | 10 |
+
+
+**Federal NAIP Plus (0.6 m), 35 parcels.**
+
+Columns: *items*: truth items in the views; *drafted*: drafts (prompted) or drafts matched to a
+truth item at IoU 0.5 or more (no click); *misses*: items with no draft, with the refusal codes
+(SITE-003 nothing at the prompt, -004 at the picture's edge, -005 under 3 m2); *false*: drafts on
+the lot matching no county item; *signed* / *abs*: area against the county's; *IoU*: overlap with
+the county outline; *hand bound*: one pixel on every edge of the county outline
+(`traced.expected_error_pct`); *corners*: per draft.
+
+| Setup | Family | Items | Drafted | Misses (codes) | False | Mean signed % | Mean abs % | Median abs % | P90 abs % | Mean IoU | Hand bound % | Corners |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| Box alone | all | 90 | 90 | 0 | 0 | 33.1 | 43.8 | 30.2 | 76.1 | 0.54 | 40.8 | 46 |
+| Click alone | all | 90 | 71 | 19 (SITE-003 19) | 0 | 245.9 | 293.7 | 68.1 | 677.1 | 0.31 | 40.8 | 43 |
+| Phrase and box | all | 90 | 90 | 0 | 0 | 23.5 | 37.4 | 24.4 | 65.5 | 0.56 | 40.8 | 43 |
+| Phrase alone (no click) | all | 90 | 1 | 89 (not found 89) | 3 | -42.6 | 42.6 | 42.6 | 42.6 | 0.60 | 40.8 | 36 |
+
+
+Paired on the same county items: box alone against phrase and box, the absolute error differs by a
+median of 0.3 points (the box better on 49 of 90); box against click, the box is better on 52 of the
+68 items both drafted, by a median of 21.6 points.
+
+What it says:
+
+* **A box is the prompt.** On the sharp county ortho, a box alone drafts every item, unbiased
+  overall (mean signed 0.0 %), median 13.6 % absolute, IoU 0.67; driveways median 11.8 % (signed
+  -8.7 %), decks 14.0 % (+8.7 %), pools 11.5 %, patios 22.8 %. Adding the phrase changes nothing
+  beyond the noise (median 13.3 %, IoU 0.69) and pulls driveways 16 % low; a click alone is far
+  worse (median 34 %, 22 of 90 not drafted: nothing at the point, an outline at the picture's edge,
+  or one under 3 m2, often a parked car); a phrase with no click misses 55 of 90 items (24 of 35
+  driveways found, 3 of 21 patios, 5 of 25 decks) and adds 14 outlines that are no county item. The
+  research's ordering (boxes over points, text not helping from above) holds.
+* **The drafts are two to four times the truth's own edge effect and twice the hand bound.** The
+  county outlines sit about 0.1 to 0.2 m from the visible edge (a 3 to 6 % area effect, 106.1); the
+  drafts' median is 13.6 %; a careful hand trace's one-pixel bound is 5.9 %. A draft is a starting
+  outline the engineer corrects, not a measurement: the expected error each draft carries
+  (`METHOD_ERROR_PCT`) is the 90th percentile per family (driveway 33 %, deck 28 %, patio 46 %, pool
+  53 %), so the measure tool shows it as "up to" that.
+* **Google's straight-down view is worse than the county ortho for drafting** (median 26.0 % against
+  13.6 %, signed -8.6 %, IoU 0.62): the September 2025 capture is leaf-on with long shadows across
+  the drives, cars parked on them and three years of change since the 2022/2023 truth; the box still
+  drafts every item.
+* **The federal 0.6 m view cannot be drafted on**: median 30 % with the box (the hand bound itself
+  is 41 %: one 0.6 m pixel all round), and the phrases find 1 item of 90. Refused (`BASIS-SITE-002`)
+  above `SITE_DRAFT_MAX_PIXEL_M`, 0.16 m: the registry's sharp class. Between 8.4 cm (measured,
+  usable) and 0.6 m (measured, not) nothing was tested; 15 cm state orthos (MD, NC, IL, PA and
+  others) are inside the limit on that untested ground.
+
+### 106.4 Simplifying the outline
+
+Every draft rebuilt from the same recorded masks at each Douglas-Peucker tolerance (on the ground),
+box alone:
+
+| Tolerance m | View | Items | Drafted | Mean abs % | Median abs % | P90 abs % | Mean IoU | Corners |
+|---|---|---|---|---|---|---|---|---|
+| 0 | county | 90 | 90 | 21.0 | 14.7 | 48.1 | 0.666 | 282 |
+| 0 | naip | 90 | 90 | 43.8 | 30.2 | 76.1 | 0.545 | 57 |
+| 0 | google | 19 | 19 | 23.5 | 24.9 | 46.7 | 0.621 | 327 |
+| 0.08 | county | 90 | 90 | 21.0 | 14.7 | 47.9 | 0.666 | 92 |
+| 0.08 | naip | 90 | 90 | 43.8 | 30.2 | 76.1 | 0.545 | 57 |
+| 0.08 | google | 19 | 19 | 23.5 | 24.8 | 46.7 | 0.620 | 82 |
+| 0.15 | county | 90 | 90 | 20.9 | 14.6 | 48.1 | 0.667 | 35 |
+| 0.15 | naip | 90 | 90 | 43.8 | 30.2 | 76.1 | 0.545 | 57 |
+| 0.15 | google | 19 | 19 | 23.7 | 25.0 | 46.7 | 0.621 | 33 |
+| 0.23 | county | 90 | 90 | 21.0 | 15.2 | 46.9 | 0.667 | 23 |
+| 0.23 | naip | 90 | 90 | 43.8 | 30.2 | 76.1 | 0.545 | 57 |
+| 0.23 | google | 19 | 19 | 23.6 | 22.9 | 46.6 | 0.622 | 21 |
+| 0.3 | county | 90 | 90 | 20.8 | 13.6 | 47.0 | 0.668 | 18 |
+| 0.3 | naip | 90 | 90 | 43.8 | 30.2 | 76.1 | 0.544 | 46 |
+| 0.3 | google | 19 | 19 | 23.0 | 26.0 | 46.6 | 0.623 | 18 |
+| 0.45 | county | 90 | 90 | 20.7 | 13.8 | 49.9 | 0.667 | 14 |
+| 0.45 | naip | 90 | 90 | 44.0 | 29.4 | 76.6 | 0.545 | 24 |
+| 0.45 | google | 19 | 19 | 23.2 | 23.1 | 47.1 | 0.625 | 14 |
+| 0.6 | county | 90 | 90 | 20.6 | 13.6 | 49.8 | 0.663 | 14 |
+| 0.6 | naip | 90 | 90 | 44.3 | 31.1 | 76.0 | 0.545 | 15 |
+| 0.6 | google | 19 | 19 | 23.4 | 18.3 | 47.1 | 0.614 | 11 |
+
+From 0 to 0.6 m the mean area error and the overlap stay within 0.4 points and 0.005 (the median
+within 1.6 points), while the corners fall from 282 to 14 a county draft: the tolerance only decides
+how many handles the engineer drags. 0.3 m (about 4 pixels) is the default: 18 corners, the best
+median on the county view, and about 1.5 times the truth's typical edge offset (0.19 m).
+
+### 106.5 M2v: a vision model says what and where
+
+**Setup.** `site_items/v1` (`basis/prompts/site_items/v1.md`): the picture SAM 3 saw (the same crop,
+up to 1,008 px), the families with their definitions, a tight box per item in thousandths, a
+confidence; structured output (`site_items.Proposal`), through the production pool and `call_model`,
+every call in the run's ledger. The two models are the two Azure OpenAI deployments configured in
+`backEnd/.env`: `gpt-4o-mini` (the deployment answers as `gpt-4.1-mini-2025-04-14`, temperature 0)
+and `gpt-5-nano` (answers as `gpt-5-nano-2025-08-07`, reasoning effort low, the production vision
+step's effort; Azure API version 2025-04-01-preview for the run, the .env's 2024-08-01-preview
+refuses `reasoning_effort`). Production's own vision models (gpt-6.1-sol, Claude) are not configured
+on this machine and were not run. Each proposed box then went to SAM 3 alone (the M2 default). A
+second, free variant keeps only the families the model named and lets SAM 3's phrases find them
+("the model says what").
+
+**Found without a click, county ortho (35 parcels): the two models and the phrases alone.**
+
+Columns: *items*: truth items in the views; *drafted*: drafts (prompted) or drafts matched to a
+truth item at IoU 0.5 or more (no click); *misses*: items with no draft, with the refusal codes
+(SITE-003 nothing at the prompt, -004 at the picture's edge, -005 under 3 m2); *false*: drafts on
+the lot matching no county item; *signed* / *abs*: area against the county's; *IoU*: overlap with
+the county outline; *hand bound*: one pixel on every edge of the county outline
+(`traced.expected_error_pct`); *corners*: per draft.
+
+| Setup | Family | Items | Drafted | Misses (codes) | False | Mean signed % | Mean abs % | Median abs % | P90 abs % | Mean IoU | Hand bound % | Corners |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| gpt-4o-mini boxes, then SAM 3 | all | 90 | 3 | 87 (not found 87) | 92 | -21.6 | 21.6 | 13.0 | 40.2 | 0.73 | 5.9 | 12 |
+| gpt-5-nano boxes, then SAM 3 | all | 90 | 5 | 85 (not found 85) | 61 | -8.8 | 31.6 | 29.9 | 48.0 | 0.68 | 5.9 | 33 |
+| gpt-4o-mini says what, SAM 3 phrases find it | all | 90 | 31 | 59 (not found 59) | 14 | -23.3 | 23.3 | 21.0 | 41.8 | 0.71 | 5.9 | 19 |
+| gpt-5-nano says what, SAM 3 phrases find it | all | 90 | 30 | 60 (not found 60) | 13 | -23.1 | 23.4 | 23.8 | 41.9 | 0.70 | 5.9 | 17 |
+| Phrase alone (no click) | all | 90 | 35 | 55 (not found 55) | 14 | -21.8 | 22.1 | 19.3 | 42.5 | 0.71 | 5.9 | 18 |
+
+
+**Found without a click, Google straight-down (8 parcels): the two models and the phrases alone.**
+
+Columns: *items*: truth items in the views; *drafted*: drafts (prompted) or drafts matched to a
+truth item at IoU 0.5 or more (no click); *misses*: items with no draft, with the refusal codes
+(SITE-003 nothing at the prompt, -004 at the picture's edge, -005 under 3 m2); *false*: drafts on
+the lot matching no county item; *signed* / *abs*: area against the county's; *IoU*: overlap with
+the county outline; *hand bound*: one pixel on every edge of the county outline
+(`traced.expected_error_pct`); *corners*: per draft.
+
+| Setup | Family | Items | Drafted | Misses (codes) | False | Mean signed % | Mean abs % | Median abs % | P90 abs % | Mean IoU | Hand bound % | Corners |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| gpt-4o-mini boxes, then SAM 3 | all | 19 | 0 | 19 (not found 19) | 13 |  |  |  |  |  | 5.2 |  |
+| gpt-5-nano boxes, then SAM 3 | all | 19 | 2 | 17 (not found 17) | 5 | -12.8 | 12.8 | 12.8 | 14.0 | 0.70 | 5.2 | 18 |
+| gpt-4o-mini says what, SAM 3 phrases find it | all | 19 | 3 | 16 (not found 16) | 1 | -30.2 | 30.2 | 29.2 | 32.8 | 0.64 | 5.2 | 11 |
+| gpt-5-nano says what, SAM 3 phrases find it | all | 19 | 2 | 17 (not found 17) | 2 | -26.3 | 26.3 | 26.3 | 27.4 | 0.71 | 5.2 | 6 |
+| Phrase alone (no click) | all | 19 | 4 | 15 (not found 15) | 2 | -28.8 | 28.8 | 28.4 | 32.3 | 0.66 | 5.2 | 10 |
+
+
+**Found without a click, federal 0.6 m (35 parcels): the two models and the phrases alone.**
+
+Columns: *items*: truth items in the views; *drafted*: drafts (prompted) or drafts matched to a
+truth item at IoU 0.5 or more (no click); *misses*: items with no draft, with the refusal codes
+(SITE-003 nothing at the prompt, -004 at the picture's edge, -005 under 3 m2); *false*: drafts on
+the lot matching no county item; *signed* / *abs*: area against the county's; *IoU*: overlap with
+the county outline; *hand bound*: one pixel on every edge of the county outline
+(`traced.expected_error_pct`); *corners*: per draft.
+
+| Setup | Family | Items | Drafted | Misses (codes) | False | Mean signed % | Mean abs % | Median abs % | P90 abs % | Mean IoU | Hand bound % | Corners |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| gpt-4o-mini boxes, then SAM 3 | all | 90 | 0 | 90 (not found 90) | 67 |  |  |  |  |  | 40.8 |  |
+| gpt-5-nano boxes, then SAM 3 | all | 90 | 1 | 89 (not found 89) | 11 | 37.5 | 37.5 | 37.5 | 37.5 | 0.68 | 40.8 | 54 |
+| gpt-4o-mini says what, SAM 3 phrases find it | all | 90 | 1 | 89 (not found 89) | 3 | -42.6 | 42.6 | 42.6 | 42.6 | 0.60 | 40.8 | 36 |
+| gpt-5-nano says what, SAM 3 phrases find it | all | 90 | 0 | 90 (not found 90) | 1 |  |  |  |  |  | 40.8 |  |
+| Phrase alone (no click) | all | 90 | 1 | 89 (not found 89) | 3 | -42.6 | 42.6 | 42.6 | 42.6 | 0.60 | 40.8 | 36 |
+
+
+Columns: per property, from the runs' ledgers: dollars (SAM 3 at $0.000975 a billed second on
+Replicate's L40S; the vision call at the price table, priced on the model that answered); tokens of
+the vision call; SAM 3's billed seconds; the vision call's wall time.
+
+| View | Setup | Properties | $ / property | Input tokens | Output tokens | SAM 3 s | Model s |
+|---|---|---|---|---|---|---|---|
+| county | SAM 3, every M2 prompt of the view in one call (eval) | 36 | 0.00106 | 0 | 0 | 1.09 | 0.00 |
+| county | gpt-5-nano, then SAM 3 on its boxes | 36 | 0.00081 | 1,500 | 675 | 0.48 | 5.17 |
+| county | gpt-4o-mini, then SAM 3 on its boxes | 36 | 0.00132 | 1,526 | 102 | 0.56 | 2.34 |
+| naip | SAM 3, every M2 prompt of the view in one call (eval) | 36 | 0.00064 | 0 | 0 | 0.66 | 0.00 |
+| naip | gpt-5-nano, then SAM 3 on its boxes | 36 | 0.00027 | 659 | 312 | 0.12 | 2.50 |
+| naip | gpt-4o-mini, then SAM 3 on its boxes | 36 | 0.00079 | 680 | 117 | 0.34 | 1.80 |
+| google | SAM 3, every M2 prompt of the view in one call (eval) | 8 | 0.00097 | 0 | 0 | 1.00 | 0.00 |
+| google | gpt-5-nano, then SAM 3 on its boxes | 8 | 0.00063 | 1,470 | 570 | 0.34 | 6.36 |
+| google | gpt-4o-mini, then SAM 3 on its boxes | 8 | 0.00075 | 932 | 45 | 0.31 | 1.73 |
+
+* **Neither model can place a box.** Their boxes land beside the items (a driveway box covering a
+  third of the driveway and the lawn, a "patio" where the deck is, fences and walks on every lot),
+  so SAM 3 rarely finds an instance overlapping the box at 0.5: 3 (gpt-4o-mini) and 5 (gpt-5-nano)
+  of 90 county items drafted, with 92 and 61 outlines that are no county item. Saying only *what*
+  (and letting SAM 3's phrases find *where*) drafts 30 to 31 of 90, no better than the phrases alone
+  (35), because the phrases are what fails: decks and patios.
+* M2v as specified does not work with these two models. It is not shipped; the prompt, the schema
+  and the box conversion are kept for a stronger model (not tested here).
+
+### 106.6 Fences
+
+No public fence layer was found for the parcels, so this is a probe (`evals.site_fence`), not a
+scored method: on the county view, `fence` with no click, and `fence` with positive points every 4 m
+along the lot line (the prior, at most 24 points), confidence floor 0.4.
+
+| Prompt | Lots with an instance | Lot line in the pictures m | Within 1 m of a mask m | Share |
+|---|---|---|---|---|
+| `fence`, no click | 0 of 36 | 6,108 | 0 | 0.0 % |
+| `fence` with points along the lot line | 36 of 36 | 6,108 | 4,846 | 79.3 % |
+
+* **SAM 3 sees no fence from above**: the phrase alone returned nothing on any of 36 lots (the
+  picture has fences on several, read by eye).
+* **The lot-line prior only echoes itself**: with points along the lot line SAM 3 returns whatever
+  lies under them (trees, lawn, the sidewalk), so 79 % of the lot line is "confirmed", which
+  measures the prior, not a fence (the montage, read by eye, shows no fence outlined).
+* Verdict: **fails**. A fence is refused (`BASIS-SITE-008`); its length stays the engineer's (the
+  lot line in the diagram, EVAL 104.1, is the tracing aid), confirmed from street level or the
+  photos.
+
+### 106.7 What shipped
+
+* `basis/vision/site_items.py`: `draft_site_items` (one SAM 3 call for every prompt of a view; a
+  draft or a refusal per prompt), `draft_if_enabled` (nothing, no call, unless `SITE_DRAFTS=on`),
+  `mask_to_ring`, the two georeferences and crops, the measurement body, the refusals
+  `BASIS-SITE-001` to `-008` (catalogued), `Proposal` and `proposal_prompts`. A draft is a
+  `traced.measure` body with `drawn_by: model:sam3@site-v1`, `verified: false`, the view and the
+  imagery date, its quantity and the expected error (the larger of the one-pixel bound and the
+  family's measured 90th percentile).
+* `basis/vision/localize.py`: `VisualPrompt` and `run_prompts` on both SAM 3 clients (a phrase,
+  boxes or points in any combination, raw instances back); nothing that existed changed.
+* Settings (`config.py`, `.env.example`): `SITE_DRAFTS` off, `SITE_DRAFT_MAX_PIXEL_M` 0.16,
+  `SITE_DRAFT_CAPTURE_SCALE` 1.0 (the measured 1.02 is not applied by default, 106.2).
+* Nothing calls it: no activity, route or workflow change; today's priced path is untouched.
+* The centred georeference inverts `traced`'s own tangent plane (the WGS84 radii of curvature);
+  found in passing, `basis.capture.frame.lonlat_at` converts a capture's pixels on a sphere of the
+  equatorial radius, 0.1 % long east-west and 0.3 % short north-south at 39 degrees (not changed
+  here).
+
+Tests (`backEnd/tests/LEDGER.md`): `tests/unit/vision/test_site_items.py` 36,
+`tests/unit/evals/test_site_eval.py` 13; the unit suite 6,430 passed, 17 skipped (provider keys
+unset, Postgres on the local server).
+
+### 106.8 Verified, and not
+
+**Verified.** The truth files load and record their check; the drafts are the production function's
+(rebuilt from recorded masks); every paid call is in a run's ledger; Google's view was captured by
+the production runner with no block signal and no sign-in; the georeferences round-trip in unit
+tests; the setting is off by default and makes no call when off.
+
+**Not verified, or suspected only.**
+
+* The truth's own accuracy beyond its edges' agreement with the picture (106.1); the layers state
+  none. 75 of 90 outlines were last drawn from stereo models of 2007 to 2017.
+* One county (Fairfax), suburban detached houses; no parking lots, pool decks or walks to speak of
+  (one walk); no commercial property.
+* Google: 8 parcels, one capture date (leaf-on, 2025), registered by image correlation with low
+  scores (0.08 to 0.26); the scale `k` rests on 8 parcels and tree crowns bias it low.
+* Pixel sizes between 8.4 cm and 0.6 m were not tested; the 0.16 m limit is the registry's sharp
+  class, not a measured threshold.
+* M2v only with the two small Azure deployments; the production vision models were not run.
+* The engineer's time to correct a draft against tracing from scratch (the product metric) was not
+  measured; nothing was shown to an engineer.
+* Fences: no truth; the verdict is a probe read by eye.
+
+**Cost.** $0.45 of the $4 budget, from the ledgers: $0.31 SAM 3 (localization rows), $0.14 the two
+vision models (chat rows). Of it $0.24 is the scored runs (county and federal $0.176, Google $0.019,
+fence $0.037), $0.18 the superseded first runs (the centroid fault, 106.1) and $0.01 smoke tests. 25
+Google page loads in the day (8 here), no sign-in, no block signal.
+
+**Run records.** `$BASIS_EVAL_DATA_DIR/verification/site_drafts/v1/` (the paid runs:
+`site_drafts_v2_2026-11-25`, county and federal views; `site_drafts_v2g_2026-11-25` and
+`site_drafts_v2g2_2026-11-25`, Google; `site_fence_v2_2026-11-25`) and
+`verification/measure_eval/v1/` (the scoring: `measure_eval_site_2026-11-25`, 19 cases passed);
+`python -m evals.registry --component site_drafts` and `--component measure_eval` list them. Views,
+overlays and registrations under `$BASIS_EVAL_DATA_DIR/site_truth/`; captures under
+`measure_truth/captures/`.
+
+**Open.** A second county (Peoria IL's driveways and sidewalks with the 15 cm IL ortho); the
+engineer's edit time per draft; a stronger vision model for M2v; Google's pixel size on more parcels
+and leaf-off dates; wiring the drafts into the assets review behind the setting (plan step 6).
+
 ## 108. M5, a vision model asked for each exterior quantity: the floor every measuring method must beat (2026-11-25)
 
 **Answer first.** Asked directly, with the Google straight-down view (a scale bar drawn on it),

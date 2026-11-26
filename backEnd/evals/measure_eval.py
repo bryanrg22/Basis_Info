@@ -69,6 +69,8 @@ from basis.llm import prompts
 from basis.llm.errors import ProviderError
 from evals import measure_pixels, measure_points, measure_vlm, record
 from evals import measure_truth as mt
+from evals import site_score as ss
+from evals import site_truth as st
 
 COMPONENT: Final = "measure_eval"
 VERSION: Final = "v2"  # v2: the M1 setups and the paired tables (EVAL_REPORT 105)
@@ -87,7 +89,17 @@ QUANTITIES: Final[dict[str, str]] = {
     "roof_plan_sf": "roof outline in plan, overhang included (SF)",
     "roof_area_sf": "roof surface (SF)",
     "gutter_ft": "eave (gutter) length (LF)",
+    # Site items (EVAL_REPORT 106): one outline each, scored per item by evals.site_score.
+    "driveway_sf": "driveway, one outline (SF)",
+    "patio_sf": "patio, one outline (SF)",
+    "deck_sf": "deck, one outline (SF)",
+    "pool_sf": "pool as the county drew it (SF)",
+    "walk_sf": "walk on the lot (SF)",
 }
+SITE_FAMILIES: Final = ("driveway", "patio", "deck", "pool", "walk")
+# Douglas-Peucker tolerances on the ground (m): 0, then about 1, 2, 3, 4, 6 and 8 pixels at
+# the county view's 7.8 cm.
+SITE_TOLERANCES: Final = (0.0, 0.08, 0.15, 0.23, 0.3, 0.45, 0.6)
 
 
 @dataclass(frozen=True, slots=True)
@@ -1261,6 +1273,154 @@ def render(
     return "\n".join(lines) + "\n"
 
 
+# ------------------------------------------------------------------ site items (EVAL 106)
+
+
+def site_results(
+    root: Sequence[Path], truth_dir: Path, fence: Path | None
+) -> tuple[str, dict[str, Any]]:
+    """Every site-item table of EVAL_REPORT 106 from a ``site_draft_run`` directory."""
+    parcels = st.load_all(truth_dir)
+    dropped = {p.id: c.note for p in parcels for c in p.checks.values() if c.status == "dropped"}
+    truth = {p.id: p for p in parcels if p.id not in dropped}
+    scored = ss.score_all(root, truth)
+    regs = ss.registrations(root)
+    loo = ss.leave_one_out_k(regs)
+    corrected = ss.with_parcel_scale(scored, loo)
+    summary = ss.summarize(scored, SITE_FAMILIES)
+    google_corrected = [r for r in ss.summarize(corrected, SITE_FAMILIES) if r["view"] == "google"]
+    sweep = []
+    for tol in SITE_TOLERANCES:
+        rows = ss.summarize(
+            [s for s in ss.score_all(root, truth, tolerance_m=tol) if s.method == "box"],
+            SITE_FAMILIES,
+        )
+        sweep += [{"tolerance_m": tol, **r} for r in rows if r["family"] == "all"]
+    lines = ["## Site items (EVAL_REPORT 106)", ""]
+    lines += [
+        f"Parcels scored: {len(truth)} of {len(parcels)} "
+        f"(dropped: {', '.join(f'{k} ({v})' for k, v in sorted(dropped.items())) or 'none'}).",
+        "",
+    ]
+    edges = ss.truth_edges(root, truth)
+    if edges:
+        lines += [
+            "### The truth's own edges (the county outline against the county picture)",
+            "",
+            "Columns: *offset*: where the picture's strongest edge lies against the county's "
+            "outline (positive: outside it, the outline drawn small), median and the median "
+            "of its size; *area effect*: that offset all round as a share of the item's area "
+            "(signed median, and the 90th percentile of its size): the truth's own error.",
+            "",
+            "| Family | Items | Median offset m | Median abs offset m | Median area effect % | "
+            "P90 abs area effect % |",
+            "|---|---|---|---|---|---|",
+        ]
+        for family in ("all", *SITE_FAMILIES):
+            mine = [e for e in edges if family == "all" or e["family"] == family]
+            if not mine:
+                continue
+            effects = sorted(abs(e["area_effect_pct"]) for e in mine)
+            lines.append(
+                f"| {family} | {len(mine)} | "
+                f"{statistics.median(e['offset_m'] for e in mine):.2f} | "
+                f"{statistics.median(abs(e['offset_m']) for e in mine):.2f} | "
+                f"{statistics.median(e['area_effect_pct'] for e in mine):.1f} | "
+                f"{ss.percentile(effects, 90):.1f} |"
+            )
+        lines.append("")
+    for view in ("county", "google", "naip"):
+        mine = [r for r in summary if r["view"] == view]
+        if mine:
+            lines.append(ss.render_summary(mine, f"{ss.VIEWS[view]}, as recorded"))
+    if google_corrected:
+        lines.append(
+            ss.render_summary(
+                google_corrected,
+                "Google straight-down capture, areas corrected by the other parcels' median k",
+            )
+        )
+    if regs:
+        lines += [
+            "### Google's ground pixel against the county ortho (evals.site_register)",
+            "",
+            "Columns: *k*: Google's ground pixel over its recorded one (1: right; above 1 a "
+            "traced length reads short); *score*: the normalized cross-correlation at the best "
+            "fit; *k used*: the median of the other parcels (the correction scored above).",
+            "",
+            "| Parcel | Imagery date | k | Score | k used |",
+            "|---|---|---|---|---|",
+        ]
+        for r in regs:
+            lines.append(
+                f"| {r['parcel']} | {r['imagery_date'] or ''} | {r['k']:.4f} | "
+                f"{r['score']:.3f} | {loo[r['parcel']]:.4f} |"
+            )
+        ks = [r["k"] for r in regs]
+        lines += [
+            "",
+            f"Median k {statistics.median(ks):.4f}, mean {statistics.fmean(ks):.4f}, SD "
+            f"{statistics.stdev(ks) if len(ks) > 1 else 0:.4f} over {len(ks)} parcels.",
+            "",
+        ]
+    lines += [
+        "### Douglas-Peucker tolerance (box alone, every view)",
+        "",
+        "Columns: as above; *tolerance*: on the ground, in metres.",
+        "",
+        "| Tolerance m | View | Items | Drafted | Mean abs % | Median abs % | P90 abs % | "
+        "Mean IoU | Corners |",
+        "|---|---|---|---|---|---|---|---|---|",
+    ]
+    for r in sweep:
+        lines.append(
+            f"| {r['tolerance_m']:g} | {r['view']} | {r['items']} | {r['drafted']} | "
+            f"{_g(r['mean_abs_pct'])} | {_g(r['median_abs_pct'])} | {_g(r['p90_abs_pct'])} | "
+            f"{_g(r['mean_iou'], 3)} | {_g(r['mean_corners'], 0)} |"
+        )
+    lines += ["", ss.render_costs(ss.costs(root))]
+    fence_rows = None
+    if fence is not None and (fence / "fence_rows.json").is_file():
+        fence_rows = json.loads((fence / "fence_rows.json").read_text())
+        lines += [
+            "### Fence probe (evals.site_fence, county view)",
+            "",
+            "Columns: *parcels with an instance*: parcels where SAM 3 returned any instance; "
+            "*confirmed*: the lot line within 1 m of a returned mask, over the lot line in the "
+            "picture.",
+            "",
+            "| Prompt | Parcels with an instance | Lot line m | Confirmed m | Confirmed % |",
+            "|---|---|---|---|---|",
+        ]
+        for key, name in (
+            ("text", "'fence', no click"),
+            ("text_lot_points", "'fence' with points along the lot line"),
+        ):
+            total = sum(r[key]["lot_line_m"] for r in fence_rows)
+            near = sum(r[key]["confirmed_m"] for r in fence_rows)
+            hit = sum(1 for r in fence_rows if r[key]["instances"])
+            lines.append(
+                f"| {name} | {hit} of {len(fence_rows)} | {total:,.0f} | {near:,.0f} | "
+                f"{near / total * 100 if total else 0:.1f} |"
+            )
+        lines.append("")
+    result = {
+        "parcels": sorted(truth),
+        "dropped": dropped,
+        "summary": summary,
+        "google_corrected": google_corrected,
+        "registrations": regs,
+        "leave_one_out_k": loo,
+        "tolerance_sweep": sweep,
+        "truth_edges": edges,
+        "costs": ss.costs(root),
+        "ledger": ss.ledger_total(root),
+        "fence": fence_rows,
+        "scores": [{**asdict(s), "signed_pct": s.signed_pct} for s in scored],
+    }
+    return "\n".join(lines) + "\n", result
+
+
 def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(prog="python -m evals.measure_eval", description=__doc__)
     parser.add_argument("--out", type=Path, required=True, help="the run directory")
@@ -1274,6 +1434,11 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         help="per-house cached lidar points and footprints (measure_points): adds the M1 setups",
     )
     parser.add_argument("--dry-run", action="store_true", help="the synthetic house only")
+    parser.add_argument(
+        "--site", type=Path, action="append", help="a site_draft_run directory (EVAL 106)"
+    )
+    parser.add_argument("--site-truth", type=Path, default=st.FIXTURES, help="site truth files")
+    parser.add_argument("--fence", type=Path, help="a site_fence directory (EVAL 106.6)")
     parser.add_argument(
         "--m5",
         help="M5 setups, model:prompt pairs ('opus:plain,sol:*', '*'); paid calls",
@@ -1394,6 +1559,21 @@ def main(argv: Sequence[str] | None = None) -> int:
                 detail={"scores": len(mine), "houses": len({s.house for s in mine})},
             )
         text = render(houses, methods, scores, costs, lidar, pixels)
+        site: dict[str, Any] | None = None
+        if args.site is not None:
+            for k, site_dir in enumerate(args.site):
+                run.input(f"site_{k + 1}", site_dir)
+            for p in sorted(args.site_truth.glob("*.json")):
+                run.dataset(p, name=f"site_truth/{p.stem}")
+            site_text, site = site_results(args.site, args.site_truth, args.fence)
+            text += "\n" + site_text
+            for method in sorted({r["method"] for r in site["summary"]}):
+                rows = [r for r in site["summary"] if r["method"] == method]
+                run.case(
+                    f"site_method/{method}",
+                    "passed" if rows else "failed",
+                    detail={"views": sorted({r["view"] for r in rows})},
+                )
         if m5_setups:
             text += render_m5(houses, methods, scores, m5_outcomes, m5_setups)
         m3: dict[str, Any] | None = None
@@ -1413,6 +1593,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             "costs": costs,
             "lidar": lidar,
             "pixels": pixels,
+            "site": site,
             "paired_unchanged": paired(scores, houses, standing="unchanged"),
             "paired_all": paired(scores, houses, standing=None),
             "m5": [asdict(o) for o in m5_outcomes],
@@ -1430,6 +1611,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 "summary": summarize(scores),
                 "cost_usd": sum(c["cost_usd"] for c in costs)
                 + sum(r["cost_usd"] for r in (m3 or {}).get("rows", [])),
+                "site_parcels": None if site is None else len(site["parcels"]),
                 "tokens": sum((c["input_tokens"] or 0) + (c["output_tokens"] or 0) for c in costs)
                 or None,
             }
@@ -1461,6 +1643,7 @@ __all__ = [
     "render",
     "render_m5",
     "run_all",
+    "site_results",
     "run_m0",
     "run_m1",
     "score_house",
