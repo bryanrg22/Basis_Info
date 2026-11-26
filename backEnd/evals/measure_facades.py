@@ -105,6 +105,7 @@ PROMPTS: Final[dict[str, str]] = {
     "direct": "measure_facade_direct",
 }
 PROMPT_VERSION: Final = "v1"
+OUTCOMES_FILE: Final = "m3_outcomes.json"  # the paid answers, written as soon as they are back
 
 
 def data_root() -> Path:
@@ -124,8 +125,15 @@ class Draft:
     note: str = ""
 
 
-def _quad(d: Mapping[str, Sequence[float]]) -> fc.Quad:
-    return fc.Quad(*(tuple(float(v) for v in d[k][:2]) for k in ("bl", "br", "tr", "tl")))  # type: ignore[arg-type]
+def _point(p: Any) -> tuple[float, float]:
+    """``[x, y]`` (the clicks) or ``{"x": .., "y": ..}`` (a model's answer)."""
+    if isinstance(p, Mapping):
+        return float(p["x"]), float(p["y"])
+    return float(p[0]), float(p[1])
+
+
+def _quad(d: Mapping[str, Any]) -> fc.Quad:
+    return fc.Quad(_point(d["bl"]), _point(d["br"]), _point(d["tr"]), _point(d["tl"]))
 
 
 def draft_from_clicks(data: Mapping[str, Any], scale: float = 1.0) -> Draft:
@@ -986,6 +994,9 @@ def run_m3(args: Any, run: Any) -> tuple[str, dict[str, Any]] | None:
     from evals import measure_eval
 
     facades = ft.load_all(args.m3_truth)
+    if getattr(args, "m3_facades", None):
+        wanted = set(args.m3_facades.split(","))
+        facades = [f for f in facades if f.id in wanted]
     for path in sorted(args.m3_truth.glob("*.json")):
         run.dataset(path, name=f"measure_facades/{path.stem}")
     for f in facades:
@@ -1007,11 +1018,11 @@ def run_m3(args: Any, run: Any) -> tuple[str, dict[str, Any]] | None:
         for key in sorted({s.prompt for s in setups}):
             run.prompt(prompts.load(PROMPTS[key], PROMPT_VERSION))
         if args.m3_replay is not None:
-            recorded = json.loads((args.m3_replay / "measure_eval.json").read_text())
-            run.input("m3_replay", args.m3_replay / "measure_eval.json")
+            recorded = json.loads((args.m3_replay / OUTCOMES_FILE).read_text())
+            run.input("m3_replay", args.m3_replay / OUTCOMES_FILE)
             outcomes = [
                 Outcome(**o)
-                for o in (recorded.get("m3") or {}).get("outcomes", [])
+                for o in recorded
                 if o["setup"] in vlm
             ]
         else:
@@ -1040,6 +1051,10 @@ def run_m3(args: Any, run: Any) -> tuple[str, dict[str, Any]] | None:
                     seconds=round(o.seconds, 2),
                 )
             print(f"M3 spent ${budget.spent_usd:.4f} (ledger)", file=sys.stderr)
+            # Kept before scoring, so a scoring error never loses paid answers.
+            (args.out / OUTCOMES_FILE).write_text(
+                json.dumps([asdict(o) for o in outcomes], indent=1) + "\n", encoding="utf-8"
+            )
         rows += vlm_rows(facades, outcomes, m1)
     scores, counts = score_all(facades, rows)
     text = render(facades, rows, scores, counts, m1, vlm)

@@ -1317,6 +1317,7 @@ def m3_parser_arguments(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--m3-repeats", type=int, default=1)
     parser.add_argument("--m3-estimate", action="store_true", help="estimate M3, call nothing")
     parser.add_argument("--m3-replay", type=Path, help="a recorded run: rescore its M3 answers")
+    parser.add_argument("--m3-facades", help="comma-separated facade ids (default all)")
 
 
 def run_m3(args: argparse.Namespace, run: record.EvalRun) -> tuple[str, dict[str, Any]] | None:
