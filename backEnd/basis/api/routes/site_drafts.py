@@ -40,7 +40,13 @@ from typing import Annotated, Any, Final
 
 from fastapi import Depends, Request
 
-from basis.api.errors import Conflict, NotFound, ServiceUnavailable, TooManyRequests
+from basis.api.errors import (
+    Conflict,
+    NotFound,
+    ServiceUnavailable,
+    TooManyRequests,
+    Unprocessable,
+)
 from basis.api.ratelimit import WINDOW, RateLimiter, get_rate_limiter
 from basis.api.routes.common import problems, write_router
 from basis.api.schemas.site_drafts import DraftRefusalOut, SiteDraftIn, SiteDraftOut
@@ -310,6 +316,11 @@ async def draft_site_item(
     remaining = Decimal(str(settings.study_budget_usd)) - spent
     shown = _not_top_down(view, label)
     family = body.family
+    if view is not None and (body.box.x2 > view.width or body.box.y2 > view.height):
+        raise Unprocessable(
+            f"The box runs outside the {view.width} x {view.height} view: draw it on the picture.",
+            type_suffix="validation",
+        )
     prompt = si.SitePrompt(
         family,
         box=Box(

@@ -118,7 +118,11 @@ def app_api(
     localizer: Any,
     **overrides: Any,
 ) -> httpx.AsyncClient:
-    settings = api_settings(database_url, **{"site_drafts": "on", "geo_facade": True, **overrides})
+    # The drafts limit is raised out of the way (its own test sets it low, for its own user).
+    settings = api_settings(
+        database_url,
+        **{"site_drafts": "on", "geo_facade": True, "site_drafts_per_min": 120, **overrides},
+    )
     app = build_api_app(settings, sessionmaker, storage, verifier, localizer=localizer)
     return httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url=BASE_URL)
 
@@ -364,10 +368,53 @@ async def test_a_fence_and_a_coarse_view_are_refused_with_no_call(
     assert fence["refusal"]["message"].startswith("Fences are not drafted from above")
     public = await coarse_public_view(seed, storage, sid)
     coarse = (
-        await draft(on, sid, draft_body(asset, public, view={"kind": "public", "id": public}))
+        await draft(
+            on,
+            sid,
+            draft_body(
+                asset,
+                public,
+                view={"kind": "public", "id": public},
+                box={"x1": 20, "y1": 20, "x2": 120, "y2": 100},  # inside its 267 px
+            ),
+        )
     ).json()
     assert coarse["refusal"]["code"] == E.SITE_VIEW_TOO_COARSE
     assert "too coarse to draft on (about 60 cm a pixel)" in coarse["refusal"]["message"]
+    assert sam.calls == [] and await ledger(sessionmaker, sid) == []
+
+
+async def test_a_view_that_is_not_top_down_is_refused_with_no_call(
+    on: Api,
+    seed: Seed,
+    storage: LocalStorage,
+    sam: Sam,
+    sessionmaker: async_sessionmaker[AsyncSession],
+) -> None:
+    sid, asset, view = await at_assets(on, seed, storage)
+    async with session_scope(sessionmaker) as session:
+        row = await session.get(CaptureView, uuid.UUID(view))
+        assert row is not None
+        oblique = CaptureView(
+            **{
+                c.name: getattr(row, c.name)
+                for c in CaptureView.__table__.columns
+                if c.name not in ("id", "created_at")
+            }
+        )
+        oblique.kind, oblique.label, oblique.tilt_deg, oblique.heading_deg = (
+            "oblique",
+            "side-south",
+            60.0,
+            0.0,
+        )
+        oblique.pixel_size_m = None
+        session.add(oblique)
+        await session.flush()
+        oblique_id = str(oblique.id)
+    got = (await draft(on, sid, draft_body(asset, oblique_id))).json()
+    assert got["refusal"]["code"] == E.SITE_NOT_TOP_DOWN
+    assert got["refusal"]["message"].startswith("This picture is not a straight-down view")
     assert sam.calls == [] and await ledger(sessionmaker, sid) == []
 
 
@@ -450,6 +497,8 @@ async def test_roles_views_assets_and_the_gate(
     assert closed.status_code == 409 and closed.json()["code"] == E.MEASURE_GATE_NOT_OPEN
     bad_box = await draft(on, sid, draft_body(asset, view, box={**BOX, "x2": 90}))
     assert bad_box.status_code == 422
+    outside = await draft(on, sid, draft_body(asset, view, box={**BOX, "x2": W + 1}))
+    assert outside.status_code == 422 and "outside the 400 x 300 view" in outside.json()["detail"]
     assert sam.calls == []
 
 
@@ -491,10 +540,13 @@ async def test_drafts_a_minute_are_limited_per_person(
         database_url, sessionmaker, storage, verifier, sam, site_drafts_per_min=2
     ) as client:
         api = Api(client)
-        sid, asset, view = await at_assets(api, seed, storage)
+        rita = f"rita-{uuid.uuid4().hex[:8]}"  # a person of her own: the limit is per person
+        sid = await study_at(api, seed, Stage.ASSETS_REVIEW, revision=2, uid=rita)
+        asset = (await seed.outputs(sid, revision=2))["asset"]
+        view = await capture_view(seed, storage, sid)
         for _ in range(2):
-            assert (await draft(api, sid, draft_body(asset, view))).status_code == 200
-        third = await draft(api, sid, draft_body(asset, view))
+            assert (await draft(api, sid, draft_body(asset, view), uid=rita)).status_code == 200
+        third = await draft(api, sid, draft_body(asset, view), uid=rita)
         assert third.status_code == 429 and third.json()["code"] == E.MEASURE_DRAFTS_RATE_LIMITED
         assert int(third.headers["Retry-After"]) >= 1
     assert len(sam.calls) == 2

@@ -27,7 +27,7 @@ Engineers (a viewer is 403, a stranger 404), with an `Idempotency-Key` (every `P
 |---|---|
 | `asset_id` | The asset the draft is for (the paid call is recorded against it). |
 | `view` | `kind` `capture` (a view of `GET .../property`: the close aerial or a dated one) or `public` (a view of `GET .../property/public`), and its `id`. |
-| `box` | The box in the view's own pixels (x right, y down), 0 to 100,000, at least 4 pixels a side, left to right and top to bottom (422 otherwise). It is sent to SAM 3 as it is, normalized to the view. |
+| `box` | The box in the view's own pixels (x right, y down), 0 to 100,000, at least 4 pixels a side, left to right and top to bottom, inside the view's frame (422 otherwise). It is sent to SAM 3 as it is, normalized to the view. |
 | `family` | `driveway`, `parking`, `walk`, `patio`, `pool_deck`, `pool`, `deck` or `fence`. A fence is answered with the refusal `BASIS-SITE-008` and no call (EVAL_REPORT 106.6). |
 | `unit` | `SF` (default) or `SY`: the unit of the asset the draft is for; the same outline is measured in it. |
 
