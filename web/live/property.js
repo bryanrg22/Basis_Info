@@ -322,6 +322,8 @@
    if(!readOnly)sp.forEach((q,i)=>handles.push(handleSvg('mt-vertex is-scale',`data-mt-scale="${i}"`,q,hr,`End ${i+1} of the known length: drag it onto the object's end`)));
   }
   if(t.snapAt)out.push(`<circle class="mt-snap" cx="${f1(t.snapAt[0])}" cy="${f1(t.snapAt[1])}" r="${f1(hr*2.2)}"/>`);
+  // The box Draft it sends (EVAL_REPORT 111), while it is drawn and until the draft comes back.
+  if(t.box&&!readOnly){const [x1,y1,x2,y2]=t.box;out.push(`<rect class="mt-draftbox${t.drafting?' is-busy':''}" x="${f1(x1)}" y="${f1(y1)}" width="${f1(x2-x1)}" height="${f1(y2-y1)}" rx="${f1(2*k)}"/>`)}
   return `<g class="pa-traces mt-layer" data-mt-layer>${out.join('')}${dashed.join('')}${labels.join('')}${handles.join('')}</g>`;
  }
  // The box around a trace's shapes (and its original), in picture pixels, or null.
@@ -371,11 +373,11 @@
   const {r,html}=readoutHtml(t,v,c);
   const tools=[...(image?[['scale','Scale']]:[]),['area','Area'],['line','Line'],...(t.shapes.some(x=>x.kind==='area')?[['cutout','Cut out']]:[])];
   const orig=originalOf(t),base=t.base;
-  const hint=t.tool==='scale'?'Click the two ends of something whose length you know (a door, a cabinet), then type that length.':t.tool==='line'?'Click along the line; click the last point again (or press Enter) to finish it.':t.tool==='cutout'?'Click the corners of the part to leave out; click the first corner to close it.':'Click each corner; click the first corner to close the shape.';
+  const hint=t.tool==='box'?'Drag a box around the item on the picture, then press Draft it.':t.tool==='scale'?'Click the two ends of something whose length you know (a door, a cabinet), then type that length.':t.tool==='line'?'Click along the line; click the last point again (or press Enter) to finish it.':t.tool==='cutout'?'Click the corners of the part to leave out; click the first corner to close it.':'Click each corner; click the first corner to close the shape.';
   const scaleBlock=image?`<div class="mt-scale-box"><label>Known length <input data-mt-input="scale" data-mt-scope="${scope}" inputmode="decimal" value="${esc(t.scale.text||'')}" placeholder="e.g. 80 in" aria-describedby="mt-known-help"></label><p class="pa-muted" id="mt-known-help">${t.scale.points.length<2?'Choose Scale and click both ends of it on the photo.':Number(t.scale.length)>0?`Set: ${esc(PM.ftIn(Number(t.scale.length)))} between the two points. Drag either end to adjust.`:'Type the length between the two points.'}</p><div class="mt-known" role="group" aria-label="Common known lengths">${PM.KNOWN_LENGTHS.map(k=>`<button class="pa-chip" data-live="mt-known" data-value="${k.length} in" data-mt-scope="${scope}" title="${esc(k.note)}">${esc(k.label)} ${k.length} in</button>`).join('')}</div>${t.scaleError?`<p class="pa-problem" role="alert">${esc(t.scaleError)}</p>`:''}</div>`:'';
-  const prov=base?`<p class="mt-prov ${base.drawn_by&&base.drawn_by!=='engineer'?'is-draft':''}">${esc(PM.drawnByText(base.drawn_by))}${base.verified?' · verified':' · not verified'}${orig&&!t.fromBase?' · your edit replaces it; the original stays dashed on the picture':t.fromBase?' · check it, change what is wrong, then mark it verified':''}</p>`:'';
+  const prov=base?`<p class="mt-prov ${base.drawn_by&&base.drawn_by!=='engineer'?'is-draft':''}">${esc(PM.drawnByText(base.drawn_by))}${base.verified?' · verified':' · not verified'}${t.draftInfo?.expected?` · a starting outline, expected error up to ${esc(t.draftInfo.expected)} %`:''}${orig&&!t.fromBase?' · your edit replaces it; the original stays dashed on the picture':t.fromBase?' · check it, change what is wrong, then mark it verified':''}</p>`:'';
   const del=!!t.sel&&t.sel.scale===undefined;
-  return `${prov}<div class="pa-measure-row"><label>Unit <select data-mt-input="unit" data-mt-scope="${scope}">${['SF','SY','LF'].map(x=>`<option ${x===unit?'selected':''}>${x}</option>`).join('')}</select></label><div class="pa-seg" role="group" aria-label="Tool">${tools.map(([k,l])=>`<button data-live="pa-tool" data-value="${k}" data-mt-scope="${scope}" aria-pressed="${t.tool===k}" ${(unit==='LF'&&(k==='area'||k==='cutout'))||(!scaled&&k!=='scale')?'disabled':''}>${l}</button>`).join('')}</div><label class="pa-toggle mt-snap-toggle"><input type="checkbox" data-mt-input="snap" data-mt-scope="${scope}" ${t.snap!==false?'checked':''}> Snap</label></div>
+  return `${prov}${draftPanel(scope,a,t,image)}<div class="pa-measure-row"><label>Unit <select data-mt-input="unit" data-mt-scope="${scope}">${['SF','SY','LF'].map(x=>`<option ${x===unit?'selected':''}>${x}</option>`).join('')}</select></label><div class="pa-seg" role="group" aria-label="Tool">${tools.map(([k,l])=>`<button data-live="pa-tool" data-value="${k}" data-mt-scope="${scope}" aria-pressed="${t.tool===k}" ${(unit==='LF'&&(k==='area'||k==='cutout'))||(!scaled&&k!=='scale')?'disabled':''}>${l}</button>`).join('')}</div><label class="pa-toggle mt-snap-toggle"><input type="checkbox" data-mt-input="snap" data-mt-scope="${scope}" ${t.snap!==false?'checked':''}> Snap</label></div>
 ${scaleBlock}
 ${t.tool==='line'&&unit!=='LF'?`<label class="pa-height">Wall height (ft) <input data-mt-input="height" data-mt-scope="${scope}" inputmode="decimal" value="${esc(t.height||'')}" placeholder="for a wall face"></label>`:''}
 <p class="pa-hint">${hint} Drag a corner or an edge’s middle dot; click a length to type it; Esc cancels.</p>
@@ -384,6 +386,50 @@ ${edgeTable(t,v,scope,c)}
 <label class="mt-verified"><input type="checkbox" data-mt-input="verified" data-mt-scope="${scope}" ${t.verified?'checked':''} ${r||t.fromBase?'':'disabled'}> <span><strong>Verified</strong> I checked this measurement against the picture</span></label>
 <div class="row wrap pa-measure-actions"><button class="button" data-live="pa-trace-undo" data-mt-scope="${scope}" ${t.hist?.past.length||t.shapes.length||t.draft.length?'':'disabled'}>Undo</button><button class="button" data-live="mt-redo" data-mt-scope="${scope}" ${t.hist?.future.length?'':'disabled'}>Redo</button><button class="button" data-live="mt-delete" data-mt-scope="${scope}" ${del?'':'disabled'}>Delete corner</button><button class="button" data-live="pa-trace-clear" data-mt-scope="${scope}" ${t.shapes.length||t.draft.length?'':'disabled'}>Clear</button>${t.tool==='line'&&t.draft.length>=2?`<button class="button" data-live="pa-trace-finish" data-mt-scope="${scope}">Finish line</button>`:''}<button class="button primary" data-live="pa-trace-save" data-mt-scope="${scope}" ${r||(t.fromBase&&t.base)?'':'disabled'}>Save measurement</button></div>`;
  }
+ /* ----- Draft it (EVAL_REPORT 106 and 111): Basis outlines a site item from the engineer's box -----
+  * On a top-down view, for an area (SF or SY): drag a box around a driveway, patio, deck, pool,
+  * walk or parking area and press Draft it; POST .../property/site-drafts answers with the draft
+  * (a lon/lat measurement drawn_by model:..., verified false), which becomes the trace's base: drawn
+  * with a length on every edge, editable like any trace, the original kept dashed once edited, sent
+  * as it is or edited, verified by the engineer. A refusal comes back in plain words. */
+ const DRAFT_FAMILIES=[['driveway','Driveway'],['parking','Parking area'],['walk','Walk'],['patio','Patio'],['pool_deck','Pool deck'],['pool','Pool'],['deck','Deck'],['fence','Fence']];
+ const FAMILY_OF={driveway:'driveway',parking_lot:'parking',parking:'parking',sidewalk:'walk',walkway:'walk',walk:'walk',patio:'patio',pool_deck:'pool_deck',pool:'pool',deck:'deck',fence:'fence'};
+ const familyOf=a=>FAMILY_OF[a?.label]||null;
+ // Offered for a site item seen from above (a driveway, a patio...); not for the siding, a roof
+ // or a lawn, which SAM 3 was not measured on (EVAL_REPORT 106).
+ function draftPanel(scope,a,t,image){
+  if(!caps().siteDrafts||image||!familyOf(a))return '';
+  if(t.unit==='LF')return `<p class="pa-muted mt-draft-note">Basis drafts areas from above; a line (a fence, a curb) is traced by hand.</p>`;
+  t.family||=familyOf(a);
+  return `<div class="mt-draft" data-mt-draft="${scope}"><p><strong>Let Basis draft it.</strong> Choose Box, drag a box around it on the picture, then Draft it. You check the outline and change what is wrong.</p><div class="pa-measure-row"><label>What is it <select data-mt-input="family" data-mt-scope="${scope}">${DRAFT_FAMILIES.map(([k,l])=>`<option value="${k}" ${t.family===k?'selected':''}>${l}</option>`).join('')}</select></label><button class="button" data-live="pa-tool" data-value="box" data-mt-scope="${scope}" aria-pressed="${t.tool==='box'}">Box</button><button class="button primary" data-live="mt-draft" data-mt-scope="${scope}" ${t.box&&!t.drafting?'':'disabled'}>${t.drafting?'Drafting…':'Draft it'}</button></div>${t.drafting?'<p class="pa-muted" role="status">Basis is drafting the outline; this takes a few seconds.</p>':''}${t.draftMsg?`<p class="pa-problem" role="alert">${esc(t.draftMsg)}</p>`:''}</div>`;
+ }
+ // The draft as the trace's base: its shapes on this view, untouched until the engineer edits.
+ function applyDraft(t,v,answer){
+  const body=PM.bodyOfRecord(answer.measurement),px=PM.pixelShapes(body,v);if(!px)return false;
+  PM.remember(t);
+  // Undo takes the draft back whole (its shapes and its provenance), Redo puts it back.
+  const after={base:body,fromBase:true,verified:false,unit:body.unit,draftInfo:{expected:answer.expected_error_pct,quantity:answer.quantity}};
+  t.draftStep={depth:t.hist.past.length,before:{base:t.base,fromBase:t.fromBase,verified:t.verified,unit:t.unit,draftInfo:t.draftInfo||null},after};
+  t.base=body;t.shapes=px.shapes.map(sh=>({kind:'area',ring:sh.ring.map(rp)}));t.draft=[];t.fromBase=true;t.verified=false;t.unit=body.unit;
+  t.tool='area';t.box=null;t.sel=null;t.edit=null;t.msg=null;t.draftMsg=null;t.draftInfo={expected:answer.expected_error_pct,quantity:answer.quantity};
+  originalPixels(t,v,v.width,v.height);return true;
+ }
+ async function requestDraft(scope){
+  const c=ctxOf(scope),t=c?.t,v=c?.v,s=L.study;if(!t||!v||!t.box||t.drafting||t.space!=='lonlat')return;
+  const [x1,y1,x2,y2]=t.box.map(r3);
+  t.drafting=true;t.draftMsg=null;Live.render();
+  let answer;
+  try{answer=await api.request('POST',`${base(s.id)}/property/site-drafts`,{body:{asset_id:t.assetId,view:{kind:v.source_id?'public':'capture',id:v.id},box:{x1,y1,x2,y2},family:t.family||'driveway',unit:t.unit==='SY'?'SY':'SF'}})}
+  catch(e){t.drafting=false;
+   t.draftMsg=e.status===429?`Basis is busy drafting. Try again in ${Number(e.retryAfter)||60} seconds, or trace it by hand.`:e.status===503?'Drafting is unavailable right now. Trace it by hand, or try again in a minute.':e.status===409||e.status===404?(e.detail||Live.errorText(e)):Live.errorText(e);
+   Live.render();return}
+  t.drafting=false;
+  if(answer?.status!=='drafted'){t.draftMsg=answer?.refusal?.message||'Basis could not draft it. Trace it by hand.';Live.render();return}
+  if(!applyDraft(t,v,answer))t.draftMsg='The draft could not be drawn on this picture. Trace it by hand.';
+  else announce(`Basis drafted ${answer.quantity} ${answer.unit}. Check the outline, change what is wrong, then mark it verified.`);
+  Live.render();
+ }
+ Live.requestDraft=requestDraft;
  function savedPanel(s,a,u,scope='property'){
   const sv=u.saved,texts=(globalThis.BasisReasons?.explainAll(sv.flags)||sv.flags.map(f=>({text:f}))).map(x=>x.text);
   const back=scope==='dialog'?`<button class="button primary" data-live="mt-close">Back to ${esc(L.mtDialog?.from==='asset-detail'?'the asset':'the assets')}</button>`:`<a class="button primary" href="${Live.route('assets',s.id)}">Back to assets</a>`;
@@ -544,12 +590,15 @@ ${toolPanel('property',s,a,t,v,{})}
   if(loading)return wrap(Live.loading('Loading the pictures…'));
   if(!views.length)return wrap(loading?Live.loading('Loading the pictures…'):`<p class="mt-dialog-note">There is no picture to measure ${esc(title)} on: ${off.aerial&&!propEntry(s).data?.pin?.confirmed?'confirm the house on the Property page first, or ':''}add a photo of it to the study.</p>`);
   // The stored measurement opens on its own picture; otherwise the aerial for an outside item, its photo for an inside one.
-  const want=D.key||(()=>{const st=off.stored,vid=st?.view?.kind==='document'||st?.space==='image'?'doc:'+(st?.image?.document_id||st?.view?.id):st?.view?.id;return views.find(x=>x.key===vid||(!st?.view?.id&&st?.view?.label&&x.view?.label===st.view.label))?.key||views[0].key})();
+  // The siding opens on its photo when the facade mode is offered (a wall is measured from the ground).
+  const want=D.key||(a.label==='siding'&&facadeOffered(a)&&!off.stored&&(views.find(x=>x.kind==='photo'&&Number(x.doc.camera?.focal_length_35mm)>0)||views.find(x=>x.kind==='photo'))?.key)||(()=>{const st=off.stored,vid=st?.view?.kind==='document'||st?.space==='image'?'doc:'+(st?.image?.document_id||st?.view?.id):st?.view?.id;return views.find(x=>x.key===vid||(!st?.view?.id&&st?.view?.label&&x.view?.label===st.view.label))?.key||views[0].key})();
   const pick=views.find(x=>x.key===want)||views[0];// D.key is the engineer's choice only (mt-view)
   let w,h,v,doc=null,imgHtml;
   if(pick.kind==='view'){v=pick.view;w=v.width;h=v.height;imgHtml=diagramOn(v)?null:img(s,v,v.label||'Property picture','pa-photo')}
   else{doc=pick.doc;const d=dimsOf(doc.id);if(!d)return wrap(`${chips(views,pick)}${Live.loading('Loading the photo…')}`);[w,h]=d;v={id:'doc:'+doc.id,kind:'document',width:w,height:h};imgHtml=Live.photo(doc.id,doc.filename,'pa-photo')}
   const space=pick.kind==='view'?'lonlat':'image';
+  // A photo of a wall: the facade mode (the siding opens in it; Trace stays one click away).
+  if(pick.kind==='photo'&&facadeOffered(a)){D.mode??=a.label==='siding'?'facade':'trace';if(D.mode==='facade')return wrap(facadeDialog(s,a,D,pick,w,h,imgHtml,views,title))}
   if(!D.trace||D.trace.assetId!==a.id)D.trace=newTrace(a,v,{space,doc,w,h});
   else if(D.trace.viewId!==v.id){
    const t=D.trace;if(t.space==='lonlat'&&space==='lonlat'){const from=views.find(x=>x.key===t.viewId)?.view;if(from){const g1=PM.georef(from),g2=PM.georef(v),mv=p=>rp(g2.toPixel(...g1.toLonLat(p[0],p[1])));t.shapes=t.shapes.map(sh=>sh.kind==='line'?{kind:'line',path:sh.path.map(mv)}:{kind:'area',ring:sh.ring.map(mv),...(sh.cutouts?{cutouts:sh.cutouts.map(c=>c.map(mv))}:{})});t.draft=t.draft.map(mv)}}
@@ -565,8 +614,119 @@ ${toolPanel('property',s,a,t,v,{})}
   // A small shape opens zoomed in on it (a patio on a 120 m wide aerial is a few dozen pixels).
   if(!D.zoom){const box=shapesBox(t);D.zoom=box&&box.w<w/8&&box.h<h/8?4:box&&box.w<w/4&&box.h<h/4?2:1;D.centre=D.zoom>1}
   const zoom=D.zoom;
-  return wrap(`<div class="mt-dialog-body"><div class="mt-dialog-main">${chips(views,pick)}<div class="pa-stage is-measure mt-stage"><div class="mt-stage-view"><div class="pa-zoom" tabindex="0" aria-label="Picture to measure on; scroll to pan when zoomed">${toolCanvas('dialog',t,v,{w,h,imgHtml,extraSvg:extra,label:`Measuring ${title} on ${on}`,zoom})}</div>${diagramOn(v)?furnitureHtml('dialog'):''}</div><div class="pa-stage-tools">${diagramOn(v)?keyHtml('dialog'):''}<div class="pa-zoom-tools" role="group" aria-label="Zoom"><button class="pa-icon-btn" data-live="mt-zoom" data-value="out" aria-label="Zoom out" ${zoom<=1?'disabled':''}>−</button><span>${zoom*100}%</span><button class="pa-icon-btn" data-live="mt-zoom" data-value="in" aria-label="Zoom in" ${zoom>=8?'disabled':''}>+</button></div>${pictureToggle(v)}<p class="pa-caption">${esc(on)}</p></div></div></div><aside class="mt-dialog-side" data-mt-root="dialog">${toolPanel('dialog',s,a,t,v,{doc,w,h})}</aside></div>`);
+  return wrap(`<div class="mt-dialog-body"><div class="mt-dialog-main">${chips(views,pick)}<div class="pa-stage is-measure mt-stage"><div class="mt-stage-view"><div class="pa-zoom" tabindex="0" aria-label="Picture to measure on; scroll to pan when zoomed">${toolCanvas('dialog',t,v,{w,h,imgHtml,extraSvg:extra,label:`Measuring ${title} on ${on}`,zoom})}</div>${diagramOn(v)?furnitureHtml('dialog'):''}</div><div class="pa-stage-tools">${diagramOn(v)?keyHtml('dialog'):''}<div class="pa-zoom-tools" role="group" aria-label="Zoom"><button class="pa-icon-btn" data-live="mt-zoom" data-value="out" aria-label="Zoom out" ${zoom<=1?'disabled':''}>−</button><span>${zoom*100}%</span><button class="pa-icon-btn" data-live="mt-zoom" data-value="in" aria-label="Zoom in" ${zoom>=8?'disabled':''}>+</button></div>${pictureToggle(v)}<p class="pa-caption">${esc(on)}</p></div></div></div><aside class="mt-dialog-side" data-mt-root="dialog">${pick.kind==='photo'&&facadeOffered(a)?modeToggle(D):''}${toolPanel('dialog',s,a,t,v,{doc,w,h})}</aside></div>`);
  };
+ /* ---------- Facade mode (EVAL_REPORT 109 and 111): a wall and its openings on one photo ----------
+  * On a study photo, for an area asset (the siding): the engineer clicks the wall's four corners
+  * (grade and eave at both ends) and each window's and door's four corners at the outside of the
+  * trim, gives the wall's length (typed, or the lidar shell's side) and, when the photo's EXIF had
+  * none, the lens; the single-view metrology of basis/geo/facade.py, ported in
+  * live/property-model.js and checked against the server's numbers, measures the face net of the
+  * openings, each opening, the trim and the counts with their expected error, live. Saved as an
+  * asset correction's measurement in space "facade" (docs/api/OVERRIDES.md 4.1); the counts also
+  * go in the correction's reason, as a note for the window and door rows. Behind
+  * facade_measure (GEO_FACADE). */
+ const FC_TOOLS=[['wall','Wall'],['window','Window'],['door','Door'],['garage','Garage door']];
+ const FC_HINT={wall:'Click the wall’s four corners: where it meets the ground and the eave, at both ends.',window:'Click a window’s four corners at the outside of its trim.',door:'Click a door’s four corners at the outside of its trim.',garage:'Click the garage door’s four corners at the outside of its trim.'};
+ const facadeOffered=a=>!!caps().facadeMeasure&&!!caps().tracedMeasurement&&['SF','SY'].includes(PM.measureOffer(a).unit);
+ function newFacade(a,doc,w,h){
+  const unit=PM.measureOffer(a).unit==='SY'?'SY':'SF',cam=doc.camera||null,f35=Number(cam?.focal_length_35mm)>0?Number(cam.focal_length_35mm):null;
+  const F={assetId:a.id,docId:doc.id,w,h,unit,wall:[],openings:[],current:[],tool:'wall',length:{text:'',ft:null,from:null},lens:{text:f35?String(f35):'',f35,from:f35?'photo':null},camera:cam,verified:true,msg:null,hist:[],sel:null};
+  // An unsent facade on this photo is where the engineer left off.
+  const m=Live.pendingCorrection?.('assets_review',a.id)?.after?.measurement;
+  if(m?.space==='facade'&&m.image?.document_id===doc.id&&m.facade){const sx=w/(Number(m.view?.width)||w),sy=h/(Number(m.view?.height)||h),scale=q=>q.map(([x,y])=>rp([x*sx,y*sy]));
+   F.wall=scale(m.facade.wall);F.openings=(m.facade.openings||[]).map(o=>({kind:o.kind,pts:scale(o.corners)}));F.tool='window';F.unit=m.unit;
+   F.length={text:PM.ftIn(Number(m.facade.wall_length_ft)),ft:Number(m.facade.wall_length_ft),from:m.facade.wall_length_from};
+   if(m.facade.lens)F.lens={text:String(m.facade.lens.focal_length_35mm),f35:m.facade.lens.focal_length_35mm,from:m.facade.lens.from};F.verified=m.verified!==false}
+  return F;
+ }
+ function facadeBody(F,doc){
+  const r4=n=>Math.round(n*10000)/10000,f=F.length;
+  const facade={wall:PM.orderQuad(F.wall).map(rp),openings:F.openings.map(o=>({kind:o.kind,corners:PM.orderQuad(o.pts).map(rp)})),wall_length_ft:f.ft==null?null:r4(f.ft),wall_length_from:f.from||'typed by the engineer'};
+  if(F.lens.f35)facade.lens={focal_length_35mm:F.lens.f35,from:F.lens.from||'engineer'};
+  return {unit:F.unit,space:'facade',facade,image:{source:`Photo ${String(doc.filename||doc.id).slice(0,200)} of this study`,document_id:doc.id},view:{kind:'document',id:String(doc.id),label:String(doc.filename||'').slice(0,200)||String(doc.id),width:F.w,height:F.h},drawn_by:'engineer',verified:!!F.verified};
+ }
+ // The measurement now, or what stops it, in plain words.
+ function facadeState(F,doc){
+  if(F.wall.length<4)return {why:'Click the wall’s four corners to start: where it meets the ground and the eave, at both ends.'};
+  if(!(F.length.ft>0))return {why:'Give the wall’s length: type it, or pick the lidar shell’s side this photo shows.'};
+  const body=facadeBody(F,doc);
+  try{return {r:PM.measure(body),body}}
+  catch(e){const p=(e.problems||[e.message])[0]||'',code=/\[(BASIS-GEO-\d{3})\]/.exec(p)?.[1];
+   if(code)return {why:PM.FACADE_TEXT[code]||p,code};
+   return {why:p.replace(/^measurement\.facade\.openings has opening (\d+) \((\w+)\): outside the wall: move its corners onto the wall/,'Opening $1 ($2) is outside the wall: move its corners onto the wall.').replace(/^measurement/,'The facade')}}
+ }
+ function facadeLayer(F,res,k){
+  const hr=HANDLE_PX*k,pts=q=>q.map(p=>p.map(n=>n.toFixed(1)).join(',')).join(' '),out=[],labels=[],handles=[],font=MT_FONT*k;
+  const tag=(x,y,text,cls='',tip='')=>{const b=labelBox(text,k);return `<g class="mt-label fc-label ${cls}" transform="translate(${f1(x)} ${f1(y)})">${tip?`<title>${esc(tip)}</title>`:''}<rect x="${f1(-b.w/2)}" y="${f1(-b.h/2)}" width="${f1(b.w)}" height="${f1(b.h)}" rx="${f1(4*k)}"/><text y="${f1(0.36*font)}" font-size="${f1(font)}">${esc(text)}</text></g>`};
+  const m=res?.r?.facade_measured;
+  if(F.wall.length===4){const q=PM.orderQuad(F.wall);out.push(`<polygon class="fc-wall" points="${pts(q)}"/>`);
+   if(m){const [bl,br,,tl]=q;labels.push(tag((bl[0]+br[0])/2,(bl[1]+br[1])/2+14*k,PM.ftIn(F.length.ft)));labels.push(tag((bl[0]+tl[0])/2-8*k,(bl[1]+tl[1])/2,`${PM.ftIn(Number(m.height_ft))} high`))}}
+  F.openings.forEach((o,i)=>{const q=PM.orderQuad(o.pts),c=[q.reduce((t,p)=>t+p[0],0)/4,q.reduce((t,p)=>t+p[1],0)/4],mo=m?.openings?.[i];
+   out.push(`<polygon class="fc-opening is-${o.kind}" points="${pts(q)}"/>`);labels.push(tag(c[0],c[1],String(i+1),'is-opening',mo?`Opening ${i+1}: ${PM.ftIn(Number(mo.width_ft))} × ${PM.ftIn(Number(mo.height_ft))}`:''))});// the number on the photo; its size in the table (sizes on the photo meet each other)
+  if(F.current.length){out.push(`<polyline class="fc-current" points="${pts(F.current)}"/>`)}
+  const handle=(ref,p,label)=>handles.push(handleSvg(`mt-vertex${F.sel===ref?' is-selected':''}`,`data-fc-vertex="${ref}"`,p,hr,label));
+  F.wall.forEach((p,i)=>handle(`w:${i}`,p,`Wall corner ${i+1}: drag it onto the corner`));
+  F.openings.forEach((o,k2)=>o.pts.forEach((p,i)=>handle(`o:${k2}:${i}`,p,`Opening ${k2+1} corner ${i+1}: drag it onto the trim’s corner`)));
+  F.current.forEach((p,i)=>handle(`c:${i}`,p,`Corner ${i+1} of the next ${F.tool}`));
+  return `<g class="fc-layer" data-fc-layer>${out.join('')}${labels.join('')}${handles.join('')}</g>`;
+ }
+ const ptAt=(F,ref)=>{const [w,a,b]=ref.split(':');return w==='w'?{list:F.wall,i:Number(a)}:w==='o'?{list:F.openings[Number(a)]?.pts,i:Number(b)}:{list:F.current,i:Number(a)}};
+ function facadeSnapshot(F){return JSON.stringify({wall:F.wall,openings:F.openings,current:F.current,tool:F.tool})}
+ function facadeRemember(F){F.hist.push(facadeSnapshot(F));if(F.hist.length>200)F.hist.shift()}
+ function facadePanel(s,a,F,doc,res,shell){
+  const fmt2=v=>fmt(Number(v),2),m=res.r?.facade_measured,lens=F.lens;
+  const sides=(shell?.sides||[]).filter(x=>x.width_m>0);
+  const lengthBlock=`<div class="fc-length"><label>Wall length <input data-fc-input="length" inputmode="decimal" value="${esc(F.length.text)}" placeholder="e.g. 39'-4&quot; or 12 m" aria-describedby="fc-length-help"></label>${sides.length?`<div class="mt-known" role="group" aria-label="The lidar shell’s sides">${sides.map(x=>`<button class="pa-chip" data-live="fc-side" data-value="${esc(x.side)}" aria-pressed="${(F.length.from||'').includes(`${x.side} side`)}" title="The ${esc(x.side)} side's width on the lidar outline">${esc(x.side[0].toUpperCase()+x.side.slice(1))} side ${esc(PM.ftIn(x.width_m*PM.FT_PER_M))}</button>`).join('')}</div>`:''}<p class="pa-muted" id="fc-length-help">${F.length.from&&F.length.from!=='typed by the engineer'?`From ${esc(F.length.from)}. Check it is this wall: a side with a wing or a porch reads long.`:sides.length?'Type it, or pick the lidar shell’s side this photo shows (check it is this wall: a side with a wing or a porch reads long).':'Type it: from a plan, a tape, or the aerial.'}</p></div>`;
+  const lensBlock=lens.from==='photo'?`<p class="pa-muted fc-lens">Lens: ${esc(fmt(lens.f35,0))} mm (35 mm equivalent), from the photo${F.camera?.model?` · ${esc(F.camera.model)}`:''}.</p>`:
+   `<div class="fc-lens"><label>Lens (35 mm equivalent, mm) <input data-fc-input="lens" inputmode="decimal" value="${esc(lens.text)}" placeholder="e.g. 26" aria-describedby="fc-lens-help"></label><p class="pa-muted" id="fc-lens-help">This photo does not say which lens took it. Type its 35 mm equivalent (a phone’s main camera is usually 24 to 28 mm). Left empty, Basis works it out from the wall’s own lines when it can, which is less exact.</p></div>`;
+  const read=res.r?`<strong>${fmt2(res.r.quantity)} ${esc(res.r.unit)} net siding</strong><span>Wall ${esc(PM.ftIn(F.length.ft))} × ${esc(PM.ftIn(Number(m.height_ft)))} high, ${fmt2(m.gross_sf)} SF · ${m.openings.length} opening${m.openings.length===1?'':'s'} (${m.windows} window${m.windows===1?'':'s'}, ${m.doors} door${m.doors===1?'':'s'}) ${fmt2(m.openings_sf)} SF · trim ${fmt2(m.trim_lf)} LF</span><span>Expected error up to ${esc(res.r.expected_error_pct)} % (the corners; the wall’s length not counted)${m.focal_from==='field of view'?'':` · lens worked out from ${esc(m.focal_from)}`}</span>`:`<span class="${res.code?'pa-problem':''}" ${res.code?'role="alert"':''}>${esc(res.why)}</span>`;
+  const rows=F.openings.map((o,i)=>{const mo=m?.openings?.[i];return `<tr><th scope="row">${i+1}</th><td>${esc(FC_TOOLS.find(t=>t[0]===o.kind)?.[1]||o.kind)}</td><td>${mo?`${esc(PM.ftIn(Number(mo.width_ft)))} × ${esc(PM.ftIn(Number(mo.height_ft)))}`:'—'}</td><td>${mo?fmt2(mo.area_sf):'—'}</td><td><button class="button small" data-live="fc-remove" data-value="${i}" aria-label="Remove opening ${i+1}">Remove</button></td></tr>`}).join('');
+  const table=F.openings.length?`<details class="mt-edges" open><summary>Openings <span class="pa-muted">${F.openings.length}</span></summary><table class="mt-edge-table"><thead><tr><th scope="col">#</th><th scope="col">Kind</th><th scope="col">Width × height</th><th scope="col">SF</th><th scope="col"><span class="sr-only">Remove</span></th></tr></thead><tbody>${rows}</tbody></table></details>`:'';
+  return `<div class="pa-seg fc-tools" role="group" aria-label="What to click">${FC_TOOLS.map(([k,l])=>`<button data-live="fc-tool" data-value="${k}" aria-pressed="${F.tool===k}" ${k!=='wall'&&F.wall.length<4?'disabled':''}>${l}</button>`).join('')}</div>
+<p class="pa-hint">${esc(FC_HINT[F.tool])}${F.current.length?` ${F.current.length} of 4 clicked.`:''} Drag a corner to move it.</p>
+${lengthBlock}${lensBlock}
+<div class="pa-readout" aria-live="polite" data-fc-readout>${read}${F.msg?`<span class="pa-problem" role="alert">${esc(F.msg)}</span>`:''}</div>
+${table}
+<label class="mt-verified"><input type="checkbox" data-fc-input="verified" ${F.verified?'checked':''} ${res.r?'':'disabled'}> <span><strong>Verified</strong> I checked the corners against the photo</span></label>
+<div class="row wrap pa-measure-actions"><button class="button" data-live="fc-undo" ${F.hist.length?'':'disabled'}>Undo</button><button class="button" data-live="fc-clear" ${F.wall.length||F.openings.length||F.current.length?'':'disabled'}>Clear</button><button class="button primary" data-live="fc-save" ${res.r?'':'disabled'}>Save measurement</button></div>`;
+ }
+ function facadeDialog(s,a,D,pick,w,h,imgHtml,views,title){
+  const doc=pick.doc;if(!D.facade||D.facade.docId!==doc.id||D.facade.assetId!==a.id)D.facade=newFacade(a,doc,w,h);
+  const F=D.facade,pub=pubEntry(s)?.data,res=facadeState(F,doc),k=F.k||1;scopes.facade={s,a,F,doc,w,h};
+  const svg=`<svg class="pa-overlay mt-overlay fc-overlay" viewBox="0 0 ${w} ${h}" preserveAspectRatio="none" data-pa-stage="doc:${esc(doc.id)}" data-mt-scope="facade" role="img" aria-label="${esc(`Facade of ${doc.filename}: the wall and its openings`)}">${facadeLayer(F,res,k)}</svg>`;
+  const zoom=D.zoom||1;
+  const canvas=`<div class="pa-canvas mt-canvas" style="--mt-zoom:${zoom};--mt-ar:${(w/h).toFixed(6)};aspect-ratio:${w}/${h}">${imgHtml}${svg}</div>`;
+  return `<div class="mt-dialog-body"><div class="mt-dialog-main">${chips(views,pick)}<div class="pa-stage is-measure mt-stage"><div class="mt-stage-view"><div class="pa-zoom" tabindex="0" aria-label="Photo to measure the facade on; scroll to pan when zoomed">${canvas}</div></div><div class="pa-stage-tools"><div class="pa-zoom-tools" role="group" aria-label="Zoom"><button class="pa-icon-btn" data-live="mt-zoom" data-value="out" aria-label="Zoom out" ${zoom<=1?'disabled':''}>−</button><span>${zoom*100}%</span><button class="pa-icon-btn" data-live="mt-zoom" data-value="in" aria-label="Zoom in" ${zoom>=8?'disabled':''}>+</button></div><p class="pa-caption">${esc(doc.filename)} · the facade is measured from the wall’s corners and its length</p></div></div></div><aside class="mt-dialog-side" data-mt-root="facade">${modeToggle(D)}${facadePanel(s,a,F,doc,res,pub?.lidar?.shell)}</aside></div>`;
+ }
+ const modeToggle=D=>`<div class="pa-seg mt-mode" role="group" aria-label="Measure on this photo"><button data-live="mt-mode" data-value="trace" aria-pressed="${D.mode!=='facade'}">Trace</button><button data-live="mt-mode" data-value="facade" aria-pressed="${D.mode==='facade'}">Facade</button></div>`;
+ function saveFacade(){
+  const D=L.mtDialog,c=scopes.facade;if(!D||!c||!Live.gateOpen('assets_review'))return;
+  const {s,a,F,doc}=c,res=facadeState(F,doc);if(!res.r){F.msg=res.why;Live.render();return}
+  const body=res.body,r=res.r,m=r.facade_measured,cur=Live.pendingCorrection?.('assets_review',a.id),after={...(cur?.after||{})};for(const k of ['quantity','quantity_unit','quantity_source'])delete after[k];after.measurement=body;
+  const note=`Facade measured on photo ${doc.filename}: ${m.windows} window${m.windows===1?'':'s'}, ${m.doors} door${m.doors===1?'':'s'}, ${m.trim_lf} LF of opening trim (counts for the window and door rows).`;
+  const formula=PM.formula(r,{source:body.image.source,captured_on:body.image.captured_on,drawn_by:body.drawn_by,verified:body.verified,facade:body.facade});
+  Live.addCorrection('assets_review',{key:a.id,entity_type:'asset',entity_id:a.id,before:{...(cur?.before||{}),quantity:a.takeoff?.quantity??null,quantity_unit:a.takeoff?.unit??null},after,reason:cur?.reason??note,title:a.label?name(a.label):a.category,summary:`measured ${r.quantity} ${r.unit} net siding on photo ${doc.filename}${body.verified?', verified':''}`});
+  D.saved={assetId:a.id,viewId:'doc:'+doc.id,shapes:[],quantity:r.quantity,unit:r.unit,formula,flags:PM.reviewFlags(r,{captured_on:body.image.captured_on,placedInService:s.intake?.placed_in_service_date})};
+  D.facade=null;Live.render();
+ }
+ function facadeClick(svg,ev){
+  const c=scopes.facade;if(!c||!L.mtDialog||L.mtDialog.mode!=='facade')return;const F=c.F;
+  if(ev.target.closest?.('[data-fc-vertex]'))return;
+  const [x,y]=pixelOf(svg,ev),p=rp([Math.max(0,Math.min(c.w,x)),Math.max(0,Math.min(c.h,y))]);
+  facadeRemember(F);F.msg=null;F.sel=null;F.current.push(p);
+  if(F.current.length===4){if(F.tool==='wall'){F.wall=F.current;F.tool='window'}else F.openings.push({kind:F.tool,pts:F.current});F.current=[]}
+  Live.render();
+ }
+ Live.actions['mt-mode']=(el,m)=>{const D=L.mtDialog;if(!D)return;D.mode=m==='facade'?'facade':'trace';Live.render()};
+ Live.actions['fc-tool']=(el,k)=>{const F=scopes.facade?.F;if(!F)return;F.tool=k;F.current=[];Live.render()};
+ Live.actions['fc-undo']=()=>{const F=scopes.facade?.F;if(!F||!F.hist.length)return;Object.assign(F,JSON.parse(F.hist.pop()));F.sel=null;F.msg=null;Live.render()};
+ Live.actions['fc-clear']=()=>{const F=scopes.facade?.F;if(!F)return;facadeRemember(F);F.wall=[];F.openings=[];F.current=[];F.tool='wall';F.msg=null;Live.render()};
+ Live.actions['fc-remove']=(el,i)=>{const F=scopes.facade?.F;if(!F)return;facadeRemember(F);F.openings.splice(Number(i),1);Live.render()};
+ Live.actions['fc-side']=(el,side)=>{const F=scopes.facade?.F,shell=pubEntry(L.study)?.data?.lidar;const x=shell?.shell?.sides?.find(t=>t.side===side);if(!F||!x)return;
+  const ft=x.width_m*PM.FT_PER_M;F.length={text:PM.ftIn(ft),ft,from:`the lidar shell's ${side} side${shell.year?` (${shell.year} lidar)`:''}`};Live.render()};
+ Live.actions['fc-save']=()=>saveFacade();
+ Live.facadeScope=()=>scopes.facade||null;
  // The picture picker: the top-down views as chips; the asset's own photos (where it was seen,
  // then its room's) as a few thumbnails; every other photo behind one "All photos" list.
  const MAX_THUMBS=8;
@@ -819,11 +979,16 @@ ${noViews?'':`<section class="pa-history" aria-label="Dated views">${strips(s,ca
  // Measuring (both scopes; the pa- names are the Property page's, kept).
  const mtScope=el=>scopeOf(el);
  const announce=message=>{const sr=document.getElementById?.('sr-status');if(!sr)return;sr.textContent='';setTimeout(()=>{sr.textContent=message},60)};
- A['pa-tool']=(el,k)=>{const t=traceOf(mtScope(el));if(!t)return;t.tool=k;t.draft=[];t.sel=null;t.edit=null;Live.render()};
- A['pa-trace-undo']=el=>{const t=traceOf(mtScope(el));if(!t)return;t.edit=null;t.msg=null;
+ A['pa-tool']=(el,k)=>{const t=traceOf(mtScope(el));if(!t)return;t.tool=k;t.draft=[];t.sel=null;t.edit=null;if(k!=='box')t.box=null;Live.render()};
+ A['mt-draft']=el=>requestDraft(mtScope(el));
+ // A draft's provenance follows its step in the history (applyDraft).
+ function draftStepMoved(t,c){const d=t.draftStep;if(!d)return;const depth=t.hist?.past.length??0,want=depth>=d.depth?d.after:d.before;
+  if(t.base!==want.base||t.draftInfo!==want.draftInfo){Object.assign(t,want);if(c)originalPixels(t,c.v,c.w,c.h)}}
+ A['pa-trace-undo']=el=>{const scope=mtScope(el),t=traceOf(scope);if(!t)return;t.edit=null;t.msg=null;
   if(!PM.undoTrace(t)){if(t.draft.length)t.draft.pop();else{const last=t.shapes[t.shapes.length-1];if(last?.kind==='area'&&last.cutouts?.length)last.cutouts.pop();else t.shapes.pop()}}
-  t.fromBase=t.fromBase&&!t.hist.past.length;Live.render()};
- A['mt-redo']=el=>{const t=traceOf(mtScope(el));if(t&&PM.redoTrace(t)){t.edit=null;t.msg=null;Live.render()}};
+  else draftStepMoved(t,ctxOf(scope));
+  t.fromBase=t.fromBase&&!t.hist.past.length;if(t.draftStep&&t.hist.past.length===t.draftStep.depth&&t.base===t.draftStep.after.base)t.fromBase=true;Live.render()};
+ A['mt-redo']=el=>{const scope=mtScope(el),t=traceOf(scope);if(t&&PM.redoTrace(t)){draftStepMoved(t,ctxOf(scope));if(t.draftStep&&t.hist.past.length===t.draftStep.depth)t.fromBase=true;t.edit=null;t.msg=null;Live.render()}};
  A['pa-trace-clear']=el=>{const t=traceOf(mtScope(el));if(!t)return;PM.remember(t);t.shapes=[];t.draft=[];t.sel=null;t.edit=null;t.fromBase=false;Live.render()};
  A['pa-trace-finish']=el=>{const t=traceOf(mtScope(el));if(t&&t.tool==='line'&&t.draft.length>=2){PM.remember(t);t.shapes.push({kind:'line',path:t.draft});t.draft=[];t.fromBase=false;Live.render()}};
  A['pa-trace-again']=el=>{const scope=mtScope(el);if(scope==='dialog'&&L.mtDialog){L.mtDialog.saved=null;L.mtDialog.trace=null}else ui(L.study).saved=null;Live.render()};
@@ -877,8 +1042,11 @@ ${noViews?'':`<section class="pa-history" aria-label="Dated views">${strips(s,ca
  const measuring=scope=>scope==='dialog'?!!L.mtDialog:Live.screen()==='property'&&!!L.study&&ui(L.study).mode==='measure';
  let drag=null,suppressClick=false;
  document.addEventListener('pointerdown',ev=>{
-  const svg=ev.target.closest?.('svg[data-mt-scope]');if(!svg)return;const scope=svg.dataset.mtScope;if(!measuring(scope)||narrow())return;
+  const svg=ev.target.closest?.('svg[data-mt-scope]');if(!svg)return;const scope=svg.dataset.mtScope;
+  if(scope==='facade'){const c=scopes.facade,vx=ev.target.closest?.('[data-fc-vertex]');if(!c||!vx||narrow())return;ev.preventDefault();const ref=vx.dataset.fcVertex;c.F.sel=ref;drag={scope,svg,facadeRef:ref,before:facadeSnapshot(c.F),moved:false,id:ev.pointerId};try{svg.setPointerCapture(ev.pointerId)}catch{}return}
+  if(!measuring(scope)||narrow())return;
   const c=ctxOf(scope);if(!c)return;const t=c.t,vx=ev.target.closest('[data-mt-vertex]'),mid=ev.target.closest('[data-mt-mid]'),sc=ev.target.closest('[data-mt-scale]');
+  if(!vx&&!mid&&!sc&&t.tool==='box'&&!t.drafting){ev.preventDefault();const [x,y]=pixelOf(svg,ev),q=[Math.max(0,Math.min(c.w,x)),Math.max(0,Math.min(c.h,y))];t.box=[q[0],q[1],q[0],q[1]];t.draftMsg=null;drag={scope,svg,boxFrom:q,moved:false,id:ev.pointerId};try{svg.setPointerCapture(ev.pointerId)}catch{}paint(scope);return}
   if(!vx&&!mid&&!sc)return;
   ev.preventDefault();const before=PM.snapshotOf(t);t.edit=null;
   if(vx){const ref=parseRef(vx.dataset.mtVertex);t.sel=ref;drag={scope,svg,ref,before,moved:false,id:ev.pointerId}}
@@ -888,15 +1056,22 @@ ${noViews?'':`<section class="pa-history" aria-label="Dated views">${strips(s,ca
   paint(scope);
  });
  document.addEventListener('pointermove',ev=>{
-  if(!drag||ev.pointerId!==drag.id)return;const c=ctxOf(drag.scope);if(!c)return;const t=c.t;
+  if(!drag||ev.pointerId!==drag.id)return;
+  if(drag.facadeRef){const c=scopes.facade;if(!c)return;const [x,y]=pixelOf(drag.svg,ev),{list,i}=ptAt(c.F,drag.facadeRef);if(!list)return;list[i]=rp([Math.max(0,Math.min(c.w,x)),Math.max(0,Math.min(c.h,y))]);drag.moved=true;
+   const layer=document.querySelector?.('svg[data-mt-scope="facade"] [data-fc-layer]');if(layer)layer.outerHTML=facadeLayer(c.F,null,c.F.k||1);return}
+  const c=ctxOf(drag.scope);if(!c)return;const t=c.t;
   const [x,y]=pixelOf(drag.svg,ev),q=[Math.max(0,Math.min(c.w,x)),Math.max(0,Math.min(c.h,y))];
+  if(drag.boxFrom){const [a,b]=drag.boxFrom;t.box=[Math.min(a,q[0]),Math.min(b,q[1]),Math.max(a,q[0]),Math.max(b,q[1])];drag.moved=true;paint(drag.scope);return}
   if(drag.scaleIndex!==undefined)t.scale.points[drag.scaleIndex]=rp(q);
   else{const s=snapped(c,q,drag.ref),p=ptsAt(t,drag.ref.s,drag.ref.r);setPts(t,drag.ref.s,drag.ref.r,PM.movePoint(p,drag.ref.i,s.point));t.snapAt=s.to?s.point:null}
   drag.moved=true;paint(drag.scope);
  });
  function endDrag(ev){
-  if(!drag||ev.pointerId!==drag.id)return;const d=drag;drag=null;const c=ctxOf(d.scope);if(!c)return;
+  if(!drag||ev.pointerId!==drag.id)return;const d=drag;drag=null;
+  if(d.facadeRef){const f=scopes.facade;try{d.svg.releasePointerCapture(ev.pointerId)}catch{}if(f&&d.moved){f.F.hist.push(d.before);suppressClick=true;setTimeout(()=>{suppressClick=false},50)}setTimeout(()=>Live.render(),0);return}
+  const c=ctxOf(d.scope);if(!c)return;
   try{d.svg.releasePointerCapture(ev.pointerId)}catch{}
+  if(d.boxFrom){const b=c.t.box,k=c.t.k||1;if(!b||b[2]-b[0]<4*k||b[3]-b[1]<4*k)c.t.box=null;suppressClick=true;setTimeout(()=>{suppressClick=false},50);setTimeout(()=>Live.render(),0);return}
   if(d.moved){suppressClick=true;setTimeout(()=>{suppressClick=false},50);edit(c,()=>{},{remembered:d.before})}
   c.t.snapAt=null;setTimeout(()=>Live.render(),0);// after the click this pointer makes
  }
@@ -917,6 +1092,7 @@ ${noViews?'':`<section class="pa-history" aria-label="Dated views">${strips(s,ca
   const svg=ev.target.closest?.('svg[data-pa-stage]');if(!svg)return;
   const scope=svg.dataset.mtScope||'property';if(scope==='property'&&Live.screen()!=='property')return;
   if(suppressClick){suppressClick=false;return}
+  if(scope==='facade'){if(!narrow())facadeClick(svg,ev);return}
   const [x,y,k]=pixelOf(svg,ev);
   if(scope==='property'){
    const s=L.study,u=ui(s),v=allViews(s).find(x=>x.id===svg.dataset.paStage);if(!v)return;
@@ -928,6 +1104,7 @@ ${noViews?'':`<section class="pa-history" aria-label="Dated views">${strips(s,ca
   const lab=ev.target.closest('[data-mt-edge]');if(lab){openEdit(scope,parseRef(lab.dataset.mtEdge));return}
   t.edit=null;t.msg=null;
   if(t.sel&&!t.draft.length){t.sel=null;Live.render();return}
+  if(t.tool==='box'){Live.render();return}
   if(t.space==='image'&&t.tool!=='scale'&&!frameFor(t,c.v)){t.msg='Set the scale first: choose Scale, click both ends of something whose length you know, and type it.';Live.render();return}
   addPoint(c,[x,y],k);Live.render();
  });
@@ -967,12 +1144,20 @@ ${noViews?'':`<section class="pa-history" aria-label="Dated views">${strips(s,ca
  document.addEventListener('change',ev=>{
   const el=ev.target;
   if(el.dataset&&'mtPick' in el.dataset){if(el.value&&L.mtDialog){L.mtDialog.key=el.value;L.mtDialog.zoom=null;L.mtDialog.scroll=null;Live.render()}return}
+  if(el.dataset?.fcInput){
+   const F=scopes.facade?.F;if(!F)return;const k=el.dataset.fcInput,v=el.value.trim();
+   if(k==='length'){if(!v){F.length={text:'',ft:null,from:null}}else{const p=PM.parseLength(v);F.length=p.error?{text:v,ft:null,from:null}:{text:v,ft:p.ft,from:'typed by the engineer'};F.msg=p.error||null}}
+   else if(k==='lens'){const n=Number(v.replace(/\s*mm$/i,''));F.lens=!v?{text:'',f35:null,from:null}:n>0&&n<=5000?{text:v,f35:n,from:'engineer'}:{text:v,f35:null,from:null};F.msg=v&&!(n>0&&n<=5000)?'The lens is a focal length in millimetres (its 35 mm equivalent), e.g. 26.':null}
+   else if(k==='verified')F.verified=el.checked;
+   Live.render();return;
+  }
   if(el.dataset?.mtInput){
    const c=ctxOf(scopeOf(el)),t=c?.t;if(!t)return;const k=el.dataset.mtInput;
    if(k==='unit'){PM.remember(t);t.unit=el.value;if(el.value==='LF')t.tool='line';t.shapes=t.shapes.filter(x=>x.kind===(t.tool==='line'?'line':'area'));t.fromBase=false}
    else if(k==='height'){PM.remember(t);t.height=el.value.trim();t.fromBase=false}
    else if(k==='scale')setScale(t,el.value.trim());
    else if(k==='verified')t.verified=el.checked;
+   else if(k==='family')t.family=el.value;
    else if(k==='snap')t.snap=el.checked;
    Live.render();return;
   }
@@ -1001,6 +1186,8 @@ ${noViews?'':`<section class="pa-history" aria-label="Dated views">${strips(s,ca
    if(!t.k||Math.abs(t.k-k)/k>0.03){t.k=k;const layer=svg.querySelector('[data-mt-layer]');if(layer)layer.outerHTML=card?toolLayer(t,card.v,{readOnly:true}):toolLayer(t,ctxOf(svg.dataset.mtScope).v);
     if(!card&&t.edit){const c=ctxOf(svg.dataset.mtScope),box2=svg.parentElement.querySelector('form[data-mt-form]');if(box2)box2.outerHTML=editBox(t,c.v,c.w,c.h,svg.dataset.mtScope)}}
   }
+  const fsvg=document.querySelector('svg[data-mt-scope="facade"]'),fc=scopes.facade;
+  if(fsvg&&fc){const box=fsvg.getBoundingClientRect?.();if(box?.width){const k=fsvg.viewBox.baseVal.width/box.width;if(!fc.F.k||Math.abs(fc.F.k-k)/k>0.03){fc.F.k=k;const layer=fsvg.querySelector('[data-fc-layer]');if(layer)layer.outerHTML=facadeLayer(fc.F,facadeState(fc.F,fc.doc),k)}}}
   for(const scope of ['property','dialog']){const t=traceOf(scope);if(!t)continue;
    if(t.focusEdit){t.focusEdit=false;const i=document.querySelector(`form[data-mt-scope="${scope}"] input`);if(i){i.focus();i.select?.()}}
    else if(t.focusSel&&t.sel){t.focusSel=false;const ref=t.sel.scale?`[data-mt-scale="${t.sel.i}"]`:`[data-mt-vertex="${refKey(t.sel.s,t.sel.r,t.sel.i)}"]`;document.querySelector(`svg[data-mt-scope="${scope}"] ${ref}`)?.focus?.()}}

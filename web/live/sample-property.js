@@ -183,7 +183,12 @@
  // The lidar's roof outline (EVAL_REPORT 104.2): the house and the garage as one roof, 0.2 m of
  // overhang beyond their walls (205.6 m2, the footprint's 205.3 within a cell's rounding).
  const ROOF_OUTLINE=[[-7.2,-5.2],[12.2,-5.2],[12.2,2.2],[5.2,2.2],[5.2,7.2],[-7.2,7.2]].map(([e,n])=>toLonLat(e,n).map(v=>Math.round(v*1e9)/1e9));
- const LIDAR={project:'Sample statewide lidar (synthetic)',year:2021,points:4812,density_per_m2:8.2,building:{footprint_m2:205.3,footprint_sqft:2209.9,peak_m:8.9,max_m:10.2,eave_m:5.6,ground_elevation_m:177.0,points:1684,distance_m:0,outline:ROOF_OUTLINE},code:null,credit:'Sample elevation program (synthetic)',terms_class:'public-domain',terms_url:'https://sample.basis.invalid/terms/lidar'};
+ // The shell (GEO_SHELL, EVAL_REPORT 105): the walls of the house and the garage, and each side's
+ // width as basis.geo.facade.sides gives it (EVAL_REPORT 111): the west wall is the house's own.
+ const WALLS=[[-7,-5],[12,-5],[12,2],[5,2],[5,7],[-7,7]];
+ const SHELL={code:null,wall_outline:WALLS.map(([e,n])=>toLonLat(e,n).map(v=>Math.round(v*1e9)/1e9)),overhang_m:0.2,perimeter_m:62,eave_main_m:5.6,
+  sides:[{side:'north',azimuth_deg:0,width_m:19,edges:2},{side:'east',azimuth_deg:90,width_m:12,edges:2},{side:'south',azimuth_deg:180,width_m:19,edges:1},{side:'west',azimuth_deg:270,width_m:12,edges:1}]};
+ const LIDAR={project:'Sample statewide lidar (synthetic)',year:2021,points:4812,density_per_m2:8.2,building:{footprint_m2:205.3,footprint_sqft:2209.9,peak_m:8.9,max_m:10.2,eave_m:5.6,ground_elevation_m:177.0,points:1684,distance_m:0,outline:ROOF_OUTLINE},shell:SHELL,code:null,credit:'Sample elevation program (synthetic)',terms_class:'public-domain',terms_url:'https://sample.basis.invalid/terms/lidar'};
  function publicOut(S,I){
   const P=stateOf(S,I),g=P.gathers[P.gathers.length-1];
   if(!g||!P.pin||P.pin.lat==null)return {enabled:true,gather:g?gatherOut(S,g):null,current:null,history:[],parcels:[],site_check:null,lidar:null};
@@ -246,6 +251,20 @@
    return {status:200,bytes:new TextEncoder().encode(svg),headers:{'content-type':'image/svg+xml',etag:`"${v.sha256}"`,'cache-control':'private, max-age=3600'}};
   }));
   route('GET','/v1/studies/{study_id}/property/public',withStudy((S,ctx)=>json(200,publicOut(S,ctx.i))));
+  // Draft it (PROPOSED P11): the box on a capture's or the public record's top-down view.
+  route('POST','/v1/studies/{study_id}/property/site-drafts',withStudy((S,ctx)=>{
+   const denied=engineerOnly(ctx);if(denied)return denied;
+   const b=ctx.body||{},P=prop(S,ctx),errs=[];
+   for(const k of ['asset_id','view','box','family'])if(b[k]==null)errs.push(fieldErr(['body',k],'Field required','missing'));
+   const box=b.box||{};if(b.box&&!(box.x2-box.x1>=4&&box.y2-box.y1>=4))errs.push(fieldErr(['body','box'],'Value error, the box must run left to right and top to bottom, at least 4 pixels a side','value_error'));
+   if(errs.length)return invalid(errs);
+   if(S.stage!=='assets_review'||S.status!=='waiting_review')return conflict('gate-not-open','Drafts go with the assets review’s corrections: the study is not waiting at the assets review.','BASIS-MEASURE-004');
+   let view=null;if(b.view.kind==='capture'){for(const c of P.captures){view=c.views.find(x=>x.id===b.view.id);if(view)break}}else if(b.view.kind==='public'){const pub=publicOut(S,ctx.i);view=[pub.current,...(pub.history||[])].find(x=>x?.id===b.view.id)||null}
+   if(!view)return new Problem(404,'not-found','Not Found','No such view of this study.','BASIS-MEASURE-002');
+   const answer=siteDraft(view,b);
+   event(S,'measurement.drafted',{actor:'engineer',entity_type:'asset',entity_id:b.asset_id,code:answer.refusal?.code||null,detail:{status:answer.status,family:b.family,quantity:answer.quantity,unit:answer.unit,drawn_by:'model:sam3@site-v1'}});
+   return json(200,answer);
+  }));
   route('POST','/v1/studies/{study_id}/property/public',withStudy((S,ctx)=>{
    const deny=engineerOnly(ctx);if(deny)return deny;const P=prop(S,ctx),now=ctx.i.now();
    if(!P.pin||P.pin.lat==null)return new Problem(422,'geo-no-point','Unprocessable Content','The public sources are asked by point: drop the pin on the house first.','BASIS-GEO-002');
@@ -288,6 +307,64 @@
   const ring=[[-8.25,8.35],[4.05,8.5],[4.15,14.9],[-8.1,14.75]].map(([e,n])=>toLonLat(e,n).map(v=>Math.round(v*1e9)/1e9));
   return {unit:'SF',space:'lonlat',shapes:[{kind:'area',ring}],image:{source:SOURCE,captured_on:'2026-06-18',pixel_size_m:CLOSE},drawn_by:'model:sample-drafter@1',verified:false,view:{kind:'capture',label:'aerial-close'}};
  }
- const api={register,truth,HOUSE,aerialSvg,sideSvg,SITE,toLonLat,patioDraft};
+ /* ---------- Draft it (POST .../property/site-drafts, docs/api/MEASURE_DRAFTS.md) ----------
+  * The sample's drafter outlines the site item the box holds best (box IoU >= 0.5, as
+  * basis.vision.site_items picks SAM 3's instance), a little off as a model would be (2 % larger,
+  * corners moved by up to 0.3 m), with the server's refusals for a fence, a coarse view and an
+  * empty box. Families measured in EVAL_REPORT 106.3 carry the method's 90th percentile. */
+ const DRAFTABLE={drive:'driveway',walk:'walk',patio:'patio',pool:'pool'};
+ const METHOD_ERROR={driveway:'33',patio:'46',deck:'28',pool:'53'};
+ const boxIou=(a,b)=>{const ix=Math.max(0,Math.min(a[2],b[2])-Math.max(a[0],b[0])),iy=Math.max(0,Math.min(a[3],b[3])-Math.max(a[1],b[1])),i=ix*iy,u=(a[2]-a[0])*(a[3]-a[1])+(b[2]-b[0])*(b[3]-b[1])-i;return u>0?i/u:0};
+ function siteDraft(view,body){
+  const refuse=(code,message)=>({status:'refused',family:body.family,measurement:null,quantity:null,unit:body.unit||'SF',expected_error_pct:null,refusal:{code,message}});
+  if(body.family==='fence')return refuse('BASIS-SITE-008','Fences are not drafted from above (too thin, and often under trees). Trace it by hand, along the lot line where it runs on it.');
+  if(!(view.pixel_size_m>0))return refuse('BASIS-SITE-001','This picture is not a straight-down view, so nothing can be drafted on it. Choose the close aerial or a sharp public image.');
+  if(view.pixel_size_m>0.16)return refuse('BASIS-SITE-002',`This picture is too coarse to draft on (about ${Math.round(view.pixel_size_m*100)} cm a pixel). Choose a sharper picture, or trace it by hand.`);
+  const g=PM.georef(view),b=body.box,box=[b.x1,b.y1,b.x2,b.y2];
+  let best=null;
+  for(const [key,family] of Object.entries(DRAFTABLE)){
+   const px=SITE[key].map(([e,n])=>g.toPixel(...toLonLat(e,n))),xs=px.map(p=>p[0]),ys=px.map(p=>p[1]),iou=boxIou(box,[Math.min(...xs),Math.min(...ys),Math.max(...xs),Math.max(...ys)]);
+   if(iou>=0.5&&(!best||iou>best.iou))best={key,family,iou};
+  }
+  if(!best)return refuse('BASIS-SITE-003','Basis found nothing to outline in the box. Draw the box closer around the item, or trace it by hand.');
+  const pts=SITE[best.key],ce=pts.reduce((t,p)=>t+p[0],0)/pts.length,cn=pts.reduce((t,p)=>t+p[1],0)/pts.length,k=Math.sqrt(1.02);
+  const JIT=[[0.25,-0.1],[-0.2,0.3],[0.1,0.2],[-0.3,-0.15]];
+  const ring=pts.map(([e,n],i)=>toLonLat(ce+(e-ce)*k+JIT[i%4][0],cn+(n-cn)*k+JIT[i%4][1]).map(v=>Math.round(v*1e9)/1e9));
+  const unit=body.unit==='SY'?'SY':'SF';
+  const m={unit,space:'lonlat',shapes:[{kind:'area',ring}],image:{source:view.source||SOURCE,pixel_size_m:view.pixel_size_m,...(view.imagery_on&&!view.source_id?{captured_on:view.imagery_on}:{})},drawn_by:'model:sam3@site-v1',verified:false,
+   view:{kind:view.source_id?'public':'capture',width:view.width,height:view.height,id:view.id,label:view.label}};
+  const r=PM.measure(m),method=METHOD_ERROR[best.family]||'53',expected=Number(r.expected_error_pct??0)>Number(method)?r.expected_error_pct:method;
+  return {status:'drafted',family:body.family,measurement:{...m,...r},quantity:r.quantity,unit,expected_error_pct:expected,refusal:null};
+ }
+
+ /* ---------- a facade photo (EVAL_REPORT 111): the house's west wall from the ground ----------
+  * A pinhole camera (1600 x 1200, the 35 mm equivalent 28 mm, so 63.4 degrees across) 15 m from
+  * the west wall's middle, 22 degrees to its left and 5 degrees up: the wall 12 m long (the
+  * shell's west side) and 5.6 m to the eave, five windows and a door. FACADE.truth is what the
+  * metrology must give back from the corners; FACADE.corners are those corners in the photo. */
+ const FACADE_WALL={w:12,h:5.6},FACADE_OPENINGS=[['window',1.0,0.9,1.0,1.4],['window',4.2,0.9,1.0,1.4],['door',5.9,0,0.95,2.1],['window',8.4,0.9,1.0,1.4],['window',1.0,3.4,1.0,1.2],['window',8.4,3.4,1.0,1.2]];
+ const FACADE_CAMERA={width:1600,height:1200,f35:28,yaw:22,pitch:5,distance:15};
+ function facadeProjection(){
+  const c=FACADE_CAMERA,hfov=PM.hfovFrom35(c.f35,c.width,c.height),f=c.width/2/Math.tan(hfov*Math.PI/360),yaw=c.yaw*Math.PI/180,pitch=c.pitch*Math.PI/180;
+  const target=[FACADE_WALL.w/2,FACADE_WALL.h/2,0],eye=[target[0]+c.distance*Math.sin(yaw)*Math.cos(pitch),target[1]-c.distance*Math.sin(pitch),target[2]+c.distance*Math.cos(yaw)*Math.cos(pitch)];
+  const sub=(a,b)=>a.map((x,i)=>x-b[i]),nrm=a=>{const l=Math.hypot(...a);return a.map(x=>x/l)},cross=(a,b)=>[a[1]*b[2]-a[2]*b[1],a[2]*b[0]-a[0]*b[2],a[0]*b[1]-a[1]*b[0]],dot=(a,b)=>a[0]*b[0]+a[1]*b[1]+a[2]*b[2];
+  const fwd=nrm(sub(target,eye)),right=nrm(cross(fwd,[0,1,0])),down=cross(fwd,right);
+  const at=(x,y)=>{const p=sub([x,y,0],eye);const z=dot(fwd,p);return [f*dot(right,p)/z+c.width/2,f*dot(down,p)/z+c.height/2]};
+  const quad=(l,b,w,h)=>[at(l,b),at(l+w,b),at(l+w,b+h),at(l,b+h)];
+  return {hfov,at,wall:quad(0,0,FACADE_WALL.w,FACADE_WALL.h),openings:FACADE_OPENINGS.map(([kind,l,b,w,h])=>({kind,quad:quad(l,b,w,h)}))};
+ }
+ function facadeSvg(){
+  const P=facadeProjection(),c=FACADE_CAMERA,pts=q=>q.map(p=>p.map(n=>n.toFixed(1)).join(',')).join(' ');
+  const [bl,br,tr,tl]=P.wall,ground=Math.max(bl[1],br[1]);
+  const siding=[];for(let y=0.3;y<FACADE_WALL.h;y+=0.3){const a=P.at(0,y),b=P.at(FACADE_WALL.w,y);siding.push(`<line x1="${a[0].toFixed(1)}" y1="${a[1].toFixed(1)}" x2="${b[0].toFixed(1)}" y2="${b[1].toFixed(1)}"/>`)}
+  const eaveL=P.at(-0.5,FACADE_WALL.h+0.25),eaveR=P.at(FACADE_WALL.w+0.5,FACADE_WALL.h+0.25),ridgeL=P.at(-0.3,FACADE_WALL.h+2.6),ridgeR=P.at(FACADE_WALL.w+0.3,FACADE_WALL.h+2.6);
+  const openings=P.openings.map(o=>`<polygon points="${pts(o.quad)}" fill="${o.kind==='door'?'#5b4636':'#9cc3d6'}" stroke="#f4f1ea" stroke-width="7"/>`).join('');
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="${c.width}" height="${c.height}" viewBox="0 0 ${c.width} ${c.height}"><rect width="${c.width}" height="${c.height}" fill="#cfe0ea"/><rect y="${(ground-40).toFixed(1)}" width="${c.width}" height="${(c.height-ground+40).toFixed(1)}" fill="#7d9a5a"/>`+
+   `<polygon points="${pts([eaveL,eaveR,ridgeR,ridgeL])}" fill="#5f5a55"/><polygon points="${pts(P.wall)}" fill="#d9d2c2"/><g stroke="#bcb3a0" stroke-width="2">${siding.join('')}</g>${openings}`+
+   `<text x="24" y="${c.height-24}" font-family="sans-serif" font-size="22" fill="#2f3b2a">Sample photo (synthetic): the house's west wall</text></svg>`;
+ }
+ const FACADE={camera:FACADE_CAMERA,wall:FACADE_WALL,openings:FACADE_OPENINGS,projection:facadeProjection,svg:facadeSvg,
+  truth:{openings_sf:FACADE_OPENINGS.reduce((t,[,,,w,h])=>t+w*h,0)*10.763910416709722,gross_sf:FACADE_WALL.w*FACADE_WALL.h*10.763910416709722}};
+ const api={register,truth,HOUSE,aerialSvg,sideSvg,SITE,toLonLat,patioDraft,siteDraft,FACADE,SHELL};
  if(typeof module==='object'&&module.exports)module.exports=api;else scope.BasisPropertySample=api;
 })(typeof globalThis==='object'?globalThis:this);

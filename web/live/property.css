@@ -353,3 +353,25 @@
 .mt-f-scale{left:10px;bottom:10px;padding:4px 10px 6px;display:grid;justify-items:start;gap:2px;font-weight:600}
 .mt-f-scale i{display:block;height:6px;border:2px solid #1d3328;border-top:0}
 .mt-f-credit{right:10px;bottom:10px;padding:3px 8px;color:#4f6258;font-size:11px;max-width:55%;text-align:right}
+/* Draft it (EVAL_REPORT 111): the box sent to Basis, and its panel */
+.mt-draftbox{fill:rgba(127,211,255,.12);stroke:#7fd3ff;stroke-width:2;stroke-dasharray:7 5;vector-effect:non-scaling-stroke;pointer-events:none}
+.mt-draftbox.is-busy{animation:mt-draft-pulse 1.2s ease-in-out infinite}
+@keyframes mt-draft-pulse{50%{fill:rgba(127,211,255,.26)}}
+@media (prefers-reduced-motion:reduce){.mt-draftbox.is-busy{animation:none}}
+.mt-draft{border:1px solid #d5dfd8;border-radius:10px;padding:10px 12px;margin:0 0 12px;background:#f4f8f5;color:#1d3328}
+.mt-draft p{margin:0 0 8px;font-size:13px}
+.mt-draft .pa-measure-row{margin:0}
+.mt-draft-note{margin:0 0 10px}
+/* Facade mode (EVAL_REPORT 111): the wall and its openings on a photo */
+.fc-wall{fill:rgba(60,190,140,.16);stroke:#3cbe8c;stroke-width:3;vector-effect:non-scaling-stroke;stroke-linejoin:round}
+.fc-opening{fill:rgba(255,179,71,.22);stroke:#ffb347;stroke-width:2.5;vector-effect:non-scaling-stroke}
+.fc-opening.is-door,.fc-opening.is-garage{fill:rgba(127,182,230,.24);stroke:#7fb6e6}
+.fc-current{fill:none;stroke:#fff;stroke-width:2;stroke-dasharray:6 4;vector-effect:non-scaling-stroke}
+.fc-label{cursor:default}
+.fc-label.is-opening rect{fill:rgba(70,44,0,.86)}
+.mt-mode{margin:0 0 12px}
+.fc-tools{margin:0 0 8px}
+.fc-length,.fc-lens{margin:8px 0}
+.fc-length label,.fc-lens label{display:flex;gap:8px;align-items:center;font-size:13px;font-weight:600}
+.fc-length input,.fc-lens input{width:9em;font:inherit;font-size:14px;padding:6px 8px;border:1px solid #d5dfd8;border-radius:8px}
+.fc-length .mt-known{margin:6px 0}

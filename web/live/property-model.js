@@ -101,7 +101,7 @@
  }
  // Provenance (traced.py, EVAL_REPORT 104): who drew it, whether it was verified, the picture,
  // the measurement it replaced. The same keys and the same words as the server.
- const TOP_KEYS=['unit','space','shapes','scale','image','height_ft','drawn_by','verified','view','original'];
+ const TOP_KEYS=['unit','space','shapes','scale','image','height_ft','drawn_by','verified','view','original','facade'];
  const VIEW_KEYS=['kind','id','label','width','height'],VIEW_KINDS=['capture','public','document'];
  const MODEL_RE=/^model:[A-Za-z0-9][A-Za-z0-9._/-]{0,99}@[A-Za-z0-9][A-Za-z0-9._+-]{0,49}$/;
  // Python's repr of a JSON value, shortened as traced._short does (for the messages).
@@ -143,14 +143,16 @@
   const unknownTop=Object.keys(m).filter(k=>!TOP_KEYS.includes(k)).sort();if(unknownTop.length)add('',`has unknown keys: ${unknownTop.join(', ')}`);
   const {unit,space}=m;
   if(!UNITS.includes(unit))add('.unit',`must be SF, SY or LF (EA is counted, not traced), got ${JSON.stringify(unit)}`);
-  if(!['lonlat','image'].includes(space))add('.space',`must be lonlat or image, got ${JSON.stringify(space)}`);
+  if(!['lonlat','image','facade'].includes(space))add('.space',`must be lonlat, image or facade, got ${JSON.stringify(space)}`);
   const image=m.image;
   if(!image||typeof image!=='object'||typeof image.source!=='string'||!image.source.trim())add('.image.source','is required: what the image is and where it came from');
   else if(image.source.trim().length>300)add('.image.source','is longer than 300 characters');
   if(image?.captured_on!=null&&!/^\d{4}-\d{2}-\d{2}$/.test(image.captured_on))add('.image.captured_on','is not a YYYY-MM-DD date');
   const pixelSizeM=num(image?.pixel_size_m);
-  if(pixelSizeM!==null&&!(pixelSizeM>0&&pixelSizeM<=100))add('.image.pixel_size_m','must be above 0 and at most 100');
+  if(pixelSizeM!==null&&space!=='facade'&&!(pixelSizeM>0&&pixelSizeM<=100))add('.image.pixel_size_m','must be above 0 and at most 100');
   if(pixelSizeM!==null&&space==='image')add('.image.pixel_size_m','is for lon/lat imagery; an image in pixels has a scale');
+  if(space==='facade'){const prov=provenance(m,add,nested,prefix);if(prov.originalProblems)problems.push(...prov.originalProblems);return measureFacade(m,{prefix,add,problems,unit,prov})}
+  if(m.facade!=null)add('.facade','goes with space facade (a wall on a photo)');
   let feetPerPx=null,scalePx=null;
   if(space==='image'){
    const s=m.scale;if(!s)add('.scale','is required for an image: two pixels and the length between them');
@@ -212,7 +214,8 @@
  // draft reads "drafted by Basis" (the model's name is the record's, not the sentence's).
  const whoDrew=d=>d!=null&&d!=='engineer'?'drafted by Basis':'traced by the engineer';
  const qtext=q=>Number(q).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2});
- function formula(r,{source,captured_on,height_ft,drawn_by,verified}={}){
+ function formula(r,{source,captured_on,height_ft,drawn_by,verified,facade}={}){
+  if(r.facade_measured)return facadeFormula(r,{source,captured_on,drawn_by,verified,facade});
   const n=r.shape_count,kind=r.area_sf!==null?'area':'line',noun=kind+(n!==1?'s':'');
   let counts=kind==='area'?`${n} ${noun} of ${r.corner_count} corners${r.cutout_count?` (${r.cutout_count} cut out)`:''}`:`${n} ${noun} of ${r.corner_count} points${height_ft!=null?` x ${height_ft} ft high`:''}`;
   // Image space names its scale as the server does (`:.4g`: four significant digits, no trailing zeros).
@@ -560,7 +563,7 @@
  function redoTrace(t){if(!t.hist?.future.length)return false;t.hist.past.push(snapshotOf(t));restoreSnapshot(t,t.hist.future.pop());t.sel=null;return true}
 
  /* ----- the record, read back ----- */
- const COMPUTED=['quantity','method','expected_error_pct','shape_count','corner_count','cutout_count','area_sf','length_ft','scale_ft_per_px'];
+ const COMPUTED=['quantity','method','expected_error_pct','shape_count','corner_count','cutout_count','area_sf','length_ft','scale_ft_per_px','facade_measured'];
  // A stored takeoff.inputs.measurement (the body plus what the server computed) -> the body
  // again, as the server would take it (an original keeps its body, without its own computed keys).
  function bodyOfRecord(rec){
@@ -852,16 +855,170 @@
   return base;
  }
 
+ /* ---------- a facade on one photo (EVAL_REPORT 109 and 111) ----------
+  * The port of backEnd/basis/geo/facade.py (single-view metrology: Criminisi, Reid and Zisserman,
+  * IJCV 2000; the metric rectification of Hartley and Zisserman 2.7 and 8.8; the focal length from
+  * two orthogonal vanishing points, Caprile and Torre 1990; the first-order error for 3 px a corner)
+  * and of traced.py's space "facade" (the body, its checks and its record), so the numbers the tool
+  * shows are the server's (web/tests/fixtures/facade-reference.json, written by the backend's
+  * tests/unit/geo/test_facade_reference.py). Corners are [x, y] pixels, x right, y down; a quad is
+  * [bottom-left, bottom-right, top-right, top-left] as the photo shows it. */
+ const FACADE_ERR={unreadable:'BASIS-GEO-023',noFocal:'BASIS-GEO-024',oblique:'BASIS-GEO-025'};
+ const FC={sigmaPx:3,minWallPx:120,maxViewDeg:70,maxSkewDeg:12,minFovDeg:15,maxFovDeg:130,inside:0.04,squareOnDeg:0.05};
+ const FRAME_35MM_DIAG=Math.hypot(36,24);
+ const g6=x=>String(Number(Number(x).toPrecision(6)));// Python's :g for these magnitudes
+ // The horizontal field of view of a photo from its 35 mm equivalent (CIPA DC-008: the diagonal).
+ function hfovFrom35(f35,width,height){if(!(f35>0&&width>0&&height>0))throw new Error('the focal length and the photo’s size must be positive');return deg(2*Math.atan(width/Math.hypot(width,height)*FRAME_35MM_DIAG/2/f35))}
+ // Gaussian elimination with partial pivoting (the 8 x 8 of the homography).
+ function solve(A,b){const n=b.length,M=A.map((r,i)=>[...r,b[i]]);
+  for(let c=0;c<n;c++){let p=c;for(let r=c+1;r<n;r++)if(Math.abs(M[r][c])>Math.abs(M[p][c]))p=r;if(Math.abs(M[p][c])<1e-300)throw new Error('singular');[M[c],M[p]]=[M[p],M[c]];
+   for(let r=c+1;r<n;r++){const f=M[r][c]/M[c][c];if(f)for(let k=c;k<=n;k++)M[r][k]-=f*M[c][k]}}
+  const x=new Array(n).fill(0);for(let r=n-1;r>=0;r--){let s=M[r][n];for(let k=r+1;k<n;k++)s-=M[r][k]*x[k];x[r]=s/M[r][r]}return x}
+ function squareToQuad(q){const src=[[0,0],[1,0],[1,1],[0,1]],rows=[],rhs=[];
+  src.forEach(([u,v],i)=>{const [x,y]=q[i];rows.push([u,v,1,0,0,0,-u*x,-v*x]);rhs.push(x);rows.push([0,0,0,u,v,1,-u*y,-v*y]);rhs.push(y)});
+  const h=solve(rows,rhs);return [[h[0],h[1],h[2]],[h[3],h[4],h[5]],[h[6],h[7],1]]}
+ const mul3=(A,B)=>A.map(r=>[0,1,2].map(j=>r[0]*B[0][j]+r[1]*B[1][j]+r[2]*B[2][j]));
+ function inv3(m){const [[a,b,c],[d,e,f],[g,h,i]]=m,A=e*i-f*h,B=-(d*i-f*g),C=d*h-e*g,det=a*A+b*B+c*C;
+  return [[A/det,-(b*i-c*h)/det,(b*f-c*e)/det],[B/det,(a*i-c*g)/det,-(a*f-c*d)/det],[C/det,-(a*h-b*g)/det,(a*e-b*d)/det]]}
+ function isConvex(p){const s=[];for(let i=0;i<p.length;i++){const [x0,y0]=p[i],[x1,y1]=p[(i+1)%p.length],[x2,y2]=p[(i+2)%p.length],c=(x1-x0)*(y2-y1)-(y1-y0)*(x2-x1);if(Math.abs(c)<1e-9)return false;s.push(c>0)}return s.every(Boolean)||!s.some(Boolean)}
+ const centred=(g,w,h)=>mul3([[1,0,-w/2],[0,1,-h/2],[0,0,1]],g);
+ function focalFromVanishing(gc){const g31=gc[2][0],g32=gc[2][1],sc=Math.max(Math.abs(gc[0][0]),Math.abs(gc[1][0]),Math.abs(gc[0][1]),Math.abs(gc[1][1]),1e-12);
+  if(Math.abs(g31*g32)*sc*sc<1e-12)return null;const f2=-(gc[0][0]*gc[0][1]+gc[1][0]*gc[1][1])/(g31*g32);return Number.isFinite(f2)&&f2>0?Math.sqrt(f2):null}
+ function parallel(p0,p1,q0,q1){const ax=p1[0]-p0[0],ay=p1[1]-p0[1],bx=q1[0]-q0[0],by=q1[1]-q0[1];return Math.abs(ax*by-ay*bx)/(Math.hypot(ax,ay)*Math.hypot(bx,by))<Math.sin(rad(FC.squareOnDeg))}
+ const squareOn=([bl,br,tr,tl])=>parallel(bl,br,tl,tr)&&parallel(bl,tl,br,tr);
+ const clamp1=x=>Math.max(-1,Math.min(1,x)),norm3=v=>Math.hypot(v[0],v[1],v[2]),dot3=(a,b)=>a[0]*b[0]+a[1]*b[1]+a[2]*b[2];
+ function aspect(gc,f){const m=mul3([[1/f,0,0],[0,1/f,0],[0,0,1]],gc),a=[m[0][0],m[1][0],m[2][0]],b=[m[0][1],m[1][1],m[2][1]],na=norm3(a),nb=norm3(b);
+  const skew=Math.abs(90-deg(Math.acos(clamp1(dot3(a,b)/(na*nb))))),n=[a[1]*b[2]-a[2]*b[1],a[2]*b[0]-a[0]*b[2],a[0]*b[1]-a[1]*b[0]],c=[0,1,2].map(i=>m[i][0]*0.5+m[i][1]*0.5+m[i][2]);
+  return {aspect:nb/na,skew,view:deg(Math.acos(clamp1(Math.abs(dot3(n,c))/(norm3(n)*norm3(c)))))}}
+ function toWall(g,p){const iv=inv3(g),v=[0,1,2].map(i=>iv[i][0]*p[0]+iv[i][1]*p[1]+iv[i][2]);return [v[0]/v[2],v[1]/v[2]]}
+ const shoelaceAbs=p=>{let t=0;for(let i=0;i<p.length;i++){const [x0,y0]=p[i],[x1,y1]=p[(i+1)%p.length];t+=x0*y1-x1*y0}return Math.abs(t)/2};
+ const fmt0=x=>{const r=Math.round(x);return Math.abs(x-Math.trunc(x))===0.5&&r%2!==0?String(r-1):String(r)};// Python's :.0f (half to even)
+ function facadeCore(cam,wall,L){
+  const g=squareToQuad(wall),gc=centred(g,cam.width,cam.height);let f=cam.hfov==null?null:cam.width/2/Math.tan(rad(cam.hfov)/2),from='field of view';
+  if(f===null){
+   if(squareOn(wall)){f=Math.max(cam.width,cam.height);from='square-on'}
+   else{f=focalFromVanishing(gc);from='vanishing points';
+    if(f===null)return {code:FACADE_ERR.noFocal,why:'no field of view, and the wall’s vanishing points cannot give one (a vanishing point at infinity, or edges that are not a rectangle’s)'.replace(/’/g,"'")};
+    const fov=deg(2*Math.atan(cam.width/2/f));if(!(fov>=FC.minFovDeg&&fov<=FC.maxFovDeg))return {code:FACADE_ERR.noFocal,why:`the vanishing points give a ${fmt0(fov)} degree field of view, outside ${FC.minFovDeg} to ${FC.maxFovDeg}`}}
+  }
+  const a=aspect(gc,f);return {height:L*a.aspect,focal:f,from,skew:a.skew,view:a.view,g};
+ }
+ function facadeOpening(g,o,W,H){const pts=o.quad.map(p=>toWall(g,p)),t=FC.inside;if(pts.some(([u,v])=>!(u>=-t&&u<=1+t&&v>=-t&&v<=1+t)))return null;
+  const m=pts.map(([u,v])=>[u*W,v*H]),[bl,br,tr,tl]=m;let per=0;for(let i=0;i<4;i++)per+=dist(m[i],m[(i+1)%4]);
+  return {kind:o.kind,width_m:(dist(bl,br)+dist(tl,tr))/2,height_m:(dist(bl,tl)+dist(br,tr))/2,area_m2:shoelaceAbs(m),perimeter_m:per,left_m:Math.min(...m.map(p=>p[0])),sill_m:Math.min(...m.map(p=>p[1]))}}
+ function facadeQuantities(cam,wall,L,openings){const c=facadeCore(cam,wall,L);if(c.code)return null;const q={height:c.height};let area=0;
+  for(const o of openings){const m=facadeOpening(c.g,o,L,c.height);if(m)area+=m.area_m2}if(openings.length){q.openings=area;q.net=L*c.height-area}return q}
+ function facadeExpected(cam,wall,L,openings,sigma){
+  const base=facadeQuantities(cam,wall,L,openings);if(!base)return {};const step=0.5,sums=Object.fromEntries(Object.keys(base).map(k=>[k,0]));
+  const moved=(q,k,axis,d)=>q.map((p,i)=>i!==k?p:axis===0?[p[0]+d,p[1]]:[p[0],p[1]+d]);
+  const targets=[[-1,0],[-1,1],[-1,2],[-1,3],...openings.flatMap((_,i)=>[0,1,2,3].map(k=>[i,k]))];
+  for(const [which,k] of targets)for(const axis of [0,1]){
+   const got=which<0?facadeQuantities(cam,moved(wall,k,axis,step),L,openings):facadeQuantities(cam,wall,L,openings.map((o,i)=>i===which?{kind:o.kind,quad:moved(o.quad,k,axis,step)}:o));
+   if(!got)continue;for(const [key,v] of Object.entries(got))sums[key]+=((v-base[key])/step*sigma)**2;
+  }
+  const out={};for(const k of Object.keys(base))if(base[k]!==0)out[k]=100*Math.sqrt(sums[k])/Math.abs(base[k]);return out;
+ }
+ // facade.measure: {camera:{width,height,hfov|null}, wall:[4 points], lengthM, openings:[{kind, quad}]}
+ function facadeMeasure(cam,wall,L,openings=[],{sigma=FC.sigmaPx}={}){
+  if(!(L>0)||!Number.isFinite(L))throw new Error('the wall’s length must be a positive number of metres');
+  const base={wall_length_m:L,expected_error_pct:{},left_out:[],openings:[],refusals:[]},refuse=(code,why,extra={})=>({...base,...extra,code,refusals:[['wall',code,why]]});
+  if(!wall.every(p=>p.every(Number.isFinite))||!isConvex(wall))return refuse(FACADE_ERR.unreadable,'the corners are not a quadrilateral');
+  const wallPx=Math.min(dist(wall[0],wall[1]),dist(wall[3],wall[2]));
+  if(wallPx<FC.minWallPx)return refuse(FACADE_ERR.unreadable,`the wall is ${fmt0(wallPx)} px wide in the photo, under ${FC.minWallPx}`,{wall_px:wallPx});
+  const c=facadeCore(cam,wall,L);if(c.code)return refuse(c.code,c.why,{wall_px:wallPx});
+  const seen={wall_px:wallPx,focal_px:c.focal,focal_from:c.from,view_deg:c.view,skew_deg:c.skew};
+  if(c.view>FC.maxViewDeg)return refuse(FACADE_ERR.oblique,`the wall is seen ${fmt0(c.view)} degrees off square, over ${FC.maxViewDeg}`,seen);
+  if(c.from==='field of view'&&c.skew>FC.maxSkewDeg)return refuse(FACADE_ERR.oblique,`the corners are ${fmt0(c.skew)} degrees from a rectangle under this camera (over ${FC.maxSkewDeg}): a corner misplaced, a wrong field of view, or not one plane`,seen);
+  const measured=[],leftOut=[],kept=[];
+  openings.forEach((o,i)=>{if(!isConvex(o.quad)){leftOut.push(`opening ${i+1} (${o.kind}): not a quadrilateral`);return}const m=facadeOpening(c.g,o,L,c.height);if(!m){leftOut.push(`opening ${i+1} (${o.kind}): outside the wall`);return}measured.push(m);kept.push(o)});
+  const gross=L*c.height,openingsM2=measured.reduce((t,m)=>t+m.area_m2,0);
+  return {...base,...seen,code:null,refusals:[],height_m:c.height,gross_m2:gross,openings:measured,openings_m2:openingsM2,net_m2:Math.max(gross-openingsM2,0),trim_m:measured.reduce((t,m)=>t+m.perimeter_m,0),
+   windows:measured.filter(m=>m.kind==='window').length,doors:measured.filter(m=>m.kind==='door'||m.kind==='garage').length,left_out:leftOut,expected_error_pct:facadeExpected(cam,wall,L,kept,sigma)};
+ }
+ // traced.py's space "facade": the body checked in the server's words, measured, and its record.
+ const FACADE_KEYS=['wall','openings','wall_length_ft','wall_length_from','lens'],OPENING_KINDS=['window','door','garage','other'];
+ function facadeQuad(add,where,value,frame){
+  if(!Array.isArray(value)||value.length!==4){add(where,'must be the 4 corners [[x, y], ...]: bottom-left, bottom-right, top-right, top-left as the photo shows them');return null}
+  const pts=[];for(let i=0;i<4;i++){const p=value[i];
+   if(!Array.isArray(p)||p.length!==2){add(`${where}[${i}]`,`must be a pair of numbers [x, y], got ${short(p)}`);return null}
+   if(p.some(n=>typeof n!=='number'||!Number.isFinite(n))){add(`${where}[${i}][${typeof p[0]!=='number'||!Number.isFinite(p[0])?0:1}]`,`must be a number, got ${short(typeof p[0]!=='number'||!Number.isFinite(p[0])?p[0]:p[1])}`);return null}
+   if(!(p[0]>=0&&p[0]<=100000&&p[1]>=0&&p[1]<=100000)){add(`${where}[${i}]`,`is at pixel [${g6(p[0])}, ${g6(p[1])}]; pixels are from 0 to 100000`);return null}
+   if(frame&&!(p[0]<=frame[0]&&p[1]<=frame[1])){add(`${where}[${i}]`,`is at pixel [${g6(p[0])}, ${g6(p[1])}], outside the ${g6(frame[0])} x ${g6(frame[1])} photo`);return null}
+   pts.push([p[0],p[1]])}
+  const [bl,br,tr,tl]=pts;
+  if(!(bl[0]<br[0]&&tl[0]<tr[0]&&(bl[1]+br[1])/2>(tl[1]+tr[1])/2)){add(where,'must run bottom-left, bottom-right, top-right, top-left as the photo shows them (the bottom edge lower than the top, left before right)');return null}
+  return pts;
+ }
+ function measureFacade(m,{prefix,add,problems,unit,prov}){
+  for(const k of ['shapes','scale','height_ft'])if(m[k]!=null)add(`.${k}`,'does not go with space facade (the wall’s corners and its length size it)'.replace(/’/g,"'"));
+  if(unit==='LF')add('.unit','must be SF or SY for a facade (its net face)');
+  const v=prov.view;let frame=null;
+  if(!v||v.width==null||v.height==null)add('.view','is required for a facade, with width and height (the photo\'s frame, across which the field of view is measured)');
+  else if(v.kind!=='document')add('.view.kind','must be document for a facade (a photo of the study)');
+  else frame=[Number(v.width),Number(v.height)];
+  if(m.image&&m.image.document_id==null)add('.image.document_id','is required for a facade (the photo it is measured on)');
+  if(m.image?.pixel_size_m!=null)add('.image.pixel_size_m','is for lon/lat imagery only; a facade takes its size from the wall\'s length');
+  const b=m.facade;if(!b||typeof b!=='object'||Array.isArray(b)){add('.facade','must be an object with wall, openings, wall_length_ft and wall_length_from');throw new MeasurementError(problems)}
+  const unknown=Object.keys(b).filter(k=>!FACADE_KEYS.includes(k)).sort();if(unknown.length)add('.facade',`has unknown keys: ${unknown.join(', ')}`);
+  const wall=facadeQuad(add,'.facade.wall',b.wall,frame),openings=[];let raw=b.openings??[];
+  if(!Array.isArray(raw)||raw.length>100){add('.facade.openings','must be a list of at most 100 openings');raw=[]}
+  raw.forEach((o,i)=>{const w=`.facade.openings[${i}]`;if(!o||typeof o!=='object'||Array.isArray(o)){add(w,'must be an object with kind and corners');return}
+   const u=Object.keys(o).filter(k=>!['kind','corners'].includes(k)).sort();if(u.length)add(w,`has unknown keys: ${u.join(', ')}`);
+   if(!OPENING_KINDS.includes(o.kind)){add(`${w}.kind`,`must be window, door, garage or other, got ${short(o.kind)}`);return}
+   const q=facadeQuad(add,`${w}.corners`,o.corners,frame);if(q)openings.push({kind:o.kind,quad:q})});
+  const L=b.wall_length_ft;
+  if(typeof L!=='number'||!Number.isFinite(L))add('.facade.wall_length_ft',`must be a number, got ${short(L)}`);else if(!(L>0&&L<=1000))add('.facade.wall_length_ft',`must be above 0 and at most 1000, got ${short(L)}`);
+  if(b.wall_length_from==null)add('.facade.wall_length_from','must say where the wall\'s length comes from (typed by the engineer, the lidar shell\'s side, a plan)');
+  else if(!(typeof b.wall_length_from==='string'&&b.wall_length_from.trim()&&b.wall_length_from.trim().length<=200&&!b.wall_length_from.includes('\u0000')))add('.facade.wall_length_from',`must be text of 1 to 200 characters, got ${short(b.wall_length_from)}`);
+  let f35=null;const lens=b.lens;
+  if(lens!=null){if(typeof lens!=='object'||Array.isArray(lens))add('.facade.lens','must be an object with focal_length_35mm and from');
+   else{const u=Object.keys(lens).filter(k=>!['focal_length_35mm','from'].includes(k)).sort();if(u.length)add('.facade.lens',`has unknown keys: ${u.join(', ')}`);
+    const f=lens.focal_length_35mm;if(typeof f!=='number'||!Number.isFinite(f))add('.facade.lens.focal_length_35mm',`must be a number, got ${short(f)}`);else if(!(f>0&&f<=5000))add('.facade.lens.focal_length_35mm',`must be above 0 and at most 5000, got ${short(f)}`);else f35=f;
+    if(!['photo','engineer'].includes(lens.from))add('.facade.lens.from',`must be photo or engineer, got ${short(lens.from)}`)}}
+  if(problems.length)throw new MeasurementError(problems);
+  const cam={width:Math.round(frame[0]),height:Math.round(frame[1]),hfov:f35===null?null:hfovFrom35(f35,frame[0],frame[1])};
+  const got=facadeMeasure(cam,wall,L/FT_PER_M,openings);
+  if(got.code){for(const [part,code,why] of got.refusals)add(part==='wall'?'.facade.wall':'.facade.openings',`cannot be measured: ${why} [${code}]`);throw new MeasurementError(problems)}
+  for(const t of got.left_out)add('.facade.openings',`has ${t}: move its corners onto the wall`);
+  if(problems.length)throw new MeasurementError(problems);
+  const sf=FT_PER_M*FT_PER_M,netSf=got.net_m2*sf,raw2=unit==='SY'?netSf/SF_PER_SY:netSf,quantity=round2(raw2);
+  if(!(Number(quantity)>0)||Number(quantity)>MAX_QUANTITY)throw new MeasurementError([`${prefix} comes to ${raw2.toFixed(4)} ${unit}; the quantity must be above 0 and at most 10,000,000 (after rounding to 0.01)`]);
+  const errs=got.expected_error_pct,key='net' in errs?'net':'height';
+  const measured={height_ft:round2(got.height_m*FT_PER_M),gross_sf:round2(got.gross_m2*sf),openings_sf:round2(got.openings_m2*sf),net_sf:round2(netSf),trim_lf:round2(got.trim_m*FT_PER_M),windows:got.windows,doors:got.doors,
+   openings:got.openings.map(o=>({kind:o.kind,width_ft:round2(o.width_m*FT_PER_M),height_ft:round2(o.height_m*FT_PER_M),area_sf:round2(o.area_m2*sf)})),focal_from:got.focal_from,hfov_deg:cam.hfov===null?null:Math.round(cam.hfov*1e4)/1e4,
+   view_deg:Math.round(got.view_deg*100)/100,skew_deg:Math.round(got.skew_deg*100)/100,expected_error_pct:Object.fromEntries(Object.keys(errs).sort().map(k=>[k,round2(errs[k])]))};
+  const out={unit,quantity,area_sf:round2(netSf),length_ft:null,method:'single_view_metrology',expected_error_pct:key in errs?round2(errs[key]):null,shape_count:1+openings.length,corner_count:4*(1+openings.length),cutout_count:openings.length,scale_ft_per_px:null,facade_measured:measured};
+  if(prov.original)out.original={...JSON.parse(JSON.stringify(m.original)),...prov.original};
+  return out;
+ }
+ // The facade's sentence (traced._facade_formula).
+ function facadeFormula(r,{source,captured_on,drawn_by,verified,facade}={}){
+  const m=r.facade_measured||{},n=(m.openings||[]).length,w=m.windows||0,d=m.doors||0,who=drawn_by!=null&&drawn_by!=='engineer'?'drafted by Basis':'measured by the engineer';
+  let tail='';if(verified!=null)tail+=verified?'; verified by the engineer':'; not verified';if(r.original)tail+=`; replaces ${qtext(r.original.quantity)} ${r.original.unit} ${whoDrew(r.original.drawn_by)}`;
+  const lens=m.focal_from==='field of view'?'':`, lens from ${m.focal_from}`,len=Number(facade?.wall_length_ft||0);
+  return `${qtext(r.quantity)} ${r.unit} net siding ${who} on ${source} (${captured_on?'captured '+captured_on:'undated'}): a wall ${Number(len.toPrecision(6))} ft long (${facade?.wall_length_from}) x ${m.height_ft} ft high, ${n} opening${n!==1?'s':''} (${w} window${w!==1?'s':''}, ${d} door${d!==1?'s':''}) ${m.openings_sf} SF out, trim ${m.trim_lf} LF${lens}; ${r.expected_error_pct===null?'expected error unknown':`expected error up to ${r.expected_error_pct} %`} (the wall's length not counted)${tail}`;
+ }
+ // Four clicked corners in any order -> bottom-left, bottom-right, top-right, top-left (the two
+ // lower in the photo are the bottom pair; left before right in each pair).
+ function orderQuad(pts){if(pts.length!==4)return pts;const s=[...pts].sort((a,b)=>b[1]-a[1]),bottom=s.slice(0,2).sort((a,b)=>a[0]-b[0]),top=s.slice(2).sort((a,b)=>a[0]-b[0]);return [bottom[0],bottom[1],top[1],top[0]]}
+ // What the engineer reads for a facade the metrology refuses (never a provider's name).
+ const FACADE_TEXT={
+  'BASIS-GEO-023':'Click the wall’s four corners where its edges meet: the wall must be at least 120 pixels wide in the photo.',
+  'BASIS-GEO-024':'This photo does not say which lens took it, and the wall’s own lines cannot tell. Type the lens (its 35 mm equivalent; a phone’s main camera is usually 24 to 28 mm), or use another photo.',
+  'BASIS-GEO-025':'The wall is seen too far off square, or a corner is misplaced. Check the four corners, or use a photo taken more squarely to the wall.',
+ };
+
  /* ---------- capabilities ---------- */
  // GET /v1/capabilities: anything but true is false, so today's API (404, or a body without these
  // members) shows exactly what it shows now.
- function caps(body){const b=body&&typeof body==='object'?body:{};return {propertyCapture:b.property_capture===true,publicGeo:b.public_geo===true,tracedMeasurement:b.traced_measurement===true}}
+ function caps(body){const b=body&&typeof body==='object'?body:{};return {propertyCapture:b.property_capture===true,publicGeo:b.public_geo===true,tracedMeasurement:b.traced_measurement===true,siteDrafts:b.site_drafts===true,facadeMeasure:b.facade_measure===true}}
  const anyProperty=c=>!!(c&&(c.propertyCapture||c.publicGeo));
 
  const api={FT_PER_M,radii,round2,measure,problems,formula,reviewFlags,expectedErrorPct,MeasurementError,georef,measurable,toMercator,fromMercator,
   frameOf,scaleFeetPerPx,segmentFt,viewCentre,scrollToCentre,boxMeetsCircle,boxesMeet,boxMeetsPolygon,segmentMeetsBox,segmentsCross,leaderFor,furnitureObstacles,placeName,placeEdgeLabel,turnedBox,clearOfPin,pointsBox,buildingOnView,scaleBar,measuredOnView,diagramModel,DIAGRAM_COLOURS,DIAGRAM_GROUND,angleAt,isSquare,RIGHT_TOL_DEG,edgeLengths,ftIn,ftInWords,parseLength,areaText,lfText,edgeLabels,labelPoint,shapeSummary,movePoint,insertPoint,removePoint,minPoints,setEdgeLength,snapPoint,nearestOnSegment,ringSegments,onPicture,
   remember,undoTrace,redoTrace,snapshotOf,bodyOfRecord,pixelShapes,drawnByText,withProvenance,sameShapes,viewRef,imageBody,KNOWN_LENGTHS,edgeComparison,lonlatPathFt,shoelace,insideOrOn,
   needsMeasurement,measureOffer,measureUnit,captureStatus,gatherStatus,noteText,clock,viewsOf,historyStrip,defaultMeasureView,leafText,dateText,yearOnly,dateOf,SIDE_TEXT,LOOKING,compass,
-  publicSeries,creditLine,measurementBody,imageOf,parcelRings,siteCheckText,lidarFacts,bracket,withBracket,caps,anyProperty,ringProblem,CAPTURE_FAILED,CAPTURE_PART};
+  publicSeries,creditLine,measurementBody,imageOf,parcelRings,siteCheckText,lidarFacts,bracket,withBracket,caps,anyProperty,ringProblem,CAPTURE_FAILED,CAPTURE_PART,
+  facadeMeasure,hfovFrom35,orderQuad,squareToQuad,toWall,isConvex,FACADE_TEXT,FACADE_ERR,FC};
  if(typeof module==='object'&&module.exports)module.exports=api;else scope.BasisPropertyModel=api;
 })(typeof globalThis==='object'?globalThis:this);
