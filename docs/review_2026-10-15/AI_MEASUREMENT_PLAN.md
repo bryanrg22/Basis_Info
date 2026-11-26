@@ -171,7 +171,13 @@ On the asset page (and the Property page), for any asset with an SF, SY or LF qu
 4. **M2 / M2v, site items**, on HABS site plans and the county shapes; the Google view against
    the public ortho.
 5. **M4 interiors** on ARKitScenes, then **M3 facades** (the novel one), then **M5** as the
-   floor every other method must beat.
+   floor every other method must beat. *M4 done (EVAL_REPORT 107, 31 rooms, 12 kitchens, truth
+   checked against a second scan and the laser): no depth setup beats today's formulas (owners'
+   photos do not show the whole room: single-view floor area 33 to 47 % low, even at the right
+   scale); a vision model asked with rulers (claude-sonnet-5-5) does: length 11 %, perimeter 10 %,
+   wall area 12 %, countertop 21 %, cabinet run 29 % against today's 18, 12, 25, 313 and 270 %
+   given the true area, $0.009 a room; multi-view with a door (perimeter 10 %, 9 rooms) is the
+   geometry to take further. Nothing shipped; the production M4d step is still to build.*
 6. Wire the winner per quantity into the pipeline behind settings, each as a draft with its
    expected error, the engineer verifying in the tool of step 2.
 
