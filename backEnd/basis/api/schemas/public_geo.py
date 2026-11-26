@@ -116,6 +116,41 @@ class LidarBuildingOut(ResponseModel):
     )
 
 
+class ShellSideOut(ResponseModel):
+    side: Literal["north", "east", "south", "west"] = Field(
+        description="The compass point nearest the side's outward normal."
+    )
+    azimuth_deg: float = Field(
+        description="The side's outward normal, degrees from north: square to the outline's "
+        "main wall direction, so a turned house's walls are measured along themselves."
+    )
+    width_m: float = Field(
+        description="The side's width as an elevation of it shows it: the wall outline's edges "
+        "facing within 60 degrees of the side, projected on its horizontal axis "
+        "(`basis.geo.facade.side_width`, EVAL_REPORT 109.4). A wall's length only where the "
+        "wall is the whole side; a wing, block or porch on that side reads long."
+    )
+    edges: int
+
+
+class ShellOut(ResponseModel):
+    """The building shell drafted from the lidar (`GEO_SHELL`, EVAL_REPORT 105), unpriced: what
+    the measure tool offers as a facade's wall length (EVAL_REPORT 111)."""
+
+    code: str | None = Field(description="The first part it refused, or null.")
+    wall_outline: list[list[float]] = Field(
+        default_factory=list,
+        description="The walls (the roof outline less the overhang prior): `[longitude, "
+        "latitude]` corners.",
+    )
+    overhang_m: float | None = None
+    perimeter_m: float | None = None
+    eave_main_m: float | None = Field(
+        default=None, description="The main eave above the ground: the wall height."
+    )
+    sides: list[ShellSideOut] = Field(default_factory=list)
+
+
 class LidarOut(ResponseModel):
     project: str
     year: int | None
@@ -133,6 +168,11 @@ class LidarOut(ResponseModel):
     credit: str
     terms_class: str
     terms_url: str
+    shell: ShellOut | None = Field(
+        default=None,
+        description="With `GEO_SHELL`: the building shell from the same lidar (null when not "
+        "drafted).",
+    )
 
 
 class GatherOut(ResponseModel):

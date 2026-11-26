@@ -115,7 +115,8 @@ from typing import Any, Final
 
 MEASUREMENT: Final = "measurement"  # the correction's field
 UNITS: Final = ("SF", "SY", "LF")
-SPACES: Final = ("lonlat", "image")
+FACADE: Final = "facade"  # a wall and its openings on one photo (EVAL_REPORT 111)
+SPACES: Final = ("lonlat", "image", FACADE)
 KINDS: Final = ("area", "line")
 SCALE_UNITS: Final = ("ft", "m")
 MAX_SHAPES: Final = 50
@@ -147,6 +148,16 @@ WGS84_E2: Final = WGS84_F * (2 - WGS84_F)
 
 METHOD_LONLAT: Final = "local_tangent_plane_wgs84"
 METHOD_IMAGE: Final = "image_scale"
+METHOD_FACADE: Final = "single_view_metrology"
+# A facade (space ``facade``): the wall's four corners and each opening's, on one photo.
+FACADE_KEYS: Final = frozenset({"wall", "openings", "wall_length_ft", "wall_length_from", "lens"})
+_OPENING_KEYS: Final = frozenset({"kind", "corners"})
+_LENS_KEYS: Final = frozenset({"focal_length_35mm", "from"})
+OPENING_KINDS: Final = ("window", "door", "garage", "other")
+LENS_FROM: Final = ("photo", "engineer")
+MAX_OPENINGS: Final = 100
+MAX_WALL_FT: Final = 1000.0
+MAX_FOCAL_35MM: Final = 5000.0
 
 UNDATED: Final = "measure:IMAGE_UNDATED"
 AFTER_SERVICE: Final = "measure:IMAGE_AFTER_SERVICE"
@@ -157,7 +168,10 @@ FLAGS: Final = (UNDATED, AFTER_SERVICE, ERROR_UNKNOWN, COARSE)
 _TOP_KEYS: Final = frozenset(
     {"unit", "space", "shapes", "scale", "image", "height_ft"}
     | {"drawn_by", "verified", "view", "original"}  # provenance (EVAL_REPORT 104)
+    | {FACADE}  # space facade (EVAL_REPORT 111)
 )
+# The keys of a body (what a record holds besides what :func:`measure` computes).
+BODY_KEYS: Final = _TOP_KEYS
 _AREA_KEYS: Final = frozenset({"kind", "ring", "cutouts"})
 _LINE_KEYS: Final = frozenset({"kind", "path"})
 _SCALE_KEYS: Final = frozenset({"points", "length", "unit"})
@@ -208,9 +222,12 @@ class Traced:
     verified: bool | None = None
     view: dict[str, Any] | None = None
     original: Traced | None = None  # the measurement this one replaced, computed alike
+    facade: dict[str, Any] | None = None  # space facade: what the metrology measured
 
     @property
     def kind(self) -> str:
+        if self.space == FACADE:
+            return FACADE
         return "area" if self.area_sf is not None else "line"
 
     def record(self) -> dict[str, Any]:
@@ -231,6 +248,8 @@ class Traced:
             computed["length_ft"] = format(self.length_ft, "f")
         if self.scale_ft_per_px is not None:
             computed["scale_ft_per_px"] = round(self.scale_ft_per_px, 9)
+        if self.facade is not None:
+            computed["facade_measured"] = self.facade
         if self.original is not None:
             computed["original"] = self.original.record()
         return {**self.stored, **computed}
@@ -521,7 +540,12 @@ def _image(check: _Check, value: Any, space: str | None) -> dict[str, Any] | Non
         else:
             stored["captured_on"] = captured.isoformat()
     if value.get("pixel_size_m") is not None:
-        if space == "image":
+        if space == FACADE:
+            check.add(
+                ".image.pixel_size_m",
+                "is for lon/lat imagery only; a facade takes its size from the wall's length",
+            )
+        elif space == "image":
             check.add(
                 ".image.pixel_size_m",
                 "is for lon/lat imagery only; an image in pixels takes its size from the scale",
@@ -638,7 +662,7 @@ def _measure(value: Any, prefix: str, *, nested: bool) -> Traced:
         check.add(".unit", f"must be SF, SY or LF (EA is counted, not traced), got {_short(unit)}")
     space = value.get("space")
     if space not in SPACES:
-        check.add(".space", f"must be lonlat or image, got {_short(space)}")
+        check.add(".space", f"must be lonlat, image or facade, got {_short(space)}")
         space = None
     image = _image(check, value.get("image"), space)
     scale: tuple[dict[str, Any], float, float] | None = None
@@ -670,6 +694,17 @@ def _measure(value: Any, prefix: str, *, nested: bool) -> Traced:
                 original = _measure(value["original"], f"{prefix}.original", nested=True)
             except MeasurementError as exc:
                 check.problems.extend(exc.problems)
+    if space == FACADE:
+        return _facade(
+            check,
+            value,
+            prefix=prefix,
+            unit=unit,
+            image=image,
+            provenance=(drawn_by, verified, view, original),
+        )
+    if value.get(FACADE) is not None:
+        check.add(".facade", "goes with space facade (a wall on a photo)")
     raw = _raw_points(value.get("shapes"))
     if raw is not None and raw[0] - raw[1] > MAX_POINTS:
         # Refused before any point is parsed (the body may hold far more than the cap; each
@@ -785,6 +820,240 @@ def _drawn_by(check: _Check, value: Any) -> str | None:
         f"got {_short(value)}",
     )
     return None
+
+
+def _quad(check: _Check, where: str, value: Any, frame: tuple[float, float] | None) -> Any:
+    """Four ``[x, y]`` pixels, bottom-left, bottom-right, top-right, top-left as the photo
+    shows them, inside the photo's frame; a :class:`basis.geo.facade.Quad` or None."""
+    from basis.geo.facade import Quad
+
+    if not isinstance(value, list) or len(value) != 4:
+        check.add(
+            where,
+            "must be the 4 corners [[x, y], ...]: bottom-left, bottom-right, top-right, "
+            "top-left as the photo shows them",
+        )
+        return None
+    points: list[Point] = []
+    for i, item in enumerate(value):
+        point = check.point(f"{where}[{i}]", item, "image")
+        if point is None:
+            return None
+        if frame is not None and not (point[0] <= frame[0] and point[1] <= frame[1]):
+            check.add(
+                f"{where}[{i}]",
+                f"is at pixel [{point[0]:g}, {point[1]:g}], outside the {frame[0]:g} x "
+                f"{frame[1]:g} photo",
+            )
+            return None
+        points.append(point)
+    bl, br, tr, tl = points
+    if not (bl[0] < br[0] and tl[0] < tr[0] and (bl[1] + br[1]) / 2 > (tl[1] + tr[1]) / 2):
+        check.add(
+            where,
+            "must run bottom-left, bottom-right, top-right, top-left as the photo shows them "
+            "(the bottom edge lower than the top, left before right)",
+        )
+        return None
+    return Quad(bl, br, tr, tl)
+
+
+def _facade(
+    check: _Check,
+    value: Mapping[str, Any],
+    *,
+    prefix: str,
+    unit: Any,
+    image: dict[str, Any] | None,
+    provenance: tuple[str | None, Any, dict[str, Any] | None, Traced | None],
+) -> Traced:
+    """Space ``facade`` (EVAL_REPORT 111): a wall's four corners and its openings' on one
+    photo, scaled by the wall's known length, measured by :func:`basis.geo.facade.measure`
+    (single-view metrology, EVAL_REPORT 109). The quantity is the face net of the openings
+    (the siding) in SF or SY; the record adds what the metrology measured
+    (``facade_measured``)."""
+    from basis.geo import facade as fc
+    from basis.vision.camera import hfov_deg
+
+    drawn_by, verified, view, original = provenance
+    for key in ("shapes", "scale", "height_ft"):
+        if value.get(key) is not None:
+            check.add(
+                f".{key}",
+                "does not go with space facade (the wall's corners and its length size it)",
+            )
+    if unit == "LF":
+        check.add(".unit", "must be SF or SY for a facade (its net face)")
+    frame: tuple[float, float] | None = None
+    if view is None or "width" not in view or "height" not in view:
+        check.add(
+            ".view",
+            "is required for a facade, with width and height (the photo's frame, across "
+            "which the field of view is measured)",
+        )
+    elif view.get("kind") != "document":
+        check.add(".view.kind", "must be document for a facade (a photo of the study)")
+    else:
+        frame = (float(view["width"]), float(view["height"]))
+    if image is not None and image.get("document_id") is None:
+        check.add(".image.document_id", "is required for a facade (the photo it is measured on)")
+    body = value.get(FACADE)
+    if not isinstance(body, Mapping):
+        check.add(
+            ".facade",
+            "must be an object with wall, openings, wall_length_ft and wall_length_from",
+        )
+        raise MeasurementError(check.problems)
+    check.keys(".facade", body, FACADE_KEYS)
+    wall = _quad(check, ".facade.wall", body.get("wall"), frame)
+    raw_openings = body.get("openings", [])
+    if raw_openings is None:
+        raw_openings = []
+    openings: list[Any] = []
+    stored_openings: list[dict[str, Any]] = []
+    if not isinstance(raw_openings, list) or len(raw_openings) > MAX_OPENINGS:
+        check.add(".facade.openings", f"must be a list of at most {MAX_OPENINGS} openings")
+        raw_openings = []
+    for i, item in enumerate(raw_openings):
+        where = f".facade.openings[{i}]"
+        if not isinstance(item, Mapping):
+            check.add(where, "must be an object with kind and corners")
+            continue
+        check.keys(where, item, _OPENING_KEYS)
+        kind = item.get("kind")
+        if kind not in OPENING_KINDS:
+            check.add(f"{where}.kind", f"must be window, door, garage or other, got {_short(kind)}")
+            continue
+        quad = _quad(check, f"{where}.corners", item.get("corners"), frame)
+        if quad is not None:
+            openings.append(fc.Opening(kind, quad))
+            stored_openings.append({"kind": kind, "corners": [list(p) for p in quad.points()]})
+    length = check.positive(".facade.wall_length_ft", body.get("wall_length_ft"), MAX_WALL_FT)
+    length_from = body.get("wall_length_from")
+    length_from_text: str | None = None
+    if length_from is None:
+        check.add(
+            ".facade.wall_length_from",
+            "must say where the wall's length comes from (typed by the engineer, the lidar "
+            "shell's side, a plan)",
+        )
+    else:
+        length_from_text = _text(check, ".facade.wall_length_from", length_from)
+    lens = body.get("lens")
+    focal35: float | None = None
+    stored_lens: dict[str, Any] | None = None
+    if lens is not None:
+        if not isinstance(lens, Mapping):
+            check.add(".facade.lens", "must be an object with focal_length_35mm and from")
+        else:
+            check.keys(".facade.lens", lens, _LENS_KEYS)
+            focal35 = check.positive(
+                ".facade.lens.focal_length_35mm", lens.get("focal_length_35mm"), MAX_FOCAL_35MM
+            )
+            if lens.get("from") not in LENS_FROM:
+                check.add(
+                    ".facade.lens.from",
+                    f"must be photo or engineer, got {_short(lens.get('from'))}",
+                )
+            elif focal35 is not None:
+                stored_lens = {"focal_length_35mm": focal35, "from": lens["from"]}
+    if check.problems or wall is None or length is None or frame is None or image is None:
+        raise MeasurementError(check.problems or [f"{prefix} is incomplete"])
+    camera = fc.Camera(
+        int(round(frame[0])),
+        int(round(frame[1])),
+        None if focal35 is None else hfov_deg(focal35, frame[0], frame[1]),
+    )
+    got = fc.measure(camera, wall, length / FT_PER_M, openings)
+    if got.code is not None:
+        for part, code, why in got.refusals:
+            where = ".facade.wall" if part == "wall" else ".facade.openings"
+            check.add(where, f"cannot be measured: {why} [{code}]")
+        raise MeasurementError(check.problems)
+    for text in got.left_out:
+        check.add(".facade.openings", f"has {text}: move its corners onto the wall")
+    if check.problems:
+        raise MeasurementError(check.problems)
+    assert got.height_m is not None and got.gross_m2 is not None and got.net_m2 is not None
+    sf = FT_PER_M * FT_PER_M
+    net_sf = got.net_m2 * sf
+    quantity_raw = net_sf / SF_PER_SY if unit == "SY" else net_sf
+    quantity = _q(quantity_raw)
+    if quantity <= 0 or quantity > MAX_QUANTITY:
+        raise MeasurementError(
+            [
+                f"{prefix} comes to {quantity_raw:,.4f} {unit}; the quantity must be above 0 "
+                f"and at most {MAX_QUANTITY:,} (after rounding to 0.01)"
+            ]
+        )
+    errors = got.expected_error_pct
+    error_key = "net" if "net" in errors else "height"
+    error = _q(errors[error_key]) if error_key in errors else None
+    measured: dict[str, Any] = {
+        "height_ft": format(_q(got.height_m * FT_PER_M), "f"),
+        "gross_sf": format(_q(got.gross_m2 * sf), "f"),
+        "openings_sf": format(_q((got.openings_m2 or 0.0) * sf), "f"),
+        "net_sf": format(_q(net_sf), "f"),
+        "trim_lf": format(_q((got.trim_m or 0.0) * FT_PER_M), "f"),
+        "windows": got.windows or 0,
+        "doors": got.doors or 0,
+        "openings": [
+            {
+                "kind": o.kind,
+                "width_ft": format(_q(o.width_m * FT_PER_M), "f"),
+                "height_ft": format(_q(o.height_m * FT_PER_M), "f"),
+                "area_sf": format(_q(o.area_m2 * sf), "f"),
+            }
+            for o in got.openings
+        ],
+        "focal_from": got.focal_from,
+        "hfov_deg": None if camera.hfov_deg is None else round(camera.hfov_deg, 4),
+        "view_deg": None if got.view_deg is None else round(got.view_deg, 2),
+        "skew_deg": None if got.skew_deg is None else round(got.skew_deg, 2),
+        "expected_error_pct": {k: format(_q(v), "f") for k, v in sorted(errors.items())},
+    }
+    stored_facade: dict[str, Any] = {
+        "wall": [list(p) for p in wall.points()],
+        "openings": stored_openings,
+        "wall_length_ft": length,
+        "wall_length_from": length_from_text,
+    }
+    if stored_lens is not None:
+        stored_facade["lens"] = stored_lens
+    stored: dict[str, Any] = {"unit": unit, "space": FACADE, FACADE: stored_facade, "image": image}
+    if drawn_by is not None:
+        stored["drawn_by"] = drawn_by
+    if verified is not None:
+        stored["verified"] = verified
+    if view is not None:
+        stored["view"] = view
+    if original is not None:
+        stored["original"] = original.stored
+    return Traced(
+        unit=str(unit),
+        space=FACADE,
+        quantity=quantity,
+        area_sf=_q(net_sf),
+        length_ft=None,
+        method=METHOD_FACADE,
+        expected_error_pct=error,
+        shape_count=1 + len(openings),
+        corner_count=4 * (1 + len(openings)),
+        cutout_count=len(openings),
+        source=str(image["source"]),
+        captured_on=None
+        if image.get("captured_on") is None
+        else date.fromisoformat(image["captured_on"]),
+        pixel_size_m=None,
+        height_ft=float(_q(got.height_m * FT_PER_M)),
+        scale_ft_per_px=None,
+        stored=stored,
+        drawn_by=drawn_by,
+        verified=verified,
+        view=view,
+        original=original,
+        facade=measured,
+    )
 
 
 def _text(check: _Check, where: str, value: Any) -> str | None:
@@ -1009,9 +1278,39 @@ def formula(traced: Traced) -> str:
     if traced.original is not None:
         was = traced.original
         tail += f"; replaces {was.quantity:,} {was.unit} {_who(was)}"
+    if traced.space == FACADE and traced.facade is not None:
+        return _facade_formula(traced, when, tail)
     return (
         f"{traced.quantity:,} {traced.unit} {_who(traced)} on {traced.source} ({when}), "
         f"{_counts(traced)}{scale}; {error}{tail}"
+    )
+
+
+def _facade_formula(traced: Traced, when: str, tail: str) -> str:
+    """A facade's sentence, e.g. ``478.10 SF net siding measured by the engineer on <source>
+    (undated): a wall 36.33 ft long (typed by the engineer) x 19.82 ft high, 6 openings (5
+    windows, 1 door) 121.10 SF out, trim 98.40 LF; expected error up to 2.60 % (the wall's
+    length not counted)``."""
+    m = traced.facade or {}
+    body = traced.stored.get(FACADE, {})
+    who = "drafted by Basis" if traced.by_model else "measured by the engineer"
+    n = len(m.get("openings", []))
+    windows, doors = m.get("windows", 0), m.get("doors", 0)
+    kinds = (
+        f"{windows} window{'s' if windows != 1 else ''}, {doors} door{'s' if doors != 1 else ''}"
+    )
+    error = (
+        "expected error unknown"
+        if traced.expected_error_pct is None
+        else f"expected error up to {traced.expected_error_pct} %"
+    )
+    lens = "" if m.get("focal_from") == "field of view" else f", lens from {m.get('focal_from')}"
+    return (
+        f"{traced.quantity:,} {traced.unit} net siding {who} on {traced.source} ({when}): a wall "
+        f"{body.get('wall_length_ft', 0):g} ft long ({body.get('wall_length_from')}) x "
+        f"{m.get('height_ft')} ft high, {n} opening{'s' if n != 1 else ''} ({kinds}) "
+        f"{m.get('openings_sf')} SF out, trim {m.get('trim_lf')} LF{lens}; {error} (the wall's "
+        f"length not counted){tail}"
     )
 
 
@@ -1041,6 +1340,8 @@ def review_flags(
 
 __all__ = [
     "AFTER_SERVICE",
+    "BODY_KEYS",
+    "FACADE",
     "COARSE",
     "ENGINEER",
     "ERROR_UNKNOWN",

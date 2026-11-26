@@ -52,8 +52,10 @@ from basis.db.models import GeoGather, GeoParcel, GeoView, PropertyPin
 from basis.db.repositories import VisibleStudy
 from basis.db.repositories.public_geo import GeoActiveError, PublicGeoRepository
 from basis.db.session import SessionDep, session_scope
+from basis.domain import traced
 from basis.errors.catalogue import BY_CODE
 from basis.errors.codes import E
+from basis.geo import facade
 from basis.geo.geometry import M2_PER_ACRE, SQFT_PER_M2, from_mercator
 from basis.geo.site_check import check
 from basis.geo.starter import GeoStarter, GeoStartError
@@ -130,13 +132,41 @@ def _parcel_out(p: GeoParcel) -> ParcelOut:
     )
 
 
+def _shell_out(record: object) -> dict[str, object] | None:
+    """The stored shell (``basis.geo.shell.as_record``) as the API shows it, with each compass
+    side's width (``basis.geo.facade.sides``, EVAL_REPORT 111); None when there is none."""
+    if not isinstance(record, dict):
+        return None
+    ring = record.get("wall_outline") or []
+    found: list[dict[str, object]] = []
+    if isinstance(ring, list) and len(ring) >= 3:
+        points = [(float(lon), float(lat)) for lon, lat in ring]
+        lats = [lat for _, lat in points]
+        feet = traced.plane(points, points[0], (min(lats) + max(lats)) / 2)
+        metres = [(x * 0.3048, y * 0.3048) for x, y in feet]
+        found = [
+            {"side": n, "azimuth_deg": round(a, 2), "width_m": w, "edges": e}
+            for n, a, w, e in facade.sides(metres)
+        ]
+    return {
+        "code": record.get("code"),
+        "wall_outline": ring if isinstance(ring, list) else [],
+        "overhang_m": record.get("overhang_m"),
+        "perimeter_m": record.get("perimeter_m"),
+        "eave_main_m": record.get("eave_main_m"),
+        "sides": found,
+    }
+
+
 def _lidar_out(summary: dict[str, object] | None) -> LidarOut | None:
     if not summary:
         return None
     building = summary.get("building")
     if isinstance(building, dict):
         building = {**building, "footprint_sqft": float(building["footprint_m2"]) * SQFT_PER_M2}
-    return LidarOut.model_validate({**summary, "building": building})
+    return LidarOut.model_validate(
+        {**summary, "building": building, "shell": _shell_out(summary.get("shell"))}
+    )
 
 
 @reads.get(

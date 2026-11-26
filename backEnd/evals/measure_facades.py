@@ -229,35 +229,12 @@ class M1Wall:
 def m1_wall_length(
     walls: Sequence[tuple[float, float]], azimuth_deg: float, *, spread_deg: float = 60.0
 ) -> tuple[float, int] | None:
-    """The width of the side of M1's wall outline that faces ``azimuth_deg``, as an elevation
-    of that side shows it: the edges whose outward normal is within ``spread_deg`` of the
-    azimuth, projected on the horizontal axis of that side, from the first end to the last
-    (the simplified lidar outline cuts corners into short diagonal edges, so a single edge is
-    not a wall: EVAL_REPORT 109.4). Returns the width (m) and how many edges made it."""
-    if len(walls) < 3:
-        return None
-    ring = list(walls)
-    if shell.ring_area(ring) < 0:
-        ring.reverse()
-    az = math.radians(azimuth_deg)
-    want = (math.sin(az), math.cos(az))  # east, north
-    axis = (want[1], -want[0])
-    ends: list[float] = []
-    used = 0
-    for i, (x0, y0) in enumerate(ring):
-        x1, y1 = ring[(i + 1) % len(ring)]
-        dx, dy = x1 - x0, y1 - y0
-        length = math.hypot(dx, dy)
-        if length < 0.3:
-            continue
-        normal = (dy / length, -dx / length)  # outward for a counter-clockwise ring
-        if normal[0] * want[0] + normal[1] * want[1] < math.cos(math.radians(spread_deg)):
-            continue
-        used += 1
-        ends += [x0 * axis[0] + y0 * axis[1], x1 * axis[0] + y1 * axis[1]]
-    if not ends:
-        return None
-    return max(ends) - min(ends), used
+    """The width of the side of M1's wall outline that faces ``azimuth_deg`` (EVAL_REPORT
+    109.4): the production rule, :func:`basis.geo.facade.side_width`, which the measure tool
+    offers as a wall's length (EVAL_REPORT 111)."""
+    from basis.geo.facade import side_width
+
+    return side_width(walls, azimuth_deg, spread_deg=spread_deg)
 
 
 def m1_walls(geo: Path, facades: Sequence[ft.Facade]) -> dict[str, M1Wall]:
