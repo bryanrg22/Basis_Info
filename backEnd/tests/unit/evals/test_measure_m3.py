@@ -17,7 +17,6 @@ import pytest
 from PIL import Image
 
 from basis.config import Settings
-from basis.geo import facade as fc
 from basis.llm import prompts
 from basis.llm.cost import cost_decimal
 from basis.llm.provider import Budget, ScriptedProvider, ScriptedTurn, Usage

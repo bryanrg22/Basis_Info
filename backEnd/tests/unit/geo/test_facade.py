@@ -155,9 +155,7 @@ def test_occluded_wall_keeps_its_height_but_not_its_openings():
     got = fc.measure(camera, wall, W, openings, occluded_share=0.6)
     assert got.height_m == pytest.approx(H, rel=1e-6)
     assert got.openings == () and got.net_m2 is None and got.windows is None
-    assert [(part, code) for part, code, _ in got.refusals] == [
-        ("openings", E.GEO_FACADE_OCCLUDED)
-    ]
+    assert [(part, code) for part, code, _ in got.refusals] == [("openings", E.GEO_FACADE_OCCLUDED)]
     kept = fc.measure(camera, wall, W, openings, occluded_share=0.3)
     assert kept.windows == 3
 

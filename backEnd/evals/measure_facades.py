@@ -1020,11 +1020,7 @@ def run_m3(args: Any, run: Any) -> tuple[str, dict[str, Any]] | None:
         if args.m3_replay is not None:
             recorded = json.loads((args.m3_replay / OUTCOMES_FILE).read_text())
             run.input("m3_replay", args.m3_replay / OUTCOMES_FILE)
-            outcomes = [
-                Outcome(**o)
-                for o in recorded
-                if o["setup"] in vlm
-            ]
+            outcomes = [Outcome(**o) for o in recorded if o["setup"] in vlm]
         else:
             jobs = vlm_jobs(facades, setups, args.m3_repeats)
             estimate = sum(estimate_job_usd(s, f, p, pr) for s, f, p, pr, _ in jobs)
