@@ -22,7 +22,7 @@ Numbers are never reused. Source of truth: `backEnd/basis/errors/catalogue.py` (
 rendered from it: `uv run python -m basis.errors.catalogue --write`; a test fails while it is
 stale).
 
-378 codes in 27 areas.
+385 codes in 28 areas.
 
 ## API: API: request plumbing (authentication, idempotency, limits, dependencies)
 
@@ -536,4 +536,16 @@ stale).
 | `BASIS-SITE-006` | outcome | the site-item drafter (`basis.vision.site_items`, `SITE_DRAFTS`); `basis.vision.site_items` | The outline is not a shape `basis.domain.traced.measure` accepts (the reasons are in the refusal). | No draft for the prompt: a `Refused` with this code and the measurement's problems. | Trace it by hand. | no |
 | `BASIS-SITE-007` | outcome | the site-item drafter (`basis.vision.site_items`, `SITE_DRAFTS`); `basis.vision.site_items` | The call to SAM 3 (Replicate or the self-hosted Cog server) failed after the localizer's own retries. | No draft for any prompt of the view: a `Refused` with this code and the error. | Try again later, or trace by hand. | no |
 | `BASIS-SITE-008` | outcome | the site-item drafter (`basis.vision.site_items`, `SITE_DRAFTS`); `basis.vision.site_items` | The family is not drafted from above: a fence (1 to 3 pixels wide, often under trees; EVAL_REPORT 106 found no line method that holds). | No draft for the prompt: a `Refused` with this code. | Trace the fence on the picture or from the lot line. | no |
+
+## MEASURE: The measure tool's routes: `POST /v1/studies/{id}/property/site-drafts` (docs/api/MEASURE_DRAFTS.md, EVAL_REPORT 111)
+
+| Code | Kind | Where (step; component) | What happened | What you see | How to fix | Retry |
+|---|---|---|---|---|---|---|
+| `BASIS-MEASURE-001` | refusal | `POST .../property/site-drafts`; `basis.api.routes.site_drafts` | Drafting site items is turned off on this deployment (`SITE_DRAFTS=off`, the default; `GET /v1/capabilities` says `site_drafts: false`). | 409 `site-drafts-off`; nothing is called or spent. (type `site-drafts-off`) | An operator turns the setting on; until then the app does not offer Draft it. | no |
+| `BASIS-MEASURE-002` | refusal | `POST .../property/site-drafts`; `basis.api.routes.site_drafts` | The view named is not a property capture view or a public view of this study. | 404 `not-found`; nothing is called or spent. (type `not-found`) | Name a view from `GET .../property` or `GET .../property/public`. | no |
+| `BASIS-MEASURE-003` | refusal | `POST .../property/site-drafts`; `basis.api.routes.site_drafts` | The asset named is not an asset of the study's current revision. | 404 `not-found`; nothing is called or spent. (type `not-found`) | Name an asset from `GET .../assets` at the study's revision. | no |
+| `BASIS-MEASURE-004` | refusal | `POST .../property/site-drafts`; `basis.api.routes.site_drafts` | The study is not waiting at the assets review, so a draft could not be sent as a correction (measurements go with the assets review's corrections). | 409 `gate-not-open`; nothing is called or spent. (type `gate-not-open`) | Draft while the assets review is open. | no |
+| `BASIS-MEASURE-005` | refusal | `POST .../property/site-drafts`; `basis.api.routes.site_drafts` | The study's recorded spend leaves less than `SITE_DRAFT_RESERVE_USD` of `STUDY_BUDGET_USD`, so no paid drafting call is made. | 409 `budget-exhausted`; nothing is called or spent. (type `budget-exhausted`) | Trace the item by hand, or an operator raises the study budget. | no |
+| `BASIS-MEASURE-006` | refusal | `POST .../property/site-drafts`; `basis.api.routes.site_drafts` | No segmentation model is configured on this deployment (`LOCALIZER_URL` or `REPLICATE_API_TOKEN` unset), so nothing can be drafted. | 503 `service-unavailable` with `Retry-After`; the engineer reads that drafting is unavailable (no provider is named). (type `service-unavailable`) | An operator configures the localizer; meanwhile trace by hand. | after fix |
+| `BASIS-MEASURE-007` | refusal | `POST .../property/site-drafts`; `basis.api.routes.site_drafts` | More than `SITE_DRAFTS_PER_MIN` drafts by one person in a minute (each is a paid call), besides the mutation limit every write has. | 429 with `Retry-After`; nothing is called or spent. (type `rate-limited`) | Wait the seconds `Retry-After` gives, then draft again. | yes |
 

@@ -553,9 +553,22 @@ class Settings(BaseSettings):
     # measured Google's straight-down ground pixel 1.018 times the recorded one (SD 0.025, 8
     # parcels; EVAL 103 suspected 1.027); 1.0, the default, leaves it as recorded, because on
     # those parcels the correction moved the drafts' bias (-8.6 to -4.7 %) but not their error.
+    # The measure tool's "Draft it" (POST .../property/site-drafts, EVAL_REPORT 111) runs this
+    # on the engineer's box while SITE_DRAFTS=on (409 site-drafts-off otherwise).
+    # SITE_DRAFTS_PER_MIN (6): drafts one person may ask for in a minute, each a paid SAM 3
+    # call (about $0.001 to $0.01 a view: 106.6 and 111), besides the mutation limit.
+    # SITE_DRAFT_TIMEOUT_S (30): the call's bound, OBJECT_PROMPT_TIMEOUT_S's default (the
+    # same SAM 3 box prompt from a route, EVAL_REPORT 40); a call that does not answer in time
+    # is refused with E.SITE_SEGMENTER_FAILED and the engineer traces by hand.
+    # SITE_DRAFT_RESERVE_USD (0.05): what the study's budget must have left (STUDY_BUDGET_USD
+    # less the recorded spend) before a call is made; 409 budget-exhausted below it. Fifty
+    # times 111's single draft, so one draft never takes a study over its budget.
     site_drafts: Literal["off", "on"] = "off"
     site_draft_max_pixel_m: float = Field(default=0.16, gt=0, le=5)
     site_draft_capture_scale: float = Field(default=1.0, gt=0.8, lt=1.2)
+    site_drafts_per_min: int = Field(default=6, ge=1, le=120)
+    site_draft_timeout_s: float = Field(default=30.0, gt=0, le=120)
+    site_draft_reserve_usd: float = Field(default=0.05, gt=0, le=5)
     # The rooms review opens once the photos are analyzed and the room step is done, with
     # SAM 3 still localizing in the background (EVAL_REPORT 30); true waits for it first.
     rooms_gate_waits_for_localization: bool = False
@@ -763,10 +776,12 @@ class Settings(BaseSettings):
     # it on corners an engineer placed (gpt-6.1-sol placing them: within 2 points of it):
     # openings 5.2 % mean absolute error against today's flat 15 % share's 17 %, every window
     # and door counted, trim 2.6 %, eave 1.9 %; the net face (2.5 %) is no better than the 15 %
-    # share on M1's eave. Off: nothing reads it until the measure tool's photo mode and the
-    # takeoff are wired. GEO_SITE_TOLERANCE_PCT (5): the parcel and the appraisal's
-    # site area agree within this (section 101). GEO_RECENT_HOURS (12): a pin gathered this
-    # recently is not gathered again unless asked.
+    # share on M1's eave. On (EVAL_REPORT 111): the measure tool's facade mode is offered
+    # (GET /v1/capabilities facade_measure) and an asset correction may carry a measurement in
+    # space "facade" (basis.domain.traced); off: such a correction is refused (422).
+    # GEO_SITE_TOLERANCE_PCT (5): the parcel and the appraisal's site area agree within this
+    # (section 101). GEO_RECENT_HOURS (12): a pin gathered this recently is not gathered again
+    # unless asked.
     public_geo: bool = False
     geo_task_queue: str = "basis-geo"
     geo_extent_m: float = Field(default=160.0, ge=20, le=1000)
