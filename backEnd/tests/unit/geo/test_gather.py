@@ -11,12 +11,13 @@ from pathlib import Path
 from typing import Any
 
 import httpx
+import numpy as np
 import pytest
 from geotest_support import Router, jpeg, png, source
 
 from basis.config import Settings
 from basis.errors.codes import E
-from basis.geo import lidar
+from basis.geo import lidar, shell
 from basis.geo.activities import GeoActivities
 from basis.geo.contracts import FailInput, GatherInput
 from basis.geo.gather import GatherConfig, Gatherer, gather_prefix, view_label
@@ -267,6 +268,85 @@ async def test_lidar_outcomes(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -
         summary = store.finished[gid]["lidar"]
         assert summary["code"] == code and summary["building"]["reaches_box_edge"] is edge
         assert list(summary["skipped"]) == ["Q_2020"]
+
+
+def shell_points(lon: float, lat: float) -> shell.ShellPoints:
+    """A 16 x 10 m gable house (walls; 0.5 m overhang, eave 3 m, 30 degrees) on flat ground."""
+    from basis.geo.geometry import to_mercator
+
+    rng = np.random.default_rng(11)
+    k = math.cos(math.radians(lat))
+    cx, cy = to_mercator(lon, lat)
+    e = rng.uniform(-8.5, 8.5, 1500)
+    n = rng.uniform(-5.5, 5.5, 1500)
+    z = 103.0 + math.tan(math.radians(30)) * (5.5 - np.abs(n))
+    ge = rng.uniform(-35, 35, 12000)
+    gn = rng.uniform(-35, 35, 12000)
+    keep = ~((np.abs(ge) <= 8.5) & (np.abs(gn) <= 5.5))
+    ge, gn = ge[keep], gn[keep]
+    ee, nn = np.concatenate([e, ge]), np.concatenate([n, gn])
+    cls = np.concatenate([np.full(e.size, 6), np.full(ge.size, 2)]).astype(np.int64)
+    ones = np.ones(ee.size, dtype=np.int64)
+    zz = np.concatenate([z, np.full(ge.size, 100.0)])
+    return shell.ShellPoints(cx + ee / k, cy + nn / k, zz, cls, ones, ones, "P_2018")
+
+
+async def test_the_shell_is_stored_beside_the_summary_only_when_on(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """GEO_SHELL (EVAL_REPORT 105): off, the summary is exactly as before and the tiles are not
+    read again; on, the shell drafted from the same box is stored beside it, and a lidar
+    failure on the second read is kept in the shell, never failing the gather."""
+    from basis.geo.http import SourceError
+
+    async def found(*_a: Any, **_k: Any) -> lidar.LidarSummary:
+        b = lidar.Building(200.0, 8.0, 8.5, 5.0, 100.0, 900, 0.0, 60)
+        return lidar.LidarSummary("P_2018", 2018, "u", 10, 100.0, 0.1, 9, 10, b, 1, 5)
+
+    reads: list[Any] = []
+
+    async def read(
+        _c: Any, lon: float, lat: float, box: Any, *, max_nodes: int
+    ) -> shell.PointsRead | None:
+        reads.append(box)
+        return shell.PointsRead(shell_points(lon, lat), "P_2018", "u", 3, 1234, ())
+
+    monkeypatch.setattr(lidar, "summarize", found)
+    monkeypatch.setattr(shell, "read_points", read)
+    off = GatherConfig(extent_m=9.6, max_px=64, history=False, lidar=True)
+    store, gatherer, gid, _ = setup(tmp_path, servers(), off)
+    await gatherer.run(gid)
+    assert "shell" not in store.finished[gid]["lidar"] and reads == []
+
+    on = GatherConfig(extent_m=9.6, max_px=64, history=False, lidar=True, shell=True)
+    store, gatherer, gid, _ = setup(tmp_path, servers(), on)
+    assert await gatherer.run(gid) == "succeeded"
+    summary = store.finished[gid]["lidar"]
+    got = summary["shell"]
+    assert got["code"] is None and got["classification"] == "lidar"
+    assert got["perimeter_m"] == pytest.approx(52, rel=0.02)
+    assert got["eave_main_m"] == pytest.approx(3.0, abs=0.15)
+    assert got["gutter_m"] == pytest.approx(34, rel=0.02)
+    assert len(got["wall_outline"]) >= 4 and got["bytes"] == 1234 and got["nodes"] == 3
+    assert reads and reads[0] == tuple(summary["box_lonlat"])
+    assert summary["code"] is None and summary["building"]["footprint_m2"] == 200.0
+
+    async def nothing(*_a: Any, **_k: Any) -> None:
+        return None
+
+    monkeypatch.setattr(shell, "read_points", nothing)
+    store, gatherer, gid, _ = setup(tmp_path, servers(), on)
+    await gatherer.run(gid)
+    assert store.finished[gid]["lidar"]["shell"] == {"code": E.GEO_NO_LIDAR}
+
+    async def broken(*_a: Any, **_k: Any) -> None:
+        raise SourceError(E.GEO_LIDAR_UNREADABLE, "bad tile")
+
+    monkeypatch.setattr(shell, "read_points", broken)
+    store, gatherer, gid, _ = setup(tmp_path, servers(), on)
+    assert await gatherer.run(gid) == "succeeded"
+    assert store.finished[gid]["lidar"]["shell"]["code"] == E.GEO_LIDAR_UNREADABLE
+    assert store.incidents == []
 
 
 async def test_the_fail_activity_marks_a_running_gather_failed_once(tmp_path: Path) -> None:
