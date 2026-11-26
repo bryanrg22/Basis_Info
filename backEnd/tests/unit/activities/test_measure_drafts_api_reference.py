@@ -142,6 +142,14 @@ async def test_the_web_reference_is_what_the_api_serves(
         for i in items
     )
     assert [b["code"] for b in drafted["blockers"]].count(md.BLOCKER) == 1
+    # What reaches the client's export (the formula, the assumptions) never cites an internal
+    # report; the record keeps the source whole for the audit trail.
+    for item in items:
+        takeoff = item["takeoff"]
+        shown = " ".join([takeoff.get("formula") or "", *(takeoff.get("assumptions") or [])])
+        assert "EVAL_REPORT" not in shown, (item["label"], shown)
+        assert "expected error about" in takeoff["formula"] and "% (measured on " in shown
+        assert takeoff["inputs"][md.DRAFT]["error_source"].startswith("EVAL_REPORT ")
 
     expected = json.dumps(reference, indent=1, sort_keys=True) + "\n"
     if os.environ.get("BASIS_WRITE_FIXTURES") == "1":

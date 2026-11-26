@@ -88,13 +88,13 @@
       "property_class": "residential_rental",
       "quantity": {
        "assumptions": [
-        "measured from ordinary room photos against objects of known size (EVAL_REPORT 107)",
+        "measured from ordinary room photos against objects of known size",
         "Legacy note replaced: Cabinet run (perimeter estimate) x 25-inch depth"
        ],
-       "formula": "28.00 SF drafted by Basis from the room's photos: 28.00 SF of counter top; not verified; expected error about 20.8 % (EVAL_REPORT 107.4: countertop, 3 kitchens)",
+       "formula": "28.00 SF drafted by Basis from the room's photos: 28.00 SF of counter top; not verified; expected error about 20.8 % (measured on 3 kitchens)",
        "inputs": {
         "assumptions": [
-         "measured from ordinary room photos against objects of known size (EVAL_REPORT 107)",
+         "measured from ordinary room photos against objects of known size",
          "Legacy note replaced: Cabinet run (perimeter estimate) x 25-inch depth"
         ],
         "component": "countertop",
@@ -245,13 +245,13 @@
     },
     "takeoff": {
      "assumptions": [
-      "measured from ordinary room photos against objects of known size (EVAL_REPORT 107)",
+      "measured from ordinary room photos against objects of known size",
       "Legacy note replaced: Cabinet run (perimeter estimate) x 25-inch depth"
      ],
-     "formula": "28.00 SF drafted by Basis from the room's photos: 28.00 SF of counter top; not verified; expected error about 20.8 % (EVAL_REPORT 107.4: countertop, 3 kitchens)",
+     "formula": "28.00 SF drafted by Basis from the room's photos: 28.00 SF of counter top; not verified; expected error about 20.8 % (measured on 3 kitchens)",
      "inputs": {
       "assumptions": [
-       "measured from ordinary room photos against objects of known size (EVAL_REPORT 107)",
+       "measured from ordinary room photos against objects of known size",
        "Legacy note replaced: Cabinet run (perimeter estimate) x 25-inch depth"
       ],
       "component": "countertop",
@@ -378,12 +378,12 @@
       "property_class": "residential_rental",
       "quantity": {
        "assumptions": [
-        "measured from ordinary room photos against objects of known size (EVAL_REPORT 107)"
+        "measured from ordinary room photos against objects of known size"
        ],
-       "formula": "180.00 SF drafted by Basis from the room's photos: 180.00 SF of floor x 1 waste; not verified; expected error about 22.5 % (EVAL_REPORT 107.4: floor area, 24 rooms)",
+       "formula": "180.00 SF drafted by Basis from the room's photos: 180.00 SF of floor x 1 waste; not verified; expected error about 22.5 % (measured on 24 rooms)",
        "inputs": {
         "assumptions": [
-         "measured from ordinary room photos against objects of known size (EVAL_REPORT 107)"
+         "measured from ordinary room photos against objects of known size"
         ],
         "component": "flooring",
         "cost_year_assumption": "no published cost index for 2026 is loaded; the latest, 239.1 (Jan 2020, est.), is applied. Enter the 2026 Historical Cost Index (RSMeans quarterly Construction Cost Index or the year's book; POST /v1/cost-indices or python -m basis.costs.refresh enter) before the study is signed",
@@ -538,12 +538,12 @@
     },
     "takeoff": {
      "assumptions": [
-      "measured from ordinary room photos against objects of known size (EVAL_REPORT 107)"
+      "measured from ordinary room photos against objects of known size"
      ],
-     "formula": "180.00 SF drafted by Basis from the room's photos: 180.00 SF of floor x 1 waste; not verified; expected error about 22.5 % (EVAL_REPORT 107.4: floor area, 24 rooms)",
+     "formula": "180.00 SF drafted by Basis from the room's photos: 180.00 SF of floor x 1 waste; not verified; expected error about 22.5 % (measured on 24 rooms)",
      "inputs": {
       "assumptions": [
-       "measured from ordinary room photos against objects of known size (EVAL_REPORT 107)"
+       "measured from ordinary room photos against objects of known size"
       ],
       "component": "flooring",
       "cost_year_assumption": "no published cost index for 2026 is loaded; the latest, 239.1 (Jan 2020, est.), is applied. Enter the 2026 Historical Cost Index (RSMeans quarterly Construction Cost Index or the year's book; POST /v1/cost-indices or python -m basis.costs.refresh enter) before the study is signed",
@@ -674,7 +674,7 @@
        "assumptions": [
         "gutters on the eave edges the lidar planes slope down to"
        ],
-       "formula": "111.71 LF drafted by Basis from the lidar shell: 2 eave edges of the roof outline; not verified; expected error about 6.2 % (EVAL_REPORT 105.1: gutter, two houses)",
+       "formula": "111.71 LF drafted by Basis from the lidar shell: 2 eave edges of the roof outline; not verified; expected error about 6.2 % (measured on two houses)",
        "inputs": {
         "assumptions": [
          "gutters on the eave edges the lidar planes slope down to"
@@ -844,7 +844,7 @@
      "assumptions": [
       "gutters on the eave edges the lidar planes slope down to"
      ],
-     "formula": "111.71 LF drafted by Basis from the lidar shell: 2 eave edges of the roof outline; not verified; expected error about 6.2 % (EVAL_REPORT 105.1: gutter, two houses)",
+     "formula": "111.71 LF drafted by Basis from the lidar shell: 2 eave edges of the roof outline; not verified; expected error about 6.2 % (measured on two houses)",
      "inputs": {
       "assumptions": [
        "gutters on the eave edges the lidar planes slope down to"
@@ -1003,7 +1003,7 @@
        "assumptions": [
         "roof surface: the outline's plan area x the lidar planes' slope factor"
        ],
-       "formula": "2,316.53 SF drafted by Basis from the lidar shell: 2,011.23 SF of roof in plan x 1.1518 (the roof planes' slope, 29.5 degrees on average); not verified; expected error about 10.4 % (EVAL_REPORT 105.1: roof surface, two houses)",
+       "formula": "2,316.53 SF drafted by Basis from the lidar shell: 2,011.23 SF of roof in plan x 1.1518 (the roof planes' slope, 29.5 degrees on average); not verified; expected error about 10.4 % (measured on two houses)",
        "inputs": {
         "assumptions": [
          "roof surface: the outline's plan area x the lidar planes' slope factor"
@@ -1172,7 +1172,7 @@
      "assumptions": [
       "roof surface: the outline's plan area x the lidar planes' slope factor"
      ],
-     "formula": "2,316.53 SF drafted by Basis from the lidar shell: 2,011.23 SF of roof in plan x 1.1518 (the roof planes' slope, 29.5 degrees on average); not verified; expected error about 10.4 % (EVAL_REPORT 105.1: roof surface, two houses)",
+     "formula": "2,316.53 SF drafted by Basis from the lidar shell: 2,011.23 SF of roof in plan x 1.1518 (the roof planes' slope, 29.5 degrees on average); not verified; expected error about 10.4 % (measured on two houses)",
      "inputs": {
       "assumptions": [
        "roof surface: the outline's plan area x the lidar planes' slope factor"
@@ -1309,13 +1309,13 @@
       "property_class": "residential_rental",
       "quantity": {
        "assumptions": [
-        "walls: the lidar roof outline less an 18 in overhang (EVAL_REPORT 105)",
+        "walls: the lidar roof outline less an 18 in overhang",
         "wall height: the main eave above grade; 15% openings; gable ends not added"
        ],
-       "formula": "1,426.97 SF drafted by Basis from the lidar shell: 170.61 ft of wall x 9.84 ft main eave x 0.85 (less 15 % openings); not verified; expected error about 6.4 % (EVAL_REPORT 105.1: wall face, six houses)",
+       "formula": "1,426.97 SF drafted by Basis from the lidar shell: 170.61 ft of wall x 9.84 ft main eave x 0.85 (less 15 % openings); not verified; expected error about 6.4 % (measured on six houses)",
        "inputs": {
         "assumptions": [
-         "walls: the lidar roof outline less an 18 in overhang (EVAL_REPORT 105)",
+         "walls: the lidar roof outline less an 18 in overhang",
          "wall height: the main eave above grade; 15% openings; gable ends not added"
         ],
         "component": "siding",
@@ -1483,13 +1483,13 @@
     },
     "takeoff": {
      "assumptions": [
-      "walls: the lidar roof outline less an 18 in overhang (EVAL_REPORT 105)",
+      "walls: the lidar roof outline less an 18 in overhang",
       "wall height: the main eave above grade; 15% openings; gable ends not added"
      ],
-     "formula": "1,426.97 SF drafted by Basis from the lidar shell: 170.61 ft of wall x 9.84 ft main eave x 0.85 (less 15 % openings); not verified; expected error about 6.4 % (EVAL_REPORT 105.1: wall face, six houses)",
+     "formula": "1,426.97 SF drafted by Basis from the lidar shell: 170.61 ft of wall x 9.84 ft main eave x 0.85 (less 15 % openings); not verified; expected error about 6.4 % (measured on six houses)",
      "inputs": {
       "assumptions": [
-       "walls: the lidar roof outline less an 18 in overhang (EVAL_REPORT 105)",
+       "walls: the lidar roof outline less an 18 in overhang",
        "wall height: the main eave above grade; 15% openings; gable ends not added"
       ],
       "component": "siding",
@@ -1646,12 +1646,12 @@
       "property_class": "residential_rental",
       "quantity": {
        "assumptions": [
-        "measured from ordinary room photos against objects of known size (EVAL_REPORT 107)"
+        "measured from ordinary room photos against objects of known size"
        ],
-       "formula": "432.00 SF drafted by Basis from the room's photos: 432.00 SF of wall; not verified; expected error about 11.9 % (EVAL_REPORT 107.4: wall area, 15 rooms)",
+       "formula": "432.00 SF drafted by Basis from the room's photos: 432.00 SF of wall; not verified; expected error about 11.9 % (measured on 15 rooms)",
        "inputs": {
         "assumptions": [
-         "measured from ordinary room photos against objects of known size (EVAL_REPORT 107)"
+         "measured from ordinary room photos against objects of known size"
         ],
         "component": "wall_finish",
         "cost_year_assumption": "no published cost index for 2026 is loaded; the latest, 239.1 (Jan 2020, est.), is applied. Enter the 2026 Historical Cost Index (RSMeans quarterly Construction Cost Index or the year's book; POST /v1/cost-indices or python -m basis.costs.refresh enter) before the study is signed",
@@ -1806,12 +1806,12 @@
     },
     "takeoff": {
      "assumptions": [
-      "measured from ordinary room photos against objects of known size (EVAL_REPORT 107)"
+      "measured from ordinary room photos against objects of known size"
      ],
-     "formula": "432.00 SF drafted by Basis from the room's photos: 432.00 SF of wall; not verified; expected error about 11.9 % (EVAL_REPORT 107.4: wall area, 15 rooms)",
+     "formula": "432.00 SF drafted by Basis from the room's photos: 432.00 SF of wall; not verified; expected error about 11.9 % (measured on 15 rooms)",
      "inputs": {
       "assumptions": [
-       "measured from ordinary room photos against objects of known size (EVAL_REPORT 107)"
+       "measured from ordinary room photos against objects of known size"
       ],
       "component": "wall_finish",
       "cost_year_assumption": "no published cost index for 2026 is loaded; the latest, 239.1 (Jan 2020, est.), is applied. Enter the 2026 Historical Cost Index (RSMeans quarterly Construction Cost Index or the year's book; POST /v1/cost-indices or python -m basis.costs.refresh enter) before the study is signed",

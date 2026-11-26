@@ -18758,10 +18758,14 @@ the Assets table's labels below it are cramped; that table is not changed here.
 * After verifying a lidar draft, the measure tool still says "traced on an image with no capture
   date" and "too coarse for its size". These are the trace's own flags, applied to the aerial it
   is drawn on.
-* Every drafted row's takeoff formula, which reaches the evidence export, names its internal
-  source ("EVAL_REPORT 105.1: roof surface, two houses"), as the cabinet-unit note already does
-  on main (`basis/domain/takeoffs.py`). Whether internal references belong in exported text is
-  the maintainer's call.
+* Every drafted row's takeoff formula, which reaches the evidence export, named its internal
+  source ("EVAL_REPORT 105.1: roof surface, two houses"). **Proposed fix 2026-11-26** (branch
+  `claude/drafts-export-wording`, for the maintainer to accept or turn down): the formula and the
+  assumptions say only the sample ("expected error about 10.4 % (measured on two houses)"), and
+  the record keeps `error_source` whole. Checked on the served rows (none cites a report; the
+  old wording fails the check) and in the sample. The cabinet-unit note on main
+  (`basis/domain/takeoffs.py`, "EVAL_REPORT 16.1 convention") is left as it is: it predates the
+  drafts and is not this change's to reword.
 
 ## 111. Draft it and the facade mode: M2 and M3 in the engineer's hands (2026-11-26)
 

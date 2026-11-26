@@ -1430,10 +1430,10 @@
    const stillDraft=!edit||(!traced&&!typed)||(traced&&String(traced.drawn_by).startsWith('model:')&&traced.verified!==true);
    if(stillDraft){
     const tail=D.factor?` x ${D.factor} (${D.reason})`:'';
-    const formula=`${fmt2(q2(D.quantity))} ${D.unit} drafted by Basis from ${D.kind==='exterior'?'the lidar shell':'the room\'s photos'}: ${D.what}${tail}; not verified; expected error about ${D.err[0]} % (${D.err[1]})`;
+    const formula=`${fmt2(q2(D.quantity))} ${D.unit} drafted by Basis from ${D.kind==='exterior'?'the lidar shell':'the room\'s photos'}: ${D.what}${tail}; not verified; expected error about ${D.err[0]} % (measured on ${String(D.err[1]).split(', ').pop()})`;
     const inputs=D.kind==='exterior'?{component:D.label,room_area_sf:null,quantity_source:'draft',drawn_by:rec.drawn_by,shape_quantity:`${D.shape.quantity} ${D.unit}`,draft_factor:D.factor||'1',draft_expected_error_pct:D.err[0],gather_id:'sample-1',replaced_formula:today.formula,replaced_quantity:today.quantity,measurement}
      :{room_area_sf:KITCHEN.answer.floor_area_sf,replaced_room_area_sf:asset.takeoff.inputs?.room_area_sf??null,quantity_source:'draft',drawn_by:rec.drawn_by,room_area_source:'room_photos_draft',draft_expected_error_pct:D.err[0],draft_quantity:D.name,...(D.missing?{replaced_missing_input:D.missing}:{replaced_formula:today.formula,replaced_quantity:today.quantity})};
-    setTakeoff(asset,{quantity:q2(D.quantity),unit:D.unit,formula,method:D.kind==='exterior'?'traced':'area',inputs,assumptions:D.kind==='exterior'?['Drafted from the lidar shell (EVAL_REPORT 105)']:['measured from ordinary room photos against objects of known size (EVAL_REPORT 107)']});
+    setTakeoff(asset,{quantity:q2(D.quantity),unit:D.unit,formula,method:D.kind==='exterior'?'traced':'area',inputs,assumptions:D.kind==='exterior'?['Drafted from the lidar shell']:['measured from ordinary room photos against objects of known size']});
     price(asset,D.label,q2(D.quantity),D.unit,D.unit);
     rec=priced(rec,asset);asset.takeoff.inputs.draft=rec;
     flag(asset,['measure:DRAFT_UNVERIFIED',...(measurement?PM.reviewFlags(D.shape,{captured_on:undefined,placedInService:INTAKE.placed_in_service_date}):[])]);

@@ -171,6 +171,8 @@ test('the real API’s drafted rows: held by exposure as the blocker counts, the
   assert.ok(t.length>20,a.label);assert.doesNotMatch(t,/undefined|NaN|null|\[object|model:|claude|lidar-shell|—/,`${a.label}: ${t}`)}
  assert.doesNotMatch(text(MD.heldHtml(items,{open:true,blocker})),/undefined|NaN|null|model:/);
  for(const a of REAL.not_drafted.items)assert.equal(MD.notUsedHint(a.takeoff.inputs.draft_not_used).to,'property',a.label);
+ // what reaches the client's export cites no internal report, on the API's rows and the sample's
+ for(const a of items){const t=[a.takeoff.formula,...(a.takeoff.assumptions||[])].join(' ');assert.doesNotMatch(t,/EVAL_REPORT/,a.label);assert.match(a.takeoff.formula,/% \(measured on [\w ]+\)$/,a.label)}
 });
 
 test('the sample’s drafted rows carry the real API’s fields: the record, the asset, the takeoff, the draft inputs, the blocker',async()=>{
@@ -180,6 +182,7 @@ test('the sample’s drafted rows carry the real API’s fields: the record, the
   assert.deepEqual(fieldsBy(x.items,pick),fieldsBy(real,pick),what);
  const sample=(await x.api.result(x.study.id,x.study.revision)).blockers.find(b=>b.code===MD.BLOCKER);
  assert.deepEqual(Object.keys(sample).sort(),Object.keys(REAL.drafted.blockers.find(b=>b.code===MD.BLOCKER)).sort());
+ for(const a of x.items.filter(a=>MD.draftOf(a))){const t=[a.takeoff.formula,...(a.takeoff.assumptions||[])].join(' ');assert.doesNotMatch(t,/EVAL_REPORT/,a.label);assert.match(a.takeoff.formula,/% \(measured on [\w ]+\)$/,a.label)}
 });
 
 test('the Assets page lists the held rows by exposure and tags each draft; Results shows the blocker with them',async()=>{

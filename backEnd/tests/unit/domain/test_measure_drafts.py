@@ -180,3 +180,20 @@ def test_the_blocker_message_says_how_many_and_the_threshold() -> None:
     )
     assert md.blocker_message(3, D("100")).startswith("3 measurements drafted by Basis are")
     assert md.BLOCKER_FIX == "verify or edit this measurement in the measure tool"
+
+
+def test_the_measured_sample_is_said_without_the_internal_report() -> None:
+    sources = [v[1] for v in (*md.EXTERIOR_ERROR_PCT.values(), *md.INTERIOR_ERROR_PCT.values())]
+    said = [md.measured_on(s) for s in sources]
+    assert said == [
+        "six houses",
+        "two houses",
+        "two houses",
+        "24 rooms",
+        "15 rooms",
+        "24 rooms",
+        "3 kitchens",
+        "4 kitchens",
+        "16 rooms",
+    ]
+    assert not any("EVAL" in s or ":" in s for s in said)
