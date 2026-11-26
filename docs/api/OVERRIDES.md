@@ -23,6 +23,8 @@ Any signed-in user, with or without a firm (401 without a sign-in).
 | `object_exclusion` | `OBJECT_EXCLUSION` | true | section 2 is accepted |
 | `unit_cost_override` | `UNIT_COST_OVERRIDE` | true | section 3 is accepted |
 | `traced_measurement` | `TRACED_MEASUREMENT` | true | section 4 is accepted |
+| `site_drafts` | `SITE_DRAFTS` with `TRACED_MEASUREMENT` | off | `POST .../property/site-drafts` drafts a site item from a box (docs/api/MEASURE_DRAFTS.md) |
+| `facade_measure` | `GEO_FACADE` with `TRACED_MEASUREMENT` | false | section 4.1 is accepted |
 | `room_create` | none | always false | the rooms review has no `room_create` correction yet |
 
 Each flag is what its route enforces at that moment: a route whose flag is false refuses
@@ -325,10 +327,71 @@ builds and a later assets rejection that does not send it again recomputes the t
 accepted and, like a typed quantity there, does not change the row's quantity; areas that
 overlap each other and cutouts that overlap each other are not detected; nothing compares the
 traced total with the lot; no exhibit (the image with the shape) is stored or printed; the
-client report does not print the source. No model drafts measurements yet (`drawn_by` is ready
-for them); no review flag is raised for an unverified draft (EVAL_REPORT 104, the maintainer's
+client report does not print the source. A model's draft reaches a correction only through the
+measure tool's Draft it (docs/api/MEASURE_DRAFTS.md, EVAL_REPORT 111: `drawn_by
+model:sam3@site-v1`; drafts the pipeline makes are a separate change, EVAL_REPORT 110); no review flag is raised for an unverified draft (EVAL_REPORT 104, the maintainer's
 decision); the server does not check that `view` names a view or document of the study (it is a
 pointer for drawing it again, `image.document_id` is the checked one).
+
+### 4.1 A facade on a photo: `space: "facade"` (EVAL_REPORT 109 and 111)
+
+The siding of one wall measured on a study photo: the wall's four corners and each opening's
+four corners, scaled by the wall's known length, measured by single-view metrology
+(`basis.geo.facade.measure`; A. Criminisi, I. Reid and A. Zisserman, "Single View Metrology",
+2000). The quantity is the face net of the openings. Accepted while `GEO_FACADE` is on (and
+`TRACED_MEASUREMENT`); otherwise a 422 `correction_value` "facade measurements are turned off".
+
+```json
+{"entity_type": "asset", "entity_id": "<the siding>", "after": {"measurement": {
+   "unit": "SF",
+   "space": "facade",
+   "facade": {"wall": [[376, 827], [1375, 868], [1354, 303], [388, 408]],
+              "openings": [{"kind": "window", "corners": [[...], [...], [...], [...]]},
+                           {"kind": "door", "corners": [[...], [...], [...], [...]]}],
+              "wall_length_ft": 39.3701,
+              "wall_length_from": "the lidar shell's west side (2021 lidar)",
+              "lens": {"focal_length_35mm": 28, "from": "photo"}},
+   "image": {"source": "Photo west-wall.jpg of this study", "document_id": "<the photo>"},
+   "view": {"kind": "document", "id": "<the photo>", "label": "west-wall.jpg",
+            "width": 1600, "height": 1200},
+   "drawn_by": "engineer", "verified": true}},
+ "reason": "Facade measured on photo west-wall.jpg: 5 windows, 1 door, 96.15 LF of opening trim"}
+```
+
+| Member | Meaning |
+|---|---|
+| `unit` | `SF` or `SY` (LF is refused: a facade is an area) |
+| `facade.wall` | four `[x, y]` pixels of the photo as shown (`view.width` x `view.height`): bottom-left, bottom-right, top-right, top-left as the photo shows them (grade and eave at the wall's two ends); refused when out of the frame, in another order (the bottom edge lower than the top, left before right), not a convex quadrilateral |
+| `facade.openings` | up to 100 of `{"kind": "window" \| "door" \| "garage" \| "other", "corners": [4 points, the same order]}`: the outside of each opening's trim; an opening off the wall is refused, named |
+| `facade.wall_length_ft` | the wall's length, above 0 and at most 1,000 |
+| `facade.wall_length_from` | where the length comes from, 1 to 200 characters (typed by the engineer, the lidar shell's side, a plan) |
+| `facade.lens` | optional `{"focal_length_35mm": 0 to 5000, "from": "photo" \| "engineer"}`: the 35 mm equivalent (CIPA DC-008, on the diagonal), so the horizontal field of view is `2 atan(width / hypot(width, height) x 43.27 / 2 / f35)`. Without it the focal length comes from the wall's own vanishing points (EVAL 109: eave 3.8 % against 1.9 %), and a wall whose verticals are parallel is refused `BASIS-GEO-024` |
+| `image.document_id` | required: the photo, a document of this study (`correction_target` otherwise) |
+| `view` | required, `kind` `document`, with `width` and `height` |
+
+`shapes`, `scale`, `height_ft` and `image.pixel_size_m` are refused with it. The metrology's
+refusals come back in the 422 with their code: `BASIS-GEO-023` (not a quadrilateral, or the wall
+under 120 px wide), `-024` (no lens and no vanishing point), `-025` (seen more than 70 degrees off
+square, or corners more than 12 degrees from a rectangle under the lens).
+
+What it computes and keeps (`takeoffs.inputs["measurement"]`): the body plus `quantity` (the net
+face), `area_sf`, `method` `single_view_metrology`, `expected_error_pct` (the first-order error
+of the net face for 3 px a corner; the wall's length is the engineer's, its uncertainty not
+counted, as a typed wall height's is not), `shape_count` (1 + openings), `corner_count`,
+`cutout_count` (the openings), and `facade_measured`: `height_ft`, `gross_sf`, `openings_sf`,
+`net_sf`, `trim_lf`, `windows`, `doors` (doors and garage doors), each opening's `kind`,
+`width_ft`, `height_ft`, `area_sf`, `focal_from` (`field of view`, `vanishing points` or
+`square-on`), `hfov_deg`, `view_deg`, `skew_deg` and the expected errors of the height, the
+openings and the net face. The takeoff's formula reads, for example, "631.27 SF net siding
+measured by the engineer on Photo west-wall.jpg of this study (undated): a wall 39.3701 ft long
+(the lidar shell's west side (2021 lidar)) x 18.39 ft high, 6 openings (5 windows, 1 door) 92.59
+SF out, trim 96.15 LF; expected error up to 1.15 % (the wall's length not counted); verified by the
+engineer". The window and door counts are in the record and, by the measure tool, in the
+correction's `reason`; nothing writes them to the window and door rows (open).
+
+The photo's lens: `GET /v1/studies/{id}` lists each document with `camera` (`focal_length_mm`,
+`focal_length_35mm`, `model`), read from a photo's EXIF when its upload is confirmed
+(`basis.vision.camera`, migration 0040); nothing else of the EXIF is kept, never the location.
 
 ## 5. Shapes against the app's sample API (`web/live/sample-api.js`, PROPOSED)
 
