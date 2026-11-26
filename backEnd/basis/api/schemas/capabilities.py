@@ -37,6 +37,17 @@ class CapabilitiesOut(ResponseModel):
         description="`POST .../property/public` gathers the property's public records: "
         "government imagery, parcels and lidar (setting `PUBLIC_GEO`; docs/api/PUBLIC_GEO.md).",
     )
+    site_drafts: bool = Field(
+        default=False,
+        description="`POST .../property/site-drafts` drafts a site item's outline from the "
+        "engineer's box on a top-down view (setting `SITE_DRAFTS`; docs/api/MEASURE_DRAFTS.md).",
+    )
+    facade_measure: bool = Field(
+        default=False,
+        description="`asset` corrections accept a `measurement` in space `facade`: a wall and "
+        "its openings clicked on a photo, scaled by the wall's length (settings `GEO_FACADE` "
+        "and `TRACED_MEASUREMENT`; docs/api/OVERRIDES.md section 4.1).",
+    )
     room_create: bool = Field(
         description="The rooms review accepts a `room_create` correction. Always false: "
         "the API has no such correction yet (web/FRONTEND_BACKLOG.md section 14)."

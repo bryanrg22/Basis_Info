@@ -577,3 +577,93 @@ async def test_two_confirmations_of_one_upload_at_once_record_one_event(
     )
     [event] = timeline.json()["items"]
     assert event["entity_id"] == doc_id
+
+
+# --------------------------------------------------------------------------- camera (EVAL 111)
+
+
+def photo_with_exif() -> bytes:
+    """A JPEG whose EXIF has the camera, the lens, the location, a date and serials."""
+    import io
+
+    from PIL import Image
+    from PIL.TiffImagePlugin import IFDRational
+
+    exif = Image.Exif()
+    exif[0x010F], exif[0x0110], exif[0x013B] = "Apple", "iPhone 15 Pro", "A. Owner"
+    sub = exif.get_ifd(0x8769)
+    sub[0x920A], sub[0xA405] = IFDRational(6765, 1000), 24
+    sub[0x9003], sub[0xA431] = "2025:06:02 10:11:12", "F2LZK0ABC"
+    gps = exif.get_ifd(0x8825)
+    gps[1], gps[2] = "N", (IFDRational(38), IFDRational(52), IFDRational(12))
+    out = io.BytesIO()
+    Image.new("RGB", (80, 60), (40, 90, 30)).save(out, format="JPEG", exif=exif.tobytes())
+    return out.getvalue()
+
+
+async def test_a_photos_camera_is_kept_and_nothing_else_of_its_exif(
+    api: Api, storage: LocalStorage, sessionmaker: async_sessionmaker[AsyncSession]
+) -> None:
+    study = await api.create_study("alice")
+    data = photo_with_exif()
+    ticket = await upload(
+        api,
+        "alice",
+        study["id"],
+        data,
+        kind="photo",
+        filename="IMG_1.jpg",
+        content_type="image/jpeg",
+    )
+    doc_id = ticket["document"]["id"]
+    assert ticket["document"]["camera"] is None  # read when the upload is confirmed
+    storage.put_signed(ticket["upload"]["url"], data, ticket["upload"]["headers"])
+    response = await api.post("alice", complete_path(study["id"], doc_id))
+    assert response.status_code == 200, response.text
+    camera = {"focal_length_mm": 6.765, "focal_length_35mm": 24.0, "model": "Apple iPhone 15 Pro"}
+    assert response.json()["camera"] == camera
+    row = await document_row(sessionmaker, doc_id)
+    assert (row.focal_length_mm, row.focal_length_35mm, row.camera_model) == (
+        6.765,
+        24.0,
+        "Apple iPhone 15 Pro",
+    )
+    listed = (await api.get("alice", f"/v1/studies/{study['id']}")).json()["documents"]
+    assert [d["camera"] for d in listed] == [camera]
+    # Nothing of the location, the date, the owner or the serial reaches the API or the row.
+    columns = {c: getattr(row, c) for c in Document.__table__.columns.keys()}  # noqa: SIM118
+    for shown in (response.text, str(listed), str(columns)):
+        for private in ("38.", "2025:06:02", "Owner", "F2LZK0ABC", "gps", "GPS"):
+            assert private not in shown
+    again = await api.post("alice", complete_path(study["id"], doc_id))
+    assert again.json()["camera"] == camera
+
+
+async def test_only_photos_are_read_for_a_camera(api: Api, storage: LocalStorage) -> None:
+    study = await api.create_study("alice")
+    data = photo_with_exif()
+    ticket = await upload(
+        api,
+        "alice",
+        study["id"],
+        data,
+        kind="other",
+        filename="site.jpg",
+        content_type="image/jpeg",
+    )
+    storage.put_signed(ticket["upload"]["url"], data, ticket["upload"]["headers"])
+    done = await api.post("alice", complete_path(study["id"], ticket["document"]["id"]))
+    assert done.status_code == 200 and done.json()["camera"] is None
+    junk = b"\xff\xd8 not really a jpeg"
+    plain = await upload(
+        api,
+        "alice",
+        study["id"],
+        junk,
+        kind="photo",
+        filename="IMG_2.jpg",
+        content_type="image/jpeg",
+    )
+    storage.put_signed(plain["upload"]["url"], junk, plain["upload"]["headers"])
+    unreadable = await api.post("alice", complete_path(study["id"], plain["document"]["id"]))
+    assert unreadable.status_code == 200 and unreadable.json()["camera"] is None

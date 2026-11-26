@@ -106,6 +106,8 @@ async def test_capabilities_follow_the_settings(api: Api, off_api: Api) -> None:
         "room_create": False,
         "property_capture": False,
         "public_geo": False,
+        "site_drafts": False,  # SITE_DRAFTS and GEO_FACADE are off by default (EVAL_REPORT 111)
+        "facade_measure": False,
     }
     off = await off_api.get("alice", "/v1/capabilities")
     assert off.json() == {
@@ -115,6 +117,8 @@ async def test_capabilities_follow_the_settings(api: Api, off_api: Api) -> None:
         "room_create": False,
         "property_capture": False,
         "public_geo": False,
+        "site_drafts": False,  # SITE_DRAFTS and GEO_FACADE are off by default (EVAL_REPORT 111)
+        "facade_measure": False,
     }
 
 

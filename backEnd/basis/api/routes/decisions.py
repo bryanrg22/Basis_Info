@@ -211,6 +211,7 @@ def check_correction_values(
     *,
     unit_cost_override: bool = True,
     traced_measurement: bool = True,
+    facade_measure: bool = False,
 ) -> None:
     """422 naming every count the rooms review would refuse (:mod:`basis.domain.counts`): a
     ``component`` ``count`` that is not a whole number from 1, or a ``room_component`` that
@@ -225,7 +226,7 @@ def check_correction_values(
     errors = []
     for index, item in enumerate(corrections):
         errors += unit_cost_errors(index, item, enabled=unit_cost_override)
-        errors += measurement_errors(index, item, enabled=traced_measurement)
+        errors += measurement_errors(index, item, enabled=traced_measurement, facade=facade_measure)
         errors += annotation_errors(index, item)
         problems: list[str] = []
         if item.entity_type == "component" and "count" in item.after:
@@ -256,6 +257,7 @@ async def check_values(corrections: Sequence[CorrectionIn], settings: Settings) 
         corrections,
         unit_cost_override=settings.unit_cost_override,
         traced_measurement=settings.traced_measurement,
+        facade_measure=settings.geo_facade,
     )
     if any(traced.MEASUREMENT in item.after for item in corrections):
         await asyncio.to_thread(check)
@@ -292,10 +294,15 @@ def unit_cost_errors(index: int, item: CorrectionIn, *, enabled: bool) -> list[d
     return errors
 
 
-def measurement_errors(index: int, item: CorrectionIn, *, enabled: bool) -> list[dict[str, Any]]:
-    """The 422 entries of a correction's traced measurement (none when it carries none)."""
+def measurement_errors(
+    index: int, item: CorrectionIn, *, enabled: bool, facade: bool = False
+) -> list[dict[str, Any]]:
+    """The 422 entries of a correction's traced measurement (none when it carries none). A
+    measurement in space ``facade`` (EVAL_REPORT 111) also needs ``GEO_FACADE``."""
     if traced.MEASUREMENT not in item.after:
         return []
+    value = item.after[traced.MEASUREMENT]
+    is_facade = isinstance(value, dict) and value.get("space") == traced.FACADE
     if item.entity_type != "asset":
         problems = [
             f"measurement is an asset correction's field (the assets review); a "
@@ -303,6 +310,11 @@ def measurement_errors(index: int, item: CorrectionIn, *, enabled: bool) -> list
         ]
     elif not enabled:
         problems = ["traced measurements are turned off on this deployment (GET /v1/capabilities)"]
+    elif is_facade and not facade:
+        problems = [
+            "facade measurements are turned off on this deployment (GET /v1/capabilities "
+            "facade_measure)"
+        ]
     else:
         problems = measurement_problems(item.after)
     return [

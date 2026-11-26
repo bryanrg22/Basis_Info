@@ -503,6 +503,12 @@ class StudySearch(Base):
 
 
 class Document(Base):
+    """An uploaded file of a study. Migration ``0040`` (EVAL_REPORT 111): a photo's camera
+    fields, read from its EXIF when the upload is confirmed (:mod:`basis.vision.camera`):
+    ``focal_length_mm``, ``focal_length_35mm`` and ``camera_model``, for measuring a facade on
+    it. Nothing else of the EXIF is kept (never the location, dates, names or serials); NULL
+    for every other document and for photos confirmed before 0040."""
+
     __tablename__ = "documents"
     __table_args__ = (
         UniqueConstraint("study_id", "sha256"),
@@ -510,6 +516,18 @@ class Document(Base):
         CheckConstraint("bytes > 0", name="bytes_positive"),
         # Lowercase hex only, so case variants cannot slip past the duplicate check.
         CheckConstraint("sha256 ~ '^[0-9a-f]{64}$'", name="sha256_hex"),
+        CheckConstraint(
+            "focal_length_mm IS NULL OR (focal_length_mm > 0 AND focal_length_mm <= 2000)",
+            name="focal_length_mm_range",
+        ),
+        CheckConstraint(
+            "focal_length_35mm IS NULL OR (focal_length_35mm > 0 AND focal_length_35mm <= 5000)",
+            name="focal_length_35mm_range",
+        ),
+        CheckConstraint(
+            "camera_model IS NULL OR char_length(camera_model) BETWEEN 1 AND 100",
+            name="camera_model_length",
+        ),
     )
 
     id: Mapped[uuid.UUID] = _uuid_pk()
@@ -523,6 +541,9 @@ class Document(Base):
     uploaded_by: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id"))
     uploaded_at: Mapped[datetime | None]
     created_at: Mapped[datetime] = _created_at()
+    focal_length_mm: Mapped[float | None] = mapped_column(Double)
+    focal_length_35mm: Mapped[float | None] = mapped_column(Double)
+    camera_model: Mapped[str | None]
 
 
 class DocumentPage(Base):

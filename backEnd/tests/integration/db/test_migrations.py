@@ -110,6 +110,9 @@
 * ``0039_study_renovations`` adds ``studies.renovations`` (an object or NULL) and
   ``studies.renovations_version`` (0, never negative), nothing backfilled; it downgrades back
   to ``0038`` exactly;
+* ``0040_document_camera`` adds a photo's camera fields (``focal_length_mm`` in (0, 2000],
+  ``focal_length_35mm`` in (0, 5000], ``camera_model`` 1 to 100 characters, each NULL by
+  default and nothing backfilled); it downgrades back to ``0039`` exactly;
 * upgrading at head is a no-op; offline (``--sql``) rendering works.
 
 Each test that changes the schema gets its own throwaway database in the shared
@@ -153,8 +156,8 @@ pytestmark = pytest.mark.integration
 # 0025_invitation_email lands after 0022 (user activity), 0023 (rate-limit hits) and 0024
 # (review drafts); 0026 (retention and alerts) revises 0025, and 0027_signature_input_versions
 # revises 0026 (it was 0024, then 0026, until the branches before it landed).
-HEAD = "0039"
-HISTORY = [f"{n:04d}" for n in range(39, 0, -1)]  # "0039" .. "0001"
+HEAD = "0040"
+HISTORY = [f"{n:04d}" for n in range(40, 0, -1)]  # "0040" .. "0001"
 EXPECTED_TRIGGERS = (
     {(f"{table}_set_updated_at", table) for table in UPDATED_AT_TABLES}
     | {(f"{table}_append_only", table) for table in APPEND_ONLY_TABLES}
@@ -2212,3 +2215,66 @@ async def test_0039_study_renovations_checks_and_an_exact_downgrade(
         await connection.close()
     await downgrade(url, "0038")
     assert await snapshot(url) == at_0038
+
+
+async def test_0040_document_camera_checks_and_an_exact_downgrade(
+    empty_database_url: str,
+) -> None:
+    url = empty_database_url
+    await upgrade(url, "0039")
+    at_0039 = await snapshot(url)
+    connection = await asyncpg.connect(plain_dsn(url))
+    try:
+        await connection.execute(
+            "INSERT INTO orgs (name) VALUES ('Acme'); "
+            "INSERT INTO users (firebase_uid, email) VALUES ('u1', 'u1@example.test')"
+        )
+        org = await connection.fetchval("SELECT id FROM orgs LIMIT 1")
+        user = await connection.fetchval("SELECT id FROM users LIMIT 1")
+        study = await connection.fetchval(
+            "INSERT INTO studies (org_id, created_by, property_name) VALUES ($1, $2, 'x') "
+            "RETURNING id",
+            org,
+            user,
+        )
+        document = await connection.fetchval(
+            "INSERT INTO documents (study_id, kind, filename, content_type, bytes, sha256, "
+            "gcs_uri) VALUES ($1, 'photo', 'a.jpg', 'image/jpeg', 10, $2, 'gs://b/a.jpg') "
+            "RETURNING id",
+            study,
+            "a" * 64,
+        )
+    finally:
+        await connection.close()
+    await upgrade(url, "0040")
+    connection = await asyncpg.connect(plain_dsn(url))
+    try:
+        row = await connection.fetchrow(
+            "SELECT focal_length_mm, focal_length_35mm, camera_model FROM documents WHERE id = $1",
+            document,
+        )
+        assert tuple(row) == (None, None, None)  # not backfilled
+        await connection.execute(
+            "UPDATE documents SET focal_length_mm = 3.7, focal_length_35mm = 28, "
+            "camera_model = 'samsung SM-J727U'"
+        )
+        for column, bad, check in (
+            ("focal_length_mm", "0", "focal_length_mm_range"),
+            ("focal_length_mm", "2000.5", "focal_length_mm_range"),
+            ("focal_length_35mm", "-1", "focal_length_35mm_range"),
+            ("focal_length_35mm", "5001", "focal_length_35mm_range"),
+            ("camera_model", "''", "camera_model_length"),
+            ("camera_model", "repeat('x', 101)", "camera_model_length"),
+        ):
+            with pytest.raises(asyncpg.CheckViolationError, match=check):
+                await connection.execute(f"UPDATE documents SET {column} = {bad}")
+        await connection.execute(
+            "UPDATE documents SET focal_length_mm = 2000, focal_length_35mm = 5000, "
+            "camera_model = repeat('x', 100)"
+        )
+        for table in ("documents", "studies", "users", "orgs"):
+            await connection.execute(f"DELETE FROM {table}")
+    finally:
+        await connection.close()
+    await downgrade(url, "0039")
+    assert await snapshot(url) == at_0039

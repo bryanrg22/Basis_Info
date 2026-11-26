@@ -110,6 +110,12 @@ BODIES: Final[dict[str, Any]] = {
     # public geographic sources (tests/api/test_public_geo.py, docs/api/PUBLIC_GEO.md)
     "GET /v1/studies/{study_id}/property/public": None,
     "POST /v1/studies/{study_id}/property/public": None,
+    "POST /v1/studies/{study_id}/property/site-drafts": {
+        "asset_id": "00000000-0000-4000-8000-000000000001",
+        "view": {"kind": "capture", "id": "00000000-0000-4000-8000-000000000002"},
+        "box": {"x1": 1, "y1": 1, "x2": 50, "y2": 50},
+        "family": "driveway",
+    },
     "GET /v1/studies/{study_id}/property/public/views/{view_id}/image": None,
     "POST /v1/studies/{study_id}/property/captures": None,
     "GET /v1/studies/{study_id}/property/captures": None,

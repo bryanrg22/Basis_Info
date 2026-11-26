@@ -18660,3 +18660,160 @@ and the interior drafts; a facade measurement in the study to replace the 15 % s
 verify in the tool; tier-D truth (owners' homes measured) before trusting interior numbers; the
 threshold on more studies; ceiling height from gpt-6.1-sol (107.7) is recorded on the draft but
 prices nothing.
+
+## 111. Draft it and the facade mode: M2 and M3 in the engineer's hands (2026-11-26)
+
+**Answer first.** The measure tool now drafts and measures, with the engineer verifying. **Draft
+it** (M2, EVAL 106): on a top-down view the engineer drags a box over a driveway, patio, deck, pool,
+walk or parking area and Basis returns SAM 3's outline as an editable draft (`drawn_by:
+model:sam3@site-v1`, not verified, a length on every edge, the draft kept dashed once edited), or a
+coded refusal in plain words; one real draft through the new route on the Fairfax County ortho read
+the county's driveway at **+1.31 %** (1,002.39 against 989.39 SF) for **$0.000352**. **Facade
+mode** (M3, EVAL 109): on a study photo the engineer clicks the wall's four corners and each
+opening's; with the wall's length (typed, or the lidar shell's side) and the lens (now kept from the
+photo's EXIF at upload: migration **0040**, never the location) the browser measures the net siding,
+the openings, the trim and the counts exactly as the server will (the port matches the server to
+1e-9 on 27 reference walls) and sends it as the siding's measurement (`space: "facade"`). On a
+synthetic wall clicked in a headless browser the net siding read **+0.07 %**. Both behind their
+settings (`SITE_DRAFTS`, `GEO_FACADE`), off by default. How much engineer time a draft saves against
+tracing from scratch (the product metric) was **not measured**: no engineer used it.
+
+**Question.** AI_MEASUREMENT_PLAN step 6, the engineer's half: can the outlines EVAL 106 measured
+(SAM 3 from a box) and the facade metrology EVAL 109 measured reach the engineer inside the measure
+tool (EVAL 104) so that measuring is "as easy as possible", the AI drafting and the engineer
+verifying, without a number reaching the schedule that the engineer did not see?
+
+**The standard (from the plan's research, section 3, and the two sections).** Every measuring
+product found (EagleView, Hover, SiteRecon, Roofr, Togal) drafts and lets the person correct: the
+draft kept unchanged beside the edit (SiteRecon's base view), a verified state per measurement
+(Roofr's "Mark as done"), a length on every edge. A box prompt is SAM's documented visual prompt and
+beat a phrase and a click on overhead imagery (EVAL 106.3; arXiv 2607.09583). The facade is
+single-view metrology (Criminisi, Reid and Zisserman, IJCV 2000) with the focal length from the
+photo's 35 mm equivalent, which CIPA DC-008 (Exif 2.3, 4.6.5) defines on the frame's diagonal; the
+fallback is the wall's two orthogonal vanishing points (Caprile and Torre 1990). Hover's reports
+list each opening's width, height and trim, which the tool shows. An interactive model call from a
+route follows the photo box prompt's pattern (`objects.py`, EVAL 32 and 40): no connection held
+during the call, the call in the paid ledger, the idempotency key replaying without a second call.
+
+### 111.1 What was built
+
+| Part | Where | What |
+|---|---|---|
+| The route | `basis/api/routes/site_drafts.py`, `schemas/site_drafts.py`, `docs/api/MEASURE_DRAFTS.md` | `POST /v1/studies/{id}/property/site-drafts`: engineers; while the assets review is open; a capture's or public top-down view, the box in its pixels, the family, the asset's unit; `site_items.draft_site_items` on the whole view (as EVAL 106 measured), bounded by `SITE_DRAFT_TIMEOUT_S`; the SAM 3 call in `llm_calls` (`site_draft`, the asset) and a `measurement.drafted` event; refusals before any call: off 409, view/asset 404, gate 409, budget 409, no segmenter 503, `SITE_DRAFTS_PER_MIN` 429 |
+| New codes | `basis/errors/codes.py`, catalogue, `docs/ERROR_CODES.md`, the browser catalogue | `BASIS-MEASURE-006` to `-012` (the refusals above; renumbered from 001-007 because the pipeline drafts, EVAL 110, took 001-005); the drafter's own `BASIS-SITE-001` to `-008` unchanged |
+| Settings | `config.py`, `.env.example` | `SITE_DRAFTS_PER_MIN` 6, `SITE_DRAFT_TIMEOUT_S` 30 (OBJECT_PROMPT_TIMEOUT_S's), `SITE_DRAFT_RESERVE_USD` 0.05; `GEO_FACADE`'s comment now says what it turns on; capabilities `site_drafts` and `facade_measure` |
+| The lens at upload | `basis/vision/camera.py`, `routes/documents.py`, migration `0040_document_camera` | when a photo's upload is confirmed, `FocalLength`, `FocalLengthIn35mmFilm` and `Make`/`Model` are read from its EXIF (header only, on a thread) and kept as `documents.focal_length_mm`, `focal_length_35mm`, `camera_model` (check constraints), shown as `documents[].camera`; nothing else of the EXIF is read into a field (never the GPS, dates, names or serials) |
+| The facade record | `basis/domain/traced.py` | `space: "facade"`: the wall's and the openings' corners (in order, inside the photo's frame), `wall_length_ft` and where it came from, the optional lens; measured by `basis.geo.facade.measure`; the quantity the net face; `facade_measured` with height, gross, openings and their sizes, trim, counts, the focal length's source and the expected errors; the metrology's refusals (`GEO-023` to `-025`) in the 422 with their code; its own sentence ("... net siding measured by the engineer ...; (the wall's length not counted)"); refused unless `GEO_FACADE` |
+| The wall's length | `basis/geo/facade.py` `side_width`, `sides`; `routes/property_public.py` | EVAL 109.4's rule (now production, the eval reuses it) per side square to the outline's main wall direction (a turned house is measured along its walls; due north would foreshorten it by the cosine), shown as `lidar.shell.sides` |
+| The tool | `web/live/property.js`, `property-model.js`, `property.css` | Draft it (Box, what it is, Draft it; the draft as the trace's base; Undo/Redo take it back whole); Facade mode (Trace / Facade on a photo; Wall, Window, Door, Garage door; corners in any order, dragged; the shell's sides as lengths; the lens from the photo or typed; the numbers live; openings numbered on the photo, sized in a table; Save with the counts as the correction's reason) |
+| Mock mode | `web/live/sample-property.js`, `sample-api.js` | P11: the route answered by a sample drafter (the item the box holds best, 2 % large, corners 0.3 m off) with the server's refusals; the lidar shell's sides. P12 (`&facade=exif` or `nolens`): a synthetic photo of the house's west wall (a pinhole projection, 1600 x 1200, 28 mm), its camera, and a siding row |
+
+Nothing calls the route but the tool; the pipeline's priced path is unchanged (a facade or a draft
+prices only when the engineer sends it, as any traced measurement does: OVERRIDES.md 4).
+
+### 111.2 The checks
+
+How to read it: each row is one check, run on the branch; "exact" is to the last digit compared.
+
+| Check | Result |
+|---|---|
+| The browser's facade metrology against the server, 27 photographed walls (five poses, with and without the lens, two lengths, the tolerance either side, each refusal) | equal to 1e-9 on every quantity and expected error; refusals with the server's words |
+| The browser's `space: "facade"` record against the server's, 5 bodies (SF, SY, no lens, an edit with its original, a typed lens) | quantity, record, sentence exact; the first problem of 7 bad bodies exact |
+| A synthetic wall (12 x 5.6 m, five windows, a door) from the projected corners | net 630.819 SF = truth, height 5.60000 m, with the lens and from the vanishing points |
+| The same wall clicked in headless Chromium (1440 x 900, screen pixels) | net 631.27 SF (+0.07 %), height 18'-5" (5.61 m), openings 92.59 SF (+0.08 %), 5 windows 1 door; expected error up to 1.15 % |
+| The wall with no lens (vanishing points), headless | gross 726.61 SF against 723.33 (+0.45 %); "lens worked out from vanishing points" shown |
+| A sample draft of the patio, headless | 804.92 SF drawn with four lengths, "Drafted by Basis · not verified · a starting outline, expected error up to 46 %"; a corner dragged leaves the draft dashed with the per-edge before and after |
+| EXIF: a JPEG carrying GPS, dates, the owner and serials | exactly the three fields kept; none of the others in the result, the row or the API |
+| **One real SAM 3 draft through the route** (below) | 1,002.39 SF against the county's 989.39 (+1.31 %), 9 corners, $0.000352 |
+
+**The real draft.** `tests/api/test_site_drafts_live.py` (run once with `BASIS_PAID_RUN=
+site_draft_route`): the route on the real app and a test database, the deployment's localizer
+(Replicate `vufinder/sam3`, version `1bf97763...`), parcel ffx01's Fairfax County 2023 3-inch ortho
+(public data, 977 x 977 px at 7.6 cm) stored as the study's public view, the box round the county's
+own `driveway-1` outline plus 0.5 m a side (EVAL 106.3's "box alone"). The approval was for one draft
+under $0.05; the route's 30 s timeout bounded it to $0.03 before it ran.
+
+| Item | Truth (county outline) SF | Draft SF | Signed % | Corners | Billed s | $ | Latency s |
+|---|---|---|---|---|---|---|---|
+| ffx01 driveway-1 | 989.39 | 1,002.39 | +1.31 | 9 | 0.36 | 0.000352 | 2.79 |
+
+One draft says the route works end to end with the real model and records its cost; it says nothing
+about accuracy beyond EVAL 106's 90 items (median 13.6 %), of which this driveway was one.
+
+Tests (`backEnd/tests/LEDGER.md`): `test_traced_facade.py` 33, `test_camera.py` 16,
+`test_facade_sides.py` 6, `test_facade_reference.py` 2, `test_site_drafts_api.py` 13,
+`test_facade_measurement_api.py` 3, `test_uploads.py` +2, `test_migrations.py` +1 (head 0040),
+`test_site_drafts_live.py` 1 (paid, skipped by default); `measure-facade.test.cjs` 5,
+`measure-tool-drafts.test.cjs` 10 (named `measure-drafts.test.cjs` before the merge with EVAL 110's file of that name); the web suite 594 (579 before); the backend unit suite 6,652
+passed, 17 skipped; the integration and slow suites (Postgres on the local server, Docker down)
+1,991 passed and one failed that is the machine's, not the change's: `test_db_outage` expects a
+wrong password refused and this Postgres trusts every connection (checked with psql); the
+Schemathesis contract test passes with the new route (a generated box that is not ordered is
+replaced, as the pin's cross-field rules are). Mutations that fail a test: the
+draft's Undo not restoring its provenance; Draft it offered for any label; the browser's opening
+tolerance 0.04 -> 0.05; its corner sigma 3 -> 2.9; the route's budget check, rate limit and gate
+(each has its 409/429 test that asserts no call).
+
+**Captures** (`$BASIS_EVAL_DATA_DIR/work/measure_tool/`, 1440 x 900 on the sample): 80 the Draft it
+panel, 81 the box, 82 the draft received, 83 edited with the original dashed, 84 saved, 85 a refusal
+("Basis found nothing to outline in the box ..."), 86 the facade photo opened in Facade mode, 87 the
+wall clicked with the shell's west side, 88 measured with six openings, 89 saved, 90 no lens (the ask),
+91 no lens measured from the vanishing points, 92 a phone (measuring needs a larger screen). No
+console error on any.
+
+### 111.3 Decisions, and why
+
+* **The draft is the trace's base, not a separate object.** EVAL 104's machinery (dashed original,
+  per-edge before and after, Verified, "drafted by Basis" in the sentence) then applies unchanged;
+  an untouched draft is sent as it is, an edit keeps it as `original`.
+* **The browser computes the facade, the server re-computes it.** As the trace (EVAL 104), the
+  numbers update on every click with no request; the server's `traced.measure` is the authority
+  when it is sent, and the port is held to it by a fixture both sides test. A preview route would
+  have been a second source of the same number.
+* **No lens is asked for, not refused at once.** The photo's EXIF gives it for new uploads; for an
+  older photo or one without EXIF the tool asks for the 35 mm equivalent and, if left empty, uses
+  the wall's vanishing points (EVAL 109 measured them: eave 3.8 % against 1.9 %) and says so; only
+  when those cannot give one is it refused with `BASIS-GEO-024`, in plain words.
+* **The wall's length is the engineer's.** The shell's side is offered with its caveat (EVAL 109.4:
+  a side with a wing or porch reads long, +55 to +213 % on four of seven facades) and recorded as
+  the source; its uncertainty is not counted in the expected error, as a typed wall height's is not
+  (traced.py's rule).
+* **Draft it only for site items.** SAM 3 was measured on driveways, patios, decks and pools
+  (EVAL 106), not on siding, roofs or lawns; a fence is refused with no call.
+* **Rate and budget.** Each draft is a paid call: 6 a minute a person and a $0.05 reserve under the
+  study's budget, both refusing before the call.
+
+### 111.4 Verified, and not
+
+**Verified.** Every route path in `test_site_drafts_api.py` (roles, each refusal, the ledger row,
+the event, idempotency, timeout, rate limit, budget) on Postgres; the migration upgrades, checks and
+downgrades exactly; `alembic check`; the facade body on the decision route; the port's parity; the
+web flows in a VM and headless; one real draft with its cost recorded.
+
+**Not verified, or suspected only.**
+
+* **The engineer's time** to verify a draft against tracing from scratch, and whether engineers
+  verify for real or click through (the plan's risk, KU study): not measured; no engineer used it.
+* A HEIC carrying EXIF: this environment's libheif has no encoder, so the lens from an iPhone's HEIC
+  is untested (JPEG is tested; HEIC opens through the same plugin and Pillow API).
+* The 35 mm equivalent's field of view is the standard's definition, not checked against a
+  calibrated camera (as EVAL 109).
+* Not run on the live stack (lost in a reboot): the web flows ran on the sample API only, in a VM
+  and in headless Chromium, not in Safari or on a tablet's touch.
+* The sample drafter and the sample facade photo are synthetic: they check the tool, not accuracy
+  (EVAL 106 and 109 are the accuracy).
+* The draft's method error (the family's 90th percentile, up to 53 %) is shown in the tool but not
+  stored with the measurement once sent; the stored expected error is `traced`'s one-pixel bound.
+* A stored facade measurement is not drawn back on the asset page, and the window and door counts
+  reach their own rows only as the correction's note.
+
+**Cost.** $0.000352 (one SAM 3 prediction, 0.36 billed seconds), from the route's own ledger row.
+
+**Run record.** `$BASIS_EVAL_DATA_DIR/verification/site_drafts/route/site_draft_route_2026-11-26T105145/`
+(`answer.json`, `api_llm_calls.json`, `results.json`, `manifest.json`; the code was this branch's
+uncommitted tree on `80ccd11`).
+
+**Open.** The engineer's edit time per draft and per facade (a timed session with an engineer); a
+stored facade drawn on the asset page and edited with its original; the counts written to the window
+and door rows; picking the wall on the diagram; the photo's date from the EXIF (a facade is flagged
+undated today); the live-stack walk-through once the stack is back.

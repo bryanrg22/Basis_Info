@@ -474,8 +474,87 @@ def _expected(
     return {key: 100.0 * math.sqrt(sums[key]) / abs(base[key]) for key in base if base[key] != 0}
 
 
+# ------------------------------------------------------------------ the wall's length from M1
+
+# The four sides a facade photo can face, by the azimuth of the wall's outward normal.
+SIDES: Final = (("north", 0.0), ("east", 90.0), ("south", 180.0), ("west", 270.0))
+SIDE_SPREAD_DEG: Final = 60.0
+
+
+def side_width(
+    walls: Sequence[Point], azimuth_deg: float, *, spread_deg: float = SIDE_SPREAD_DEG
+) -> tuple[float, int] | None:
+    """The width of the side of a wall outline (east, north metres) that faces
+    ``azimuth_deg``, as an elevation of that side shows it: the edges whose outward normal is
+    within ``spread_deg`` of the azimuth, projected on that side's horizontal axis, first end
+    to last. The simplified lidar outline cuts corners into short diagonal edges, so a single
+    edge is not a wall (EVAL_REPORT 109.4, the rule scored there: -4.1 and +3.8 % where the
+    wall is the whole side; a side holding wings, blocks or porches reads long). Returns the
+    width in metres and how many edges made it, or None."""
+    if len(walls) < 3:
+        return None
+    ring = list(walls)
+    twice = sum(
+        x0 * y1 - x1 * y0 for (x0, y0), (x1, y1) in zip(ring, ring[1:] + ring[:1], strict=True)
+    )
+    if twice < 0:
+        ring.reverse()
+    az = math.radians(azimuth_deg)
+    want = (math.sin(az), math.cos(az))  # east, north
+    axis = (want[1], -want[0])
+    ends: list[float] = []
+    used = 0
+    for i, (x0, y0) in enumerate(ring):
+        x1, y1 = ring[(i + 1) % len(ring)]
+        dx, dy = x1 - x0, y1 - y0
+        length = math.hypot(dx, dy)
+        if length < 0.3:
+            continue
+        normal = (dy / length, -dx / length)  # outward for a counter-clockwise ring
+        if normal[0] * want[0] + normal[1] * want[1] < math.cos(math.radians(spread_deg)):
+            continue
+        used += 1
+        ends += [x0 * axis[0] + y0 * axis[1], x1 * axis[0] + y1 * axis[1]]
+    if not ends:
+        return None
+    return max(ends) - min(ends), used
+
+
+def main_axis_deg(walls: Sequence[Point]) -> float:
+    """The outline's main wall direction, modulo 90 degrees, in [0, 90): the length-weighted
+    mean of its edges' azimuths on the circle of period 90 (each angle times four), so a
+    house turned 20 degrees off north reads 20 whatever the order of its corners."""
+    sx = sy = 0.0
+    for (x0, y0), (x1, y1) in zip(walls, [*walls[1:], walls[0]], strict=True):
+        length = math.hypot(x1 - x0, y1 - y0)
+        if length == 0:
+            continue
+        azimuth = math.atan2(x1 - x0, y1 - y0)  # from north, clockwise (east, north input)
+        sx += length * math.cos(4 * azimuth)
+        sy += length * math.sin(4 * azimuth)
+    return math.degrees(math.atan2(sy, sx) / 4) % 90.0
+
+
+def sides(walls: Sequence[Point]) -> list[tuple[str, float, float, int]]:
+    """:func:`side_width` for each of the outline's four sides, square to its main axis
+    (:func:`main_axis_deg`), so a turned house's walls are measured along themselves:
+    ``(compass name of the side's outward normal, its azimuth, width m, edges)``."""
+    if len(walls) < 3:
+        return []
+    axis = main_axis_deg(walls)
+    out = []
+    for k in range(4):
+        azimuth = (axis + 90.0 * k) % 360.0
+        got = side_width(walls, azimuth)
+        if got is not None:
+            name = min(SIDES, key=lambda s: abs((azimuth - s[1] + 180.0) % 360.0 - 180.0))[0]
+            out.append((name, azimuth, got[0], got[1]))
+    return sorted(out, key=lambda s: [n for n, _ in SIDES].index(s[0]))
+
+
 __all__ = [
     "CORNER_SIGMA_PX",
+    "SIDES",
     "MAX_OCCLUDED_SHARE",
     "MAX_SKEW_DEG",
     "MAX_VIEW_DEG",
@@ -487,7 +566,10 @@ __all__ = [
     "Quad",
     "focal_from_vanishing",
     "is_convex",
+    "main_axis_deg",
     "measure",
+    "side_width",
+    "sides",
     "square_to_quad",
     "to_wall",
 ]

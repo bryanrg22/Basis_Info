@@ -390,7 +390,7 @@ test('the Response surface: JSON, problem+json, bytes, and the bearer token',asy
 /* ---------- PROPOSED (the sample API's own section) ---------- */
 test('P0: capabilities say what the proposed section offers',async()=>{
  const {a}=instance('components');
- assert.deepEqual((await a.call('GET','/v1/capabilities')).body,{object_exclusion:true,unit_cost_override:true,room_create:true,property_capture:true,public_geo:true,traced_measurement:true});
+ assert.deepEqual((await a.call('GET','/v1/capabilities')).body,{object_exclusion:true,unit_cost_override:true,room_create:true,property_capture:true,public_geo:true,traced_measurement:true,site_drafts:true,facade_measure:true});
 });
 
 test('P1: exclude an instance with a reason, then restore it; the counts follow',async()=>{

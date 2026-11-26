@@ -322,9 +322,9 @@ class TooManyRequests(ApiError):
     title = "Too Many Requests"
     type_suffix = "rate-limited"
 
-    def __init__(self, detail: str, *, retry_after: int) -> None:
+    def __init__(self, detail: str, *, retry_after: int, code: str | None = None) -> None:
         self.retry_after = max(1, int(retry_after))
-        super().__init__(detail=detail, headers={"Retry-After": str(self.retry_after)})
+        super().__init__(detail=detail, headers={"Retry-After": str(self.retry_after)}, code=code)
 
 
 # --------------------------------------------------------------------------- rendering

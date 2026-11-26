@@ -109,6 +109,11 @@
   {key:'bedroom',kind:'photo',filename:'bedroom.webp',content_type:'image/webp',bytes:124510,sha256:'19d8ccbed96953ff1e0334c123fb104a6bad728adbb17ba400f7f176333a576e',path:'assets/bedroom.webp'},
   {key:'exterior',kind:'photo',filename:'exterior.webp',content_type:'image/webp',bytes:167240,sha256:'1b042095d3e3e5f0c77bf48b36e97dd85670d60b10fd125ad8093f16a059e396',path:'assets/exterior.webp'},
  ];
+ // P12 (&facade=exif or nolens, or create({facade})): a photo of the house's west wall
+ // (live/sample-property.js FACADE, a synthetic SVG) with its camera from the EXIF (or none) and a
+ // siding row on the exterior, for the measure tool's facade mode (EVAL_REPORT 111).
+ const FACADE_DOC={key:'front',kind:'photo',filename:'west-wall.jpg',content_type:'image/svg+xml',bytes:24000,sha256:'f00dfacade0000000000000000000000000000000000000000000000000000a1',svg:'facade'};
+ const facadeMode=inst=>{const v=inst.facade??(scope.location?new URLSearchParams(scope.location.search||'').get('facade'):null);return v==='exif'||v==='nolens'?v:null};
  const REPORT_PATH='assets/sample-report.pdf';
  const PHOTO_PATHS=new Set(DOCS.filter(d=>d.kind==='photo').map(d=>d.path)),STAND_IN_PHOTO='assets/sample-photo.webp';
  // Appraisal fields: [key, label, kind, value, page(s), confidence, critical]; regions are the
@@ -202,6 +207,7 @@
   outdoor_lighting:{category:'Exterior site lighting',bucket:'y15',irs:'1250',unit:'EA',base:420,comp:null,row:'S-26 56 19.20 Wall light, exterior'},
   security_system:{category:'Security camera',bucket:'y7',irs:'1245',unit:'EA',base:450,comp:null,row:'S-28 23 23.10 Camera, exterior'},
   fence:{category:'Fencing',bucket:'y15',irs:'1250',unit:'LF',base:48,comp:null,row:'S-32 31 13.20 Fence, wood lattice',qty:'needs_lf'},
+  siding:{category:'Exterior siding',bucket:'y39',irs:'1250',unit:'SF',base:7.4,comp:'B',row:'S-07 46 33.10 Siding, vinyl, double 4',qty:'fixed',fixed:1980},
   porch:{category:'Detached pavilion',bucket:'y39',irs:'1250',unit:'SF',base:95,comp:null,row:'S-13 34 13.13 Pavilion, open, wood frame',qty:'fixed',fixed:420},
  };
  // Room-specific rule changes and the flags the model and the checks raise (review_reasons).
@@ -263,6 +269,7 @@
   // While seeding, 97 s per event, never past now (the seed's days leave room; this is a guard).
   S.clock=()=>inst.seeding?(S.seedClock=Math.min(S.seedClock+97000,inst.t0-60000)):inst.now();
   let i=0;for(const d of DOCS)S.docs.push({...d,id:uid(1,++i)});
+  const fm=facadeMode(inst);if(fm)S.docs.push({...FACADE_DOC,id:uid(1,++i),camera:fm==='exif'?{focal_length_mm:4.25,focal_length_35mm:28,model:'Sample Phone 12'}:null});
   S.doc=key=>S.docs.find(d=>d.key===key);
   return S;
  }
@@ -273,8 +280,9 @@
   // Each study's appraisal names its own property and client (the sample PDF stays Harbor House's).
   if(S.meta){const own={'subject.property_name':S.name,'subject.property_address':S.meta.address,'subject.city':S.meta.city,'subject.state':S.meta.state,'subject.client':S.meta.client};for(const f of S.fields)if(f.key in own)f.value_text=own[f.key]}
   let c=0;
-  S.rooms=ROOMS.map((r,ri)=>({id:S.uid(3,ri+1),key:r.key,name:r.name,room_type:r.room_type,floor:r.floor,area:r.area,source:'vision',group_key:r.key,photos:r.photos.map(k=>docId(S,k)),provenance:prov,
-   inventory:INVENTORY[r.key].map(([label,count,material,attachment,confidence,seen])=>({component_id:S.uid(4,++c),label,count,material,attachment,confidence,document_id:docId(S,seen[0]),seen_in:seen.map(k=>docId(S,k)),added:false,provenance:null,roomKey:r.key}))}));
+  const front=S.doc('front'),photosOf=r=>[...r.photos,...(front&&r.key==='exterior'?['front']:[])],inventoryOf=r=>[...INVENTORY[r.key],...(front&&r.key==='exterior'?[['siding',1,'vinyl','permanent',0.91,['front']]]:[])];
+  S.rooms=ROOMS.map((r,ri)=>({id:S.uid(3,ri+1),key:r.key,name:r.name,room_type:r.room_type,floor:r.floor,area:r.area,source:'vision',group_key:r.key,photos:photosOf(r).map(k=>docId(S,k)),provenance:prov,
+   inventory:inventoryOf(r).map(([label,count,material,attachment,confidence,seen])=>({component_id:S.uid(4,++c),label,count,material,attachment,confidence,document_id:docId(S,seen[0]),seen_in:seen.map(k=>docId(S,k)),added:false,provenance:null,roomKey:r.key}))}));
   let o=0;S.objects={};
   for(const [key,list] of Object.entries(OBJECTS))S.objects[docId(S,key)]=list.map(([label,x1,y1,x2,y2,score,counted])=>({id:S.uid(5,++o),label,phrase:PHRASES[label]||label.replace(/_/g,' '),score,box:{x1,y1,x2,y2},area:round4((x2-x1)*(y2-y1)),source:'model',counted:Boolean(counted),derived_from:null,created_by:null,created_at:at,deleted_at:null,deleted_by:null,mask_source:null,mask_reason:null}));
  }
@@ -346,7 +354,7 @@
  function studyOut(S){const out={id:S.id,org_id:S.inst.org.id,created_by:S.owner.id,created_by_name:S.owner.name,created_by_email:S.owner.email,property_name:S.name,status:S.status,current_stage:S.stage,revision:S.revision,room_aliases:{},failure_reason:S.failure_reason,components_gate:true,intake:clone(INTAKE),intake_version:S.intakeVersion,purged_at:null,created_at:S.created_at,updated_at:S.updated_at};for(const f of STUDY_OUT)f(out,S);return out}
  function studyDetail(S){
   const latest=new Map();for(const r of S.reviews)latest.set(r.stage,r);
-  return {...studyOut(S),documents:S.docs.map(d=>({id:d.id,study_id:S.id,kind:d.kind,filename:d.filename,content_type:d.content_type,bytes:d.bytes,sha256:d.sha256,uploaded_at:S.created_at,created_at:S.created_at})),latest_reviews:[...latest.values()].map(clone)};
+  return {...studyOut(S),documents:S.docs.map(d=>({id:d.id,study_id:S.id,kind:d.kind,filename:d.filename,content_type:d.content_type,bytes:d.bytes,sha256:d.sha256,uploaded_at:S.created_at,created_at:S.created_at,...('camera' in d?{camera:d.camera?{...d.camera}:null}:{})})),latest_reviews:[...latest.values()].map(clone)};
  }
  function fieldsOut(S){return S.fields.map(f=>clone(f))}
  // Suggested counts: the most counted instances of a label in one photo of the room (model
@@ -648,7 +656,7 @@
  const gateNotOpen=(S,code=E.GATE)=>conflict('gate-not-open',`${S.stage} revision ${S.revision} of study ${S.id} is not open for a decision yet (status ${S.status})`,code);
 
  function create(options={}){
-  const inst={measureDraft:options.measureDraft,now:options.now||(()=>Date.now()),delayMs:options.delayMs??2000,fetchAsset:options.fetchAsset||null,assetBase:options.assetBase||null,seeding:false,profile:clone(PROFILE),profileVersion:1,idem:new Map(),assetCache:new Map()};
+  const inst={measureDraft:options.measureDraft,facade:options.facade,now:options.now||(()=>Date.now()),delayMs:options.delayMs??2000,fetchAsset:options.fetchAsset||null,assetBase:options.assetBase||null,seeding:false,profile:clone(PROFILE),profileVersion:1,idem:new Map(),assetCache:new Map()};
   inst.t0=inst.now();inst.profileUpdated=iso(inst.t0-DAY*30);
   const state=STATES.includes(options.state)?options.state:'components';
   inst.state=state;
@@ -1004,7 +1012,7 @@
     const done=S.status==='completed'||S.status==='archived',gate=S.status==='waiting_review'?S.stage:null,processing=S.stage==='components_processing'&&S.status==='processing';
     return json(200,{workflow_id:run.workflow_id,run_id:run.run_id,execution_status:done?'COMPLETED':'RUNNING',status:{stage:S.stage,revision:S.revision,waiting_since:gate?S.stages[S.stages.length-1].gate_opened_at:null,pending_photos:processing?2:0,completed_photos:processing?3:5,decisions_applied:S.reviews.map(r=>r.id),stalled:false,budget_remaining_usd:Math.round((8-S.calls.reduce((s,c)=>s+Number(c.cost_usd),0))*100)/100,awaiting:gate,flagged_photos:[],needs_review_stages:gate?[gate]:[],failed_stage:S.status==='failed'?S.stage:null,failure:S.status==='failed'?S.failure_reason:null,failure_code:S.status==='failed'?'BASIS-INGEST-005':null},runs:S.runs.map(clone)});
    }));
-   route('GET','/v1/studies/{study_id}/documents/{document_id}/(?<what>image|content)',withStudy(async(S,ctx)=>{const d=S.docs.find(x=>x.id===ctx.p.document_id);if(!d)return notFound('Document not found.');if(ctx.p.what==='image'&&d.kind!=='photo')return notFound('Not a photo.');return {status:200,bytes:await asset(ctx.i,d.path),headers:{'content-type':d.content_type,'content-disposition':`inline; filename="${d.filename}"`,etag:`"${d.sha256}"`}}}));
+   route('GET','/v1/studies/{study_id}/documents/{document_id}/(?<what>image|content)',withStudy(async(S,ctx)=>{const d=S.docs.find(x=>x.id===ctx.p.document_id);if(!d)return notFound('Document not found.');if(ctx.p.what==='image'&&d.kind!=='photo')return notFound('Not a photo.');if(d.svg==='facade'){const PSx=scope.BasisPropertySample||(typeof require==='function'?require('./sample-property.js'):null);return {status:200,bytes:new TextEncoder().encode(PSx.FACADE.svg()),headers:{'content-type':d.content_type,'content-disposition':`inline; filename="${d.filename}"`,etag:`"${d.sha256}"`}}}return {status:200,bytes:await asset(ctx.i,d.path),headers:{'content-type':d.content_type,'content-disposition':`inline; filename="${d.filename}"`,etag:`"${d.sha256}"`}}}));
    route('GET','/v1/studies/{study_id}/fields',withStudy((S,ctx)=>atRevision(S,ctx,(snap,r)=>json(200,page(snap?.fields||[],{revision:r})),()=>json(200,page(S.has.fields?fieldsOut(S):[],{revision:S.revision})))));
    route('GET','/v1/studies/{study_id}/rooms',withStudy((S,ctx)=>atRevision(S,ctx,(snap,r)=>json(200,{revision:r,...(snap?.rooms||{items:[],unplaced:[]}),next_cursor:null}),()=>json(200,{revision:S.revision,...(S.has.rooms?roomsOut(S):{items:[],unplaced:[]}),next_cursor:null}))));
    route('GET','/v1/studies/{study_id}/photos/{document_id}/objects',withStudy((S,ctx)=>{const doc=ctx.p.document_id;if(!S.docs.some(d=>d.id===doc&&d.kind==='photo'))return notFound('Photo not found.',E.OBJ_PHOTO);return atRevision(S,ctx,(snap,r)=>json(200,snap?.objects?.[doc]||{document_id:doc,revision:r,localization:null,counts:{},items:[]}),()=>json(200,objectsOut(S,doc)))}));
@@ -1123,7 +1131,7 @@
    get state(){return inst.state},
    studies:()=>inst.studies.map(S=>({id:S.id,name:S.name,status:S.status,stage:S.stage,revision:S.revision})),
    mainStudyId:()=>inst.studies[0].id,
-   reset(name){const fresh=create({now:inst.now,delayMs:inst.delayMs,fetchAsset:inst.fetchAsset,assetBase:inst.assetBase,state:name||inst.state});Object.assign(inst,fresh._inst);return this},
+   reset(name){const fresh=create({now:inst.now,delayMs:inst.delayMs,fetchAsset:inst.fetchAsset,assetBase:inst.assetBase,facade:inst.facade,state:name||inst.state});Object.assign(inst,fresh._inst);return this},
    _inst:inst,
   };
  }
@@ -1164,10 +1172,15 @@
   *  P10 a model's drafted measurement on the patio's row (&measure=draft, or create({measureDraft:
   *      true})): takeoff.inputs.measurement with drawn_by model:..., verified false, priced as a
   *      traced one is (EVAL_REPORT 104: no model drafts yet; this is the measure tool's fixture).
+  *  P11 site_drafts and facade_measure in GET /v1/capabilities; POST .../property/site-drafts
+  *      (Draft it, docs/api/MEASURE_DRAFTS.md) answered by live/sample-property.js siteDraft; the
+  *      lidar summary's shell with its sides (GEO_SHELL).
+  *  P12 &facade=exif|nolens: a photo of the west wall (a document with `camera`) and a siding row
+  *      for the facade mode; a measurement in space facade on an asset correction (OVERRIDES 4.1).
   * ===================================================================================== */
  (function proposed(){
   // P0
-  PROPOSED_ROUTES.push(({route,json})=>route('GET','/v1/capabilities',()=>json(200,{object_exclusion:true,unit_cost_override:true,room_create:true,property_capture:true,public_geo:true,traced_measurement:true})));
+  PROPOSED_ROUTES.push(({route,json})=>route('GET','/v1/capabilities',()=>json(200,{object_exclusion:true,unit_cost_override:true,room_create:true,property_capture:true,public_geo:true,traced_measurement:true,site_drafts:true,facade_measure:true})));
   // P4: what identifies each study, and a search that reaches it.
   STUDY_OUT.push((out,S)=>{const m=S.meta;out.summary=m?{address:m.address,city:m.city,state:m.state,zip:m.zip,county:m.county,parcel_number:m.apn,client:m.client,borrower:m.borrower,taxpayer:S.answers?.taxpayer_name||m.taxpayer,file_number:m.file}:null});
   STUDY_MATCH.push((S,q)=>{const m=S.meta;if(!m)return false;

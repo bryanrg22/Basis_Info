@@ -141,6 +141,8 @@ def test_only_known_routes_exist(app: FastAPI) -> None:
         "POST /v1/studies/{study_id}/property/public",
         "GET /v1/studies/{study_id}/property/public/views/{view_id}/image",
         "GET /v1/ops/geo-incidents",
+        # the measure tool's Draft it (test_site_drafts_api.py, docs/api/MEASURE_DRAFTS.md)
+        "POST /v1/studies/{study_id}/property/site-drafts",
         "GET /v1/ops/studies/{study_id}/documents",
         "GET /v1/ops/studies/{study_id}/documents/{document_id}/content",
         "GET /v1/studies",

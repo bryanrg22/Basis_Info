@@ -7,7 +7,8 @@ Format ``BASIS-<AREA>-<nnn>``: the area names the step or component the failure 
 the cost index store, ``REPORT`` for the study report, ``RETENTION`` for the client-data
 purge, ``ALERT`` for the operator alerts, ``CLIENT`` for the browser error capture, ``DEMO``
 for the public site's demo requests, ``CAPTURE`` for the property pictures, ``GEO`` for the
-public geographic sources, ``SITE`` for the AI-drafted site-item outlines) and the
+public geographic sources, ``SITE`` for the AI-drafted site-item outlines, ``MEASURE`` for
+the measure tool's routes) and the
 number is stable once published: a code is never renumbered or reused, a retired one is
 marked retired in the catalogue.
 
@@ -475,6 +476,14 @@ class E:
     MEASURE_INTERIOR_FAILED = "BASIS-MEASURE-003"
     MEASURE_EXTERIOR_NOT_DRAFTED = "BASIS-MEASURE-004"
     MEASURE_INTERIOR_BUDGET = "BASIS-MEASURE-005"
+    # MEASURE: the measure tool's routes (POST .../property/site-drafts; EVAL_REPORT 111)
+    MEASURE_SITE_DRAFTS_OFF = "BASIS-MEASURE-006"
+    MEASURE_VIEW_NOT_FOUND = "BASIS-MEASURE-007"
+    MEASURE_ASSET_NOT_FOUND = "BASIS-MEASURE-008"
+    MEASURE_GATE_NOT_OPEN = "BASIS-MEASURE-009"
+    MEASURE_BUDGET_EXHAUSTED = "BASIS-MEASURE-010"
+    MEASURE_DRAFTING_UNAVAILABLE = "BASIS-MEASURE-011"
+    MEASURE_DRAFTS_RATE_LIMITED = "BASIS-MEASURE-012"
 
 
 def tag(code: str, message: str) -> str:

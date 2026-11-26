@@ -10,6 +10,8 @@ Flow:
 3. ``POST .../documents/{doc_id}/complete`` checks the object: it must exist, have the
    declared size (and content type, when storage reports one), and hash to the declared
    sha256. On success ``uploaded_at`` is set; confirming twice returns the same document.
+   A photo's camera fields (focal length, 35 mm equivalent, camera model) are read from its
+   EXIF then and kept on the document, nothing else of it (``basis.vision.camera``).
    On a mismatch the object is deleted (its bytes are not what was registered) and the
    answer is 409; the client uploads again and confirms with a new idempotency key.
    An appraisal is also read (``basis.extraction.package.check_declared``): it must be a PDF,
@@ -94,6 +96,7 @@ from basis.db.session import SessionDep, session_scope
 from basis.errors.codes import E
 from basis.extraction.package import InvalidPackage, check_declared, read_appraisal_upload
 from basis.storage import ObjectNotFound, Storage, object_uri
+from basis.vision.camera import read_camera
 from basis.vision.display import CONVERTED, DISPLAY_RULE, SHOWN_AS_UPLOADED, display_jpeg
 from basis.vision.prep import ImageRejected
 
@@ -219,8 +222,8 @@ def _sha256(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
 
 
-async def verify_object(storage: Storage, document: DocumentOut, uri: str) -> None:
-    """Raise 409 unless the stored object is exactly the registered document."""
+async def verify_object(storage: Storage, document: DocumentOut, uri: str) -> bytes:
+    """Raise 409 unless the stored object is exactly the registered document; its bytes."""
     try:
         stat = await storage.stat(uri)
     except ObjectNotFound:
@@ -254,6 +257,7 @@ async def verify_object(storage: Storage, document: DocumentOut, uri: str) -> No
                 "unconfirmed.",
                 type_suffix="invalid-appraisal",
             ) from None
+    return data
 
 
 @writes.post(
@@ -284,13 +288,22 @@ async def complete_upload(
         document, uri = DocumentOut.model_validate(found), found.gcs_uri
     if document.uploaded_at is not None:
         return document
-    await verify_object(storage, document, uri)
+    data = await verify_object(storage, document, uri)
+    # A photo's focal length and camera, for measuring a facade on it; nothing else of its
+    # EXIF (basis.vision.camera, EVAL_REPORT 111). Header parsing only, on a thread.
+    camera = (
+        await anyio.to_thread.run_sync(read_camera, data)
+        if document.kind is DocumentKind.PHOTO
+        else None
+    )
     async with session_scope(sessionmaker) as session:
         # Two confirmations of one upload at once both verify the object (it is immutable)
         # and both reach here; the compare-and-set says which one set ``uploaded_at``, and
         # only that one records the upload (docs/api/TIMELINE_AND_AUDIT.md: one
         # ``document.uploaded`` per document).
-        outcome = await DocumentRepository(session).confirm_upload(study_id, document_id)
+        outcome = await DocumentRepository(session).confirm_upload(
+            study_id, document_id, camera=camera
+        )
         confirmed = outcome.document
         if outcome.confirmed:
             await StudyEventRepository(session).record(

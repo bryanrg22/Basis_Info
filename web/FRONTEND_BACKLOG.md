@@ -573,6 +573,44 @@ sent with the draft as `original`.
 6. **Exposure.** `draft.exposure_usd` and `verify_above_usd` on the row, so the engineer sees why
    a draft holds the report and another does not.
 
+## 24. Draft it and the facade mode (EVAL_REPORT 111, November 2026)
+
+Built in `live/property.js` (the tool and the dialog), `live/property-model.js` (the facade
+metrology ported from `basis/geo/facade.py` and checked against the server's numbers,
+`web/tests/fixtures/facade-reference.json`), `live/property.css`, and the sample API
+(`live/sample-property.js` P11 and P12, `live/sample-api.js`).
+
+**What the app now uses:**
+
+* `GET /v1/capabilities` `site_drafts` and `facade_measure`: each part is offered only when true.
+* `POST .../property/site-drafts` (docs/api/MEASURE_DRAFTS.md): on a top-down view, for a site
+  item with an area (driveway, parking, walk, patio, pool deck, pool, deck), the engineer chooses
+  Box, drags a box, picks what it is and presses Draft it; the answer's `measurement` becomes the
+  trace's base (drawn with a length on every edge, "Drafted by Basis · not verified · a starting
+  outline, expected error up to N %"), sent as it is once verified or edited with the draft kept as
+  `original` and drawn dashed; Undo takes the draft back whole and Redo puts it back; a refusal's
+  `message` is shown as it comes; 429 and 503 read as Basis being busy or unavailable. Not offered
+  for a line (a fence), the siding, a roof or a lawn.
+* `measurement.space: "facade"` (OVERRIDES.md 4.1): on a photo, for an area asset, a Trace | Facade
+  switch (the siding opens in Facade, on its photo with a lens when it has one): the wall's four
+  corners and each window's, door's and garage door's four corners clicked in any order (put in
+  order for the body), corners dragged, the wall's length typed or picked from
+  `lidar.shell.sides`, the lens from the document's `camera.focal_length_35mm` or typed; the net
+  siding, wall height, gross face, openings with their sizes, trim, counts and the expected error
+  computed live as the server will; the metrology's refusals in plain words; saved as the
+  correction's measurement with the counts in its `reason`.
+* `documents[].camera` (`focal_length_mm`, `focal_length_35mm`, `model`) from `GET /v1/studies/{id}`.
+* `lidar.shell` (`sides` with `side`, `azimuth_deg`, `width_m`) from `GET .../property/public`.
+
+**Not built (open):** a stored facade measurement read back on the asset page (the read-only card
+draws shapes, not a facade); an edit of a stored facade keeping it as `original` (the body takes
+it; the tool starts afresh, or from the unsent correction); the window and door counts written to
+their own rows (they are the correction's note); picking the wall on the diagram instead of a
+compass side; snapping a facade corner to the photo's edges; the photo's date (`captured_on` is
+not read from the EXIF, so a facade is flagged undated); moving a facade corner with the keyboard
+(the trace's arrow keys and Delete are not wired to the facade's corners: a pointer is needed);
+phones (measuring needs a larger screen).
+
 ## 17. The traced measurement: what the API offers and the app does not use (EVAL_REPORT 97)
 
 The backend accepts a measurement the engineer **traced** instead of typed

@@ -58,6 +58,9 @@ Schemathesis setup, and why:
 * ``PUT /me/signer`` (EVAL_REPORT 91): ``If-Match`` dropped as above, and a license number
   without its state (or a state without its number) cleared: the pair is a rule between two
   fields, which the schema cannot say, so the half is rightly 422 (``test_signer_details.py``).
+* ``POST .../property/site-drafts`` (EVAL_REPORT 111): a box that does not run left to right
+  and top to bottom by 4 pixels a side is replaced by a valid one, a rule between its fields
+  the schema cannot say (``test_site_drafts_api.py`` covers the 422).
 * The negative-data check is off for the two ``/activity`` operations: their repeatable
   ``event_type`` is negated into a number that a query string carries as a valid string,
   which the API rightly accepts (seen once in 64 runs; ``test_activity.py`` covers the
@@ -366,6 +369,16 @@ def prepare_case(case: Any, study_ids: dict[str, str]) -> None:
         # "At least one member" of the square-foot model is not in the schema.
         if isinstance(case.body, dict) and case.body.get("structure_model") is not None:
             case.body["structure_model"] = {"model_class": "average"}
+    if case.path.endswith("/property/site-drafts") and case.method.upper() == "POST":
+        # Draft it (docs/api/MEASURE_DRAFTS.md): the box runs left to right and top to bottom,
+        # at least 4 pixels a side, a relation between its fields the schema cannot say, so a
+        # generated box that breaks it is rightly 422; a valid box instead
+        # (tests/api/test_site_drafts_api.py covers the refusal).
+        box = case.body.get("box") if isinstance(case.body, dict) else None
+        if isinstance(box, dict) and not (
+            box.get("x2", 0) - box.get("x1", 0) >= 4 and box.get("y2", 0) - box.get("y1", 0) >= 4
+        ):
+            case.body["box"] = {"x1": 1, "y1": 1, "x2": 50, "y2": 50}
     if case.path.endswith("/cost-indices") and case.method.upper() == "POST":
         # Cross-field rules (a historical value is national, as_of in the year, a city row
         # names its city, the value above zero) are not in the schema; a valid body, like

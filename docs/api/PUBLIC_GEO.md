@@ -60,6 +60,17 @@ with PR #178's `measurement`.
 `Cache-Control: private, max-age=3600`. Stored under `gs://<bucket>/studies/<id>/public/<gather
 id>/`, so the retention purge removes it with the study's files; after a purge it answers 404.
 
+**The shell** (`lidar.shell`, with `GEO_SHELL`; EVAL_REPORT 105 and 111): the building shell
+drafted from the same lidar, unpriced: `code` (its first refusal, or null), `wall_outline` (the
+roof outline less the overhang prior, `[longitude, latitude]` corners), `overhang_m`,
+`perimeter_m`, `eave_main_m` (the main eave: the wall height), and `sides`: one per side square to
+the outline's main wall direction, `{side, azimuth_deg, width_m, edges}`, the side's width as an
+elevation of it shows it (the edges facing within 60 degrees, projected on its axis:
+`basis.geo.facade.side_width`, the rule EVAL_REPORT 109.4 scored at -4.1 and +3.8 % where the wall
+is the whole side; a wing, block or porch on that side reads long). The measure tool offers a
+side's width as a facade's wall length, to be checked. `shell` is null without `GEO_SHELL` or for a
+gather made before it.
+
 ## 3. Failures (operators)
 
 Each source is asked on its own: one failing never stops the others. A failure is the source's

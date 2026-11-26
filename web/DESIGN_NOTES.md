@@ -69,7 +69,11 @@ sample (the list, the fence traced and typed, a drag, the patio draft edited wit
 refused crossing, the photo with its scale, the send, the read-only card, the Property page
 zoomed, Measure on every row, the picker and layout at both sizes, a rectangle typed and still
 square), 30 to 35 on the live study (the list, the picker over 52 photos, a counter measured on its
-photo, restored after a reload from the server's draft, removed again).
+photo, restored after a reload from the server's draft, removed again). Draft it and the facade
+mode (EVAL_REPORT 111; `&facade=exif` or `nolens`): 80 to 92 (the Draft it panel, a box, the
+draft received, edited with its original dashed, saved, a refusal; the west wall opened in Facade,
+the wall clicked with the shell's side, six openings measured, saved, no lens asked and worked out
+from the vanishing points, a phone).
 
 ## November 2026: Property
 

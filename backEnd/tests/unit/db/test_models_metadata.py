@@ -60,8 +60,9 @@ SPEC_TABLES = {
     "studies": "id org_id created_by property_name status current_stage workflow_id "
     "room_aliases failure_reason failure_code components_gate intake intake_version created_at "
     "updated_at report_answers report_answers_version purged_at renovations renovations_version",
+    # A photo's camera fields (migration 0040_document_camera, EVAL_REPORT 111).
     "documents": "id study_id kind filename content_type bytes sha256 gcs_uri uploaded_by "
-    "uploaded_at",
+    "uploaded_at focal_length_mm focal_length_35mm camera_model",
     "document_pages": "document_id page_no gcs_uri",
     "extractions": "id study_id document_id revision method overall_confidence needs_review "
     "raw audit created_at",

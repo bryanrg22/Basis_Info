@@ -241,8 +241,8 @@ test('the building-wide system rows and a duplicate of a measured row are never 
  assert.equal(M.needsMeasurement({label:'fence',room:null,review_reasons:[],cost:{trail:{base:{unit:'LF'}}}}).offer,true);
 });
 test('capabilities: only true is true, so today’s API hides everything',()=>{
- assert.deepEqual(M.caps(null),{propertyCapture:false,publicGeo:false,tracedMeasurement:false});
- assert.deepEqual(M.caps({object_exclusion:true}),{propertyCapture:false,publicGeo:false,tracedMeasurement:false});
- assert.deepEqual(M.caps({property_capture:'true',public_geo:1,traced_measurement:true}),{propertyCapture:false,publicGeo:false,tracedMeasurement:true});
+ assert.deepEqual(M.caps(null),{propertyCapture:false,publicGeo:false,tracedMeasurement:false,siteDrafts:false,facadeMeasure:false});
+ assert.deepEqual(M.caps({object_exclusion:true}),{propertyCapture:false,publicGeo:false,tracedMeasurement:false,siteDrafts:false,facadeMeasure:false});
+ assert.deepEqual(M.caps({property_capture:'true',public_geo:1,traced_measurement:true,site_drafts:'true',facade_measure:1}),{propertyCapture:false,publicGeo:false,tracedMeasurement:true,siteDrafts:false,facadeMeasure:false});
  assert.equal(M.anyProperty(M.caps({public_geo:true})),true);assert.equal(M.anyProperty(M.caps({})),false);
 });

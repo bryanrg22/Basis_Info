@@ -385,7 +385,7 @@ LINE = {"kind": "line", "path": [[0, 0], [100, 0]]}
             "measurement.unit must be SF, SY or LF (EA is counted, not traced)",
         ),
         (with_(["unit"], DELETE), "measurement.unit must be SF, SY or LF"),
-        (with_(["space"], "mercator"), "measurement.space must be lonlat or image"),
+        (with_(["space"], "mercator"), "measurement.space must be lonlat, image or facade"),
         (with_(["shapes"], []), "measurement.shapes must be a list of 1 to 50 shapes, got 0"),
         (
             with_(["shapes"], [{"kind": "area", "ring": RECT}] * 51),

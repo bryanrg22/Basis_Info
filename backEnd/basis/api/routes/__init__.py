@@ -27,6 +27,7 @@ from basis.api.routes import (
     retention,
     revisions,
     signer,
+    site_drafts,
     spend,
     studies,
     timeline,
@@ -81,4 +82,5 @@ def api_routers() -> list[APIRouter]:
         property_public.reads,
         property_public.writes,
         property_public.ops_reads,
+        site_drafts.writes,
     ]

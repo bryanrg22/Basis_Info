@@ -19,8 +19,10 @@ reads = read_router(tags=["me"])
     summary="The engineer overrides this deployment accepts",
     description="Any signed-in user, with or without a firm. `object_exclusion` "
     "(`OBJECT_EXCLUSION`), `unit_cost_override` (`UNIT_COST_OVERRIDE`), "
-    "`traced_measurement` (`TRACED_MEASUREMENT`), `property_capture` (`PROPERTY_CAPTURE`) "
-    "and `public_geo` (`PUBLIC_GEO`) follow their settings; `room_create` is always false. "
+    "`traced_measurement` (`TRACED_MEASUREMENT`), `property_capture` (`PROPERTY_CAPTURE`), "
+    "`public_geo` (`PUBLIC_GEO`), `site_drafts` (`SITE_DRAFTS` with `TRACED_MEASUREMENT`) and "
+    "`facade_measure` (`GEO_FACADE` with `TRACED_MEASUREMENT`) follow their settings; "
+    "`room_create` is always false. "
     "A client that gets anything but a 200 should offer none of them.",
 )
 async def get_capabilities(request: Request) -> CapabilitiesOut:
@@ -31,5 +33,7 @@ async def get_capabilities(request: Request) -> CapabilitiesOut:
         traced_measurement=settings.traced_measurement,
         property_capture=settings.property_capture,
         public_geo=settings.public_geo,
+        site_drafts=settings.site_drafts == "on" and settings.traced_measurement,
+        facade_measure=settings.geo_facade and settings.traced_measurement,
         room_create=False,
     )

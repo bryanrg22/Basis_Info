@@ -9729,7 +9729,7 @@
           "me"
         ],
         "summary": "The engineer overrides this deployment accepts",
-        "description": "Any signed-in user, with or without a firm. `object_exclusion` (`OBJECT_EXCLUSION`), `unit_cost_override` (`UNIT_COST_OVERRIDE`), `traced_measurement` (`TRACED_MEASUREMENT`), `property_capture` (`PROPERTY_CAPTURE`) and `public_geo` (`PUBLIC_GEO`) follow their settings; `room_create` is always false. A client that gets anything but a 200 should offer none of them.",
+        "description": "Any signed-in user, with or without a firm. `object_exclusion` (`OBJECT_EXCLUSION`), `unit_cost_override` (`UNIT_COST_OVERRIDE`), `traced_measurement` (`TRACED_MEASUREMENT`), `property_capture` (`PROPERTY_CAPTURE`), `public_geo` (`PUBLIC_GEO`), `site_drafts` (`SITE_DRAFTS` with `TRACED_MEASUREMENT`) and `facade_measure` (`GEO_FACADE` with `TRACED_MEASUREMENT`) follow their settings; `room_create` is always false. A client that gets anything but a 200 should offer none of them.",
         "operationId": "get_capabilities_v1_capabilities_get",
         "responses": {
           "200": {
@@ -12958,6 +12958,160 @@
         ]
       }
     },
+    "/v1/studies/{study_id}/property/site-drafts": {
+      "post": {
+        "tags": [
+          "property"
+        ],
+        "summary": "Draft a site item's outline from the engineer's box (Draft it)",
+        "description": "Runs SAM 3 on the named top-down view with the engineer's box (no phrase; EVAL_REPORT 106.3) and answers with the draft as a measurement record (`drawn_by: model:sam3@site-v1`, `verified: false`) or a coded refusal in plain words (`BASIS-SITE-<nnn>`). Engineers, while the study waits at the assets review. 409 `site-drafts-off` (`SITE_DRAFTS` or `TRACED_MEASUREMENT` off), 404 for a view or asset not the study's, 409 `gate-not-open`, 409 `budget-exhausted`, 503 when drafting is not configured, 429 above `SITE_DRAFTS_PER_MIN`. The paid call is in the study's spend; nothing else is stored until the engineer sends the draft as a correction (docs/api/MEASURE_DRAFTS.md).",
+        "operationId": "draft_site_item_v1_studies__study_id__property_site_drafts_post",
+        "security": [
+          {
+            "FirebaseIdToken": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "study_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "description": "Study id.",
+              "title": "Study Id"
+            },
+            "description": "Study id."
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 130,
+              "pattern": "^(\"[!#-~]{1,128}\"|[!#-~]{1,128})$",
+              "title": "Idempotency-Key"
+            },
+            "description": "Required on POST and DELETE. 1 to 128 visible ASCII characters; a UUID is recommended. Retries with the same key and body replay the response."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SiteDraftIn"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SiteDraftOut"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Missing or malformed `Idempotency-Key`.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing, malformed, expired or revoked bearer token.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflicts with the current state (stale stage or revision, duplicate, archived, upload mismatch, or the same `Idempotency-Key` still in flight).",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "The request body is larger than 1 MiB.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation failed (`errors` lists each field), or an `Idempotency-Key` was reused with a different request.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Rate limit exceeded; see `Retry-After`.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "A dependency (the database) is unavailable; see `Retry-After`.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Your role is too low for this action (the study or firm is visible to you); `no-firm`: you are not a member of any firm; `email-unverified`: your sign-in does not verify the invited email.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found, or not visible to you (the two are indistinguishable).",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/v1/ops/health": {
       "get": {
         "tags": [
@@ -15812,6 +15966,54 @@
         ],
         "title": "CallsPageOut"
       },
+      "CameraOut": {
+        "properties": {
+          "focal_length_mm": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Focal Length Mm",
+            "description": "EXIF `FocalLength`, in millimetres."
+          },
+          "focal_length_35mm": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Focal Length 35Mm",
+            "description": "EXIF `FocalLengthIn35mmFilm`: the 35 mm equivalent focal length (CIPA DC-008, on the diagonal). With the photo's size it gives the field of view a facade measurement needs (docs/api/OVERRIDES.md section 4.1)."
+          },
+          "model": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Model",
+            "description": "EXIF `Make` and `Model`, up to 100 characters."
+          }
+        },
+        "type": "object",
+        "required": [
+          "focal_length_mm",
+          "focal_length_35mm",
+          "model"
+        ],
+        "title": "CameraOut",
+        "description": "A photo's camera, read from its EXIF when the upload was confirmed (nothing else of the\nEXIF is kept: never the location, dates, names or serial numbers)."
+      },
       "CancelIn": {
         "properties": {
           "reason": {
@@ -15896,6 +16098,18 @@
             "type": "boolean",
             "title": "Public Geo",
             "description": "`POST .../property/public` gathers the property's public records: government imagery, parcels and lidar (setting `PUBLIC_GEO`; docs/api/PUBLIC_GEO.md).",
+            "default": false
+          },
+          "site_drafts": {
+            "type": "boolean",
+            "title": "Site Drafts",
+            "description": "`POST .../property/site-drafts` drafts a site item's outline from the engineer's box on a top-down view (setting `SITE_DRAFTS`; docs/api/MEASURE_DRAFTS.md).",
+            "default": false
+          },
+          "facade_measure": {
+            "type": "boolean",
+            "title": "Facade Measure",
+            "description": "`asset` corrections accept a `measurement` in space `facade`: a wall and its openings clicked on a photo, scaled by the wall's length (settings `GEO_FACADE` and `TRACED_MEASUREMENT`; docs/api/OVERRIDES.md section 4.1).",
             "default": false
           },
           "room_create": {
@@ -20799,6 +21013,17 @@
             "type": "string",
             "format": "date-time",
             "title": "Created At"
+          },
+          "camera": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/CameraOut"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "A confirmed photo's camera fields when its EXIF had any (EVAL_REPORT 111); null otherwise (other documents, photos without them, photos confirmed before them)."
           }
         },
         "type": "object",
@@ -20814,6 +21039,44 @@
           "created_at"
         ],
         "title": "DocumentOut"
+      },
+      "DraftBoxIn": {
+        "properties": {
+          "x1": {
+            "type": "number",
+            "maximum": 100000.0,
+            "minimum": 0.0,
+            "title": "X1"
+          },
+          "y1": {
+            "type": "number",
+            "maximum": 100000.0,
+            "minimum": 0.0,
+            "title": "Y1"
+          },
+          "x2": {
+            "type": "number",
+            "maximum": 100000.0,
+            "minimum": 0.0,
+            "title": "X2"
+          },
+          "y2": {
+            "type": "number",
+            "maximum": 100000.0,
+            "minimum": 0.0,
+            "title": "Y2"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "x1",
+          "y1",
+          "x2",
+          "y2"
+        ],
+        "title": "DraftBoxIn",
+        "description": "The box the engineer dragged, in the view's own pixels (x right, y down)."
       },
       "DraftIn": {
         "properties": {
@@ -20965,6 +21228,51 @@
           "updated_at"
         ],
         "title": "DraftOut"
+      },
+      "DraftRefusalOut": {
+        "properties": {
+          "code": {
+            "type": "string",
+            "title": "Code",
+            "description": "A `BASIS-SITE-<nnn>` code (docs/ERROR_CODES.md)."
+          },
+          "message": {
+            "type": "string",
+            "title": "Message",
+            "description": "What happened and what to do, in plain words."
+          }
+        },
+        "type": "object",
+        "required": [
+          "code",
+          "message"
+        ],
+        "title": "DraftRefusalOut"
+      },
+      "DraftViewIn": {
+        "properties": {
+          "kind": {
+            "type": "string",
+            "enum": [
+              "capture",
+              "public"
+            ],
+            "title": "Kind",
+            "description": "`capture`: a view of `GET .../property` (a top-down one: the close aerial or a dated one); `public`: a view of `GET .../property/public`."
+          },
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "kind",
+          "id"
+        ],
+        "title": "DraftViewIn"
       },
       "DraftsOut": {
         "properties": {
@@ -24394,6 +24702,17 @@
           "terms_url": {
             "type": "string",
             "title": "Terms Url"
+          },
+          "shell": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ShellOut"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "With `GEO_SHELL`: the building shell from the same lidar (null when not drafted)."
           }
         },
         "type": "object",
@@ -24922,6 +25241,17 @@
             "type": "string",
             "format": "date-time",
             "title": "Created At"
+          },
+          "camera": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/CameraOut"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "A confirmed photo's camera fields when its EXIF had any (EVAL_REPORT 111); null otherwise (other documents, photos without them, photos confirmed before them)."
           },
           "uploaded_by": {
             "anyOf": [
@@ -29545,6 +29875,117 @@
         ],
         "title": "ServiceHealthOut"
       },
+      "ShellOut": {
+        "properties": {
+          "code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Code",
+            "description": "The first part it refused, or null."
+          },
+          "wall_outline": {
+            "items": {
+              "items": {
+                "type": "number"
+              },
+              "type": "array"
+            },
+            "type": "array",
+            "title": "Wall Outline",
+            "description": "The walls (the roof outline less the overhang prior): `[longitude, latitude]` corners."
+          },
+          "overhang_m": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Overhang M"
+          },
+          "perimeter_m": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Perimeter M"
+          },
+          "eave_main_m": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Eave Main M",
+            "description": "The main eave above the ground: the wall height."
+          },
+          "sides": {
+            "items": {
+              "$ref": "#/components/schemas/ShellSideOut"
+            },
+            "type": "array",
+            "title": "Sides"
+          }
+        },
+        "type": "object",
+        "required": [
+          "code"
+        ],
+        "title": "ShellOut",
+        "description": "The building shell drafted from the lidar (`GEO_SHELL`, EVAL_REPORT 105), unpriced: what\nthe measure tool offers as a facade's wall length (EVAL_REPORT 111)."
+      },
+      "ShellSideOut": {
+        "properties": {
+          "side": {
+            "type": "string",
+            "enum": [
+              "north",
+              "east",
+              "south",
+              "west"
+            ],
+            "title": "Side",
+            "description": "The compass point nearest the side's outward normal."
+          },
+          "azimuth_deg": {
+            "type": "number",
+            "title": "Azimuth Deg",
+            "description": "The side's outward normal, degrees from north: square to the outline's main wall direction, so a turned house's walls are measured along themselves."
+          },
+          "width_m": {
+            "type": "number",
+            "title": "Width M",
+            "description": "The side's width as an elevation of it shows it: the wall outline's edges facing within 60 degrees of the side, projected on its horizontal axis (`basis.geo.facade.side_width`, EVAL_REPORT 109.4). A wall's length only where the wall is the whole side; a wing, block or porch on that side reads long."
+          },
+          "edges": {
+            "type": "integer",
+            "title": "Edges"
+          }
+        },
+        "type": "object",
+        "required": [
+          "side",
+          "azimuth_deg",
+          "width_m",
+          "edges"
+        ],
+        "title": "ShellSideOut"
+      },
       "SignIn": {
         "properties": {
           "revision": {
@@ -30062,6 +30503,148 @@
           "tolerance_pct"
         ],
         "title": "SiteCheckOut"
+      },
+      "SiteDraftIn": {
+        "properties": {
+          "asset_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Asset Id",
+            "description": "The asset of the study's current revision the draft is for."
+          },
+          "view": {
+            "$ref": "#/components/schemas/DraftViewIn"
+          },
+          "box": {
+            "$ref": "#/components/schemas/DraftBoxIn"
+          },
+          "family": {
+            "type": "string",
+            "enum": [
+              "driveway",
+              "parking",
+              "walk",
+              "patio",
+              "pool_deck",
+              "pool",
+              "deck",
+              "fence"
+            ],
+            "title": "Family",
+            "description": "What is in the box. A `fence` is answered with the refusal `BASIS-SITE-008` (no method sees one from above, EVAL_REPORT 106.6), with no call."
+          },
+          "unit": {
+            "type": "string",
+            "enum": [
+              "SF",
+              "SY"
+            ],
+            "title": "Unit",
+            "description": "The unit the draft's measurement is in (the asset's).",
+            "default": "SF"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "asset_id",
+          "view",
+          "box",
+          "family"
+        ],
+        "title": "SiteDraftIn"
+      },
+      "SiteDraftOut": {
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": [
+              "drafted",
+              "refused"
+            ],
+            "title": "Status"
+          },
+          "family": {
+            "type": "string",
+            "enum": [
+              "driveway",
+              "parking",
+              "walk",
+              "patio",
+              "pool_deck",
+              "pool",
+              "deck",
+              "fence"
+            ],
+            "title": "Family"
+          },
+          "measurement": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Measurement",
+            "description": "The draft as a measurement record (docs/api/OVERRIDES.md section 4): the body `traced.measure` accepted (lon/lat, `drawn_by: model:sam3@site-v1`, `verified: false`, the view and its date) plus what it computes (`quantity`, `area_sf`, `expected_error_pct`...). Null when refused."
+          },
+          "quantity": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Quantity",
+            "description": "The draft's quantity, a decimal string."
+          },
+          "unit": {
+            "type": "string",
+            "enum": [
+              "SF",
+              "SY"
+            ],
+            "title": "Unit"
+          },
+          "expected_error_pct": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Expected Error Pct",
+            "description": "The larger of the one-pixel bound and the method's measured 90th percentile for the family (EVAL_REPORT 106.3): a starting outline, not a measurement."
+          },
+          "refusal": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/DraftRefusalOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "type": "object",
+        "required": [
+          "status",
+          "family",
+          "measurement",
+          "quantity",
+          "unit",
+          "expected_error_pct",
+          "refusal"
+        ],
+        "title": "SiteDraftOut"
       },
       "SourceIn": {
         "properties": {
