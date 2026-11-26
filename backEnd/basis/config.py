@@ -757,8 +757,14 @@ class Settings(BaseSettings):
     # the wall face; basis.geo.shell) and store it beside the summary, unpriced: section 105
     # measured it against today's formulas on the HABS houses (wall face 32.5 % -> 6.4 % mean
     # absolute error, eave height 19.0 % -> 2.3 %, perimeter 16.0 % -> 5.8 %); off until the
-    # takeoff reads it. It reads the tiles a second time. GEO_SITE_TOLERANCE_PCT (5): the
-    # parcel and the appraisal's
+    # takeoff reads it. It reads the tiles a second time. GEO_FACADE (false): facades measured
+    # from a ground photo and the wall's known length (basis.geo.facade: single-view metrology
+    # on the wall's and the openings' corners, the photo's field of view); section 109 measured
+    # it on corners an engineer placed (gpt-6.1-sol placing them: within 2 points of it):
+    # openings 5.2 % mean absolute error against today's flat 15 % share's 17 %, every window
+    # and door counted, trim 2.6 %, eave 1.9 %; the net face (2.5 %) is no better than the 15 %
+    # share on M1's eave. Off: nothing reads it until the measure tool's photo mode and the
+    # takeoff are wired. GEO_SITE_TOLERANCE_PCT (5): the parcel and the appraisal's
     # site area agree within this (section 101). GEO_RECENT_HOURS (12): a pin gathered this
     # recently is not gathered again unless asked.
     public_geo: bool = False
@@ -772,6 +778,7 @@ class Settings(BaseSettings):
     geo_lidar: bool = True
     geo_lidar_max_nodes: int = Field(default=64, ge=1, le=1000)
     geo_shell: bool = False
+    geo_facade: bool = False
     geo_site_tolerance_pct: float = Field(default=5.0, gt=0, le=100)
     geo_recent_hours: float = Field(default=12.0, ge=0, le=720)
 

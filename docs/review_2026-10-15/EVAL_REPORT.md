@@ -17564,3 +17564,419 @@ $BASIS_EVAL_DATA_DIR/measure_truth/captures --m5-repeats 2 --budget-usd 4.5`.
 shape and the understatement flag only, cheaper output) if the engineer's screen wants it; more
 standing houses with pictures (ga0157 needs a capture centred on the house, mo1857 a point
 search); the plain prompt on Gemini if it is configured.
+## 109. M3: facades from ground photos, scaled by the wall's known length (2026-11-26)
+
+**Answer first.** A ground photo of a wall, rectified by single-view metrology and scaled by
+the wall's known length, measures **the wall's openings to about 5 % (an engineer's corners) and
+7 % (gpt-6.1-sol placing the corners, $0.009 a photo), against today's flat 15 % share's 17 %**,
+counts every window and door (34 of 34; the formula counts none), sizes each opening to about 5 %
+and its trim to 3 to 6 %. It does **not** beat M1 on the siding area or the eave: the net face is
+2.5 % off either way (the 15 % share on M1's lidar eave is as good, because openings are only 12 to
+23 % of the face), and M1's eave (1.1 %) beats the photo's (1.9 %). Asking a model for the sizes
+directly is worse than letting code measure its corners (sol 14 % on openings). The set is small:
+8 facades on 5 HABS houses read twice, 13 photos, of which an engineer could place 10 and the
+metrology measured 9 (8 of them on one house). Shipped `basis.geo.facade.measure` behind
+`GEO_FACADE`, off; nothing reads it. The depth-model variant (b) was not run (disk, then the
+package install refused by the session's permissions). Spent **$2.43** from the ledger (164
+calls), under the $3 cap; no client data.
+
+**Question.** AI_MEASUREMENT_PLAN section 5, M3 (the novel one): given a ground photo of one wall
+and that wall's length from another source (the lidar shell of EVAL 105, or a plan), how well
+can the wall's height, its openings (count and size), its face net of the openings (the siding)
+and the openings' trim be measured, by which method, at what cost, against today's formula
+(openings a flat 15 % of the wall face, `basis/domain/measurements.py`) and against M1's and
+M5's eave? No client data; HABS houses and public or openly licensed photos only.
+
+**The standard (research before the build).**
+
+* *Single-view metrology.* A. Criminisi, I. Reid and A. Zisserman, "Single View Metrology"
+  (IJCV 40(2), 2000): a plane in one perspective photo is measured, up to one scale, from the
+  plane's image; one known length on the plane sets the scale; first-order error propagation
+  gives each measurement an uncertainty. `measure_research/cv_methods.md` 2 found no published
+  percent error for window or door sizes measured this way, and no single-house
+  aerial-to-photo scale transfer (section 9: "a gap ... a novel eval for Basis").
+* *Metric rectification* (R. Hartley and A. Zisserman, *Multiple View Geometry*, 2nd ed., 2.7
+  and 8.8): with the camera matrix `K` (square pixels, principal point at the centre, focal
+  length `f`), the homography `G` from the unit square to the wall's four corners is `K [w r1,
+  h r2, t]` up to scale, so `h / w = |b| / |a|` for the columns of `K^-1 G`. `f` from the photo's
+  field of view (EXIF focal length; the 35 mm equivalent is defined on the diagonal, CIPA
+  DC-008), or from the wall's two vanishing points, which are orthogonal directions (B. Caprile
+  and V. Torre, "Using vanishing points for camera calibration", IJCV 4(2), 1990): `f^2 = -(g11
+  g12 + g21 g22) / (g31 g32)`. That fails when a vanishing point is at infinity (verticals kept
+  parallel, as a view camera or a corrected photo keeps them).
+* *What an opening is in the trade.* Hover's measurement reports list openings separately by
+  width, height, area, united inches and the tops, sills and sides of their trim, and give the
+  facade area including openings (help.hover.to, "The Hover measurements glossary", read
+  2026-11-25); siding guides deduct openings (or only large ones) from the gross wall and add
+  waste (Kaycan, HomeAdvisor, Hover's blog). The truth here: an opening is the bounding box of
+  its exterior trim (the area siding does not cover); trim LF is those boxes' perimeters.
+* *Monocular depth* (`cv_methods.md` 3): MoGe-2 (MIT) and Depth Anything 3 Metric-Large
+  (Apache) have the shape right and the scale wrong (28 to 71 % on phone photos in one small
+  study); the plan's variant (b) uses the shape and the wall's length for the scale.
+* *Vision models* (EVAL 108; `cv_methods.md` 6): good at where things are, weak at metric
+  numbers; so they are tried both ways: placing the corners for the metrology, and stating the
+  sizes with the wall's length as the ruler.
+
+### 109.1 The set: eight facades, read twice, and sixteen photos of them
+
+**The facades.** Each facade is one wall plane of the enclosed building. It runs between two
+outside corners, from grade to the house truth's eave. The facades were chosen where an
+elevation drawing gives the truth and a photo of the wall exists. HABS large-format
+photographs exist for only one of the ten houses (ga0157, 11 photos). The others had none
+at the Library of Congress, so the photos came from Wikimedia Commons and from EVAL 103's
+street pictures.
+
+Two readers transcribed each wall independently (passes A and B). Each had the same written
+rules (`work/TRANSCRIBE_FACADE.md`), the sheet viewer and a line-snapping tool
+(`work/facade_sheet.py`). Neither saw the other pass or any photo. An opening is the bounding
+box of its exterior trim, snapped to the drawn lines at 100 or 150 px a foot. The passes were
+merged by `work/merge_facades.py`: where they disagreed, the mean was kept, and every
+difference over 0.15 ft and 3 % is recorded in the file. The fixtures are in
+`backEnd/evals/fixtures/measure_facades/` (schema `measure_facade/v1`,
+`evals/measure_facade_truth.py`).
+
+How to read this table:
+- *Length* and *eave* are in ft, with how each was read.
+- *Pass A / B openings SF* is each reader's sum, and *diff* is B over A. That difference is the
+  truth's own uncertainty on the openings.
+- *Photos* is how many photos of that wall were used.
+
+| Facade (house, side) | Length ft | Eave ft | Openings (truth) | Openings SF | Pass A / B SF (diff) | Net SF | Photos |
+|---|---|---|---|---|---|---|---|
+| mo1857-west (Truman Farm Home, front) | 36.33 printed | 19.82 printed (mean of two strings) | 5 windows, 1 door | 121.1 | 111.1 / 112.8 (+1.6 %) | 599.2 | 4 |
+| mo1857-north (main block's end) | 16.25 derived | 19.81 printed / scaled | 2 windows | 38.7 | 38.6 / 38.9 (+0.8 %) | 283.1 | 2 |
+| mo1857-south (main block's end) | 16.26 derived / scaled | 19.81 | 2 windows | 39.0 | 38.7 / 39.2 (+1.4 %) | 283.2 | 2 |
+| mo1222-north (Frank Wallace, front behind the porch) | 26.21 derived | 13.33 derived (this wall's grades) | 2 windows, 1 door | 81.2 | 80.3 / 82.1 (+2.2 %) | 268.3 | 1 (street) |
+| mo1224-east (Noland, front gable block) | 16.33 derived | 21.50 derived | 2 windows | 59.5 | 58.7 / 60.4 (+2.8 %) | 291.6 | 1 |
+| md1464-east (Norris-Higgins, front) | 24.50 derived | 23.11 scaled | 3 windows, 1 door | 131.3 | 131.1 / 131.6 (+0.5 %) | 434.8 | 1 (street) |
+| ga0157-west (Carter home, side between porches) | 56.29 printed | 9.88 printed | 4 windows | 99.8 | 98.3 / 101.3 (+3.1 %) | 456.1 | 1 |
+| ga0157-east | 56.29 derived | 9.81 printed | 4 windows | 102.2 | 99.7 / 104.8 (+5.2 %) | 450.1 | 1 |
+
+*Opening heads hidden by a porch frieze.* On mo1857-west both readers drew the first-floor
+windows' and door's boxes only to the frieze. The truth takes the full height from the same
+block's first-floor windows on its north and south walls (6.70 ft against 5.7 to 5.8 drawn). It
+also raises the door by the windows' mean hidden 0.97 ft. Both are recorded as derived. Before
+that correction the passes read 111 to 113 SF; after it the truth is 121.1 SF.
+
+Other recorded disagreements are window heights where the head cap or brackets were read
+differently (0.24 to 0.42 ft on four windows), mo1222's door height (6.97 against 6.72 ft) and
+width (5.04 against 5.21 ft), and the eaves (0.02 to 0.06 ft).
+
+**The photos** (`work/facade_photos.json`; the images are under
+`$BASIS_EVAL_DATA_DIR/measure_truth/photos/`, never in the repository):
+
+- *mo1857: 8 Commons photos, all of the Truman Farm Home.*
+  - Seven are a 2022 phone series at dusk (CC BY-SA 4.0; Samsung SM-J727U, EXIF 35 mm
+    equivalent 28 mm; 3264 x 2448).
+  - One is a 2009 photo (CC BY-SA 2.5, no 35 mm equivalent).
+  - They show the front square-on twice and obliquely twice, the north end twice and the
+    south end twice.
+- *mo1224: 1 Commons photo, looking up at the front* (CC BY-SA 4.0, Olympus SP-510UZ at 6.3 mm).
+- *ga0157: 2 HABS photos* (public domain, large-format, verticals corrected, no EXIF).
+- *mo1222, md1464: the EVAL 103 street pictures* (1440 x 830).
+
+Thirteen facade-photo pairs in all. The field of view comes from:
+- EXIF for the phone photos. The 35 mm equivalent is defined on the diagonal, giving 63.4
+  degrees across a 4:3 frame.
+- The camera's nominal sensor size for the Olympus (37.6 degrees, suspected).
+- For the street pictures, the capture's 75 degrees taken as horizontal. That reading is
+  unverified: taken as vertical over the 1,240 px viewport it would be 83.4 degrees.
+- None for the HABS photos and the 2009 photo.
+
+**The engineer's corners.** A separate reader played the engineer in the measure tool. It
+placed each wall's four corners and every opening's four trim corners on the photos, to about
+2 px on zoomed grids. It worked from the photos alone, with no drawing or truth file
+(`work/CLICK_FACADE.md`, files in `measure_truth/clicks/engineer/`).
+- It placed 10 of the 13 pairs.
+- It declined 3: both street pictures (the wall about 300 px wide, behind porch piers, a knee
+  wall and trees) and ga0157-west (a corner outside the frame).
+- It estimated its occluded share at 0.02 to 0.75.
+
+### 109.2 Setup
+
+`basis/geo/facade.py` (`measure`) is the metrology every corner-based setup shares. It is pure
+and deterministic.
+- It builds the homography from the unit square to the wall's corners and solves the aspect from
+  `K^-1 G` with the photo's field of view, or with the focal length from the vanishing points.
+- Openings are mapped through the inverse homography and scaled by the known length.
+- Each result carries the first-order error for 3 px a corner.
+- It refuses:
+  - an unreadable wall or one narrower than 120 px (`BASIS-GEO-023`);
+  - no focal length (024);
+  - a view more than 70 degrees off square, or corners more than 12 degrees from a rectangle
+    under the camera (025);
+  - openings on a wall more than half hidden (026).
+
+The harness is `evals/measure_facades.py`, run as `python -m evals.measure_eval --m3`. Its
+setups:
+
+| Setup | Who places the corners / what is asked | Field of view | Wall length | Model (exact id), effort, answer budget, temperature | Prompt |
+|---|---|---|---|---|---|
+| Engineer + metrology | the engineer's clicks | EXIF or capture | the drawing's | none | none |
+| Engineer + metrology, vanishing points | the engineer's clicks | from the wall's own vanishing points | the drawing's | none | none |
+| Engineer + metrology, M1 length | the engineer's clicks | EXIF | M1's side width (109.4) | none | none |
+| Vision model places corners + metrology | the model, on the production-prepared photo (1,024 px JPEG, EXIF stripped), scaled back | EXIF | the drawing's (and M1's) | gpt-6.1-sol, low, 6000, not sent; claude-opus-5-5, medium, 1200 (+4096 thinking), not sent; gpt-6-luna, low, 6000, not sent (the production calls' settings, as EVAL 108) | `measure_facade_corners/v1` (b0d443fb0c5b) |
+| Vision model states the sizes | the model, given the wall's length as its ruler | n/a | the drawing's | the same three | `measure_facade_direct/v1` (693c5a226c99) |
+| Today's formula | openings a flat 15 % of the face, the face = length x 9 ft a storey | | the drawing's | none | none |
+| Today's 15 % share on the true face | the share alone | | the drawing's | none | none |
+| Today's 15 % share on M1's eave | length x M1's lidar main eave, less 15 % | | the drawing's | none | none |
+| M1's eave | the lidar shell's main eave (EVAL 105), eave only | | | none | none |
+
+Every call went through `basis.llm.call.call_model`. Each answer was written to
+`m3_outcomes.json` before scoring and recorded in the run's `llm_calls.jsonl`. Every
+model setup ran twice per pair.
+
+The prompts give:
+- which wall in the picture is the facade;
+- the house's eave line in words (mo1857: the top of the box cornice; ga0157: the soffit; the
+  others: where the wall meets the underside of the overhang);
+- for the direct prompt, the wall's length.
+
+No name, address or place is in any prompt.
+
+Variant (b) of the brief, a monocular depth model's shape scaled by the wall's length, was not
+run. When first planned, the disk was under 1.5 GB free. After space was freed, installing the
+depth model's package (MoGe-2, MIT licence, from its GitHub repository) was refused by this
+session's permission settings. It needs the user's approval. Its main use here would have been
+the field of view for the three photos without one (109.5).
+
+### 109.3 Every setup on the same pairs
+
+How to read this table:
+- These are the 9 pairs where the engineer's metrology measured openings: mo1857 west x4,
+  north x2 and south x2, and mo1224 east x1. That is 4 facades on 2 houses, 8 of 9 pairs on
+  one house.
+- Model setups pool both repeats.
+- *Measured* counts the pairs where the setup gave an eave.
+- Each cell is the mean absolute % / mean signed % error against the truth.
+
+| Setup | Measured | Eave height | Openings SF | Net face SF (the siding) | Openings' trim LF |
+|---|---|---|---|---|---|
+| Engineer + metrology (EXIF field of view) | 9/9 | **1.9** / -0.3 | **5.2** / +1.4 | **2.5** / -0.6 | **2.6** / +0.3 |
+| Engineer + metrology (vanishing points) | 9/9 | 3.8 / -2.4 | 6.4 / -0.6 | 4.0 / -2.7 | 3.9 / -1.1 |
+| gpt-6.1-sol places corners + metrology | 9/9 | 2.7 / -0.7 | 7.0 / +3.5 | 3.0 / -1.4 | 5.5 / +2.6 |
+| claude-opus-5-5 places corners + metrology | 8/9 | 5.8 / -4.0 | 7.8 / +3.3 | 6.3 / -5.3 | 4.7 / +1.0 |
+| gpt-6-luna places corners + metrology | 6/9 | 9.7 / -3.5 | 17.0 / -5.7 | 9.3 / -3.2 | 10.1 / -0.9 |
+| gpt-6.1-sol states sizes (length given) | 9/9 | 7.7 / +3.8 | 14.1 / +11.4 | 8.3 / +2.4 | 11.2 / +8.8 |
+| claude-opus-5-5 states sizes (length given) | 9/9 | 3.3 / -1.9 | 7.9 / +4.4 | 4.0 / -2.9 | 4.6 / +2.0 |
+| gpt-6-luna states sizes (length given) | 9/9 | 7.1 / -4.8 | 16.8 / -16.8 | 7.8 / -2.6 | 11.5 / -6.2 |
+| Today's formula (15 %, 9 ft a storey) | 9/9 | 10.0 / -10.0 | 17.1 / -5.5 | 10.2 / -10.2 | none |
+| Today's 15 % share on the true face | 9/9 | (true) | 16.9 / +4.8 | 2.7 / -0.3 | none |
+| Today's 15 % share on M1's eave | 9/9 | 1.1 / +0.8 | 17.2 / +5.6 | **2.5** / +0.5 | none |
+| M1's lidar main eave (EVAL 105) | 9/9 | **1.1** / +0.8 | | | |
+
+On every pair a setup measured (13 in all):
+- gpt-6.1-sol placing corners measured 11. On mo1222's and md1464's street pictures, which
+  the engineer declined, it read the eave 15 % and 7 % low, md1464's openings 5 % low and its
+  net face 7 % low.
+- Over the 13 pairs: sol corners eave 4.7 %, openings 7.6 %, net 3.7 %; opus states sizes eave
+  5.8 %, openings 13.2 %, net 5.6 %; today's formula eave 12.4 %, openings 23.8 %, net 10.8 %;
+  the 15 % share on the true face openings 19.9 %, net 4.1 %.
+- The true openings share runs from 12 to 23 % of the face (mo1222 and md1464, 23 %).
+
+Per pair (first call; signed % eave / openings / net; `-` not measured):
+
+| Pair | Engineer + metrology | sol corners | opus corners | sol states sizes | Today's formula |
+|---|---|---|---|---|---|
+| ga0157-east / HABS 8 | - (024: no field of view) | - (024) | - (024) | -13 / -30 / -10 | -8 / -26 / -4 |
+| ga0157-west / HABS 11 | - (not placed) | - (024) | - (024) | +6 / +69 / -7 | -9 / -24 / -6 |
+| md1464-east / street | - (not placed) | -7 / -5 / -7 | -30 / - / - | -5 / -5 / -5 | -22 / -50 / -14 |
+| mo1222-north / street | - (not placed) | -15 / - / - | -16 / - / - | -20 / -5 / -24 | -32 / -56 / -25 |
+| mo1224-east / Olympus | -4 / +13 / -7 | -1 / +11 / -3 | -1 / +13 / -3 | +0 / +39 / -8 | -16 / -26 / -14 |
+| mo1857-north / dusk 17, 65 deg off square | +4 / +13 / +3 | -1 / +5 / -2 | -14 / -6 / -15 | +14 / +14 / +14 | -9 / +13 / -12 |
+| mo1857-north / dusk 16, square-on | -1 / -2 / -1 | -2 / -4 / -2 | -5 / -4 / -5 | -7 / -2 / -7 | -9 / +13 / -12 |
+| mo1857-south / dusk 02 | -1 / -2 / -1 | +1 / +6 / -0 | -9 / -4 / -9 | +9 / +7 / +9 | -9 / +13 / -12 |
+| mo1857-south / dusk 06 | -1 / +1 / -1 | -7 / -10 / -7 | -8 / +0 / -9 | +13 / +33 / +10 | -9 / +13 / -12 |
+| mo1857-west / dusk 17 | +2 / -8 / +4 | +1 / -2 / +2 | +1 / +2 / +1 | +16 / +23 / +15 | -9 / -19 / -7 |
+| mo1857-west / 2009, no EXIF | +0 / -3 / +1 (vanishing points) | -1 / -2 / -1 | - (024) | -0 / +1 / -0 | -9 / -19 / -7 |
+| mo1857-west / dusk 02 | -1 / +3 / -2 | +9 / +22 / +6 | +10 / +23 / +7 | +8 / +13 / +8 | -9 / -19 / -7 |
+| mo1857-west / dusk 18, square-on | -1 / -3 / -1 | -2 / -1 / -2 | -8 / -9 / -8 | -1 / -4 / +0 | -9 / -19 / -7 |
+
+What it says:
+- **Openings are where M3 wins.** On the same 9 pairs:
+  - With an engineer's corners, the opening area is 5.2 % off against the 15 % share's 17 %.
+    This is the size of the truth's own pass-to-pass spread (0.5 to 5.2 %).
+  - Every window and door was found and counted on every pair: 34 of 34, no extra.
+  - Each opening's width is 4.8 % off and its height 4.2 % (the matched openings).
+  - The trim length is 2.6 % off. Today's formula has no openings count, size or trim at all.
+- **gpt-6.1-sol placing the corners is within about two points of the engineer** on every
+  quantity (eave 2.7, openings 7.0, net 3.0, trim 5.5 %). It is also the only model that never
+  missed a count: windows and doors right on 10 of 10 pairs, 1 missed and 1 extra of 38.
+- Asking the model for the sizes directly is worse than letting the code measure its corners,
+  for sol (openings 14.1 against 7.0 %). For opus the two ways are equal on openings (7.9 / 7.8 %);
+  opus's corners give a worse eave and its stated sizes a better one. gpt-6-luna is poor either
+  way.
+- **The net face (the siding) is not where M3 wins.** Openings are 12 to 23 % of the face, so a
+  17 % error in them moves the net face by only 2 to 3 %. The net face's error is the eave's:
+  - The 15 % share on M1's lidar eave reads the net face 2.5 % off, the same as the engineer's
+    metrology.
+  - Today's formula reads it 10.2 % low because its eave (9 ft a storey) is 10 % low.
+  - M1's eave (1.1 %) is better than any photo's eave (1.9 % at best).
+- **The field of view matters on oblique photos.** With the vanishing points instead of the
+  EXIF field of view, the engineer's eave goes from 1.9 to 3.8 %. The worst case is 11 % on a
+  photo 52 degrees off square, where the solved focal length is unstable (expected error 10 %).
+  On square-on photos the two ways agree within 0.2 %.
+- **M5's eave on the two overlapping facades is far worse.** gpt-6.1-sol in EVAL 108, asked for
+  the house's eave from all its pictures, read mo1222 -17.5 / -10.0 % and mo1224 -11.6 / -7.0 %.
+  On the same two facades M3 read mo1224 -3.7 % (engineer) and -1 % (sol corners), and mo1222
+  -15 % (sol corners, street picture). M1 read +0.6 and -1.6 %.
+
+### 109.4 Scaled by M1's lidar walls instead of the drawing
+
+M1's wall outline is the roof less an 18 in overhang, simplified at 0.71 m. Its corners are cut
+into short diagonal edges, so no single edge is a wall. A first rule (the longest edge facing
+the facade) gave -68 to +69 %, and was replaced before scoring. The scored rule takes the width
+of the outline's side that faces the facade: the edges within 60 degrees of the facade's
+outward normal, projected on its horizontal axis (`m1_wall_length`).
+
+How to read this table: M1's side width against the facade's true length; *M1 eave* is the
+main eave against this wall's true eave.
+
+| Facade | True length ft | M1 side width ft | Signed % | M1 eave ft | True eave ft |
+|---|---|---|---|---|---|
+| mo1857-west | 36.33 | 34.86 | -4.1 | 20.02 | 19.82 |
+| mo1222-north | 26.21 | 27.21 | +3.8 | 13.41 | 13.33 |
+| mo1224-east | 16.33 | 29.81 | +82.5 (the side holds a second block) | 21.16 | 21.50 |
+| mo1857-north | 16.25 | 48.08 | +196 (the main block's end and the wings) | 20.02 | 19.81 |
+| mo1857-south | 16.26 | 50.96 | +213 | 20.02 | 19.81 |
+| ga0157-west | 56.29 | 87.21 | +55 (porches at both ends under the roof) | 10.85 | 9.88 |
+| ga0157-east | 56.29 | 88.96 | +58 | 10.85 | 9.81 |
+| md1464-east | 24.50 | no lidar | | | 23.11 |
+
+The side width is a wall's length only where the wall is the whole side: mo1857-west at
+-4.1 % and mo1222-north at +3.8 %. Elsewhere the side holds wings, blocks or porches the
+facade leaves out. So the M1-scaled setups are scored only on those two facades (`WHOLE_SIDE`).
+mo1222 was not placed by the engineer, so that leaves mo1857-west's 4 photos:
+- With the engineer's corners: eave 4.0 %, openings 10.4 %, net 7.4 %, all low.
+- With sol's corners: eave 4.6 %, openings 9.6 %, net 7.1 %.
+
+All of these are the -4 % scale error, entering linearly in lengths and squared in areas. In
+production the engineer would pick the wall on M1's diagram (the measure tool, EVAL 104).
+Matching a photo's wall to an outline segment automatically is not built.
+
+### 109.5 Refusals
+
+The HABS photos of ga0157 were refused with `BASIS-GEO-024` wherever corners were placed on
+them: the engineer's on ga0157-east, and every model's on both.
+A view camera keeps verticals parallel, so the vertical vanishing point is at infinity, and
+there is no EXIF field of view. That is the case a depth model's field of view (variant (b),
+not run) or the engineer typing the lens would fill. opus's corners on the 2009 front photo
+were refused for the same reason (its verticals placed parallel); the engineer's corners and
+sol's were not.
+
+gpt-6-luna's corners were refused three times for skew (`BASIS-GEO-025`: 13, 14 and 23 degrees
+from a rectangle under the camera). Its misplaced corners are caught rather than measured. The
+engineer's corners sit 0.1 to 2.9 degrees from a rectangle under the EXIF field of view, sol's up
+to 6.6 and opus's up to 10.2, all under the 12 degree limit.
+
+The engineer declined to place 3 walls. The models measured some of those anyway: sol 2 of
+the 3, with eave -15 % (mo1222) and -7 % (md1464).
+
+### 109.6 Run to run, cost, tokens, latency
+
+How to read this table:
+- *Run to run* is the mean (largest) of |repeat 2 - repeat 1| in % of the truth, over the pairs
+  both repeats measured.
+- Cost and tokens are per call (one photo), from the ledger.
+- Seconds are the whole call, four at a time.
+
+| Setup | Pairs | Eave | Openings | Net | $ / call | Input tokens | Output tokens | Seconds |
+|---|---|---|---|---|---|---|---|---|
+| gpt-6.1-sol places corners | 11 | 1.9 (9.3) | 5.6 (17.1) | 2.0 (6.9) | 0.0088 | 1,787 | 600 | 16.1 |
+| gpt-6.1-sol states sizes | 13 | 6.5 (23.7) | 8.2 (37.7) | 6.5 (24.8) | 0.0113 | 1,586 | 883 | 28.4 |
+| claude-opus-5-5 places corners | 9 | 7.8 (33.6) | 4.0 (12.4) | 2.7 (8.1) | 0.0276 | 2,908 | 799 | 9.3 |
+| claude-opus-5-5 states sizes | 13 | 3.2 (10.8) | 7.3 (25.3) | 3.6 (18.5) | 0.0388 | 2,537 | 1,435 | 16.2 |
+| gpt-6-luna places corners | 7 | 3.5 (8.7) | 6.8 (11.4) | 3.6 (10.5) | 0.0005 | 1,787 | 769 | 6.8 |
+| gpt-6-luna states sizes | 13 | 8.5 (30.3) | 13.6 (38.5) | 9.4 (29.8) | 0.0006 | 1,586 | 900 | 7.9 |
+| Metrology (any corners), today's formula, M1's eave | | 0 | 0 | 0 | 0 | none | none | 0.003 |
+
+A second call moves sol's corner-placed net face by 2.0 % on average. That is about its whole
+error against the truth (3.0 %), so the gap between it and the engineer (2.5 %) is inside one
+call's noise.
+
+**Dollars: $2.2786 for the 156-call run and $0.1529 for an 8-call smoke run before it, $2.43 in
+all**, every call in a ledger. The pre-run worst-case estimates were $9.32 and $0.70; the cap was
+$3.00 for M3, and the run's own hard cap $2.30. The smoke run's answers were not scored: a
+parsing error on the model's `{x, y}` points was found and fixed before the full run, and its
+8 rows stay in its ledger.
+
+### 109.7 Verdict
+
+- **M3 measures a facade's openings far better than today's flat 15 %.** With an engineer's
+  corners on a photo with its EXIF field of view and the wall's known length:
+  - openings 5.2 % against 17 %;
+  - every window and door counted (the formula counts none);
+  - each opening's width and height to about 5 %;
+  - the trim length to 2.6 % (the formula has none).
+  - gpt-6.1-sol placing the corners is within two points of the engineer at $0.009 a photo
+    (openings 7.0 %, trim 5.5 %, counts right on 10 of 10 pairs).
+  - Asking a model for the sizes directly is worse (sol 14 %) or no better (opus 7.9 %) than
+    letting the metrology measure its corners, at 1.3 to 4.4 times the price.
+- **It does not beat M1 on the siding area or the eave.** The net face is 2.5 % off by M3, and
+  equally 2.5 % off by the 15 % share on M1's lidar eave. M1's eave (1.1 %) is the best eave.
+  The photo's eave (1.9 %) is a cross-check that agrees with M1 within about 2 % on these walls.
+- **Shipped:** `basis.geo.facade.measure` (pure, tested on synthetic photographed facades; the
+  refusals `BASIS-GEO-023` to `026`) behind `GEO_FACADE`, off. Nothing reads it.
+  - The measure tool's photo mode (the engineer, or sol, placing the corners; M1's or the
+    plan's wall picked by the engineer as the scale) and the takeoff's opening rows are the
+    wiring still to do.
+  - Today's priced path is unchanged.
+- **Production needs the EXIF field of view.** Basis strips EXIF on upload today
+  (`basis.vision.prep`; AI_MEASUREMENT_PLAN 2). M3 needs the focal length kept as a field, or
+  the vanishing-point fallback (eave 3.8 % here, unstable on oblique photos).
+
+**Verified.**
+- Every number in 109.3 to 109.6 is the recorded runs'. The paid run made 156 calls, all
+  answered and recorded in the ledger, and the rescore made none and reproduces it.
+- The metrology gives synthetic photographed facades back exactly (23 unit tests). The harness
+  scores a photographed synthetic facade at zero error (13 tests).
+- The truth was read twice and its disagreements are recorded. The engineer's corners were
+  placed without the truth.
+- The mutations named in the LEDGER fail their tests.
+
+**Not verified, or suspected only.**
+- **The set is small and concentrated.** 9 engineer-measured pairs on 4 facades of 2 houses,
+  8 of them on one house (mo1857, one siding type, one window type). The ranking between the
+  engineer, sol and opus is within one call's noise, and nothing here sizes a default.
+- The truth's openings carry their own 0.5 to 5.2 % pass-to-pass spread, and on mo1857-west the
+  porch-hidden heads are derived.
+- **Fields of view.** The 35 mm-equivalent conversion follows the standard but was not checked
+  against a calibration. The Olympus's sensor size is nominal. The street pictures' 75 degrees
+  is taken as horizontal without proof.
+- **Eave definitions.** The engineer and the models placed the eave by words. "Top of the box
+  cornice" (mo1857) matches the truth's line; elsewhere the words and the drawn line may differ
+  by a few inches.
+- **Licences.** The Commons photos are CC BY-SA or CC BY and were used for evaluation only; the
+  photos are not redistributed.
+- The depth-model variant (b) was not run (109.2).
+- Matching a photo's wall to M1's outline automatically is not built (109.4).
+- The run's manifest says the tree was dirty (the tests and this section were not yet
+  committed); the code that scored is commit `8f9be2d`'s.
+
+**Run record.** The runs are under `$BASIS_EVAL_DATA_DIR/verification/measure_eval/v2/`:
+
+| Run | Calls | Cost | Code | Notes |
+|---|---|---|---|---|
+| `measure_m3_2026-11-26` | 156 | $2.28 | `ab3977f` | `llm_calls.jsonl`, `m3_outcomes.json`, 178 cases passed |
+| `measure_m3_smoke_2026-11-26` | 8 | $0.15 | | |
+| `measure_m3_rescore_2026-11-26` | none | $0 | `8f9be2d` | the tables above |
+
+`python -m evals.registry --component measure_eval` lists them.
+
+The command was `python -m evals.measure_eval --out <dir> --methods M0 --houses mo1222 --m3
+--points $BASIS_EVAL_DATA_DIR/measure_truth/geo --m3-vlm "sol:*,opus:*,luna:*" --m3-repeats 2
+--budget-usd 2.3`, with `--m3-replay <run>` for the rescore.
+
+The working files are under `$BASIS_EVAL_DATA_DIR/measure_truth/`:
+- `passes/{A,B}/facades/`
+- `clicks/engineer/`
+- `photos/` (with `requests.jsonl`: 108 Commons file requests, one at a time and 6 s apart, besides about 20 searches)
+- `work/`
+
+**Open.**
+- Keep the EXIF focal length at upload (or ask the engineer for the lens) before wiring.
+- The measure tool's photo mode: four corners and the openings on a photo, the wall picked on
+  M1's diagram as the scale.
+- The takeoff's opening and trim rows from it, behind `GEO_FACADE`.
+- More facades on more houses (other sidings, brick, more photos per wall).
+- Variant (b) once the depth package is approved: the field of view for photos without EXIF.

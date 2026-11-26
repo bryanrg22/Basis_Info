@@ -1,0 +1,103 @@
+{
+ "schema": "measure_facade/v1",
+ "id": "mo1222-north",
+ "house": "mo1222",
+ "side": "north",
+ "description": "The house's north (front) wall, wood-shingled, behind the open front porch that runs its whole width under the main roof; corner to corner (the corners are behind the porch's two end piers), from grade to the eave (the roof edge, 9'-5 1/4\" above the first floor); two wide windows (four-light upper sashes) and the front door between them, all with their heads at the frieze band's bottom.",
+ "sheet": "5",
+ "scale": "1/4\" = 1'-0\"",
+ "px_per_ft": 100.0,
+ "length": {
+  "ft": 26.2083,
+  "how": "derived",
+  "sheet": "3",
+  "note": "no string of its own on the plan (the left-side strings are the porch's): taken equal to the opposite (south) wall's printed 26'-2 1/2\", as the house truth does. On the elevation the drawn outline is the porch's end piers' outer edges, x 8741 to 11337 px = 25.96 ft (the plan's porch string 1'-5 1/2\" 7'-3\" 1'-5 1/2\" 5'-7 3/4\" 1'-5 1/2\" 7'-3\" 1'-5 1/2\" = 25.98 ft); the wall's own corners are hidden behind those piers."
+ },
+ "eave": {
+  "ft": 13.3333,
+  "how": "derived",
+  "sheet": "5",
+  "note": "this elevation's printed levels: EAVE 9'-5 1/4\" above the first floor (0'-0\") plus the mean of its two printed grades, 4'-0\" (left) and 3'-9 1/2\" (right) below the floor = 9.4375 + 3.8958 = 13.333 ft. The house truth's heights.eave is 13.586 ft (the same eave level over the mean of all eight printed grades, 4.148 ft); the lot slopes, so this wall's grade is used here. The sheet is drawn about 0.65 deg off level (the floor leaders are at y 3130 px at x 8075 and 3081 px at x 12450; the frieze and the porch rail tilt the same way), so sill_ft is taken from the floor datum line, not from the drawn grade line (which lies 0.2 to 0.45 ft below the printed grades)."
+ },
+ "openings": [
+  {
+   "id": "W1",
+   "kind": "window",
+   "storey": "first",
+   "width_ft": 5.125,
+   "height_ft": 5.3925,
+   "left_ft": 3.52,
+   "sill_ft": 5.3095,
+   "sheet_box": null,
+   "behind_porch": true,
+   "how": "scaled",
+   "note": "mean of the passes. A: window schedule type 1 (plan sheet 3; schedule: sash C 3'-7 3/8\" wide, B 5'-0 5/8\" frame height, A 2'-6 5/8\" upper sash; plan opening 3'-8 1/4\"). Top is the frieze band's bottom, where the casings stop (the 7'-0 1/4\" FASCIA level). The bottom is hidden by the porch's solid rail (its cap at y 2957.5 px): the box stops there; from B and the typical window's sill the trim probably reaches 0 to 0.25 ft lower. Right casing ends against the porch pier (x 9597, pier from 9606). | B: wide window (four-light upper sash) behind the porch; its right casing abuts a porch post (9610-9690), which may hide its last few px. The bottom is cut by the top of the porch's knee wall (2955): the sill is hidden. On the east elevation the windows' sills are about 1.5 ft above the floor (about y 2930 here), so the hidden part is probably small, but it was not read. The sheet's window schedule (types 1-10, frame sizes) is not keyed to this elevation, so it was not used."
+  },
+  {
+   "id": "D1",
+   "kind": "door",
+   "storey": "first",
+   "width_ft": 3.6025,
+   "height_ft": 6.845,
+   "left_ft": 11.27,
+   "sill_ft": 3.8975,
+   "sheet_box": null,
+   "behind_porch": true,
+   "how": "scaled",
+   "note": "mean of the passes. A: front door: casings x 9867 to 10224.5 px, top at the frieze bottom. Below y 2950 px it is hidden by the porch's solid rail; the bottom is the threshold at the printed FLOOR 0'-0\" level (y 3108 px on the floor datum line at the door), so the height 6.97 ft equals the printed 7'-0 1/4\" FASCIA level within 0.05 ft. The front door detail (sheet 6, 1\" = 1'-0\", 399 px/ft on its bar) scales 3.69 ft between the casings' outer edges and 6.96 ft from the head to the threshold line (7.28 ft to the porch floor line below it). | B: front door (four-light upper panel) behind the porch; its lower part is hidden by the porch knee wall, so the bottom is the floor line (the floor mark, 3079.5) per the threshold rule. The sheet 6 FRONT DOOR detail at 1\" = 1'-0\" (399.8 px/ft) scales 3.70 ft wide over the casings and about 6.98-7.1 ft from the head casing's top to the threshold, i.e. 0.26-0.4 ft taller than this box: the elevation's floor mark may sit about 0.3 ft high."
+  },
+  {
+   "id": "W2",
+   "kind": "window",
+   "storey": "first",
+   "width_ft": 5.335,
+   "height_ft": 5.4125,
+   "left_ft": 17.49,
+   "sill_ft": 5.3805,
+   "sheet_box": null,
+   "behind_porch": true,
+   "how": "scaled",
+   "note": "mean of the passes. A: window schedule type 1 (as W1). Top is the frieze band's bottom; bottom hidden by the porch's solid rail (cap at y 2941.5 px), the box stops there (probably 0 to 0.25 ft short). Left casing abuts the porch pier (pier to x 10486). | B: wide window (four-light upper sash) behind the porch; its left edge (10478) is where a porch post (10300-10480) ends, so its left casing may be partly hidden (it scales 0.23 ft wider than W1). Bottom cut by the porch knee wall's top (2941); the sill is hidden, as for W1."
+  }
+ ],
+ "porch": "An open porch under the main roof runs the wall's whole width (about 9'-2 3/4\" deep, 26'-6 1/4\" long): four boxed piers stand in front of the wall (at both corners and either side of the door) and a solid shingled rail about 2 ft high hides the wall's lower part, the windows' sills and the door's bottom.",
+ "passes": {
+  "a": "pass A reader (independent)",
+  "b": "pass B reader (independent)",
+  "disagreements": [
+   {
+    "what": "W1 width",
+    "a": "5.04",
+    "b": "5.21",
+    "kept": "the mean, 5.12 (A: window schedule type 1 (plan sheet 3; schedule: sash C 3'-7 3/8\" wide, B 5'-0 5/8\" frame height, A 2'-6 5/8\" upper sash; plan opening 3'-8 1/4\"). Top is the fri | B: wide window (four-light upper sash) behind the porch; its right casing abuts a porch post (9610-9690), which may hide its last few px. The bottom is cut by the )"
+   },
+   {
+    "what": "D1 height",
+    "a": "6.97",
+    "b": "6.72",
+    "kept": "the mean, 6.84 (A: front door: casings x 9867 to 10224.5 px, top at the frieze bottom. Below y 2950 px it is hidden by the porch's solid rail; the bottom is the threshold at the p | B: front door (four-light upper panel) behind the porch; its lower part is hidden by the porch knee wall, so the bottom is the floor line (the floor mark, 3079.5) )"
+   },
+   {
+    "what": "W2 width",
+    "a": "5.23",
+    "b": "5.44",
+    "kept": "the mean, 5.33 (A: window schedule type 1 (as W1). Top is the frieze band's bottom; bottom hidden by the porch's solid rail (cap at y 2941.5 px), the box stops there (probably 0 t | B: wide window (four-light upper sash) behind the porch; its left edge (10478) is where a porch post (10300-10480) ends, so its left casing may be partly hidden (i)"
+   }
+  ]
+ },
+ "photos": [
+  {
+   "id": "mo1222-street",
+   "path": "sv/mo1222-street.jpg",
+   "source": "street-level picture of the EVAL_REPORT 103 capture (gs://measure-truth/studies/71722de8-d2c2-4347-9883-a1102daece70/captures/a520658b-3b24-43c1-a973-fce242cebafd/street-front.png)",
+   "licence": "Google street-level imagery, viewed (evaluation only, terms set aside for the MVP)",
+   "taken": null,
+   "hfov_deg": 75.0,
+   "hfov_from": "the capture's 75 deg taken as horizontal (Static API meaning); vertical over the 1,240 px viewport would be 83.4 deg",
+   "which": "the front wall behind the porch, facing the camera (the house numbered 601)",
+   "width_px": 1440,
+   "height_px": 830
+  }
+ ],
+ "note": "Two independent readings of the elevation merged by work/merge_facades.py."
+}
