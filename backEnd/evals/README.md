@@ -487,6 +487,32 @@ size). `evals.measure_capture` takes the Google views through the production cap
 with its own page-load ledger. Writes `measure_eval.md` and `measure_eval.json`. No model
 call; cost $0. Component `measure_eval`, version `v1`.
 
+`--site <run dir>` (repeatable) and `--fence <dir>` add the site items of EVAL_REPORT 106:
+`evals.site_score` rebuilds every draft from the recorded SAM 3 instances with the production
+`basis.vision.site_items.draft_from_instance` and scores it against the county truth (area
+error, IoU, refusals, misses and false items, the hand-trace bound, the truth's own edges,
+Google's ground pixel by registration, the Douglas-Peucker sweep, cost per property from the
+runs' ledgers). Free.
+
+### Site items: `site_truth`, `site_views`, `site_draft_run`, `site_fence`
+
+* `python -m evals.site_truth --area name:lat,lon ... [--keep <truth dir>]`: the truth, Fairfax
+  County's public planimetric outlines (driveways, patios, decks, pools, walks) on ordinary
+  residential parcels, in WGS84 and measured on the ellipsoid (never the layer's Web Mercator
+  `Shape__Area`). Files in `evals/fixtures/site_truth/` (public data, no owner); each records the
+  visual check against the county's 2023 picture (`checks`). `--keep` recomputes the items of
+  the same parcels.
+* `python -m evals.site_views --out <dir> [--overlay]`: per parcel the county's 2023 3-inch
+  ortho (an eval-only source) and the registry's NAIP Plus, through the gather's
+  `basis.geo.imagery.fetch`; `--overlay` writes montages of the truth on each view.
+* `python -m evals.site_draft_run --out <dir> --views county,naip,google --model ... --budget-usd`:
+  paid (SAM 3 on Replicate, the vision models through the pool); one SAM 3 prediction per view
+  with every prompt mode (box, point, phrase plus box, phrase), one `site_items/v1` call per
+  model and its SAM 3 prediction; Google's straight-down capture (from `evals.measure_capture`)
+  registered on the county view by `evals.site_register`. Every call in the run's ledger.
+  Component `site_drafts`, version `v1`.
+* `python -m evals.site_fence --out <dir>`: the fence probe (a phrase with and without points
+  along the lot line), paid, cents.
 `--points <dir>` (EVAL_REPORT 105, version `v2`) adds M1, the building shell from 3DEP lidar
 (`basis.geo.shell.derive`), and its variants (`M1_SETUPS`: the overhang taken off, the
 classification, the wall height, the neck split, the edge growth, the returns rule, the roof's

@@ -22,7 +22,7 @@ Numbers are never reused. Source of truth: `backEnd/basis/errors/catalogue.py` (
 rendered from it: `uv run python -m basis.errors.catalogue --write`; a test fails while it is
 stale).
 
-366 codes in 26 areas.
+374 codes in 27 areas.
 
 ## API: API: request plumbing (authentication, idempotency, limits, dependencies)
 
@@ -519,4 +519,17 @@ stale).
 | `BASIS-GEO-020` | outcome | the building shell (`basis.geo.shell.derive`); `basis.geo.shell` | The roof outline does not survive being moved inward by the eave overhang (it is too narrow for it), so no wall footprint, perimeter or wall face is drafted; the heights and the roof are (EVAL_REPORT 105). | `Shell.refusals` names the walls with this code; `perimeter_m`, `footprint_m2` and `wall_face_m2` empty. | Measure the walls another way (the sketch or a traced outline). | no |
 | `BASIS-GEO-021` | outcome | the building shell (`basis.geo.shell.derive`); `basis.geo.shell` | No roof plane of at least 12 points was found on the building's points, so the roof surface, pitch and gutter are not drafted; the walls and heights are (EVAL_REPORT 105). | `Shell.refusals` names the roof with this code; `roof_area_m2`, `pitch_deg` and `gutter_m` empty. | Measure the roof another way (the elevations, a traced outline with a typed pitch). | no |
 | `BASIS-GEO-022` | outcome | the building shell (`basis.geo.shell.derive`); `basis.geo.shell` | Trees stand over more than a quarter of the roof (pulses that came back several times, their first return over 0.5 m above the roof), so the roof's points cannot be told from the trees' and no shell quantity is drafted (EVAL_REPORT 105). | `Shell.code` with this code, `canopy_share` and the roof outline as found; no quantity. | Measure the shell another way (the sketch, the elevations, a traced outline on a leaf-off view). | no |
+
+## SITE: AI-drafted site-item outlines on a top-down view (basis.vision.site_items, EVAL_REPORT 106; off by default, not wired into the pipeline)
+
+| Code | Kind | Where (step; component) | What happened | What you see | How to fix | Retry |
+|---|---|---|---|---|---|---|
+| `BASIS-SITE-001` | outcome | the site-item drafter (`basis.vision.site_items`, `SITE_DRAFTS`); `basis.vision.site_items` | The view carries no pixel size, so it is not a top-down view and nothing on it can be measured. | No draft for the prompt: a `Refused` with this code. | Draft on a straight-down capture or a public ortho. | no |
+| `BASIS-SITE-002` | outcome | the site-item drafter (`basis.vision.site_items`, `SITE_DRAFTS`); `basis.vision.site_items` | The view's pixel is coarser than the drafter's limit (`SITE_DRAFT_MAX_PIXEL_M`, 0.16 m by default): on the 0.6 m federal view the drafts were off by a median 30 % and the one-pixel bound alone is 41 % (EVAL_REPORT 106.3). | No draft for the prompt: a `Refused` with this code. | Draft on a sharper view (a state or county ortho, or the straight-down capture), or trace by hand. | no |
+| `BASIS-SITE-003` | outcome | the site-item drafter (`basis.vision.site_items`, `SITE_DRAFTS`); `basis.vision.site_items` | SAM 3 returned no instance at the prompt: none overlapping the box at box IoU 0.5 or more, none under the point, or an instance without a mask. | No draft for the prompt: a `Refused` with this code. | Move the box or point onto the item, or trace it by hand. | no |
+| `BASIS-SITE-004` | outcome | the site-item drafter (`basis.vision.site_items`, `SITE_DRAFTS`); `basis.vision.site_items` | The outline reaches the edge of the picture, so the item runs out of it and its area would be short. | No draft for the prompt: a `Refused` with this code. | Draft on a view that holds the whole item, or trace it by hand. | no |
+| `BASIS-SITE-005` | outcome | the site-item drafter (`basis.vision.site_items`, `SITE_DRAFTS`); `basis.vision.site_items` | The outline covers less ground than the drafter's floor (`MIN_AREA_M2`, 3 m2, a small stoop): too small to outline from above. | No draft for the prompt: a `Refused` with this code. | Type the quantity or trace it by hand. | no |
+| `BASIS-SITE-006` | outcome | the site-item drafter (`basis.vision.site_items`, `SITE_DRAFTS`); `basis.vision.site_items` | The outline is not a shape `basis.domain.traced.measure` accepts (the reasons are in the refusal). | No draft for the prompt: a `Refused` with this code and the measurement's problems. | Trace it by hand. | no |
+| `BASIS-SITE-007` | outcome | the site-item drafter (`basis.vision.site_items`, `SITE_DRAFTS`); `basis.vision.site_items` | The call to SAM 3 (Replicate or the self-hosted Cog server) failed after the localizer's own retries. | No draft for any prompt of the view: a `Refused` with this code and the error. | Try again later, or trace by hand. | no |
+| `BASIS-SITE-008` | outcome | the site-item drafter (`basis.vision.site_items`, `SITE_DRAFTS`); `basis.vision.site_items` | The family is not drafted from above: a fence (1 to 3 pixels wide, often under trees; EVAL_REPORT 106 found no line method that holds). | No draft for the prompt: a `Refused` with this code. | Trace the fence on the picture or from the lot line. | no |
 

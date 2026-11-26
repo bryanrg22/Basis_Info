@@ -542,6 +542,20 @@ class Settings(BaseSettings):
     localizer_token: SecretStr | None = None
     localizer_google_auth: bool = False
     localizer_usd_per_second: float = Field(default=0.0002907, gt=0)
+    # AI-drafted site-item outlines on a top-down view (basis.vision.site_items, EVAL_REPORT
+    # 106). SITE_DRAFTS off (the default): nothing is drafted; on: draft_if_enabled outlines
+    # each prompted item (an engineer's box or click, or a vision model's box) with SAM 3 and
+    # returns lon/lat drafts with drawn_by model:sam3@site-v1 and verified false. Nothing in
+    # the pipeline calls it yet (AI_MEASUREMENT_PLAN section 7 step 6), so on changes no study.
+    # SITE_DRAFT_MAX_PIXEL_M: the coarsest view drafted on (0.16 m, the registry's sharp class;
+    # 106.3 measured 7.8 and 8.4 cm usable and the 0.6 m federal view not: E.SITE_VIEW_TOO_COARSE).
+    # SITE_DRAFT_CAPTURE_SCALE: a factor on a property capture's recorded pixel size. 106.2
+    # measured Google's straight-down ground pixel 1.018 times the recorded one (SD 0.025, 8
+    # parcels; EVAL 103 suspected 1.027); 1.0, the default, leaves it as recorded, because on
+    # those parcels the correction moved the drafts' bias (-8.6 to -4.7 %) but not their error.
+    site_drafts: Literal["off", "on"] = "off"
+    site_draft_max_pixel_m: float = Field(default=0.16, gt=0, le=5)
+    site_draft_capture_scale: float = Field(default=1.0, gt=0.8, lt=1.2)
     # The rooms review opens once the photos are analyzed and the room step is done, with
     # SAM 3 still localizing in the background (EVAL_REPORT 30); true waits for it first.
     rooms_gate_waits_for_localization: bool = False
