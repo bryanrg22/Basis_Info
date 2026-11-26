@@ -167,6 +167,16 @@
       "v1": {
         "sha256": "b3c9387e69679e1ecc34c1d746ab14a4b2226b285f5bd9a83e735da199cfdf54"
       }
+    },
+    "measure_facade_corners": {
+      "v1": {
+        "sha256": "b0d443fb0c5b6e3df0046847a42543caa0bdb6b89acf769c8dd1de653759ba12"
+      }
+    },
+    "measure_facade_direct": {
+      "v1": {
+        "sha256": "693c5a226c99a2d347cffcf9bd938f349599cce93f9ad91da527fdeffd9680f4"
+      }
     }
   }
 }

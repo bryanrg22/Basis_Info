@@ -1,0 +1,96 @@
+{
+ "schema": "measure_facade/v1",
+ "id": "mo1857-south",
+ "house": "mo1857",
+ "side": "south",
+ "description": "The south wall of the two-storey, hip-roofed main (west) block only, the sheet's left-hand block: from its south-west (front) corner board at the sheet's left end, beside the open front porch, to its south-east corner board where the lower-roofed dining block with the screened porch begins (set back 8'-11\"), from grade to the top of the box gutter/cornice; one window per storey, the lower one with a crown cap.",
+ "sheet": "8",
+ "scale": "3/8\" = 1'-0\"",
+ "px_per_ft": 150.0,
+ "length": {
+  "ft": 16.26,
+  "how": "derived",
+  "sheet": "8",
+  "note": "mean of pass A (16.27) and pass B (16.25). A: no printed string for this wall (the first floor plan has no bottom string; the house truth takes it equal to the north wall's 16'-3\"); scaled on the elevation between the corner boards' outer edges, x 4216 to 6657 px at 150 px/ft (the sheet-right corner board's outer line leans from x 6660 high to 6655 low) | B: the plan has no bottom string: the sitting room's south wall is taken equal to the parlor's north wall above it (top string 6'-11\" + 2'-5\" + 6'-11\" = 16'-3\"), as the house truth does. Scaled on the south elevation between the corner boards' outer edges: 4216 to 6667 px = 2451 px = 16.35 ft at 149.9 px/ft (scale bar 0 to 8 ft = 1199 px)."
+ },
+ "eave": {
+  "ft": 19.8125,
+  "how": "derived",
+  "sheet": "5",
+  "note": "mean of pass A (19.79) and pass B (19.83). A: the house's eave (west elevation, grade to the top of the box gutter/cornice), the same cornice on this block. This sheet's left string prints 1'-1\" + 9'-3\" + 2'-0\" + 7'-6\" = 19'-10\" to the eave (ticks at y 6822.5 and 3849 px scale 19.82 ft). The drawn grade slopes along this wall (y 6831 px at the sheet-left corner, 6888 px at the right; mean 6859.5), which puts the cornice top 20.07 ft above the mean drawn grade. | B: the south elevation's height string (left): grade to first floor 1'-1\", 9'-3\", 2'-0\", 7'-6\" to the eave = 19'-10\" (its overall 30'-8\" less 7'-8\" and 3'-2\" gives the same). The same eave as the house truth (top of the box gutter/cornice; 19'-9 1/2\" there, from the west elevation). The string's ticks scale true: grade 6823, first floor 6661, eave 3849 (19.84 ft). The drawn ground is at 6836 at the left corner and 6886 at the right corner (0.09 and 0.42 ft below the printed grade); sill_ft uses the printed grade tick, 6823."
+ },
+ "openings": [
+  {
+   "id": "W1",
+   "kind": "window",
+   "storey": "first",
+   "width_ft": 3.0665,
+   "height_ft": 6.6865,
+   "left_ft": 6.765,
+   "sill_ft": 2.8335,
+   "sheet_box": null,
+   "behind_porch": false,
+   "how": "scaled",
+   "note": "mean of the passes. A: top is the top of the crown cap (the cap overhangs the casings; the width is the casings'); bottom is the sill's bottom | B: double-hung with a cornice head: top at the cap's crown (about 5413; a siding line runs at 5415 beside it), the cap projects about 0.15 ft past each casing (not counted in the width); bottom at the sill's bottom line"
+  },
+  {
+   "id": "W2",
+   "kind": "window",
+   "storey": "second",
+   "width_ft": 3.035,
+   "height_ft": 6.0865,
+   "left_ft": 6.7965,
+   "sill_ft": 12.3585,
+   "sheet_box": null,
+   "behind_porch": false,
+   "how": "scaled",
+   "note": "mean of the passes. A: top is the frame's top line between the two cornice brackets over the side casings (brackets not counted; counted as trim they would raise the top to the frieze, about 0.5 ft) | B: double-hung; its head is directly under the cornice's frieze, with two cornice brackets over its casings (left out)"
+  }
+ ],
+ "porch": "Nothing stands in front of this wall; the open front porch's end is beyond its sheet-left (west) corner and the screened porch is in front of the dining block beyond its sheet-right corner.",
+ "passes": {
+  "a": "pass A reader (independent)",
+  "b": "pass B reader (independent)",
+  "disagreements": [
+   {
+    "what": "wall length",
+    "a": "16.27 ft (scaled: )",
+    "b": "16.25 ft (derived: 6'-11\" + 2'-5\" + 6'-11\")",
+    "kept": "the mean, 16.26 ft"
+   },
+   {
+    "what": "eave above grade",
+    "a": "19.79 ft (printed: 19'-9 1/2\")",
+    "b": "19.83 ft (derived: 1'-1\" + 9'-3\" + 2'-0\" + 7'-6\")",
+    "kept": "the mean, 19.81 ft"
+   }
+  ]
+ },
+ "photos": [
+  {
+   "id": "a3d068f955",
+   "path": "full/mo1857/a3d068f955.jpg",
+   "source": "https://commons.wikimedia.org/wiki/File:Truman_Farm_Home_and_grounds_at_dusk_in_July_2022_-_06.jpg",
+   "licence": "CC BY-SA 4.0",
+   "taken": "2022:07:26 20:10:09",
+   "hfov_deg": 63.44,
+   "hfov_from": "EXIF 35 mm-equivalent 28 mm (diagonal), 4:3 landscape",
+   "which": "the two-storey wall at the left of the picture (one window on each floor), not the parts with the screened porches",
+   "width_px": 3264,
+   "height_px": 2448
+  },
+  {
+   "id": "7640f3803d",
+   "path": "full/mo1857/7640f3803d.jpg",
+   "source": "https://commons.wikimedia.org/wiki/File:Truman_Farm_Home_and_grounds_at_dusk_in_July_2022_-_02.jpg",
+   "licence": "CC BY-SA 4.0",
+   "taken": "2022:07:26 20:07:15",
+   "hfov_deg": 63.44,
+   "hfov_from": "EXIF 35 mm-equivalent 28 mm (diagonal), 4:3 landscape",
+   "which": "the wall at the right of the picture: the two-storey end wall with one window on each floor, beside the screened porch",
+   "width_px": 3264,
+   "height_px": 2448
+  }
+ ],
+ "note": "Two independent readings of the elevation merged by work/merge_facades.py."
+}

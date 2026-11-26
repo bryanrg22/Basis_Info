@@ -1,0 +1,106 @@
+{
+ "schema": "measure_facade/v1",
+ "id": "ga0157-west",
+ "house": "ga0157",
+ "side": "west",
+ "description": "The enclosed house's west wall, clapboarded, from the corner where the open (lattice-ended) north porch at the sheet's left ends to the corner where the glazed/screened south porch at the sheet's right begins, the gabled bay in the middle included (its face projects 3'-9 1/2\"), from grade to the soffit; two windows left of the bay, a paired window in the bay face, one window right of it.",
+ "sheet": "4",
+ "scale": "1/4\" = 1'-0\"",
+ "px_per_ft": 100.0,
+ "length": {
+  "ft": 56.2917,
+  "how": "printed",
+  "text": "56'-3 1/2\"",
+  "sheet": "2",
+  "note": "plan's top string overall over the main block's west side; runs 18'-3\" + 2'-0\" (to the bay), 16'-0 1/4\" (bay face), 2'-0\" + 18'-0 1/4\". On the elevation the sheet-left corner is where the lattice porch ends (x 4457 px; 20.01 ft from the bay face's outer corner board at x 6458, printed 20'-0 1/4\"); the sheet-right corner is hidden behind the glazed porch's end post (the siding stops at x 9980 px, 19.26 ft from the bay's other corner at x 8054 where the plan prints 20'-3\", which puts the corner at about x 10079). Scaled 4457 to 9980 px is 55.23 ft."
+ },
+ "eave": {
+  "ft": 9.875,
+  "how": "printed",
+  "text": "8'-6 1/4\"",
+  "sheet": "4",
+  "note": "printed SOFFIT 8'-6 1/4\" above FLOOR 0'-0\" with GRADE -1'-4 1/4\" on this elevation: 9.875 ft grade to soffit, the house truth's heights.eave. The level marks are not drawn to scale against the house: on the drawing the soffit line meets the wall at y 3246 px, the siding stops (floor) at y 4161.5 (left) / 4154 (right) and the grade line is at y 4302 (left corner) / 4271 (right), mean 4286.5, so the drawn wall is 10.40 ft grade to soffit at the mean grade. sill_ft is measured from the printed grade placed 9.875 ft below the drawn soffit line (y 4233.5 px)."
+ },
+ "openings": [
+  {
+   "id": "W1",
+   "kind": "window",
+   "storey": "first",
+   "width_ft": 3.765,
+   "height_ft": 3.6325,
+   "left_ft": 6.05,
+   "sill_ft": 5.6225,
+   "sheet_box": null,
+   "behind_porch": false,
+   "how": "scaled",
+   "note": "mean of the passes. A: plain frame trim, no projecting sill (the bottom is the frame's bottom line); top where the casings start, on a siding line; plan rough opening 2'-8 1/4\" | B: short single-sash kitchen window (north part); the head's top coincides with a siding line. Plan prints a 2'-8 1/4\" window 6'-6 1/2\" from the north corner."
+  },
+  {
+   "id": "W2",
+   "kind": "window",
+   "storey": "first",
+   "width_ft": 3.7275,
+   "height_ft": 5.7925,
+   "left_ft": 13.375,
+   "sill_ft": 3.3825,
+   "sheet_box": null,
+   "behind_porch": false,
+   "how": "scaled",
+   "note": "mean of the passes. A: plan rough opening 2'-8\" | B: double-hung; plan prints it 2'-8\" wide"
+  },
+  {
+   "id": "W3",
+   "kind": "window",
+   "storey": "first",
+   "width_ft": 7.0525,
+   "height_ft": 6.0,
+   "left_ft": 24.4225,
+   "sill_ft": 3.3625,
+   "sheet_box": null,
+   "behind_porch": false,
+   "how": "scaled",
+   "note": "mean of the passes. A: a pair of double-hung windows in one trim with a wide centre casing (x 7208 to 7297 px), in the gabled bay's face (projecting 3'-9 1/2\"): one opening; plan rough openings 2'-8 1/4\" + 6 1/2\" + 2'-8 1/4\" | B: a pair of double-hung windows in one trim (shared centre casing) on the gable bay's face, 3'-9 1/2\" in front of the main wall; plan prints 2'-8 1/4\" + 6 1/2\" + 2'-8 1/4\""
+  },
+  {
+   "id": "W4",
+   "kind": "window",
+   "storey": "first",
+   "width_ft": 3.685,
+   "height_ft": 6.02,
+   "left_ft": 45.8775,
+   "sill_ft": 3.3425,
+   "sheet_box": null,
+   "behind_porch": false,
+   "how": "scaled",
+   "note": "mean of the passes. A: plan rough opening 2'-8 1/4\" | B: double-hung, south part; plan prints a 2'-8 1/4\" window 6'-9 1/2\" from the south corner"
+  }
+ ],
+ "porch": "Nothing stands in front of the wall itself: the open north porch (its lattice end) is beyond the sheet-left corner and the glazed/screened south porch beyond the sheet-right corner; the latter's end post hides the last 0.6 to 1 ft of the wall.",
+ "passes": {
+  "a": "pass A reader (independent)",
+  "b": "pass B reader (independent)",
+  "disagreements": [
+   {
+    "what": "W2 height",
+    "a": "5.67",
+    "b": "5.91",
+    "kept": "the mean, 5.79 (A: plan rough opening 2'-8\" | B: double-hung; plan prints it 2'-8\" wide)"
+   }
+  ]
+ },
+ "photos": [
+  {
+   "id": "5ec269f878",
+   "path": "full/ga0157/5ec269f878.jpg",
+   "source": "https://commons.wikimedia.org/wiki/File:NORTHWEST_SIDE_-_Jimmy_Carter_Boyhood_Home,_Old_Plains_Highway_(Lebanon_Cemetery_Road),_Plains,_Sumter_County,_GA_HABS_GA,131-PLAIN.V,1-11.tif",
+   "licence": "Public domain",
+   "taken": null,
+   "hfov_deg": null,
+   "hfov_from": "unknown: no EXIF focal length (HABS large-format negative or no 35 mm equivalent)",
+   "which": "the long one-storey side wall, from the awning at the left to the far corner at the right",
+   "width_px": 3840,
+   "height_px": 3068
+  }
+ ],
+ "note": "Two independent readings of the elevation merged by work/merge_facades.py."
+}
