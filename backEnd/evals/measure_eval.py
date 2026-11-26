@@ -60,16 +60,18 @@ from collections.abc import Callable, Mapping, Sequence
 from dataclasses import asdict, dataclass, field
 from decimal import Decimal
 from pathlib import Path
-from typing import Any, Final
+from typing import Any, Final, Literal
 
 from basis.domain import measurements as ms
+from basis.geo import shell
+from basis.geo.geometry import point_in_geojson, to_mercator
 from basis.llm import prompts
 from basis.llm.errors import ProviderError
-from evals import measure_pixels, measure_vlm, record
+from evals import measure_pixels, measure_points, measure_vlm, record
 from evals import measure_truth as mt
 
 COMPONENT: Final = "measure_eval"
-VERSION: Final = "v1"
+VERSION: Final = "v2"  # v2: the M1 setups and the paired tables (EVAL_REPORT 105)
 M_TO_FT: Final = 1 / 0.3048
 SQM_TO_SF: Final = M_TO_FT * M_TO_FT
 
@@ -173,6 +175,332 @@ M0: Final = Method(
 # Every method the harness runs, in table order. M1 to M6 (AI_MEASUREMENT_PLAN section 5) are
 # added here as they are built.
 METHODS: Final[dict[str, Method]] = {"M0": M0}
+
+# ------------------------------------------------------------------ M1: the shell from lidar
+
+
+@dataclass(frozen=True, slots=True)
+class M1Settings:
+    """One M1 setup (EVAL_REPORT 105): the arguments :func:`basis.geo.shell.derive` runs with,
+    which eave height is the wall height, how the roof surface is read, and where the
+    footprint comes from."""
+
+    classification: shell.Classification = "auto"
+    overhang: float | Literal["drawn"] = shell.OVERHANG_PRIOR_M
+    eave: Literal["main", "p5"] = "main"
+    returns: shell.Returns = shell.RETURNS
+    neck_m: float = shell.NECK_M
+    grow_edges: bool = True
+    roof: Literal["planes", "factor"] = "planes"
+    footprint: Literal["lidar", "structures"] = "lidar"
+
+    def as_dict(self) -> dict[str, Any]:
+        return {
+            "module": "basis.geo.shell.derive",
+            "classification": self.classification,
+            "overhang_m": self.overhang,
+            "wall_height": "main eave" if self.eave == "main" else "5th percentile of the roof",
+            "returns": self.returns,
+            "neck_m": self.neck_m,
+            "grow_edges": self.grow_edges,
+            "roof_surface": (
+                "planes / cos(slope)"
+                if self.roof == "planes"
+                else f"roof plan x {ms.ROOF_PITCH_FACTOR} (M0's 6/12)"
+            ),
+            "footprint": (
+                "lidar roof outline less the overhang"
+                if self.footprint == "lidar"
+                else "USA Structures polygon under the point less the overhang"
+            ),
+            "planar_std_m": shell.PLANAR_STD_M,
+            "planar_k": shell.PLANAR_K,
+            "min_height_m": shell.MIN_HEIGHT_M,
+            "plane_distance_m": shell.PLANE_DISTANCE_M,
+            "plane_normal_deg": shell.PLANE_NORMAL_DEG,
+            "ransac_seed": shell.RANSAC_SEED,
+        }
+
+
+def house_points(geo: Path, house_id: str) -> tuple[shell.ShellPoints, dict[str, Any]] | None:
+    """The cached points (:mod:`evals.measure_points`) and their read record, or ``None``."""
+    folder = geo / house_id
+    if not (folder / "points.npz").is_file():
+        return None
+    meta = json.loads((folder / "points.json").read_text(encoding="utf-8"))
+    return measure_points.load_points(folder), meta
+
+
+def mercator_box(box_lonlat: Sequence[float]) -> tuple[float, float, float, float]:
+    x0, y0 = to_mercator(float(box_lonlat[0]), float(box_lonlat[1]))
+    x1, y1 = to_mercator(float(box_lonlat[2]), float(box_lonlat[3]))
+    return (x0, y0, x1, y1)
+
+
+def structures_ring(
+    geo: Path, house: mt.House
+) -> tuple[list[tuple[float, float]], dict[str, Any]] | None:
+    """The USA Structures polygon that holds the house's point, in ground metres east and north
+    of it (``None`` when no polygon holds it: the nearest one may be a neighbour's)."""
+    path = geo / house.id / "structures.json"
+    if not path.is_file():
+        return None
+    data = json.loads(path.read_text(encoding="utf-8"))
+    lon, lat = house.location.lon, house.location.lat
+    k = math.cos(math.radians(lat))
+    cx, cy = to_mercator(lon, lat)
+    for feature in data.get("features") or []:
+        geometry = feature.get("geometry") or {}
+        if geometry.get("type") != "Polygon" or not point_in_geojson(lon, lat, geometry):
+            continue
+        ring = geometry["coordinates"][0]
+        if ring[0] == ring[-1]:
+            ring = ring[:-1]
+        metres = []
+        for x, y in ring:
+            mx, my = to_mercator(float(x), float(y))
+            metres.append(((mx - cx) * k, (my - cy) * k))
+        if shell.ring_area(metres) < 0:
+            metres.reverse()
+        return metres, dict(feature.get("properties") or {})
+    return None
+
+
+def run_m1(house: mt.House, geo: Path, settings: M1Settings) -> MethodResult:
+    """One M1 setup on one house; an empty result (with the reason in ``notes``) where it
+    drafts nothing."""
+    got = house_points(geo, house.id)
+    if got is None:
+        return MethodResult({}, notes={"refused": "no lidar points"})
+    points, meta = got
+    if settings.overhang == "drawn":
+        if house.roof.overhang is None:
+            return MethodResult({}, notes={"refused": "no drawn overhang"})
+        overhang = house.roof.overhang.ft * 0.3048
+    else:
+        overhang = float(settings.overhang)
+    started = time.perf_counter()
+    s = shell.derive(
+        points,
+        house.location.lon,
+        house.location.lat,
+        mercator_box(meta["box_lonlat"]),
+        classification=settings.classification,
+        overhang_m=overhang,
+        returns=settings.returns,
+        neck_m=settings.neck_m,
+        grow_edges=settings.grow_edges,
+    )
+    seconds = time.perf_counter() - started
+    notes = {
+        "classification": str(s.classification),
+        "code": str(s.code),
+        "refusals": "; ".join(f"{part} {code}: {why}" for part, code, why in s.refusals),
+        "canopy_share": "" if s.canopy_share is None else f"{s.canopy_share:.3f}",
+        "grown_points": str(s.grown_points),
+        "building_points": str(s.building_points),
+        "pitch_deg": "" if s.pitch_deg is None else f"{s.pitch_deg:.1f}",
+        "planes": str(len(s.planes)),
+        "eave_p5_ft": "" if s.eave_m is None else f"{s.eave_m * M_TO_FT:.2f}",
+        "eave_main_ft": "" if s.eave_main_m is None else f"{s.eave_main_m * M_TO_FT:.2f}",
+        "eave_edges": str(sum(1 for e in s.edges if e.kind == "eave")),
+        "rake_edges": str(sum(1 for e in s.edges if e.kind == "rake")),
+        "offset": str(s.offset_method),
+        "project": str(meta.get("project")),
+        "fetch_bytes": str(meta.get("bytes")),
+        "fetch_seconds": str(meta.get("seconds")),
+        "fetch_requests": str(meta.get("requests")),
+    }
+    q: dict[str, float] = {}
+    if s.ridge_m is not None and s.eave_m is not None:
+        q["ridge_height_ft"] = s.ridge_m * M_TO_FT
+        wall_m = s.eave_main_m if settings.eave == "main" and s.eave_main_m else s.eave_m
+        q["eave_height_ft"] = wall_m * M_TO_FT
+        if s.roof_plan_m2 is not None:
+            q["roof_plan_sf"] = s.roof_plan_m2 * SQM_TO_SF
+            if settings.roof == "planes" and s.roof_area_m2 is not None:
+                q["roof_area_sf"] = s.roof_area_m2 * SQM_TO_SF
+            elif settings.roof == "factor":
+                q["roof_area_sf"] = s.roof_plan_m2 * SQM_TO_SF * float(ms.ROOF_PITCH_FACTOR)
+        if s.gutter_m is not None:
+            q["gutter_ft"] = s.gutter_m * M_TO_FT
+        walls: list[tuple[float, float]] | None = (
+            list(s.wall_outline_m) if s.wall_outline_m else None
+        )
+        if settings.footprint == "structures":
+            found = structures_ring(geo, house)
+            walls = None
+            if found is not None:
+                ring, props = found
+                walls = shell.offset_inward_mitre(ring, overhang) or shell.offset_inward_raster(
+                    ring, overhang
+                )
+                notes["structures"] = (
+                    f"{props.get('SOURCE')} {props.get('VAL_METHOD')} image "
+                    f"{props.get('IMAGE_NAME') or props.get('IMAGE_DATE')}"
+                )
+            else:
+                notes["structures"] = "no polygon holds the point"
+        walls_refused = any(part == "walls" for part, _, _ in s.refusals)
+        if walls and not (walls_refused and settings.footprint == "lidar"):
+            perimeter = shell.ring_perimeter(walls)
+            q["footprint_sf"] = shell.ring_area(walls) * SQM_TO_SF
+            q["perimeter_ft"] = perimeter * M_TO_FT
+            q["long_side_ft"] = shell.long_side(walls) * M_TO_FT
+            q["wall_area_gross_sf"] = perimeter * wall_m * SQM_TO_SF
+    return MethodResult(q, seconds=seconds, notes=notes)
+
+
+def m1_method(id_: str, setup: str, geo: Path, settings: M1Settings) -> Method:
+    return Method(
+        id=id_,
+        setup=setup,
+        settings=settings.as_dict(),
+        run=lambda house: run_m1(house, geo, settings),
+    )
+
+
+# The M1 setups EVAL_REPORT 105 compares, in table order: (id, plain setup name, settings).
+# ``M1`` is the one shipped as basis.geo.shell's defaults; ``M1-drawn-overhang`` uses the
+# drawing's own overhang and is a diagnostic (it reads the truth), never a method.
+M1_SETUPS: Final[tuple[tuple[str, str, M1Settings], ...]] = (
+    (
+        "M1",
+        "Lidar shell: outline less an 18 in overhang, main eave, roof planes",
+        M1Settings(),
+    ),
+    (
+        "M1-outline-raw",
+        "Lidar shell, roof outline taken as the walls (no overhang removed)",
+        M1Settings(overhang=0.0),
+    ),
+    (
+        "M1-overhang-12in",
+        "Lidar shell, outline less a 12 in overhang (M0's)",
+        M1Settings(overhang=0.3048),
+    ),
+    (
+        "M1-overhang-24in",
+        "Lidar shell, outline less a 24 in overhang",
+        M1Settings(overhang=0.6096),
+    ),
+    (
+        "M1-drawn-overhang",
+        "Diagnostic: lidar shell less the drawing's own overhang (reads the truth)",
+        M1Settings(overhang="drawn"),
+    ),
+    (
+        "M1-own-classification",
+        "Lidar shell, roof points classified here on every house (class 6 ignored)",
+        M1Settings(classification="own"),
+    ),
+    (
+        "M1-eave-p5",
+        "Lidar shell, wall height = the roof's 5th percentile (the lidar summary's eave)",
+        M1Settings(eave="p5"),
+    ),
+    (
+        "M1-no-neck-split",
+        "Lidar shell without cutting necks (a neighbour 1 m away stays merged)",
+        M1Settings(neck_m=0.0),
+    ),
+    (
+        "M1-no-edge-growth",
+        "Lidar shell, own classification's roof edge not grown back",
+        M1Settings(grow_edges=False),
+    ),
+    (
+        "M1-all-returns",
+        "Lidar shell, own classification takes every return (no returns rule)",
+        M1Settings(returns="any", grow_edges=False),
+    ),
+    (
+        "M1-roof-factor",
+        "Lidar roof plan x 1.118 (M0's 6/12 factor) instead of the planes",
+        M1Settings(roof="factor"),
+    ),
+    (
+        "M1-structures",
+        "USA Structures footprint less an 18 in overhang, lidar heights",
+        M1Settings(footprint="structures"),
+    ),
+)
+
+
+def m1_methods(geo: Path) -> dict[str, Method]:
+    return {i: m1_method(i, setup, geo, st) for i, setup, st in M1_SETUPS}
+
+
+# ------------------------------------------------------------------ paired against M0
+
+
+def paired(
+    scores: Sequence[Score],
+    houses: Sequence[mt.House],
+    *,
+    baseline: str = "M0",
+    standing: str | None = "unchanged",
+) -> list[dict[str, Any]]:
+    """Per method other than the baseline and per quantity: the houses where both scored (and
+    stand as ``standing``, when given), each method's mean signed and mean absolute error on
+    exactly those houses, and the paired difference of absolute errors (method - baseline):
+    its mean, SD and a 95 % interval (Student's t), and on how many houses the method was
+    closer. A negative difference: the method is better."""
+    keep = {h.id for h in houses if standing is None or h.standing.status == standing}
+    by = {(s.method, s.house, s.quantity): s for s in scores if s.house in keep}
+    rows = []
+    for method, quantity in dict.fromkeys(
+        (s.method, s.quantity) for s in scores if s.method != baseline
+    ):
+        pairs = [
+            (by[(baseline, h, quantity)], by[(method, h, quantity)])
+            for h in sorted(keep)
+            if (baseline, h, quantity) in by and (method, h, quantity) in by
+        ]
+        if not pairs:
+            continue
+        diff = [m.abs_pct - b.abs_pct for b, m in pairs]
+        n = len(pairs)
+        sd = statistics.stdev(diff) if n > 1 else None
+        half = T95[n - 1] * sd / math.sqrt(n) if sd is not None and (n - 1) in T95 else None
+        rows.append(
+            {
+                "method": method,
+                "quantity": quantity,
+                "n": n,
+                "houses": [b.house for b, _ in pairs],
+                "baseline_mean_signed_pct": statistics.fmean(b.signed_pct for b, _ in pairs),
+                "method_mean_signed_pct": statistics.fmean(m.signed_pct for _, m in pairs),
+                "baseline_mean_abs_pct": statistics.fmean(b.abs_pct for b, _ in pairs),
+                "method_mean_abs_pct": statistics.fmean(m.abs_pct for _, m in pairs),
+                "method_worst_abs_pct": max(m.abs_pct for _, m in pairs),
+                "method_sd_signed_pct": (
+                    statistics.stdev(m.signed_pct for _, m in pairs) if n > 1 else None
+                ),
+                "diff_mean_pct": statistics.fmean(diff),
+                "diff_sd_pct": sd,
+                "diff_ci95_pct": half,
+                "closer": sum(1 for d in diff if d < 0),
+            }
+        )
+    return rows
+
+
+# Student's t at 97.5 % for 1 to 12 degrees of freedom.
+T95: Final[dict[int, float]] = {
+    1: 12.706,
+    2: 4.303,
+    3: 3.182,
+    4: 2.776,
+    5: 2.571,
+    6: 2.447,
+    7: 2.365,
+    8: 2.306,
+    9: 2.262,
+    10: 2.228,
+    11: 2.201,
+    12: 2.179,
+}
 
 
 # ------------------------------------------------------------------ scoring
@@ -767,6 +1095,7 @@ def render(
     lidar: Sequence[Mapping[str, Any]] | None,
     pixels: Mapping[str, Any] | None,
 ) -> str:
+    setups = {m.id: m.setup for m in methods}
     lines = ["# Measuring against real houses (EVAL_REPORT 103)", ""]
     lines += ["## The houses", ""]
     lines += [
@@ -794,7 +1123,6 @@ def render(
         "Worst abs % (house) |",
         "|---|---|---|---|---|---|---|---|---|",
     ]
-    setups = {m.id: m.setup for m in methods}
     for r in summarize(scores):
         lines.append(
             f"| {setups[r['method']]} | {QUANTITIES.get(r['quantity'], r['quantity'])} | "
@@ -822,6 +1150,56 @@ def render(
                 )
             lines.append(f"| {h.id} | " + " | ".join(cells) + " |")
         lines.append("")
+    if len(methods) > 1 and any(m.id == "M0" for m in methods):
+        for standing, title in (
+            ("unchanged", "houses that stand unchanged"),
+            (None, "every house the method drafted"),
+        ):
+            rows = paired(scores, houses, standing=standing)
+            lines += [f"## Paired against today's formulas ({title})", ""]
+            lines += [
+                "Columns: *n* houses where both the setup and M0 have the quantity; *M0* and "
+                "*setup*: each one's mean signed and mean absolute error on exactly those "
+                "houses; *diff*: the setup's absolute error minus M0's, per house, its mean, SD "
+                "and the 95 % interval of the mean (Student's t; negative = the setup is "
+                "closer); *closer*: on how many houses the setup was closer; *worst*: the "
+                "setup's largest absolute error.",
+                "",
+                "| Setup | Quantity | n | M0 signed % | Setup signed % | M0 abs % | Setup abs % "
+                "| Setup SD % | Setup worst % | Diff mean % | Diff SD % | 95 % +- | Closer |",
+                "|---|---|---|---|---|---|---|---|---|---|---|---|---|",
+            ]
+            for r in rows:
+                lines.append(
+                    f"| {setups[r['method']]} | {QUANTITIES.get(r['quantity'], r['quantity'])} "
+                    f"| {r['n']} | {_g(r['baseline_mean_signed_pct'])} | "
+                    f"{_g(r['method_mean_signed_pct'])} | {_g(r['baseline_mean_abs_pct'])} | "
+                    f"{_g(r['method_mean_abs_pct'])} | {_g(r['method_sd_signed_pct'])} | "
+                    f"{_g(r['method_worst_abs_pct'])} | {_g(r['diff_mean_pct'])} | "
+                    f"{_g(r['diff_sd_pct'])} | {_g(r['diff_ci95_pct'])} | "
+                    f"{r['closer']} of {r['n']} |"
+                )
+            lines.append("")
+        m1 = [c for c in costs if str(c["method"]).startswith("M1")]
+        if m1:
+            lines += ["## The lidar shell per house (what each setup read)", ""]
+            lines += [
+                "| Setup | House | Classified by | Code | Planes | Pitch deg | Eave p5 / main ft "
+                "| Eave / rake edges | Grown pts | Canopy | Fetch bytes | Fetch s | Derive s |",
+                "|---|---|---|---|---|---|---|---|---|---|---|---|---|",
+            ]
+            for c in m1:
+                n = c["notes"]
+                lines.append(
+                    f"| {c['method']} | {c['house']} | {n.get('classification', '')} | "
+                    f"{n.get('code') or n.get('refused', '')} | {n.get('planes', '')} | "
+                    f"{n.get('pitch_deg', '')} | {n.get('eave_p5_ft', '')} / "
+                    f"{n.get('eave_main_ft', '')} | {n.get('eave_edges', '')} / "
+                    f"{n.get('rake_edges', '')} | {n.get('grown_points', '')} | "
+                    f"{n.get('canopy_share', '')} | {n.get('fetch_bytes', '')} | "
+                    f"{n.get('fetch_seconds', '')} | {c['seconds']:.3f} |"
+                )
+            lines.append("")
     lines += ["## Cost per house", ""]
     lines += [
         "| Setup | Houses | Dollars | Input tokens | Output tokens | Seconds (mean) |",
@@ -890,6 +1268,11 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--methods", default=",".join(METHODS), help="comma-separated ids")
     parser.add_argument("--geo", type=Path, help="per-house gathers (measure_gather)")
     parser.add_argument("--pixels", type=Path, help="the pixel check's result (measure_pixels)")
+    parser.add_argument(
+        "--points",
+        type=Path,
+        help="per-house cached lidar points and footprints (measure_points): adds the M1 setups",
+    )
     parser.add_argument("--dry-run", action="store_true", help="the synthetic house only")
     parser.add_argument(
         "--m5",
@@ -920,11 +1303,16 @@ def main(argv: Sequence[str] | None = None) -> int:
         args.out, harness=__name__, args=args, component=COMPONENT, version=VERSION
     )
     try:
+        known = dict(METHODS)
+        if args.points is not None:
+            known.update(m1_methods(args.points))
         wanted = [m.strip() for m in args.methods.split(",") if m.strip()]
-        unknown = [m for m in wanted if m not in METHODS]
+        if args.points is not None and args.methods == ",".join(METHODS):
+            wanted = list(known)
+        unknown = [m for m in wanted if m not in known]
         if unknown:
-            raise ValueError(f"unknown methods {unknown}; known {list(METHODS)}")
-        methods = [METHODS[m] for m in wanted]
+            raise ValueError(f"unknown methods {unknown}; known {list(known)}")
+        methods = [known[m] for m in wanted]
         if args.dry_run:
             houses = [synthetic_house()]
         else:
@@ -965,6 +1353,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             run.input("geo", args.geo)
         if args.pixels is not None:
             run.input("pixels", args.pixels)
+        if args.points is not None:
+            run.input("points", args.points)
         for m in methods:
             mine = [s for s in scores if s.method == m.id]
             run.case(
@@ -984,6 +1374,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             "costs": costs,
             "lidar": lidar,
             "pixels": pixels,
+            "paired_unchanged": paired(scores, houses, standing="unchanged"),
+            "paired_all": paired(scores, houses, standing=None),
             "m5": [asdict(o) for o in m5_outcomes],
         }
         (args.out / "measure_eval.json").write_text(
@@ -1009,21 +1401,27 @@ def main(argv: Sequence[str] | None = None) -> int:
 
 
 __all__ = [
+    "M1_SETUPS",
     "METHODS",
     "M0",
+    "M1Settings",
     "Method",
     "MethodResult",
     "Score",
     "appraisal_inputs",
     "error_pct",
     "lidar_rows",
+    "m1_method",
+    "m1_methods",
     "m5_jobs",
     "m5_methods",
     "main",
+    "paired",
     "render",
     "render_m5",
     "run_all",
     "run_m0",
+    "run_m1",
     "score_house",
     "summarize",
     "synthetic_house",

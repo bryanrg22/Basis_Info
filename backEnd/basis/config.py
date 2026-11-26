@@ -738,7 +738,13 @@ class Settings(BaseSettings):
     # (1.0): the least time between two requests to one host; GEO_REQUEST_TIMEOUT_S (60) and
     # GEO_RETRIES (3) bound one request (section 101: the slowest source answered in 22 s).
     # GEO_HISTORY (true): fetch one view per year too. GEO_LIDAR (true) and GEO_LIDAR_MAX_NODES
-    # (64; 14 in the measured gather). GEO_SITE_TOLERANCE_PCT (5): the parcel and the appraisal's
+    # (64; 14 in the measured gather). GEO_SHELL (false): also draft the building shell from the
+    # same lidar (walls less an 18 in overhang, the main eave, roof planes and pitch, gutters,
+    # the wall face; basis.geo.shell) and store it beside the summary, unpriced: section 105
+    # measured it against today's formulas on the HABS houses (wall face 32.5 % -> 6.4 % mean
+    # absolute error, eave height 19.0 % -> 2.3 %, perimeter 16.0 % -> 5.8 %); off until the
+    # takeoff reads it. It reads the tiles a second time. GEO_SITE_TOLERANCE_PCT (5): the
+    # parcel and the appraisal's
     # site area agree within this (section 101). GEO_RECENT_HOURS (12): a pin gathered this
     # recently is not gathered again unless asked.
     public_geo: bool = False
@@ -751,6 +757,7 @@ class Settings(BaseSettings):
     geo_history: bool = True
     geo_lidar: bool = True
     geo_lidar_max_nodes: int = Field(default=64, ge=1, le=1000)
+    geo_shell: bool = False
     geo_site_tolerance_pct: float = Field(default=5.0, gt=0, le=100)
     geo_recent_hours: float = Field(default=12.0, ge=0, le=720)
 
