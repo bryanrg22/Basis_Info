@@ -18794,8 +18794,14 @@ web flows in a VM and headless; one real draft with its cost recorded.
 
 * **The engineer's time** to verify a draft against tracing from scratch, and whether engineers
   verify for real or click through (the plan's risk, KU study): not measured; no engineer used it.
-* A HEIC carrying EXIF: this environment's libheif has no encoder, so the lens from an iPhone's HEIC
-  is untested (JPEG is tested; HEIC opens through the same plugin and Pillow API).
+* ~~A HEIC carrying EXIF untested.~~ **Verified 2026-11-26** (branch `claude/heic-lens-check`):
+  Apple's encoder (`sips`, the ImageIO stack an iPhone's photos come from) re-encoded a JPEG carrying
+  an iPhone 15 Pro's tags (6.765 mm, 24 mm equivalent) and a GPS block into `lens.heic`; Apple
+  re-wrote the EXIF big-endian into the container's Exif item (exiftool reads 6.8 mm, 24 mm and the
+  GPS). `read_camera` returns exactly 6.765 mm, 24 mm and "Apple iPhone 15 Pro" (the JPEG gives the
+  same), the field of view 71.6 degrees, and no location; the upload's confirm stores the three on
+  the document. A reader that drops a HEIF's EXIF fails both new tests (mutation checked). Still not
+  verified: a photo straight off a phone (Apple's desktop encoder, not the camera app).
 * The 35 mm equivalent's field of view is the standard's definition, not checked against a
   calibrated camera (as EVAL 109).
 * Not run on the live stack (lost in a reboot): the web flows ran on the sample API only, in a VM

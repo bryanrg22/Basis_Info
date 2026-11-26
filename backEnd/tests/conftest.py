@@ -101,9 +101,12 @@ def database_url(request: pytest.FixtureRequest) -> Iterator[str]:
 
     By default it lives in the session's Postgres container. With
     ``BASIS_TEST_POSTGRES_URL`` set (an admin URL of a running server with pgvector, e.g.
-    ``postgresql+asyncpg://postgres@127.0.0.1:55432/postgres``) the suite creates its own
+    ``postgresql+asyncpg://postgres:<password>@127.0.0.1:55432/postgres``) the suite creates its own
     database on that server instead, ``basis_test_<random>``, and drops it at the end: for a
-    machine where Docker is unavailable. CI keeps the container.
+    machine where Docker is unavailable. CI keeps the container. The server must check passwords
+    on TCP (``scram-sha-256``, as the container does) and the URL carry one:
+    ``tests/failure/test_db_outage.py`` expects a wrong password refused, which a ``trust`` server
+    never does.
     """
     from alembic import command
     from dbtest_support import alembic_config, execute_admin

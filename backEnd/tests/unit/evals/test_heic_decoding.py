@@ -28,7 +28,8 @@ def test_every_fixture_passes_its_three_cases(
     code, results = run(FIXTURES, tmp_path / "run", monkeypatch)
     ids = sorted(c["id"] for c in results["cases"])
     assert code == 0
-    assert len(ids) == 9 and all(c["outcome"] == "passed" for c in results["cases"])
+    # Four fixtures (photo, rotated_90cw, alpha, lens), three cases each.
+    assert len(ids) == 12 and all(c["outcome"] == "passed" for c in results["cases"])
     decode = next(c for c in results["cases"] if c["id"] == "rotated_90cw.heic:decode")
     assert decode["detail"]["size"] == [240, 320]
     manifest = json.loads((tmp_path / "run" / "manifest.json").read_text(encoding="utf-8"))

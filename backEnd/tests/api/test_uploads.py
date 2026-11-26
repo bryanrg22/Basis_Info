@@ -639,6 +639,39 @@ async def test_a_photos_camera_is_kept_and_nothing_else_of_its_exif(
     assert again.json()["camera"] == camera
 
 
+async def test_an_iphone_heic_keeps_its_lens_when_the_upload_is_confirmed(
+    api: Api, storage: LocalStorage, sessionmaker: async_sessionmaker[AsyncSession]
+) -> None:
+    # The same confirm path as the JPEG above, with a HEIC carrying an iPhone's EXIF block
+    # (fixtures heic/lens.heic, written by Apple's encoder; EVAL_REPORT 111.4).
+    from fixtures import heic_fixture
+
+    study = await api.create_study("alice")
+    data = heic_fixture("lens.heic")
+    ticket = await upload(
+        api,
+        "alice",
+        study["id"],
+        data,
+        kind="photo",
+        filename="IMG_2.HEIC",
+        content_type="image/heic",
+    )
+    doc_id = ticket["document"]["id"]
+    storage.put_signed(ticket["upload"]["url"], data, ticket["upload"]["headers"])
+    response = await api.post("alice", complete_path(study["id"], doc_id))
+    assert response.status_code == 200, response.text
+    camera = {"focal_length_mm": 6.765, "focal_length_35mm": 24.0, "model": "Apple iPhone 15 Pro"}
+    assert response.json()["camera"] == camera
+    row = await document_row(sessionmaker, doc_id)
+    assert (row.focal_length_mm, row.focal_length_35mm, row.camera_model) == (
+        6.765,
+        24.0,
+        "Apple iPhone 15 Pro",
+    )
+    assert "gps" not in response.text.lower()
+
+
 async def test_only_photos_are_read_for_a_camera(api: Api, storage: LocalStorage) -> None:
     study = await api.create_study("alice")
     data = photo_with_exif()
