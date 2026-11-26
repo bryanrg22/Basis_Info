@@ -79,13 +79,13 @@ Engineers (a viewer is 403, a stranger 404), with an `Idempotency-Key` (every `P
 
 | Answer | When |
 |---|---|
-| 409 `site-drafts-off` (`BASIS-MEASURE-001`) | `SITE_DRAFTS` or `TRACED_MEASUREMENT` is off (after the access check: a stranger still gets 404). |
-| 404 (`BASIS-MEASURE-002`) | The view is not a view of this study (or its image was purged). |
-| 404 (`BASIS-MEASURE-003`) | The asset is not an asset of the study's current revision. |
-| 409 `gate-not-open` (`BASIS-MEASURE-004`) | The study is not waiting at the assets review: a draft goes with its corrections. |
-| 409 `budget-exhausted` (`BASIS-MEASURE-005`) | `STUDY_BUDGET_USD` less the study's recorded spend is under `SITE_DRAFT_RESERVE_USD` (0.05). |
-| 503 (`BASIS-MEASURE-006`), `Retry-After` | No segmentation model is configured (`LOCALIZER_URL` or `REPLICATE_API_TOKEN`). |
-| 429 (`BASIS-MEASURE-007`), `Retry-After` | More than `SITE_DRAFTS_PER_MIN` (6) drafts by one person in a minute, besides the mutation limit. |
+| 409 `site-drafts-off` (`BASIS-MEASURE-006`) | `SITE_DRAFTS` or `TRACED_MEASUREMENT` is off (after the access check: a stranger still gets 404). |
+| 404 (`BASIS-MEASURE-007`) | The view is not a view of this study (or its image was purged). |
+| 404 (`BASIS-MEASURE-008`) | The asset is not an asset of the study's current revision. |
+| 409 `gate-not-open` (`BASIS-MEASURE-009`) | The study is not waiting at the assets review: a draft goes with its corrections. |
+| 409 `budget-exhausted` (`BASIS-MEASURE-010`) | `STUDY_BUDGET_USD` less the study's recorded spend is under `SITE_DRAFT_RESERVE_USD` (0.05). |
+| 503 (`BASIS-MEASURE-011`), `Retry-After` | No segmentation model is configured (`LOCALIZER_URL` or `REPLICATE_API_TOKEN`). |
+| 429 (`BASIS-MEASURE-012`), `Retry-After` | More than `SITE_DRAFTS_PER_MIN` (6) drafts by one person in a minute, besides the mutation limit. |
 
 ## 4. What is recorded
 

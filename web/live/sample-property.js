@@ -258,9 +258,9 @@
    for(const k of ['asset_id','view','box','family'])if(b[k]==null)errs.push(fieldErr(['body',k],'Field required','missing'));
    const box=b.box||{};if(b.box&&!(box.x2-box.x1>=4&&box.y2-box.y1>=4))errs.push(fieldErr(['body','box'],'Value error, the box must run left to right and top to bottom, at least 4 pixels a side','value_error'));
    if(errs.length)return invalid(errs);
-   if(S.stage!=='assets_review'||S.status!=='waiting_review')return conflict('gate-not-open','Drafts go with the assets review’s corrections: the study is not waiting at the assets review.','BASIS-MEASURE-004');
+   if(S.stage!=='assets_review'||S.status!=='waiting_review')return conflict('gate-not-open','Drafts go with the assets review’s corrections: the study is not waiting at the assets review.','BASIS-MEASURE-009');
    let view=null;if(b.view.kind==='capture'){for(const c of P.captures){view=c.views.find(x=>x.id===b.view.id);if(view)break}}else if(b.view.kind==='public'){const pub=publicOut(S,ctx.i);view=[pub.current,...(pub.history||[])].find(x=>x?.id===b.view.id)||null}
-   if(!view)return new Problem(404,'not-found','Not Found','No such view of this study.','BASIS-MEASURE-002');
+   if(!view)return new Problem(404,'not-found','Not Found','No such view of this study.','BASIS-MEASURE-007');
    const answer=siteDraft(view,b);
    event(S,'measurement.drafted',{actor:'engineer',entity_type:'asset',entity_id:b.asset_id,code:answer.refusal?.code||null,detail:{status:answer.status,family:b.family,quantity:answer.quantity,unit:answer.unit,drawn_by:'model:sam3@site-v1'}});
    return json(200,answer);
