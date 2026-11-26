@@ -173,6 +173,11 @@
         "sha256": "b3c9387e69679e1ecc34c1d746ab14a4b2226b285f5bd9a83e735da199cfdf54"
       }
     },
+    "measure_interior_reference": {
+      "v1": {
+        "sha256": "f080224249868acd54d64f28f09e7fee4f112bb4156d5f0580734429cfc76484"
+      }
+    },
     "measure_facade_corners": {
       "v1": {
         "sha256": "b0d443fb0c5b6e3df0046847a42543caa0bdb6b89acf769c8dd1de653759ba12"

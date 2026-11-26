@@ -17204,6 +17204,424 @@ overlays and registrations under `$BASIS_EVAL_DATA_DIR/site_truth/`; captures un
 engineer's edit time per draft; a stronger vision model for M2v; Google's pixel size on more parcels
 and leaf-off dates; wiring the drafts into the assets review behind the setting (plan step 6).
 
+## 107. M4, interiors from ordinary room photos: depth models, references, multi-view and a vision model, on 31 laser-checked rooms (2026-11-26)
+
+**Answer first.** On 31 real rooms (12 kitchens) whose truth was measured on Apple's ARKitScenes
+scans, **no depth-model setup beats today's formulas**, and the reason is not the scale but the
+photos: an owner's two to four photos do not show the whole room, so a single-view depth model
+reads the floor area 33 to 47 % low even with its scale right (with the *true* scale, Depth
+Anything 3's floor area is still 41 % off on average). The scale itself is good on these rooms:
+the depth models' own metres read the ceiling 4.2 % (Depth Anything 3 Metric-Large) and 5.5 %
+(MoGe-2 ViT-S) off, the 80 in door reads a photo's scale within 1 to 5 % in the median, and the
+other rulers are worse (a counter's height 21 to 27 % mean error, an assumed 1.5 m camera height
+13 %). **A vision model asked with the reference-object prompt is the best setup for every room
+quantity except the ceiling**: claude-sonnet-5-5 at the production surface-crop settings reads the
+length 11 %, the perimeter (baseboard run) 10 %, the wall area 12 %, the countertop 21 % and the
+cabinet run 29 % off, against today's formulas *given the true floor area* at 18, 12, 25, 313 and
+270 %, for $0.009 a room and 3 s, and a second call moves its numbers by only 2 to 4 %. Its floor
+area is 22 % off (today's formulas on a typical room area: 84 %). Counters and cabinets rest on
+3 to 5 kitchens. Multi-view (Depth Anything 3 Small, all the room's photos at once, scaled by a
+door) is the one geometric setup that closes the room (perimeter 10 % mean, 4.6 % median) but
+it ran on only 9 rooms. **Nothing in production changed**: the geometry stays in `evals`, and a
+production M4d would be a new photo step. Spent **$1.47** of the $3 cap (all 216 calls in the
+ledger); disk used 3.5 GB (models and tools; the scan meshes deleted after measuring).
+
+**Question.** AI_MEASUREMENT_PLAN section 5, M4: can ordinary room photos give the interior
+quantities that today are shares of the appraisal's GLA (`basis/domain/measurements.py`
+`room_areas`, `basis/domain/takeoffs.py`): floor area and dimensions, ceiling height, wall area,
+countertop and cabinet run, baseboard? Compared on the same rooms: a depth model's shape scaled by
+objects of known size (M4a), its own metres (M4b), several photos at once (M4c), a vision model
+asked (M4d), today's formulas (M0); with the cost, tokens and seconds of each, and the sum of the
+rooms against a known total (the GLA's role).
+
+**The standard.**
+
+* *Single-view metrology* (Criminisi, Reid and Zisserman, IJCV 2000): a length in a picture needs
+  a known length in the same picture. Monocular depth models give the shape well and the scale
+  less well (`measure_research/cv_methods.md` 3: MoGe-2 5.6 % on ETH3D, 28 to 71 % on phone room
+  scans in one 2026 study).
+* *Reference objects*: an interior door is 80 in (6'-8"), a counter's top 36 in, a base cabinet
+  34.5 in, an outlet plate 4.5 in (the plan's list); the panorama-layout literature fixes the
+  scale with an assumed camera height (HorizonNet and LED2-Net: 1.6 m).
+* *Multi-view*: feed-forward reconstruction from a few photos (VGGT, MapAnything, Depth Anything
+  3 any-view) registers the photos without a capture rig; the result is up to scale.
+* *Truth*: a laser scan (ARKitScenes' Faro Focus) or an iPad lidar mesh checked against it.
+* *Scoring*: EVAL_REPORT 103.2's harness on rooms instead of houses: signed and absolute % error
+  per quantity per room, the bias, the spread, the misses, paired against M0, repeated calls for
+  the noise (DEVELOPING.md 4.4).
+
+### 107.1 The truth: 31 ARKitScenes rooms, measured on the mesh, checked twice
+
+**The dataset and its licence.** ARKitScenes (Apple, 2021): 5,047 iPad scans of 1,661 rooms, each
+venue scanned about three times, with the iPad's lidar mesh, poses, 640 x 480 frames, oriented
+boxes for the furniture, and Faro laser scans. Its LICENSE (read in full) grants a non-commercial
+licence and a commercial one to licensees under 700 million monthly users, but its words are
+"this Apple software": whether it covers the data is the open question of AI_MEASUREMENT_PLAN
+section 8.5. **Basis uses it as an internal evaluation set only**: nothing of it (frames, meshes,
+per-room numbers) is in the repository or the product, no model is trained on it, and the files
+sit under `$BASIS_EVAL_DATA_DIR/measure_truth/interiors/`. Two caveats for the results: MoGe-2
+lists ARKitScenes in its training mix (8.3 % of its sampling, MoGe-2 paper's data table, read),
+and Depth Anything 3 reportedly does too (a third-party summary of its paper; not confirmed), so
+the depth models' own metres here are measured **in their training domain** and are likely better
+than on owners' phone photos.
+
+**Picking the rooms.** 400 venues drawn at random (seed 107) from the 1,001 that have laser scans;
+each one's annotation (13 KB) fetched and its type read from its boxes (a sink and a stove, oven
+or dishwasher: kitchen; a toilet or a tub: bathroom; a bed: bedroom; a sofa: living room); the
+first 22 kitchens without a sofa (open plans have no wall-to-wall truth), 12 bedrooms, 10 living
+rooms and 8 bathrooms: 52 rooms, 1.53 GB of meshes.
+
+**Measuring the truth** (`evals.interior_truth`, every step written into each truth file):
+
+| Quantity | How it is measured on the mesh |
+|---|---|
+| Floor, ceiling | near the iPad's path, the 4 cm level holding most area of faces facing up (floor) and, 1.8 m above it, facing down (ceiling), refined to the weighted median within 4 cm |
+| Ceiling height | ceiling - floor, only where at least 60 % of the overhead area is on that level (a sloped or stepped ceiling gives none) |
+| Outline | vertical faces 6 to 40 cm under the ceiling (above door heads and furniture) on a 2.5 cm grid, gaps closed with a 0.3 / 0.5 / 0.8 m disk (the smallest that seals the room), the free space holding the iPad's path filled, the corners the closing rounded grown back; a room still open at 0.8 m is refused |
+| Floor area, length, width | the filled cells plus half a cell along the outline; its extent along the walls' axes |
+| Perimeter (baseboard) | the outline's cell edges after a 7 x 7 majority filter (door openings not deducted, as today's row) |
+| Wall area | perimeter x ceiling height, gross |
+| Countertop, cabinet run | the annotators' boxes of base units (cabinet, dishwasher, oven, washer standing on the floor with the top 0.75 to 1.05 m up): the union of their footprints, and the sum of their long sides |
+
+A first counter method read the counter tops on the mesh (faces facing up at counter height);
+on the second scans it moved 12 to 60 % (clutter, the fixtures it keyed on), against 0 to 8 % for
+the boxes' run, so the boxes are the truth. The top-down check pictures of 15 rooms were looked
+at (both scans of 3); for the rest the second-scan rule below stands in for looking.
+
+**The truth's own error, two ways.** *A second scan of the same room*, measured the same way
+(another 1.36 GB, deleted after measuring): the acceptance rule, fixed before any method was
+scored (`evals.interior_accept`): both scans closed, floor areas within 5 %, and each other
+quantity kept only where the scans agree within 10 %. *The laser*: a 600,000-point even sample of
+a Faro scan read with HTTP range requests (26 MB of 1.9 GB; `evals.interior_laser`), fitted to
+the mesh by a similarity (coarse search, then nearest-neighbour Umeyama iterations).
+
+How to read this table: over the 31 kept rooms, |second scan - first| in % of the first (the
+counters over the 8 kitchens where both scans had base units; one scan's annotators boxed an extra
+cabinet, 38 %, and that room's counters were dropped).
+
+| Quantity | Rooms | Median % | Largest % |
+|---|---|---|---|
+| floor area | 31 | 1.0 | 4.1 |
+| length | 31 | 0.7 | 3.6 |
+| width | 31 | 0.8 | 8.0 |
+| ceiling height | 19 | 0.2 | 4.7 |
+| perimeter | 31 | 1.7 | 5.5 |
+| wall area | 19 | 1.3 | 6.9 |
+| countertop | 8 | 1.8 | 52.6 |
+| cabinet run | 8 | 1.4 | 38.4 |
+
+How to read this table: the mesh against the laser on four rooms; *scale*: the laser-to-mesh
+similarity's scale (below 1: the mesh reads lengths short); *inliers*: laser points within 5 cm of
+the mesh after the fit, of 600,000; residual: their distance to the mesh.
+
+| Room | Type | Scale | Inliers | Median residual cm | P90 cm |
+|---|---|---|---|---|---|
+| 42445454 | kitchen | 0.9990 | 510,856 | 1.5 | 3.4 |
+| 45261615 | living | 0.9880 | 570,613 | 0.9 | 2.2 |
+| 47430280 | kitchen | 0.9788 | 244,092 | 1.5 | 3.8 |
+| 42444821 | bedroom | 1.0229 | 474,614 | 1.3 | 3.8 |
+
+So the truth repeats to about 1 % between scans, and its scale is within about 2 % of the laser
+(mean -0.3 %, spread 1.9 %, four rooms): a length truth carries about +/-2 %, an area +/-4 %, a
+tenth of the errors that separate the setups below.
+
+**What was kept.** 52 rooms: 8 refused on the first scan (open plans), 4 on the second, 9 whose
+scans disagree on the floor area by 6.5 to 50 % (an open side bridged differently); **31 kept**:
+12 kitchens, 8 bedrooms, 6 bathrooms, 5 living rooms, 26 to 286 SF, rectangularity (area over
+length x width) median 0.90, lowest 0.73. Truths kept: floor area, length, width and perimeter on
+31; ceiling height and wall area on 19 (12 sloped, stepped or disagreeing); countertop on 6
+kitchens and cabinet run on 7 (the others had no base-unit boxes on both scans or disagreed).
+
+**The photos.** An owner stands back; a scanning video mostly looks at a wall from arm's length.
+So from each scan's frames (`evals.interior_data`, every fifth of about 800 a scan): pitch 25
+degrees down to 5 up, the camera 1.1 to 1.9 m above the floor, the mesh's vertices projected into
+the frame and the frame kept only if the median visible depth is at least 0.4 of the room's
+diagonal (and 1.2 m); the farthest-seeing first, views at least 60 degrees apart, up to four,
+each the sharpest frame within 0.25 s; the 640 x 480 frame read out of its 0.5 to 0.8 GB archive
+by HTTP range requests, turned upright. **27 of the 31 rooms** have such frames (61 photos: 6
+rooms with 1, 11 with 2, 7 with 3, 3 with 4; 10 kitchens); four (two kitchens, two bathrooms)
+never stand back and are misses for every photo setup. The photos of 7 rooms were looked at: most
+are fair owner photos, some tighter than an owner would take; camera heights 1.12 to 1.74 m (median
+1.51), pitch -24 to +5 degrees (median -5).
+
+### 107.2 The setups
+
+How to read this table: every setup runs on the same rooms and photos. *Licence*: read on the
+model's Hugging Face card in this session. The segmenter is production's
+(`facebook/mask2former-swin-large-ade-panoptic`, panoptic at 0.05, `evals.interior_segment`), kept
+with every class: floor, wall, ceiling, door, and in kitchens counter, countertop, island and
+cabinet (the segmenter rarely says countertop: it paints a counter's top with the cabinets; seen on
+three kitchens' maps and set before scoring).
+
+| Setup | What | Model (exact) | Licence | Settings |
+|---|---|---|---|---|
+| M0 | today's takeoff rows (`takeoffs.estimate_quantity`): perimeter 4 sqrt(A), wall 3.5 A (8 ft ceiling), countertop 4 sqrt(A) x 25/12, cabinet 4 sqrt(A) LF; the implied square room and 8 ft ceiling | - | - | A = the room's **true** floor area (the GLA share exactly right: M0's best case) |
+| M0 typical | the same rows | - | - | A = the type's allocation weight (`ROOM_WEIGHTS_SF`: kitchen 150, bedroom 150, bath 75, living 250 SF), the GLA share in a house of typical rooms |
+| M4a | one photo at a time: floor plane (RANSAC), walls (Manhattan), wall planes either side of the camera (an unseen side ends at the camera), ceiling; scaled by the median of the room's references (`evals.room_measure`) | `Ruicheng/moge-2-vits-normal` (141 MB), `depth-anything/DA3METRIC-LARGE` (1.34 GB) | MIT; Apache-2.0 | MoGe-2 in fp32, field of view estimated (and, an M4b variant, given as EXIF would); DA3: metric depth = focal x output / 300 with the photo's focal length; both on the Mac's GPU (MPS) |
+| M4a references | doors (top above the floor = 80 in, only when the door's segment reaches the floor), counters in kitchens (top = 36 in) | | | the a-priori design |
+| M4a doors checked | the model's metres corrected by the doors within 25 % of them, else the model's | | | **post hoc** (after 107.3's diagnostic) |
+| M4a camera height | the camera 1.5 m above the floor | | | |
+| M4b | the depth model's own metres | as M4a | | |
+| M4c | all the room's photos in one pass: depth, poses and intrinsics in one frame, up to scale; measured as one view; scaled by references, doors only (**post hoc**) or the camera height | `depth-anything/DA3-SMALL` (any-view) | Apache-2.0 | no intrinsics given |
+| M4d | the room's photos (prepared as production prepares a photo) and its type; `measure_interior_reference/v1` (sha256 f0802242...): doors, counters, cabinets, outlets, switches, beds, tiles as rulers; structured answer (`evals.measure_interior_vlm`) | gpt-6.1-sol, gpt-6-luna, claude-sonnet-5-5, claude-opus-5-5 at the M5 production settings (108.1: sol and luna effort low, 6000-token budget; Sonnet low, 1200 + 4096; Opus medium, 1200 + 4096) | - | temperature not sent (reasoning models refuse it); sol and luna called twice, Sonnet twice, Opus once |
+
+Not run: **MapAnything** (`facebook/map-anything-apache`, Apache-2.0, 4.9 GB) and **VGGT-1B-
+Commercial** (gated by application, 5 GB): either alone would have broken the 6 GB disk cap with
+the other models, and VGGT's commercial weights need Meta's approval; Depth Anything 3 Small is
+the Apache-2.0 multi-view model that fits. The non-commercial DA3 Large/Giant and MASt3R are
+excluded by licence.
+
+### 107.3 The scale: each ruler against the photo's true scale
+
+The iPad's pose gives each photo's true camera height above the floor, so each photo's true scale
+is that over the model's camera height. How to read this table: per photo, each reference's
+implied scale against the true one (%; *mean abs* and the *median* of the signed error); *model's
+own*: the depth model's metres against the true scale.
+
+| Ruler | Photos | DA3 Metric-L median / mean abs % | MoGe-2 S median / mean abs % | DA3-S multi-view median / mean abs % |
+|---|---|---|---|---|
+| door, 80 in | 17 (11 multi-view) | -1.1 / 9.5 | -4.5 / 13.2 | +1.6 / 9.1 |
+| counter top, 36 in (kitchens) | 13 (10) | +4.7 / 21.5 | +3.0 / 26.9 | +12.2 / 22.6 |
+| camera 1.5 m above the floor | 43 (37) | +2.4 / 12.8 | +2.4 / 12.8 | +5.8 / 12.9 |
+| the model's own metres | 43 | -1.9 / 7.5 | -4.0 / 11.0 | (not metric) |
+
+Doors are good rulers when found (two of 17 were 54 to 56 % off: a door cut by furniture and a
+tall closet door); the counter's level is often found on a drawer or the hob, so counters are poor
+rulers here; and the in-domain model's own metres are about as good as a door on average. Only 15
+of the 25 rooms with usable photos had a door or a counter at all (a door in 13).
+
+### 107.4 Results per quantity
+
+How to read these tables: each cell is *mean abs % / mean signed % / median abs %* over the rooms
+the setup measured, then *(rooms scored, misses)*; a miss is a room with a truth the setup gave no
+number for (no photo, no reference, no answer). M4d rows are each model's first call. The four
+rooms without owner-like photos are misses for every photo setup.
+
+**Room size**
+
+| Setup | Floor area | Length | Width |
+|---|---|---|---|
+| Today's formulas, true floor area (M0) | 0.0 / 0.0 / 0.0 (31, 0) | 18.3 / -18.3 / 16.2 (31, 0) | 13.7 / +11.3 / 10.9 (31, 0) |
+| Today's formulas, typical area | 84.4 / +80.0 / 60.4 (31, 0) | 18.3 / +6.1 / 12.8 (31, 0) | 49.9 / +47.1 / 44.9 (31, 0) |
+| M4a MoGe-2 S, doors and counters | 42.2 / -36.6 / 44.9 (15, 16) | 25.3 / -20.7 / 23.4 (15, 16) | 33.4 / -32.3 / 27.1 (15, 16) |
+| M4a DA3 Metric-L, doors and counters | 31.1 / -29.3 / 28.2 (15, 16) | 19.0 / -15.4 / 18.8 (15, 16) | 29.5 / -28.4 / 29.7 (15, 16) |
+| M4a DA3 Metric-L, doors checked (post hoc) | 34.7 / -32.4 / 32.4 (25, 6) | 20.3 / -16.1 / 14.8 (25, 6) | 33.3 / -31.5 / 30.6 (25, 6) |
+| M4a DA3 Metric-L, 1.5 m camera | 43.7 / -12.5 / 27.0 (25, 6) | 23.6 / -7.0 / 17.7 (25, 6) | 33.9 / -24.1 / 27.4 (25, 6) |
+| M4b MoGe-2 S own metres | 46.9 / -46.9 / 46.1 (25, 6) | 28.5 / -25.5 / 25.1 (25, 6) | 40.2 / -40.1 / 38.4 (25, 6) |
+| M4b MoGe-2 S, field of view given | 44.6 / -43.3 / 41.2 (25, 6) | 26.4 / -23.3 / 21.2 (25, 6) | 38.2 / -37.9 / 37.2 (25, 6) |
+| M4b DA3 Metric-L own metres | 34.2 / -33.2 / 32.4 (25, 6) | 20.7 / -16.4 / 14.8 (25, 6) | 33.1 / -31.9 / 30.2 (25, 6) |
+| M4c DA3-S multi-view, doors and counters | 36.2 / +16.1 / 35.2 (13, 18) | 17.1 / +9.5 / 13.4 (13, 18) | 25.9 / -7.6 / 26.0 (13, 18) |
+| M4c DA3-S multi-view, doors only (post hoc) | 31.9 / +20.8 / 35.2 (9, 22) | **9.6** / +9.0 / 7.0 (9, 22) | 24.9 / -2.3 / 24.5 (9, 22) |
+| M4c DA3-S multi-view, 1.5 m camera | 50.4 / +25.0 / 41.8 (22, 9) | 23.7 / +9.3 / 22.3 (22, 9) | 29.3 / -1.9 / 29.7 (22, 9) |
+| M4d gpt-6-luna | 25.9 / +9.7 / 22.0 (24, 7) | 15.3 / -5.2 / 13.6 (24, 7) | 17.4 / +1.8 / 14.2 (24, 7) |
+| M4d gpt-6.1-sol | 25.6 / -7.1 / 27.4 (27, 4) | 18.2 / -12.7 / 19.1 (27, 4) | 16.7 / -6.6 / 17.6 (27, 4) |
+| M4d claude-sonnet-5-5 | **22.5** / +12.4 / 15.4 (24, 7) | 11.1 / +2.8 / 6.9 (24, 7) | **15.4** / -0.8 / 14.2 (24, 7) |
+| M4d claude-opus-5-5 | 25.4 / +15.4 / 19.1 (27, 4) | 10.8 / -1.9 / 8.8 (27, 4) | 16.3 / +4.5 / 14.7 (27, 4) |
+
+**Height and walls**
+
+| Setup | Ceiling height | Perimeter (baseboard) | Wall area |
+|---|---|---|---|
+| Today's formulas, true floor area (M0) | 5.1 / +0.4 / 4.7 (19, 0) | 11.9 / -11.9 / 11.3 (31, 0) | 25.4 / -5.0 / 23.6 (19, 0) |
+| Today's formulas, typical area | 5.1 / +0.4 / 4.7 (19, 0) | 23.7 / +15.6 / 14.9 (31, 0) | 58.0 / +53.8 / 47.1 (19, 0) |
+| M4a MoGe-2 S, doors and counters | 11.4 / -7.4 / 8.2 (10, 9) | 32.8 / -32.8 / 33.9 (15, 16) | 37.2 / -36.7 / 36.6 (10, 9) |
+| M4a DA3 Metric-L, doors and counters | 12.0 / -8.4 / 8.4 (10, 9) | 28.0 / -28.0 / 25.4 (15, 16) | 32.7 / -32.7 / 32.9 (10, 9) |
+| M4a DA3 Metric-L, doors checked (post hoc) | 4.1 / -3.9 / 3.7 (14, 5) | 28.0 / -28.0 / 26.1 (25, 6) | 25.3 / -25.3 / 28.5 (14, 5) |
+| M4a DA3 Metric-L, 1.5 m camera | 9.0 / -1.5 / 6.9 (14, 5) | 27.8 / -20.1 / 20.3 (25, 6) | 23.9 / -21.2 / 18.5 (14, 5) |
+| M4b MoGe-2 S own metres | 5.5 / -4.3 / 5.4 (14, 5) | 37.0 / -37.0 / 33.6 (25, 6) | 34.5 / -34.5 / 32.5 (14, 5) |
+| M4b MoGe-2 S, field of view given | 7.6 / -7.1 / 7.0 (14, 5) | 34.7 / -34.7 / 30.4 (25, 6) | 33.8 / -33.8 / 31.4 (14, 5) |
+| M4b DA3 Metric-L own metres | 4.2 / -3.8 / 3.3 (14, 5) | 28.2 / -28.2 / 26.1 (25, 6) | 25.1 / -25.1 / 27.8 (14, 5) |
+| M4c DA3-S multi-view, doors and counters | 10.5 / -1.5 / 5.5 (9, 10) | 12.7 / -7.9 / 5.4 (13, 18) | 20.3 / -9.0 / 12.9 (9, 10) |
+| M4c DA3-S multi-view, doors only (post hoc) | 4.1 / -1.8 / 3.9 (5, 14) | **10.1** / -6.9 / 4.6 (9, 22) | 11.3 / -4.9 / 5.6 (5, 14) |
+| M4c DA3-S multi-view, 1.5 m camera | 10.5 / +3.4 / 9.6 (14, 5) | 17.5 / -3.3 / 11.8 (22, 9) | 19.2 / -0.9 / 17.1 (14, 5) |
+| M4d gpt-6-luna | 6.9 / +5.7 / 5.8 (15, 4) | 14.6 / -8.5 / 10.6 (24, 7) | **10.7** / -3.5 / 9.8 (15, 4) |
+| M4d gpt-6.1-sol | **3.4** / +2.6 / 2.7 (17, 2) | 18.4 / -15.6 / 17.0 (27, 4) | 18.1 / -13.8 / 16.7 (17, 2) |
+| M4d claude-sonnet-5-5 | 5.3 / +2.6 / 4.9 (16, 3) | 10.3 / -5.4 / 5.3 (24, 7) | 11.9 / -3.1 / 6.9 (15, 4) |
+| M4d claude-opus-5-5 | 3.8 / +2.3 / 2.9 (17, 2) | 12.1 / -5.8 / 9.9 (27, 4) | 11.2 / -3.3 / 9.1 (17, 2) |
+
+**Kitchens** (the countertop on 6 kitchens with a truth, the cabinet run on 7; the photo setups
+see 4 or 5 of them)
+
+| Setup | Countertop | Cabinet run |
+|---|---|---|
+| Today's formulas, true floor area (M0) | 312.7 / +312.7 / 282.0 (6, 0) | 270.4 / +270.4 / 226.0 (7, 0) |
+| Today's formulas, typical area | 474.1 / +474.1 / 447.3 (6, 0) | 413.0 / +413.0 / 364.6 (7, 0) |
+| Depth setups (all twelve) | 89 to 96 / about -92 (2 to 3, 3 to 4) | 91 to 95 / about -92 (2 to 4, 3 to 5) |
+| M4d gpt-6-luna | 38.7 / -15.7 / 33.6 (4, 2) | 31.0 / -9.9 / 31.2 (4, 3) |
+| M4d gpt-6.1-sol | 32.4 / +2.4 / 30.5 (3, 3) | 31.7 / -19.5 / 32.3 (4, 3) |
+| M4d claude-sonnet-5-5 | **20.8** / -6.3 / 21.7 (3, 3) | **29.1** / -17.4 / 30.9 (4, 3) |
+| M4d claude-opus-5-5 | 26.4 / +10.2 / 24.5 (4, 2) | 31.8 / -8.5 / 24.1 (5, 2) |
+
+What it says:
+
+* **Coverage, not scale, sinks the single-view setups.** Every single-view setup reads the room
+  small (floor area -29 to -47 %, width -28 to -40 %): an owner's photos show two or three walls,
+  the wall behind the camera never. With each photo's *true* scale (a diagnostic, not a setup)
+  Depth Anything 3 Metric-L still reads the floor area 41 % off on average (bias -21 %) and the
+  perimeter 29 %; multi-view with the true scale, 41 % and 17 %. The scale error (107.3) is the
+  smaller part.
+* **Today's rows are far off on counters and cabinets even with the true area**: 4 sqrt(A) is the
+  room's perimeter, so the cabinet run and the countertop read 3 to 4 times the truth (the row's
+  note already says "overstates a typical kitchen"); and the wall face is 25 % off (3.5 SF of wall
+  per SF of floor fits one room shape).
+* **The vision model reads what the photos cannot measure** (the wall behind the camera, a room's
+  usual proportions) and its errors are not one-sided: Sonnet and Opus are within 2 to 3 % on
+  average on length, width, perimeter and wall area. sol reads rooms small (length -13 %,
+  perimeter -16 %) but reads the ceiling best (3.4 %, every room within 10 %).
+* **The counters' setups fail on these photos**: the depth setups find a few percent of the
+  counter (the top seen edge-on from across the room, painted as cabinet), so they are not
+  measured further.
+
+### 107.5 Paired against M0, run to run, cost
+
+How to read this table: the setup's absolute error minus M0's (true floor area) on the rooms both
+measured, mean over rooms (negative: better), *t* the mean over its standard error, and the rooms
+where the setup was closer. M0's floor area is exact by construction and is not compared.
+
+| Setup | Length | Perimeter | Wall area | Countertop | Cabinet run |
+|---|---|---|---|---|---|
+| M4d claude-sonnet-5-5 (call 1) | -9.2 (t -2.9, 19/24) | -3.3 (t -1.5, 18/24) | -11.3 (t -2.3, 10/15) | -197.7 (t -4.0, 3/3) | -146.4 (t -2.9, 4/4) |
+| M4d claude-opus-5-5 | -8.7 (t -3.5, 20/27) | -0.7 (t -0.4, 14/27) | -13.2 (t -3.7, 13/17) | -286.5 (t -3.1, 4/4) | -228.0 (t -2.6, 5/5) |
+| M4d gpt-6-luna (call 1) | -4.6 (t -1.6, 17/24) | +1.8 (t 0.7, 13/24) | -12.9 (t -4.0, 12/15) | -274.3 (t -3.1, 4/4) | -144.5 (t -3.0, 4/4) |
+| M4d gpt-6.1-sol (call 1) | -1.3 (t -0.5, 13/27) | +5.6 (t 2.8, 7/27) | -6.4 (t -1.3, 12/17) | -186.1 (t -4.2, 3/3) | -143.8 (t -3.1, 4/4) |
+| M4c DA3-S, doors only (post hoc) | -7.9 (t -1.7, 6/9) | -6.7 (t -2.4, 7/9) | -9.0 (t -1.0, 3/5) | -83.5 (t -2.4, 2/2) | -53.9 (t -1.2, 2/2) |
+| M4b DA3 Metric-L own metres | +2.0 (t 0.4, 15/25) | +15.3 (t 3.8, 6/25) | +2.0 (t 0.4, 6/14) | -126.0 (t -2.7, 3/3) | -82.3 (t -1.8, 4/4) |
+
+The ceiling: sol -1.4 (t -2.0, 17 rooms), the depth models' own metres -1.0 (t -0.7): today's 8 ft
+is within 5 % on these rooms, so nothing gains much there.
+
+How to read this table: run to run, |second call - first| in % of the first, mean (largest), over
+the rooms both calls answered.
+
+| Model | Floor area | Length | Width | Ceiling | Perimeter | Wall area | Countertop | Cabinet run |
+|---|---|---|---|---|---|---|---|---|
+| gpt-6-luna | 9.5 (33.3) | 5.0 (27.3) | 5.3 (16.7) | 2.9 (11.1) | 4.6 (20.6) | 7.0 (15.4) | 19.5 (41.2) | 14.4 (43.8) |
+| gpt-6.1-sol | 6.8 (20.5) | 3.8 (12.5) | 4.4 (14.3) | 0.7 (5.9) | 3.4 (11.1) | 3.9 (11.1) | 8.6 (20.0) | 15.0 (50.0) |
+| claude-sonnet-5-5 | 3.9 (11.9) | 2.1 (15.8) | 1.5 (9.1) | 1.5 (6.2) | 2.2 (10.9) | 2.5 (8.0) | 7.5 (30.0) | 15.9 (91.9) |
+
+How to read this table: per room run; M4d from the ledger (*reasoning* is inside the output for
+OpenAI; Anthropic counts thinking in the output), seconds the whole call at four at a time; the
+depth setups' seconds are the model's GPU time on the Mac (MPS, fp32, synchronised), the
+segmenter's 0.34 s a photo (CPU, median) not included.
+
+| Setup | $ / room | Input tokens | Output tokens | Seconds |
+|---|---|---|---|---|
+| M0 | 0 | - | - | 0.0 |
+| MoGe-2 S (one photo at a time) | 0 | - | - | 0.85 (0.33 a photo) |
+| DA3 Metric-L (one photo at a time) | 0 | - | - | 0.52 (0.21 a photo) |
+| DA3-S multi-view (all at once) | 0 | - | - | 0.19 (0.04 a photo) |
+| M4d gpt-6-luna | 0.0004 | 1,864 | 464 | 4.9 |
+| M4d gpt-6.1-sol | 0.0062 | 1,864 | 356 | 10.4 |
+| M4d claude-sonnet-5-5 | 0.0086 | 3,216 | 222 | 2.9 |
+| M4d claude-opus-5-5 | 0.0234 | 3,216 | 529 | 6.5 |
+
+**Dollars: $1.4652 from the ledger** in three runs: a 27-call smoke run on luna ($0.0110), the
+135-call run (sol x2, luna x2, Sonnet x1: $0.5870) and a 54-call run (Sonnet's second call, Opus:
+$0.8672). The worst-case estimates printed before each were $0.09, $5.32 and $4.91, each run
+capped by its budget ($0.20, $2.90, $2.35) so the $3 total could not be passed. Every one of the
+216 calls answered on its first attempt, by the model it named.
+
+### 107.6 Reconciliation: the rooms summed against a known total
+
+How to read this table: each setup's floor areas summed over the rooms it measured against the
+truth's sum (the GLA's role: the rooms of a house should sum to it, less the walls), and each
+room's error after rescaling the setup's areas so the sum is right (what reconciling to the GLA
+can do at best).
+
+| Setup | Rooms | Sum error % | Mean abs % before | Mean abs % after | Median abs % after |
+|---|---|---|---|---|---|
+| Today's formulas, typical area | 31 | +44.1 | 84.4 | 43.7 | 27.8 |
+| M4b DA3 Metric-L own metres | 25 | -32.9 | 34.2 | 33.7 | 31.3 |
+| M4c DA3-S, doors only | 9 | +21.1 | 31.9 | 20.4 | 13.5 |
+| M4d gpt-6-luna | 24 | -3.2 | 25.9 | 27.3 | 19.4 |
+| M4d gpt-6.1-sol | 27 | -17.5 | 25.6 | 29.5 | 18.9 |
+| M4d claude-sonnet-5-5 | 24 | +5.4 | 22.5 | 20.0 | 11.9 |
+| M4d claude-opus-5-5 | 27 | +2.9 | 25.4 | 24.1 | 18.4 |
+
+The sum catches a biased setup (the single-view depth models' -33 %, sol's -18 %) and today's
+typical areas (+44 %); rescaling to the true total then helps only where the error was mostly
+the bias (typical areas 84 -> 44 %): the vision models' errors are per room, and a known total
+does not fix them (Sonnet 22.5 -> 20.0 %). In production the GLA is gross (outside the walls)
+and these rooms are not whole houses, so this is the check's best case.
+
+### 107.7 Verdict
+
+* **The floor for interiors is the vision model with the reference prompt, not the depth
+  models.** Per quantity, the cheapest within one call's noise of the best: **claude-sonnet-5-5**
+  for floor area, length, width, perimeter, wall area, countertop and cabinet run (Opus is within a
+  few points on every one, called once, at 2.7 times the price; luna, the cheapest, is within one
+  call's noise on wall area and width, worse on length and perimeter, and twice as noisy); **gpt-6.1-sol** for the ceiling
+  height (3.4 %; today's 8 ft gives 5.1 % on these rooms, so little is at stake).
+* **Clearly better than today's formulas**, even fed the true floor area: the countertop and the
+  cabinet run (every kitchen, by a factor of 10 or more; 3 to 5 kitchens), the wall area (11 to 13
+  points, t -2.3 to -4.0) and the length (9 points, t -2.9); against what production actually
+  has (a GLA share sized by room type: 84 % on these rooms' areas), the floor area too. The
+  perimeter ties with M0 given the true area.
+* **No depth setup clearly beats M0**, so per the plan nothing is shipped behind a setting: the
+  geometry (`evals/room_measure.py`, its 22 synthetic-scene tests) stays in `evals`. The one to
+  take further is **multi-view scaled by a door** (perimeter 10 %, length 10 %, wall area 11 % on
+  9 rooms, post hoc), which needs a door in the photos and two or more overlapping photos per room
+  (a capture guideline), and the depth models' in-domain advantage here (107.1) argues for doors
+  over the models' own metres on owners' phones.
+* **No production change.** A production M4d needs a step that sends each room's photos (already
+  grouped by the room step) with this prompt and writes measured areas into the room takeoffs
+  with the draft flag (AI_MEASUREMENT_PLAN section 8.3), its workflow patch and its tests:
+  recorded as the candidate (plan section 7, step 6), not built here.
+
+### 107.8 Verified, and not
+
+**Verified.** Every number above is the recorded runs' (`measure_eval.md` / `.json` of
+`measure_m4_2026-11-26`, which replays the two paid runs and runs every free setup; the
+diagnostics of 107.3 and the true-scale runs by the scripts beside the data,
+`$BASIS_EVAL_DATA_DIR/work/measure_m4/ref_diag.py`, `oracle.py`, not in the repository); the truth's method on a synthetic
+room mesh (box, rotated, open, sloped, the corners grown back, a kitchen's boxes;
+`tests/unit/evals/test_measure_interior.py`,
+26 tests with the acceptance rule, M0 as the production rows, the scoring, M4d's ledger with a
+scripted model and the laser fit's closed form); the geometry on rendered rooms
+(`tests/unit/evals/test_room_measure.py`, 22 tests: a wrong model scale corrected by a door and
+by a counter, the camera-height prior, registered views closing the room, refusals without a
+reference, a door whose foot is hidden, a counter outside a kitchen, a turned room, no ceiling in
+view, the median against a wrong door); licences read on the model cards; all 216 calls in the
+ledgers, `ok`, each answered on its first attempt by the model it named.
+
+**Not verified, or suspected only.**
+
+* 31 rooms, of which 27 with photos; counters on 6 and 7 kitchens and 3 to 5 with photos: the
+  kitchen verdict rests on few rooms (the direction is not in doubt, the size is).
+* The depth models' metres are in their training domain (MoGe-2 trained on ARKitScenes, read in
+  its paper; Depth Anything 3 reportedly): the 4 to 5 % ceiling figures will not hold on owners'
+  phones (cv_methods.md 3: 28 to 71 % in one phone study). Whether the vision models have seen
+  ARKitScenes frames is unknown.
+* The frames are owner-like, not owners' photos: chosen from a scanning video by rules (107.1),
+  iPad wide camera, 640 x 480; four rooms had none. Real owners' photos may be wider (a phone's
+  ultra-wide) or fewer.
+* "Post hoc" setups (doors checked, multi-view doors only) were defined after 107.3's diagnostic
+  on the same rooms; their numbers are in-sample. The counter classes were chosen on three
+  kitchens' segment maps before scoring.
+* The truth: the mesh's scale was checked against the laser on four rooms only (within about
+  2 %); the counters are the annotators' boxes (cabinet runs, not counters measured on site); the
+  perimeter does not deduct door openings (as today's row).
+* MapAnything and VGGT-Commercial were not run (disk cap, gated licence); Gemini not configured.
+* The reconciliation uses the truth's own total over rooms that are not one house.
+
+**Run record.** `$BASIS_EVAL_DATA_DIR/verification/measure_eval/v2/measure_m4_2026-11-26` (224
+cases passed, $0, the two paid runs replayed), the paid runs `measure_m4d_2026-11-26` ($0.59, 135
+calls) and `measure_m4d_more_2026-11-26` ($0.87, 54 calls), the smoke run
+`measure_m4d_smoke_2026-11-26` ($0.01, 27 calls); `python -m evals.registry --component
+measure_eval` lists them. The data: `$BASIS_EVAL_DATA_DIR/measure_truth/interiors/` (truth files,
+check pictures, `accepted.json`, photos and their segment maps, depth outputs, laser fits; 139 MB
+after the meshes were deleted). Commands: `python -m evals.interior_data mesh|truth|repeat|frames`,
+`python -m evals.interior_accept`, `python -m evals.interior_segment`,
+`evals/interior_depth_run.py <model> ...` in the depth environment
+(`$BASIS_EVAL_DATA_DIR/work/measure_m4/venv`: torch 2.15, MoGe at its main branch, Depth
+Anything 3 at its main branch, utils3d-moge 62f09d5), then `python -m evals.measure_eval --out
+<run> --m4 <interiors> --m4d "sol:2,luna:2,sonnet:2,opus:1" --m4d-replay <paid run> ...`.
+
+**Open.** M4d into production (a room-photos step, drafts flagged, the engineer verifying);
+owners' own photos with a tape-measured truth (tier D) before trusting any number; multi-view on
+more rooms with a capture guideline (two overlapping photos and a door per room); MapAnything if
+disk allows; the counters measured on site rather than from the boxes.
+
 ## 108. M5, a vision model asked for each exterior quantity: the floor every measuring method must beat (2026-11-25)
 
 **Answer first.** Asked directly, with the Google straight-down view (a scale bar drawn on it),

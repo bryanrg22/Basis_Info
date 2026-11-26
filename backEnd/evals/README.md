@@ -494,6 +494,21 @@ error, IoU, refusals, misses and false items, the hand-trace bound, the truth's 
 Google's ground pixel by registration, the Douglas-Peucker sweep, cost per property from the
 runs' ledgers). Free.
 
+`--m4 <interiors dir>` adds M4, interiors (EVAL_REPORT 107, `evals.measure_interior`): the
+ARKitScenes rooms kept by `evals.interior_accept`, scored per quantity (floor area, length,
+width, ceiling height, perimeter, wall area, countertop, cabinet run) for M0 (today's takeoff
+rows on the true floor area, and on the room type's typical area), the depth setups read from
+`depth/<model>/<room>.npz` (`evals.room_measure`: a depth model's shape scaled by doors and
+counters, by a checked door, by an assumed camera height, or its own metres; multi-view in one
+frame), and M4d (`--m4d sol:2,luna:2,...` with `--m4d-budget-usd`, `--m4d-estimate`, or
+`--m4d-replay <run>` repeatable: `evals.measure_interior_vlm`, paid). The rooms' data is built
+outside the repository: `evals.interior_data` (fetch: annotations, meshes, the owner-like
+frames by HTTP range from the frame archives), `evals.interior_truth` (the truth measured on the
+mesh), `evals.interior_data repeat` and `evals.interior_accept` (the second scan and the
+acceptance rule), `evals.interior_laser` (the mesh against a range-read sample of the Faro
+scan), `evals.interior_segment` (the production ADE20K segmenter on every photo) and
+`evals/interior_depth_run.py` (MoGe-2, Depth Anything 3, in their own environment; 107.2).
+
 ### Site items: `site_truth`, `site_views`, `site_draft_run`, `site_fence`
 
 * `python -m evals.site_truth --area name:lat,lon ... [--keep <truth dir>]`: the truth, Fairfax
