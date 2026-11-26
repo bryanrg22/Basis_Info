@@ -18706,10 +18706,37 @@ The console showed no errors beyond the sample's missing photo. The facade corne
 keys (FRONTEND_BACKLOG 24); this was checked by key presses in the browser and by
 `measure-drafts-display.test.cjs` (14 tests; 5 mutants caught).
 
+**On the real API, live (no Docker).** I ran the reference test's study (both settings on,
+threshold $1) on a local Postgres 18, kept its database, and served it with the API (uvicorn,
+`PUBLIC_GEO` and `PROPERTY_CAPTURE` on) and the Firebase Auth emulator. In the web app in live
+mode, signed in as a verified emulator account linked to the study's owner:
+* The Assets page's held list read the real rows: roof $539.66, countertop $117.59, wall finish
+  $80.71. Every draft call answered 200.
+* Use this number on the countertop and the wall queued two corrections. They survived a reload
+  (the gate drafts are kept by the API).
+* Review & send went to `POST .../decisions`, which answered 202. The database holds the assets
+  review rejected with the two `asset` corrections exactly as built (`{"quantity": 28,
+  "quantity_unit": "SF", "quantity_source": "verified Basis draft from the room photos"}`, and 432),
+  and the study moved to `assets_processing`, revision 2.
+
+The reprice that follows (a typed quantity replaces the draft and the blocker clears) is the
+pipeline tests' `test_a_typed_quantity_replaces_the_draft...`; it was not run live, because there
+is no worker or Temporal here.
+
+**Sizes.** A phone never loads the product: every product route goes to the sign-in page, which
+says to use a computer (`web/public-entry.js`), so no phone layout applies. On a tablet the held
+list fits at 1024 and at 768 px wide, with no sideways scroll and every action visible. At 768 the
+Assets table's labels below it are cramped; that table is not changed here.
+
 **Open.**
-* Not run against a live backend with a worker; this environment's Docker is down, and the
-  reference fixture stands in for the API's shapes.
-* Phones were not looked at.
+* The roof's Verify was not done live. The tool draws a lidar draft on the gather's top-down
+  picture, and a synthetic gather has none, so the tool fell back to the photos. A real gather
+  stores the public aerial, as the sample does, where Verify works end to end. A gather that kept
+  the shell but lost its picture would leave Verify nothing to draw on; the engineer can still
+  type the quantity (Correct).
+* The seeded gather first made `GET .../property/public` answer 500, because the pipeline test
+  stores only the lidar fields pricing reads. A real gather writes the rest (`points`,
+  `density_per_m2`, `credit`, `terms_*`). It is a test-seed artefact, not a product path.
 * After verifying a lidar draft, the measure tool still says "traced on an image with no capture
   date" and "too coarse for its size". These are the trace's own flags, applied to the aerial it
   is drawn on.
