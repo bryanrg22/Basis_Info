@@ -120,6 +120,7 @@ takeoff carries ``concealed``, the label, the system, the formula and the assump
 from __future__ import annotations
 
 import asyncio
+import functools
 import logging
 import uuid
 from collections import Counter
@@ -132,7 +133,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from temporalio import activity
 
-from basis.activities import line_annotations
+from basis.activities import draft_inputs, line_annotations
 from basis.activities._model_calls import call_origin, heartbeating, provider_failure
 from basis.activities._support import (
     budget_exceeded,
@@ -191,6 +192,7 @@ from basis.db.repositories.study import StudyRepository
 from basis.db.repositories.study_event import StudyEventRepository
 from basis.db.session import session_scope
 from basis.domain import component_age, price_overrides, renovations, traced
+from basis.domain import measure_drafts as md
 from basis.domain.cost_table import CostTable, cost_table_for
 from basis.domain.cost_trail import (
     TrailContext,
@@ -429,6 +431,12 @@ class _Prepared:
         default_factory=lambda: renovations.Membership({}, frozenset())
     )
     renovations_version: int | None = None
+    # EVAL_REPORT 110 (basis.activities.draft_inputs): the shell the exterior drafts come from
+    # (MEASURE_DRAFTS_EXTERIOR) or why there is none, and each room's draft
+    # (MEASURE_DRAFTS_INTERIOR), by room id. Empty with the settings off.
+    exterior: md.ShellSource | None = None
+    exterior_reason: str | None = None
+    room_drafts: dict[uuid.UUID, md.RoomDraft] = field(default_factory=dict)
 
 
 async def _ensure_cost_year(deps: Deps, prepared: _Prepared) -> None:
@@ -605,6 +613,15 @@ async def _prepare(
                 f"${input.budget_remaining_usd:.4f} remains",
                 E.BUDGET_CLASSIFY,
             )
+    exterior: md.ShellSource | None = None
+    exterior_reason: str | None = None
+    if settings.measure_drafts_exterior:
+        exterior, exterior_reason = await draft_inputs.exterior_source(session, study_id)
+    drafted_rooms: dict[uuid.UUID, md.RoomDraft] = {}
+    if settings.measure_drafts_interior:
+        drafted_rooms = await draft_inputs.room_drafts(
+            session, study_id, input.revision, rooms, input.room_drafts
+        )
     return _Prepared(
         components,
         rooms,
@@ -627,6 +644,9 @@ async def _prepare(
         annotations,
         membership,
         renovations_version,
+        exterior=exterior,
+        exterior_reason=exterior_reason,
+        room_drafts=drafted_rooms,
     )
 
 
@@ -688,13 +708,20 @@ async def _write(
     assets = AssetRepository(session)
     budget = prepared.budget
     table = cost_table_for(settings.cost_table_path)
-    plan = TakeoffPlan.build(
+    build = functools.partial(
+        TakeoffPlan.build,
         settings,
         prepared.measurements,
         list(rooms.values()),
         intake=prepared.intake,
         values=await load_index_values(session, settings),
+        exterior=prepared.exterior,
+        exterior_reason=prepared.exterior_reason,
+        room_drafts=prepared.room_drafts,
     )
+    # The shell's drafts measure its outlines (geometry, as an engineer's trace: off the event
+    # loop; about 0.2 ms on the client's 24-corner shell, EVAL_REPORT 110.5).
+    plan = await asyncio.to_thread(build) if prepared.exterior is not None else build()
     context = TrailContext(prepared.intake_version, property_class, pricing_method(settings))
     measured: dict[tuple[str, str], uuid.UUID] = {}
     cache_hits: Counter[str] = Counter()
@@ -710,6 +737,13 @@ async def _write(
         building = _building(structure)
         if building is not None and settings.structure_overhead_allocation == "pro_rata":
             markup = overhead_markup(building.model)
+    if settings.measure_drafts_exterior or settings.measure_drafts_interior:
+        # A quantity measured once per property or room is carried by the first row of its
+        # kind; the components are ordered by id, new on every revision, so the row the
+        # engineer verified or measured could come second and get 0 while the other row priced
+        # the draft again (EVAL_REPORT 110.6). The rows carrying an engineer's quantity go
+        # first (stable: every other row keeps its order). Unchanged with both settings off.
+        components = sorted(components, key=lambda c: not _quantity_override(overrides.get(c.id)))
     for component in components:
         heartbeat(str(component.id))
         room = rooms.get(component.room_id) if component.room_id else None
@@ -735,24 +769,56 @@ async def _write(
             asset = await _write_classified(assets, component, input.revision, result)
             rule_key, extra_inputs = result.rule_key, {}
             citations = result.citations
-        takeoff = _takeoff(component, room, rule_key, plan, measured, asset.id)
+        takeoff, draft = _draft_takeoff(component, room, rule_key, plan, measured, asset.id)
         measure_reasons: list[str] = []
+        # A row priced on Basis's draft (EVAL_REPORT 110): its record, its shape when it has
+        # one (the measure tool draws it), and the draft's review flag.
+        draft_record: dict[str, Any] | None = None
+        if draft is not None:
+            draft_record = draft.record
+            measure_reasons = [md.DRAFT_UNVERIFIED]
+            if draft.measurement is not None and draft.shape is not None:
+                extra_inputs = {**extra_inputs, traced.MEASUREMENT: draft.measurement}
+                measure_reasons += _measure_flags(draft.shape, prepared, settings)
         if override is not None and traced.MEASUREMENT in override.after:
             # The engineer's traced shape (EVAL_REPORT 97): geometry, so off the event loop.
             shape = await asyncio.to_thread(check_measurement, override.after)
             assert shape is not None
-            takeoff = traced_by_engineer(takeoff, shape)
-            extra_inputs = {**extra_inputs, traced.MEASUREMENT: shape.record()}
-            measure_reasons = traced.review_flags(
-                shape,
-                placed_in_service=None
-                if prepared.intake is None
-                else prepared.intake.placed_in_service_date,
-                after_service_days=settings.measure_image_after_service_days,
-                error_flag_pct=Decimal(str(settings.measure_error_flag_pct)),
-            )
+            if draft is not None and shape.by_model and shape.verified is not True:
+                # Basis's draft sent back as it was, not verified: it stays the draft.
+                pass
+            else:
+                takeoff = traced_by_engineer(takeoff, shape)
+                if draft is not None and draft.factor != 1 and md.descends_from_draft(shape):
+                    # The outline is what the engineer checked; the slope or the openings
+                    # stay the draft's (basis.domain.measure_drafts, "Verifying").
+                    takeoff = _with_factor(takeoff, draft.factor, draft.record)
+                extra_inputs = {**extra_inputs, traced.MEASUREMENT: shape.record()}
+                measure_reasons = _measure_flags(shape, prepared, settings)
+                if draft_record is not None:
+                    draft_record = md.resolved(
+                        draft_record,
+                        verified=shape.by_model and shape.verified is True,
+                        by="engineer",
+                        quantity=f"{takeoff.quantity} {takeoff.unit}",
+                    )
         elif override is not None and check_quantity(override.after) is not None:
             takeoff = measured_by_engineer(takeoff, override.after)
+            if draft is not None and draft_record is not None:
+                # The engineer's typed quantity replaces the draft; the draft (and its shape)
+                # is kept on its record.
+                draft_record = md.resolved(
+                    draft_record,
+                    verified=False,
+                    by="engineer",
+                    quantity=f"{takeoff.quantity} {takeoff.unit}",
+                )
+                if draft.measurement is not None:
+                    draft_record["measurement"] = draft.measurement
+                    extra_inputs = {
+                        k: v for k, v in extra_inputs.items() if k != traced.MEASUREMENT
+                    }
+                measure_reasons = []
         cost, priced_per, not_priced = _cost(
             takeoff,
             plan.index,
@@ -809,6 +875,15 @@ async def _write(
         # The traced measurement's flags (basis.domain.traced.review_flags): for the reviewer,
         # never a change of the quantity.
         extra_reasons += measure_reasons
+        if draft_record is not None:
+            # Pricing rule (a): a pending draft's exposure, and whether it holds the report.
+            if md.pending(draft_record):
+                draft_record = md.priced(
+                    draft_record,
+                    None if cost is None else cost.total,
+                    Decimal(str(settings.measure_draft_verify_usd)),
+                )
+            extra_inputs = {**extra_inputs, md.DRAFT: draft_record}
         if extra_reasons:
             reasons = [r for r in (asset.review_reason or "").split("; ") if r]
             reasons += extra_reasons
@@ -1382,6 +1457,12 @@ class TakeoffPlan:
     # Why no room has a measured area (no extraction fields: ``gla``; TAKEOFF_AREAS=typical:
     # ``takeoff_areas_typical``); None when the rooms are sized from the appraisal.
     area_missing: str | None = None
+    # EVAL_REPORT 110: the property rows drafted from the lidar shell (by takeoff label) and,
+    # for each shell label not drafted, why (``inputs["draft_not_used"]``); each room's draft.
+    # All empty with MEASURE_DRAFTS_EXTERIOR and MEASURE_DRAFTS_INTERIOR off.
+    drafts: dict[str, md.Draft] = field(default_factory=dict)
+    drafts_not_used: dict[str, str] = field(default_factory=dict)
+    room_drafts: dict[uuid.UUID, md.RoomDraft] = field(default_factory=dict)
 
     @classmethod
     def build(
@@ -1391,9 +1472,15 @@ class TakeoffPlan:
         rooms: list[Room],
         intake: StudyIntake | None = None,
         values: IndexValues | None = None,
+        *,
+        exterior: md.ShellSource | None = None,
+        exterior_reason: str | None = None,
+        room_drafts: dict[uuid.UUID, md.RoomDraft] | None = None,
     ) -> TakeoffPlan:
         """``values``: the store's index values (:func:`load_index_values`); the released
-        book's alone when None (tests, and a process without a database)."""
+        book's alone when None (tests, and a process without a database). ``exterior`` and
+        ``room_drafts``: what the drafts come from (EVAL_REPORT 110), only read with their
+        settings on; ``exterior_reason`` why there is no shell."""
         property_class, class_source = property_class_for(intake, settings)
         values = values or book_values()
         areas: dict[uuid.UUID, RoomArea] = {}
@@ -1447,6 +1534,18 @@ class TakeoffPlan:
             study_inputs["cost_year_assumption"] = index.year_assumption
         if index.year_conversion is not None:
             study_inputs["cost_year_conversion"] = index.year_conversion
+        drafts: dict[str, md.Draft] = {}
+        not_used: dict[str, str] = {}
+        if settings.measure_drafts_exterior:
+            if exterior is None:
+                not_used = dict.fromkeys(
+                    md.EXTERIOR_ERROR_PCT, exterior_reason or "no building shell"
+                )
+            else:
+                drafts, not_used = md.exterior_drafts(exterior, quantities, missing_property)
+                # A drafted row is the draft's: today's formula is kept on its record only.
+                quantities = {k: v for k, v in quantities.items() if k not in drafts}
+                missing_property = {k: v for k, v in missing_property.items() if k not in drafts}
         return cls(
             areas,
             quantities,
@@ -1456,6 +1555,9 @@ class TakeoffPlan:
             study_inputs,
             missing_property,
             area_missing,
+            drafts,
+            not_used,
+            dict(room_drafts or {}) if settings.measure_drafts_interior else {},
         )
 
 
@@ -1467,34 +1569,55 @@ def _takeoff(
     measured: dict[tuple[str, str], uuid.UUID],
     asset_id: uuid.UUID,
 ) -> Takeoff:
+    """The component's takeoff (:func:`_draft_takeoff` without the draft)."""
+    return _draft_takeoff(component, room, rule_key, plan, measured, asset_id)[0]
+
+
+def _draft_takeoff(
+    component: Component,
+    room: Room | None,
+    rule_key: str | None,
+    plan: TakeoffPlan,
+    measured: dict[tuple[str, str], uuid.UUID],
+    asset_id: uuid.UUID,
+) -> tuple[Takeoff, md.Draft | None]:
+    """The component's takeoff, and the draft it stands on (EVAL_REPORT 110; None for a row
+    today's formulas size, and for a second row of a drafted quantity, which is 0)."""
     key = takeoff_key(rule_key or component.label)
     derived = plan.property.get(key)
+    exterior = plan.drafts.get(key)
     count = _count(component)
-    if derived is not None:
-        takeoff = _property_takeoff(key, derived, count or 1)
+    draft: md.Draft | None = None
+    if exterior is not None:
+        draft = exterior
+        base = exterior.takeoff("perimeter" if exterior.unit == "LF" else "area")
+        takeoff = Takeoff(**{**_fields(base), "inputs": {**base.inputs, "count": count or 1}})
+        scope = "property"
+    elif derived is not None:
+        takeoff = _not_used(_property_takeoff(key, derived, count or 1), plan, key)
         scope = "property"
     elif key in plan.property_missing:
-        return with_missing_input(
-            _room_takeoff(component, room, key, plan), plan.property_missing[key]
-        )
+        room_takeoff, _ = _room_takeoff(component, room, key, plan)
+        missing_takeoff = with_missing_input(room_takeoff, plan.property_missing[key])
+        return _not_used(missing_takeoff, plan, key), None
     else:
-        takeoff = _room_takeoff(component, room, key, plan)
+        takeoff, draft = _room_takeoff(component, room, key, plan)
         scope = f"room:{component.room_id}"
     if takeoff.inputs.get(MISSING_INPUT):
-        return takeoff
+        return takeoff, None
     if not takeoff.is_measured:
         # A counted item prices on its count: a component with none is not counted as 1
         # (before EVAL_REPORT 78 it was).
-        return takeoff if count is not None else with_missing_input(takeoff, "count")
+        return (takeoff if count is not None else with_missing_input(takeoff, "count")), None
     first = measured.setdefault((scope, takeoff_key(takeoff.component)), asset_id)
     if first == asset_id:
-        return takeoff
+        return takeoff, draft
     inputs: dict[str, str | int | bool | None] = {
         **takeoff.inputs,
         "measured_with_asset": str(first),
     }
     where = "property" if scope == "property" else "room"
-    return Takeoff(
+    zero = Takeoff(
         component=takeoff.component,
         quantity=Decimal("0.00"),
         unit=takeoff.unit,
@@ -1503,14 +1626,34 @@ def _takeoff(
         method=takeoff.method,
         assumptions=takeoff.assumptions,
     )
+    return zero, None
 
 
-def _room_takeoff(component: Component, room: Room | None, key: str, plan: TakeoffPlan) -> Takeoff:
+def _not_used(takeoff: Takeoff, plan: TakeoffPlan, key: str) -> Takeoff:
+    """A shell label's row with why the lidar shell did not draft it (MEASURE_DRAFTS_EXTERIOR
+    on; the catalogue's MEASURE_EXTERIOR_NOT_DRAFTED). Unchanged with the setting off."""
+    reason = plan.drafts_not_used.get(key)
+    if reason is None:
+        return takeoff
+    inputs = {
+        **takeoff.inputs,
+        "draft_not_used": reason,
+        "draft_not_used_code": E.MEASURE_EXTERIOR_NOT_DRAFTED,
+    }
+    return Takeoff(**{**_fields(takeoff), "inputs": inputs})
+
+
+def _room_takeoff(
+    component: Component, room: Room | None, key: str, plan: TakeoffPlan
+) -> tuple[Takeoff, md.Draft | None]:
     """A room-level takeoff on the room's planned area. A measured item whose room has no
     measured area (no GLA, no garage or basement area or finish, an exterior room, no room,
     or TAKEOFF_AREAS=typical), and a cabinet run (the room's perimeter is not one), is
     written unpriced with the missing input named (EVAL_REPORT 78); the typical area once
-    priced it. A counted item does not use the area."""
+    priced it. A counted item does not use the area. A room with a draft (EVAL_REPORT 110,
+    MEASURE_DRAFTS_INTERIOR) has its floor, wall, trim, countertop and cabinet rows sized by
+    it instead, each with the draft returned; a quantity the draft has no number for keeps
+    today's row."""
     planned = plan.room_areas.get(room.id) if room is not None else None
     count = _count(component) or 1  # the count is checked by _takeoff; not used for areas
     if planned is None:
@@ -1542,11 +1685,17 @@ def _room_takeoff(component: Component, room: Room | None, key: str, plan: Takeo
             else takeoff.assumptions,
         }
     )
+    room_draft = plan.room_drafts.get(room.id) if room is not None else None
+    if built.is_measured and room_draft is not None:
+        missing_now = "cabinet_run" if key in GUESSED_RUNS else missing_code
+        drafted = md.room_takeoff(key, room_draft, built, missing_now)
+        if drafted is not None:
+            return drafted.takeoff(built.method), drafted
     if built.is_measured and key in GUESSED_RUNS:
-        return with_missing_input(built, "cabinet_run")
+        return with_missing_input(built, "cabinet_run"), None
     if built.is_measured and missing_code is not None:
-        return with_missing_input(built, missing_code)
-    return built
+        return with_missing_input(built, missing_code), None
+    return built, None
 
 
 def _property_takeoff(key: str, derived: Derived, count: int) -> Takeoff:
@@ -1679,6 +1828,46 @@ def traced_by_engineer(takeoff: Takeoff, shape: traced.Traced) -> Takeoff:
         inputs=_engineer_inputs(takeoff, shape.source),
         method=UNIT_METHODS[shape.unit],
         assumptions=(),
+    )
+
+
+def _quantity_override(override: Override | None) -> bool:
+    """Whether an asset correction states a quantity, typed or traced."""
+    return override is not None and (
+        traced.MEASUREMENT in override.after or bool(QUANTITY_FIELDS & set(override.after))
+    )
+
+
+def _measure_flags(shape: traced.Traced, prepared: _Prepared, settings: Settings) -> list[str]:
+    """A measurement's review flags (:func:`basis.domain.traced.review_flags`) for the study."""
+    return traced.review_flags(
+        shape,
+        placed_in_service=None
+        if prepared.intake is None
+        else prepared.intake.placed_in_service_date,
+        after_service_days=settings.measure_image_after_service_days,
+        error_flag_pct=Decimal(str(settings.measure_error_flag_pct)),
+    )
+
+
+def _with_factor(takeoff: Takeoff, factor: Decimal, record: dict[str, Any]) -> Takeoff:
+    """An engineer's measurement of a drafted shell row times the draft's factor (the roof's
+    slope, the siding's openings: EVAL_REPORT 110); the shape's own quantity is kept."""
+    quantity = (takeoff.quantity * factor).quantize(Decimal("0.01"))
+    reason = record.get("factor_reason") or "the draft's factor"
+    return Takeoff(
+        component=takeoff.component,
+        quantity=quantity,
+        unit=takeoff.unit,
+        formula=f"{takeoff.formula}; x {factor} ({reason}, kept from Basis's draft) = "
+        f"{quantity:,} {takeoff.unit}",
+        inputs={
+            **takeoff.inputs,
+            "shape_quantity": f"{takeoff.quantity} {takeoff.unit}",
+            "draft_factor": format(factor, "f"),
+        },
+        method=takeoff.method,
+        assumptions=takeoff.assumptions,
     )
 
 

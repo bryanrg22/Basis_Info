@@ -38,7 +38,7 @@ from basis.db.enums import Bucket
 from basis.db.repositories.asset import AssetRepository
 from basis.db.repositories.extraction import ExtractionRepository
 from basis.db.repositories.room import RoomRepository
-from basis.domain import component_age, renovations
+from basis.domain import component_age, measure_drafts, renovations
 from basis.domain.basis import (
     BUCKET_ORDER,
     CAPITALIZED,
@@ -136,17 +136,25 @@ class ScheduleRow:
     removal: renovations.Removal | None = None
     project: str | None = None
     renovations_version: int | None = None
+    # EVAL_REPORT 110: the row is priced on Basis's draft, not verified, whose exposure was
+    # above MEASURE_DRAFT_VERIFY_USD when it was priced (``takeoffs.inputs.draft.blocks``):
+    # that threshold in dollars; None when no draft holds the row.
+    draft_blocks: Decimal | None = None
 
 
 def annotations_of(inputs: Any) -> dict[str, Any]:
-    """The :class:`ScheduleRow` fields a takeoff's inputs give (EVAL_REPORT 102)."""
+    """The :class:`ScheduleRow` fields a takeoff's inputs give (EVAL_REPORT 102, 110)."""
     version = inputs.get(renovations.VERSION_INPUT) if isinstance(inputs, dict) else None
-    return {
+    out: dict[str, Any] = {
         "age": component_age.from_inputs(inputs),
         "removal": renovations.removal_from_inputs(inputs),
         "project": renovations.project_from_inputs(inputs),
         "renovations_version": version if isinstance(version, int) else None,
     }
+    threshold = measure_drafts.blocking_threshold(inputs)
+    if threshold is not None:
+        out["draft_blocks"] = threshold
+    return out
 
 
 # --------------------------------------------------------------------------- response models
@@ -426,7 +434,9 @@ class BlockerOut(BaseModel):
     code: str = Field(
         description="Stable: `input:<input>` (a missing input; `docs/api/STUDY_RESULT.md` lists "
         "them), `unpriced`, `unclassified`, `appraisal_fields`, `building_rcn`, "
-        "`depreciation`, `cost_index`."
+        "`depreciation`, `cost_index`, `measure:draft_unverified` (a measurement Basis drafted, "
+        "not verified, could move more dollars than `MEASURE_DRAFT_VERIFY_USD`; EVAL_REPORT "
+        "110)."
     )
     message: str = Field(description="What is missing, in the reviewer's words.")
     assets: int = Field(
@@ -773,6 +783,17 @@ def report_blockers(
                 "unavailable or gave no usable answer); a default building class is not used",
                 len(unclassified),
                 "set the class at the assets review",
+            )
+        )
+    drafts = [r.draft_blocks for r in rows if r.draft_blocks is not None]
+    if drafts:
+        # Pricing rule (a), EVAL_REPORT 110: an unverified draft above the threshold.
+        out.append(
+            Blocker(
+                measure_drafts.BLOCKER,
+                measure_drafts.blocker_message(len(drafts), min(drafts)),
+                len(drafts),
+                measure_drafts.BLOCKER_FIX,
             )
         )
     if structure is None:

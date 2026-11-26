@@ -22,7 +22,7 @@ Numbers are never reused. Source of truth: `backEnd/basis/errors/catalogue.py` (
 rendered from it: `uv run python -m basis.errors.catalogue --write`; a test fails while it is
 stale).
 
-378 codes in 27 areas.
+383 codes in 28 areas.
 
 ## API: API: request plumbing (authentication, idempotency, limits, dependencies)
 
@@ -536,4 +536,14 @@ stale).
 | `BASIS-SITE-006` | outcome | the site-item drafter (`basis.vision.site_items`, `SITE_DRAFTS`); `basis.vision.site_items` | The outline is not a shape `basis.domain.traced.measure` accepts (the reasons are in the refusal). | No draft for the prompt: a `Refused` with this code and the measurement's problems. | Trace it by hand. | no |
 | `BASIS-SITE-007` | outcome | the site-item drafter (`basis.vision.site_items`, `SITE_DRAFTS`); `basis.vision.site_items` | The call to SAM 3 (Replicate or the self-hosted Cog server) failed after the localizer's own retries. | No draft for any prompt of the view: a `Refused` with this code and the error. | Try again later, or trace by hand. | no |
 | `BASIS-SITE-008` | outcome | the site-item drafter (`basis.vision.site_items`, `SITE_DRAFTS`); `basis.vision.site_items` | The family is not drafted from above: a fence (1 to 3 pixels wide, often under trees; EVAL_REPORT 106 found no line method that holds). | No draft for the prompt: a `Refused` with this code. | Trace the fence on the picture or from the lot line. | no |
+
+## MEASURE: AI-drafted measurements in the priced path: the lidar shell, room photos and the verify rule (EVAL_REPORT 110; off by default)
+
+| Code | Kind | Where (step; component) | What happened | What you see | How to fix | Retry |
+|---|---|---|---|---|---|---|
+| `BASIS-MEASURE-001` | flag | process_assets; `basis.domain.measure_drafts` | The row is priced on a measurement Basis drafted (the lidar shell's walls, roof or gutters with `MEASURE_DRAFTS_EXTERIOR`, a room's photos with `MEASURE_DRAFTS_INTERIOR`) that the engineer has not verified (EVAL_REPORT 110). While its exposure (its expected error times its price) is above `MEASURE_DRAFT_VERIFY_USD`, the result's `blockers` carry `measure:draft_unverified` and no report is rendered or signed. | `review_reasons` `measure:DRAFT_UNVERIFIED`; `takeoff.inputs.draft` (`verified` false, `exposure_usd`, `blocks`); the blocker `measure:draft_unverified` when it holds the report. (reason `measure:DRAFT_UNVERIFIED`) | Verify or edit this measurement in the measure tool (or enter the measured quantity) at the assets review. | no |
+| `BASIS-MEASURE-002` | outcome | measure_rooms; `basis.activities.measure_rooms` | A room's photos could not be measured: the provider refused them, or no usable answer came back after one retry. The room's rows keep today's formulas (a failed call never becomes a number, EVAL_REPORT 78). | The room's `room_drafts` entry has `status` `refused` or `failed` with this code; the assets review is flagged. | Nothing to do: measure the room's quantities by hand if they matter. | no |
+| `BASIS-MEASURE-003` | outcome | measure_rooms; `basis.workflow.study_workflow` | The room measurements step failed (a provider error after its retries, an account or configuration error, the budget), so no room is drafted and the assets are built on today's formulas (patch `measure-drafts-v1`, EVAL_REPORT 110). | A workflow warning with this code; `needs_review_stages` has `assets_review`. | Fix the cause; the next reopen of the study measures the rooms again. | no |
+| `BASIS-MEASURE-004` | outcome | process_assets; `basis.domain.measure_drafts` | `MEASURE_DRAFTS_EXTERIOR` is on but a shell quantity was not drafted: no gather stored a shell (`GEO_SHELL`), the pin is not confirmed or moved since, or the shell refused that part (EVAL_REPORT 110). The row keeps today's formula. | `takeoff.inputs.draft_not_used` names the reason on the roof, siding or gutter row. | Confirm the pin and gather the public records again with `GEO_SHELL` on, or measure the quantity in the measure tool. | no |
+| `BASIS-MEASURE-005` | error | measure_rooms; `basis.activities.measure_rooms` | The room measurement calls would exceed the study's remaining budget. | `BudgetExceededError: room measurements ... [BASIS-MEASURE-005]`; the assets review is flagged and the assets are built on today's formulas. (Temporal `BudgetExceededError`) | Raise the budget; the next reopen measures the rooms. | no |
 

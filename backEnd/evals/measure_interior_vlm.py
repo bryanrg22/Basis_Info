@@ -14,70 +14,33 @@ tokens are the ledger rows of its calls.
 from __future__ import annotations
 
 import asyncio
-import base64
 import json
 import time
 import uuid
 from collections.abc import Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Annotated, Any, Final, Literal
-
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from typing import Any
 
 from basis.llm import prompts
 from basis.llm.call import CallContext
 from basis.llm.cost import estimate_usd
-from basis.llm.provider import ChatProvider, ChatRequest, ImagePart, Message
+from basis.llm.provider import ChatProvider, ChatRequest
 from basis.llm.recorder import CallRecord
+from basis.vision import measure_interior
+from basis.vision.measure_interior import (
+    NOTE_MAX,
+    PROMPT,
+    PROMPT_VERSION,
+    QUANTITIES,
+    ROOM_NAMES,
+    InteriorAnswer,
+)
 from basis.vision.prep import prepare_image
 from evals.measure_vlm import ModelSetup, ledger_totals
 
-PROMPT: Final = "measure_interior_reference"
-PROMPT_VERSION: Final = "v1"
-NOTE_MAX: Final = 600
-QUANTITIES: Final = (
-    "floor_area_sf",
-    "length_ft",
-    "width_ft",
-    "ceiling_height_ft",
-    "perimeter_ft",
-    "wall_area_sf",
-    "countertop_sf",
-    "cabinet_lf",
-)
-ROOM_NAMES: Final = {
-    "kitchen": "kitchen",
-    "bedroom": "bedroom",
-    "bathroom": "bathroom",
-    "living": "living room",
-}
-
-NonNegative = Annotated[float, Field(ge=0)]
-
-
-class InteriorAnswer(BaseModel):
-    model_config = ConfigDict(frozen=True, extra="forbid")
-
-    length_ft: NonNegative | None
-    width_ft: NonNegative | None
-    floor_area_sf: NonNegative | None
-    ceiling_height_ft: NonNegative | None
-    perimeter_ft: NonNegative | None
-    wall_area_sf: NonNegative | None
-    countertop_sf: NonNegative | None
-    cabinet_lf: NonNegative | None
-    room_fully_seen: bool
-    outline_shape: Literal["rectangle", "L", "other"]
-    confidence: Literal["low", "medium", "high"]
-    notes: str = Field(max_length=NOTE_MAX)
-
-    @field_validator("notes", mode="before")
-    @classmethod
-    def _clip_notes(cls, value: Any) -> Any:
-        if isinstance(value, str) and len(value) > NOTE_MAX:
-            return value[: NOTE_MAX - 1] + "…"
-        return value
+# The schema, prompt and message are production's (``basis.vision.measure_interior``, which
+# ``basis.activities.measure_rooms`` calls with), so the eval measures the request shipped.
 
 
 @dataclass(frozen=True, slots=True)
@@ -124,31 +87,17 @@ def load_photos(folder: Path, room_type: str) -> RoomPhotos:
 
 
 def message_text(photos: RoomPhotos) -> str:
-    kind = ROOM_NAMES.get(photos.room_type, "room")
-    return (
-        f"The room is a {kind}. {len(photos.jpegs)} photos of it follow, taken from different "
-        "spots in the room. Measure the room."
-    )
+    return measure_interior.message_text(photos.room_type, len(photos.jpegs))
 
 
 def build_request(setup: Setup, photos: RoomPhotos, *, study_id: str, activity: str) -> ChatRequest:
-    prompt = prompts.load(PROMPT, PROMPT_VERSION)
-    images = tuple(
-        ImagePart(
-            data_base64=base64.b64encode(j).decode("ascii"),
-            detail="high",
-            ref=f"{photos.room}:photo_{k + 1}",
-        )
-        for k, j in enumerate(photos.jpegs)
-    )
-    return ChatRequest(
+    return measure_interior.build_request(
         model=setup.model.model,
-        system=prompt.text,
-        messages=(Message(role="user", content=message_text(photos), images=images),),
-        response_model=InteriorAnswer,
-        max_tokens=setup.model.max_tokens,
         reasoning_effort=setup.model.effort,
-        prompt_version=prompt.version_id,
+        max_tokens=setup.model.max_tokens,
+        room_type=photos.room_type,
+        jpegs=photos.jpegs,
+        ref=photos.room,
         study_id=study_id,
         activity=activity,
     )
@@ -230,6 +179,10 @@ async def run_jobs(
 
 
 __all__ = [
+    "NOTE_MAX",
+    "PROMPT_VERSION",
+    "QUANTITIES",
+    "ROOM_NAMES",
     "InteriorAnswer",
     "Outcome",
     "PROMPT",

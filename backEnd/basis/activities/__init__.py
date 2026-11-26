@@ -27,6 +27,7 @@ from basis.activities.ingest_appraisal import IngestAppraisal
 from basis.activities.list_photos import ListPhotos
 from basis.activities.localize_photo import LocalizePhoto
 from basis.activities.mark_stalled import MarkStalled
+from basis.activities.measure_rooms import MeasureRooms
 from basis.activities.notify_review_pending import NotifyReviewPending
 from basis.activities.process_assets import ProcessAssets
 from basis.activities.promote_conventions import PromoteConventions
@@ -50,6 +51,7 @@ ACTIVITY_CLASSES: Final[dict[str, type[Any]]] = {
     "reconcile_rooms": ReconcileRooms,
     "apply_corrections": ApplyCorrections,
     "carry_revision": CarryRevision,
+    "measure_rooms": MeasureRooms,
     "process_assets": ProcessAssets,
     "promote_conventions": PromoteConventions,
     "export_report": ExportReport,

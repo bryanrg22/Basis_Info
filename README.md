@@ -127,7 +127,7 @@ Everything lives in one Python 3.12 package, `basis`, managed with `uv` ([`backE
 | [`auth/`](backEnd/basis/auth/) | Firebase ID-token verification. Revocation is checked only in `prod`. The auth emulator is refused in `staging` and `prod`. | `firebase.py` |
 | [`db/`](backEnd/basis/db/) | SQLAlchemy 2.0 async models over asyncpg, a bounded pool, a 30 s `statement_timeout`, one transaction per request. Alembic migrations: `0001` schema, enums and triggers (reviews and corrections are append-only); `0002` outbox delivery status; `0003` HNSW index on chunk embeddings and immutable published corpus versions. Repositories never commit. | `models.py`, `engine.py`, `session.py`, `repositories/`, `alembic/versions/` |
 | [`workflow/`](backEnd/basis/workflow/) | The deterministic Temporal `StudyWorkflow`, its wire contracts, and the timeout and retry policy of every activity. | `study_workflow.py`, `contracts.py`, `activity_options.py` |
-| [`activities/`](backEnd/basis/activities/) | One module per activity: `record_run_start`, `transition`, `list_photos`, `ingest_appraisal`, `extract_fields`, `analyze_photo`, `localize_photo`, `reconcile_rooms`, `apply_corrections`, `process_assets`, `export_report`, `notify_review_pending`, `mark_stalled`, `record_run_end`. Dependencies are bound once through `Deps`. | `_support.py` (idempotency runner), `deps.py`, one file per activity |
+| [`activities/`](backEnd/basis/activities/) | One module per activity: `record_run_start`, `transition`, `list_photos`, `ingest_appraisal`, `extract_fields`, `analyze_photo`, `localize_photo`, `reconcile_rooms`, `apply_corrections`, `measure_rooms` (EVAL_REPORT 110, off by default), `process_assets`, `export_report`, `notify_review_pending`, `mark_stalled`, `record_run_end`. Dependencies are bound once through `Deps`. | `_support.py` (idempotency runner), `deps.py`, one file per activity |
 | [`worker/`](backEnd/basis/worker/) | The worker process (`python -m basis.worker`): registers the workflow and activities, Prometheus metrics on `:9464`, `/health` on `:8080`, optional worker versioning, an 8 s drain on SIGTERM. | `main.py`, `health.py`, `interceptors.py`, `search_attributes.py` |
 | [`relay/`](backEnd/basis/relay/) | The outbox relay (`python -m basis.relay`): claims due rows with `FOR UPDATE SKIP LOCKED`, delivers each decision as a Temporal update, retries with backoff, parks rows as `dead` after too many attempts. `/health` on `:8081`. | `delivery.py`, `main.py` |
 | [`temporal/`](backEnd/basis/temporal/) | Temporal client construction (API key + TLS for Temporal Cloud, none for the dev server), the names the API and relay use, and the API's narrow `WorkflowService`. | `client.py`, `names.py`, `service.py` |
@@ -158,7 +158,7 @@ in parallel:  ingest_appraisal -> extract_fields   |   analyze_photo -> localize
                                                        (at most photo_concurrency at once) ; reconcile_rooms
 gate appraisal_review    reject: apply_corrections, extract_fields again, revision + 1
 gate rooms_review        reject: apply_corrections, re-analyze only the flagged photos, reconcile_rooms
-transition -> assets_processing ; process_assets
+transition -> assets_processing ; [measure_rooms, patch measure-drafts-v1, MEASURE_DRAFTS_INTERIOR] ; process_assets
 gate assets_review       reject: apply_corrections, process_assets again
 transition -> exporting ; export_report ; transition -> completed ; record_run_end
 ```

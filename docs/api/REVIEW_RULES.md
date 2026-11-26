@@ -327,6 +327,7 @@ inconsistent class or an unverified citation (`_from_cache`, `errors_only=True`)
 | `measure:IMAGE_AFTER_SERVICE` | The traced image was captured more than **365 days** after the intake's placed-in-service date (it may show work done after the purchase; no intake, no check) | `MEASURE_IMAGE_AFTER_SERVICE_DAYS` | BASIS-ASSETS-022 |
 | `measure:ERROR_UNKNOWN` | A shape traced in lon/lat with no pixel size: its expected error is unknown | none | BASIS-ASSETS-023 |
 | `measure:COARSE` | The traced measurement's expected error (one pixel on every edge, plus the scale's) is above **10 %** | `MEASURE_ERROR_FLAG_PCT` | BASIS-ASSETS-024 |
+| `measure:DRAFT_UNVERIFIED` | The row is priced on a measurement Basis drafted (the lidar shell, or the room's photos: docs/api/MEASURE_DRAFTS.md) that the engineer has not verified; above an exposure (expected error x price) of **$250** it also holds the report (`blockers` `measure:draft_unverified`) | `MEASURE_DRAFTS_EXTERIOR`, `MEASURE_DRAFTS_INTERIOR`, `MEASURE_DRAFT_VERIFY_USD` | BASIS-MEASURE-001 |
 
 **Concealed building rows** (the structure model, setting `structure_step`, on by default;
 `domain/structure.py`):

@@ -14873,7 +14873,7 @@
           "code": {
             "type": "string",
             "title": "Code",
-            "description": "Stable: `input:<input>` (a missing input; `docs/api/STUDY_RESULT.md` lists them), `unpriced`, `unclassified`, `appraisal_fields`, `building_rcn`, `depreciation`, `cost_index`."
+            "description": "Stable: `input:<input>` (a missing input; `docs/api/STUDY_RESULT.md` lists them), `unpriced`, `unclassified`, `appraisal_fields`, `building_rcn`, `depreciation`, `cost_index`, `measure:draft_unverified` (a measurement Basis drafted, not verified, could move more dollars than `MEASURE_DRAFT_VERIFY_USD`; EVAL_REPORT 110)."
           },
           "message": {
             "type": "string",

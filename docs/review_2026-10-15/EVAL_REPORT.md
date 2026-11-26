@@ -18398,3 +18398,265 @@ The working files are under `$BASIS_EVAL_DATA_DIR/measure_truth/`:
 - The takeoff's opening and trim rows from it, behind `GEO_FACADE`.
 - More facades on more houses (other sidings, brick, more photos per wall).
 - Variant (b) once the depth package is approved: the field of view for photos without EXIF.
+
+## 110. The measured winners as drafts in the pipeline, and the report waiting for the engineer (2026-11-26)
+
+**Answer first.** Step 6 of `AI_MEASUREMENT_PLAN.md` is built behind two settings, both off,
+with every row byte for byte today's when they are off (tested against main's values). With
+`MEASURE_DRAFTS_EXTERIOR` the roof, siding and gutter rows come from the lidar shell a gather
+stored (EVAL_REPORT 105); with `MEASURE_DRAFTS_INTERIOR` a new step (`measure_rooms`, patch
+`measure-drafts-v1`) measures each kitchen, bedroom, bathroom and living room from its photos
+with section 107's winner (claude-sonnet-5-5, `measure_interior_reference/v1`) and sizes their
+floor, wall, trim and countertop rows. Each drafted row is priced at once, flagged
+`measure:DRAFT_UNVERIFIED`, and carries its record (who drew it, its measured expected error,
+what it replaced); the report waits (`blockers` `measure:draft_unverified`) while an unverified
+draft's exposure, its expected error times its priced total, is above `MEASURE_DRAFT_VERIFY_USD`,
+chosen at **$250** on the stored client exports (it holds 8 of 20 and 6 of 13 drafts, which carry
+85 and 86 % of the exposure). Through the production draft functions on the HABS houses the
+shell takes the **siding's error from 32.5 % to 6.4 % (mean absolute $3,429 to $541 a house)**,
+the gutter's from 49 % to 6 % and the roof's from 19 % to 11 % (two houses). On the client's two
+stored studies the exterior drafts move the itemized total by +1.4 to +1.5 % and **the class
+shares, the reconciliation gap and the score against the engineer by exactly 0.00** (the rows are
+inside the square-foot model, as EVAL_REPORT 87 found); the interior drafts move the mean class
+error by +0.09 and -0.21 points (within the noise of one property) and price the kitchen
+countertop that today's rule holds as `input:cabinet_run` (unblocked on 2 of 3 rows; the third
+is in a dining room, a type not measured). The one paid check, the room step on 8 of the client's
+rooms, cost **$0.0687** (8 calls, each answered on the first attempt, 2.3 to 3.0 s). Found and
+fixed with the drafts on: a corrected row of a quantity measured once per property could come
+second and get 0 while the other row priced again; on main it double counts (seen in 2 of 6 runs).
+
+**Question.** Wire the measured winners into the study pipeline as drafts the engineer verifies
+(plan section 7, step 6), under the maintainer's pricing rule (a) (plan section 8.3: a draft
+prices at once with a flag; the report waits until every draft above a dollar threshold is
+verified), and measure how quantities, dollars, class shares and blockers change.
+
+**The standard.** The measuring products the plan surveyed (section 3: EagleView, Hover, Roofr,
+SiteRecon) keep the AI's draft beside the edit and give each measurement a verified state;
+SiteRecon and Hover keep the original unchanged. The KU study the plan cites found users "trust
+AI results too readily", so verification must be a real step, which is why a draft above the
+threshold holds the report rather than only flagging a row. The money rule (EVAL_REPORT 78): a
+failed or refused call never becomes a number; a published method on inputs the study has is not
+a substitute (a measured draft with its error stated is a measurement, not a placeholder).
+Temporal's versioning: a new activity in the command sequence is a patch, recorded histories
+replay. No source was found for a dollar threshold of verification in cost segregation (the ATG
+and Publication 5653 state none); the threshold is chosen on our own replays (110.4) and is the
+maintainer's to confirm.
+
+### 110.1 What is built
+
+| Piece | Where | Off by default | What it does |
+|---|---|---|---|
+| exterior drafts | `basis/domain/measure_drafts.py` `exterior_drafts`; `process_assets` via `basis/activities/draft_inputs.py` | `MEASURE_DRAFTS_EXTERIOR` | the newest gather's shell (`GEO_SHELL`), only with the pin confirmed and the gather at its point; siding = the walls' closed line x the main eave, less today's 15 % openings (no facade measurement is stored in a study, EVAL_REPORT 109); roof = the outline as flown x the planes' slope factor; gutter = the eave edges; the footprint stays the appraisal's (EVAL_REPORT 105.1) |
+| the shell record | `basis/geo/shell.py` `as_record` | (with `GEO_SHELL`) | adds the roof outline and each edge's ends in lon/lat (additive; a shell stored before drafts the siding only) |
+| interior step | `basis/activities/measure_rooms.py`, `basis/vision/measure_interior.py`, patch `measure-drafts-v1` | `MEASURE_DRAFTS_INTERIOR` (API and worker) | once per execution before its first `process_assets`; one call a room (one more on an unusable answer), the budget's worst case checked first, every call in `llm_calls`; refused or failed rooms keep today's rows; a failed step flags the assets review |
+| interior drafts | `measure_drafts.room_takeoff`; `process_assets._room_takeoff` | | floor rows (carpet, tile, flooring, ceiling, concrete) on the floor area with today's waste factors; paint and wall finish on the wall area; baseboard, crown and wainscoting (x 2 ft) on the perimeter; countertop and cabinet run (per LF) in kitchens; later revisions carry the drafts along `rooms.carried_from` or from the rejected revision's rows |
+| pricing rule (a) | `measure_drafts.priced`; `evidence/result.report_blockers` | `MEASURE_DRAFT_VERIFY_USD` = 250 | each pending draft's exposure and `blocks` on its record; the blocker `measure:draft_unverified` (fix: "verify or edit this measurement in the measure tool"); not recorded for the operators (it is the engineer's ordinary step) |
+| verifying | the existing `asset` correction | | the stored measurement back `verified: true` clears it at the same quantity; an edit (the draft as `original`) or a typed quantity replaces it, the draft kept on the record; the slope and openings factors stay on an edited exterior shape |
+| codes | `BASIS-MEASURE-001` to `005` | | the flag, a room not drafted, the step failed, an exterior row not drafted (`draft_not_used`), the budget |
+
+API contract: `docs/api/MEASURE_DRAFTS.md`; the blocker in `docs/api/STUDY_RESULT.md`; what the app
+shows and lacks in `web/FRONTEND_BACKLOG.md` section 23. The measure tool of EVAL_REPORT 104 already
+offers an exterior draft as the stored measurement, labels it "Drafted by Basis" and sends it back
+at the server's quantity to the cent (`web/tests/measure-drafts.test.cjs`, on the server's record);
+it does not yet show the factor or the blocker, and interior drafts have no shape to draw.
+
+**Expected errors** (the draft's `expected_error_pct`, the measured mean absolute error of the
+method for that quantity): siding 6.4 %, roof 10.4 %, gutter 6.2 % (EVAL_REPORT 105.1, six and two
+houses); floor area 22.5 %, wall area 11.9 %, perimeter 10.3 %, countertop 20.8 %, cabinet run 29.1 %
+(EVAL_REPORT 107.4, claude-sonnet-5-5). The measurement record of an exterior draft also carries its
+own geometric bound (one 0.5 m lidar cell on every edge: 1.0 % for the client's walls, 15.8 % for its
+roof, 24.0 % for its 12 eave lines), which is a bound for a trace, not the method's error.
+
+### 110.2 The exterior drafts on the HABS houses (free)
+
+How to read this table: the production draft functions (`exterior_drafts` on each house's shell,
+derived from the cached points of EVAL_REPORT 105 and stored as the gather stores it) against
+today's formulas fed the plan's GLA and storeys (M0), on the six houses standing unchanged (siding)
+and the two with a roof and gutter truth. *Signed / abs*: mean signed and absolute error in percent
+of the truth; *closer*: houses where the draft was closer; *$ abs*: the mean absolute dollar error a
+house at the cost table's installed 2020 unit price of the row (the siding before openings: both
+apply the same 15 %, so the priced net row's dollar error is 85 % of it). No model call, $0.
+
+| Row | Houses | Today signed / abs % | Draft signed / abs % | Closer | Today $ abs | Draft $ abs |
+|---|---|---|---|---|---|---|
+| siding (wall face before openings) | 6 | -32.5 / 32.5 | +1.3 / 6.4 | 6 of 6 | 3,429 | 541 |
+| roof surface | 2 | -18.8 / 18.8 | +4.0 / 11.1 | 1 of 2 | 907 | 503 |
+| gutter | 2 | -49.1 / 49.1 | -6.3 / 6.3 | 2 of 2 | 673 | 86 |
+
+Per house, signed % (today, draft): siding il0491 -25.2, +1.4; mo1222 -35.1, +19.1 (the porch under
+the main hip); mo1223 -28.8, -5.3; mo1224 -37.4, -6.3; mo1857 -29.3, +2.6; va1914 -39.5, -3.8;
+ga0157 (standing unknown) -13.2, +39.0 (two porches under the main hip). Roof il0491 -3.8, +15.1;
+mo1222 -33.8, -7.1. Gutter il0491 -46.2, -5.7; mo1222 -51.9, -6.8.
+
+This reproduces EVAL_REPORT 105.1 through the shipped code: the siding and gutter to the tenth
+(6.4 and 6.3 against 6.4 and 6.2); the roof is 11.1 against 105's 10.4 because the draft is the
+outline's plan area times the planes' factor (so an engineer's corrected outline keeps the slope)
+where 105 summed the cells' areas over their slopes (il0491 +15.1 against +15.5, mo1222 -7.1
+against -5.3). The draft also measures the lon/lat corners on the WGS84 ellipsoid where the
+shell's metres are Web Mercator's sphere scaled by the latitude: 0.15 % (east-west) to 0.22 %
+(north-south) apart at 41.6 N, found by a test and confirmed against the radii of curvature.
+
+### 110.3 The paid check: the room step on the client's stored photos
+
+**The estimate first.** All 29 distinct measured rooms of the two stored studies (37 photos):
+worst case **$3.36** (what the budget reserves: two attempts a room at the request's ceiling, the
+4,096-token thinking headroom included), against EVAL_REPORT 107's $0.009 a room actual. Over the
+$1 cap, so the check ran on **8 rooms** (worst case $0.937, budget capped at $1.00): both
+groupings of the kitchen (3 and 2 photos), the living room, two bedrooms, two bathrooms and the
+second floor's seating area, the rooms that carry most of the interior rows. Run through the
+production request and per-room rule (`measure_rooms.room_request`, `draft_room`) on the
+production provider pool (Anthropic; no Azure). Ledger: `llm_calls.jsonl` of
+`measure_drafts_rooms`.
+
+| Setup | Model (exact) | Effort | Answer budget | Temperature | Rooms | Calls | Input tokens | Output tokens | $ | s a call |
+|---|---|---|---|---|---|---|---|---|---|---|
+| The production room step on the client's photos | claude-sonnet-5-5 | low | 1,200 (+ 4,096 thinking headroom on the wire) | not sent | 8 | 8 | 2,913 to 4,197 (mean 3,235) | 205 to 219 (mean 212) | 0.0687 | 2.3 to 3.0 |
+
+Every call answered on its first attempt with every quantity but the counters outside the kitchen
+(the prompt asks for null there). No truth exists for these rooms (the engineer's report gives
+dollars by system, not quantities), so the answers' accuracy rests on EVAL_REPORT 107 alone; the
+figures are in `$BASIS_EVAL_DATA_DIR/reports/MEASURE_DRAFTS_CLIENT_2026-11-26.md`. Against today's
+GLA shares the drafted floors are larger in the kitchen (+28 % and +74 % on the two studies) and the
+first-floor bedroom (+6 %, +36 %), smaller in the living rooms (-13 % to -41 %) and much smaller in the
+bathrooms (-47 % to -59 %: the model reads the baths about 8 x 5 ft); the two kitchens' countertops
+(40 and 42 SF) are 60 to 63 % under the perimeter formula the stored exports were priced on before
+EVAL_REPORT 78 (consistent with 107's finding that 4 sqrt(A) overstates counters three to four times).
+
+### 110.4 Pricing rule (a): the threshold
+
+How to read these tables: on each stored export with both drafts on (`evals.measure_drafts_replay`),
+each draft row's exposure (its expected error x its priced total after repricing); for each
+threshold, the drafts it holds (exposure above it) and the share of all the drafts' exposure those
+carry. *Class-moving only*: the drafts whose dollars can move between recovery classes (a 27.5- or
+39-year row inside the square-foot model is carved from a building component of the same class,
+EVAL_REPORT 87.1, so the exterior rows, ceilings and 39-year floor tile are left out). No call, $0.
+
+| Threshold $ | Study A held (of 20) | A share of exposure % | Study B held (of 13) | B share % | A class-moving held (of 11) | share % | B class-moving held (of 6) | share % |
+|---|---|---|---|---|---|---|---|---|
+| 0 | 20 | 100.0 | 13 | 100.0 | 11 | 100.0 | 6 | 100.0 |
+| 25 | 18 | 99.5 | 12 | 99.8 | 9 | 98.9 | 5 | 99.4 |
+| 50 | 15 | 98.4 | 11 | 99.3 | 6 | 96.4 | 4 | 98.2 |
+| 100 | 15 | 98.4 | 11 | 99.3 | 6 | 96.4 | 4 | 98.2 |
+| 150 | 9 | 87.9 | 7 | 90.1 | 6 | 96.4 | 4 | 98.2 |
+| 200 | 9 | 87.9 | 7 | 90.1 | 6 | 96.4 | 4 | 98.2 |
+| **250** | **8** | **84.6** | **6** | **86.3** | 5 | 89.1 | 3 | 87.8 |
+| 500 | 6 | 74.9 | 5 | 80.0 | 3 | 67.7 | 2 | 70.7 |
+| 1000 | 1 | 19.8 | 1 | 23.8 | 0 | 0.0 | 0 | 0.0 |
+| 2500 | 0 | 0.0 | 0 | 0.0 | 0 | 0.0 | 0 | 0.0 |
+
+**The choice.** The rule, stated with the sweep in view: the smallest round threshold that still
+holds at least 80 % of the drafts' exposure on every export while asking the engineer to verify at
+most half the drafts. $250 is the only one that meets both on both exports (at $200 study B holds
+7 of 13; at $500 study A keeps 74.9 %); it meets it in the class-moving view too. What it holds on
+these studies: the roof (the largest exposure), the siding, the kitchen's 39-year tile, the
+kitchen, living and bedroom floors and the carpets; what it lets price without verification:
+baseboards, ceilings, wall finishes, the gutter, a bath's tile and the kitchen countertop (its
+exposure is just under $250 on both).
+**Exposure is the expected error times the priced total, not the class-moving view**: a building
+row's dollars still stand on the client's depreciation schedule and set its basis for a later
+partial disposition (a roof replaced: Treas. Reg. 1.168(i)-8), so a wrong roof matters though it
+moves no class dollar today. One property, two runs: the threshold is the maintainer's to confirm
+on more studies.
+
+### 110.5 The pipeline end to end on the stored exports
+
+How to read this table: each export recomputed under today's rules (*today*: `retakeoff` and the
+cabinet-run rule of EVAL_REPORT 78 the stored exports were priced before), then with the drafts,
+each repriced (installed with the general contractor's O&P pro rata), replayed through the structure
+model (production) and scored against the engineer's report. *Itemized change*: the priced itemized
+total against today; *mean class error*: the mean absolute difference from the engineer's class
+shares over the four classes, in points (lower is better); *gap*: the reconciliation gap.
+`input:cabinet_run`: rows held for want of a cabinet run. Engineer's shares: 14.35 / 0.37 / 5.05 /
+80.23 % (5 / 7 / 15 / 39-year).
+
+| Export | Setup | Drafted rows | Itemized change % | Final shares 5 / 7 / 15 / 39 % | Mean class error pts | Gap % | `input:cabinet_run` rows |
+|---|---|---|---|---|---|---|---|
+| A | today | 0 | 0 | 11.55 / 0.94 / 4.21 / 83.29 | 1.815 | 2.01 | 1 |
+| A | exterior | 3 | +1.45 | 11.55 / 0.94 / 4.21 / 83.29 | 1.815 | 2.01 | 1 |
+| A | interior | 17 | -1.13 | 11.38 / 0.94 / 4.21 / 83.46 | 1.905 | 2.01 | 0 |
+| A | both | 20 | +0.31 | 11.38 / 0.94 / 4.21 / 83.46 | 1.905 | 2.01 | 0 |
+| B | today | 0 | 0 | 8.36 / 0.94 / 4.27 / 86.44 | 3.385 | 1.56 | 2 |
+| B | exterior | 3 | +1.49 | 8.36 / 0.94 / 4.27 / 86.44 | 3.385 | 1.56 | 2 |
+| B | interior | 10 | +1.71 | 8.77 / 0.94 / 4.27 / 86.02 | 3.180 | 1.56 | 1 |
+| B | both | 13 | +3.19 | 8.77 / 0.94 / 4.27 / 86.02 | 3.180 | 1.56 | 1 |
+
+On the client the exterior drafts read the roof 39 % above today's formula (the lidar's 31.8 degree
+mean slope against today's 6/12, and the roof outline as flown), the gutter 30 % above and the siding
+0.7 % below; none of it reaches the class shares, the gap or the score. The interior drafts move the
+5-year share by -0.17 and +0.41 points: small, in opposite directions, on drafts no one has verified;
+nothing here says the shares got better or worse. Run time: the exterior drafts 0.23 ms a study (the
+client's 24-corner shell, on a thread with the setting on); the room step about 3 s a room, the rooms
+in parallel.
+
+### 110.6 Found, and what was done
+
+1. **A quantity measured once per property or room can be counted twice after a correction (main,
+   drafts off).** The rows are ordered by component id, new each revision; the first row of a kind
+   carries the quantity and the others 0. When the row the engineer corrected (a typed quantity or a
+   trace) comes second, it gets 0 and then the engineer's quantity, while the first prices today's
+   formula: on the measured house's two roof rows a typed 2,500 SF gave 2,018.36 + 2,500 in 2 of 6
+   runs. With either draft setting on, the rows carrying an engineer's quantity are processed first
+   (stable otherwise), so the verified draft lands on the right row; with both off main's order is
+   kept, as the brief requires. **Recommended**: the same ordering always (one line,
+   `process_assets._write`): the maintainer's call, since it changes main's numbers in that case.
+2. **The "cabinet" run draft sizes nothing on these studies.** The rules table maps `cabinet` and
+   `cabinetry` to `kitchen_cabinet`, counted in units (EVAL_REPORT 27), so a per-foot cabinet row
+   exists only for a component labelled exactly as the LF row; the countertop is what the interior
+   drafts unblock.
+3. **Two floor coverings in one room are each sized on the whole floor** (a kitchen's tile and
+   flooring rows), today and drafted alike; not changed here.
+4. **The shell's metres are Web Mercator's sphere** (110.2): 0.15 to 0.22 % short at 41.6 N; the draft
+   measures on the ellipsoid.
+5. **The worst-case estimate is about 14 times the actual cost** of a room call ($0.1144 for two attempts against
+   $0.0079 spent on a one-photo room), set by the thinking headroom; it sizes the budget check, so a study
+   with many rooms needs a budget well above what it will spend.
+
+### 110.7 Verified, and not
+
+**Verified** (numbers in `backEnd/tests/LEDGER.md`): the domain (19 + 12 tests: every row's quantity,
+the records, the refusals, exposure at its boundary, the sweep); `process_assets` on Postgres (17:
+off is byte for byte a run without shell or drafts, main's roof 2,018.36 SF; each exterior and
+interior path; verify, edit, typed, unverified return; the next revision; three runs, and the
+ordering fix mutation-checked); `measure_rooms` with a scripted model (7: the settings, the ledger,
+per-room costs, retries, refusals, budget, account stop, idempotency); the result (3); the settings
+(8); the harnesses (5); the workflow (3 lifecycle tests on Temporal's time-skipping server: once
+before the first assets run, both runs get the drafts, a failed step flags and prices today's rows,
+nothing scheduled with the input unset) and the recorded history `measure_drafts` with the five
+earlier ones replaying unchanged; the web model on the server's records (3). The replays are the
+recorded runs below; the paid check's 8 calls are in its ledger, each `ok` on the first attempt.
+
+**Not verified, or suspected only.**
+
+* No live study end to end with the settings on (no stack was run; the workflow is tested on the
+  time-skipping server with fixture providers, the paid call outside a study).
+* The interior drafts' accuracy on owners' photos: no truth for the client's rooms; EVAL_REPORT 107's
+  31 ARKitScenes rooms are the only measure, counters on 3 to 5 kitchens, and its frames are
+  owner-like, not owners'.
+* The paid check covered 8 of the 29 rooms (the cap); the replay drafts those rooms and leaves the
+  others on today's rows, so its interior dollars are partial.
+* The threshold rests on one property's two studies; the expected errors on six and two HABS houses
+  and 15 to 24 rooms.
+* The exterior drafts were not run from a gather in a study (the client's shell was re-derived from
+  its cached points); the pin-confirmed and stale-gather rules are tested on Postgres only.
+* Not in the browser: the factor, the blocker list and the interior drafts are not shown
+  (`web/FRONTEND_BACKLOG.md` 23); no person verified a draft in the measure tool.
+* A reopened execution measures its rooms again (new calls, possibly other numbers within one
+  call's noise, 2 to 4 % in 107.5); the first execution's drafts are carried only along revisions.
+
+**Run record.** Under `$BASIS_EVAL_DATA_DIR/verification/measure_drafts/v1/` (component
+`measure_drafts`): `rooms_estimate_2026-11-26` and `rooms_estimate_8_2026-11-26` (estimates, no
+call), `rooms_paid_2026-11-26` ($0.0687, 8 calls), `replay_2026-11-26_final` (the tables above, $0,
+on the committed code); `python -m evals.registry --component measure_drafts` lists them. Commands
+(from `backEnd/`): `python -m evals.measure_drafts_rooms <rooms_api.json>... --photos <dir> --out
+<run> [--only <room>]... [--paid --cap-usd 1]` and `python -m evals.measure_drafts_replay
+<rev-n.json>... --rooms <rooms_api.json>... --answers <run>/answers.json --points <client points>
+--gather <gather result> --pin <lat> <lon> --cost-table <table> --supplement <hci> --geo
+<measure_truth/geo> --out <run>`. Private figures:
+`$BASIS_EVAL_DATA_DIR/reports/MEASURE_DRAFTS_CLIENT_2026-11-26.md`.
+
+**Open.** The ordering fix on main (110.6.1); the measure tool showing the factor, the held drafts
+and the interior drafts; a facade measurement in the study to replace the 15 % share (EVAL_REPORT
+109, with the EXIF focal length kept); interior drafts with a shape (corners on the photo) so they
+verify in the tool; tier-D truth (owners' homes measured) before trusting interior numbers; the
+threshold on more studies; ceiling height from gpt-6.1-sol (107.7) is recorded on the draft but
+prices nothing.

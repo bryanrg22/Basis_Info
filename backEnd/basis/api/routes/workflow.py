@@ -216,6 +216,7 @@ def workflow_input(
         rooms_gate_waits_for_localization=settings.rooms_gate_waits_for_localization,
         review_reminder_days=settings.review_reminder_days,
         review_deadline_days=settings.review_deadline_days,
+        measure_drafts_interior=settings.measure_drafts_interior,
         resume=resume,
     )
 

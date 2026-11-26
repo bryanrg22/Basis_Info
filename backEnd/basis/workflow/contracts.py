@@ -75,6 +75,11 @@ class StudyWorkflowInput(_Frozen):
     components_gate: bool = True
     review_reminder_days: int = Field(default=7, ge=1)
     review_deadline_days: int = Field(default=30, ge=1)
+    # Patch measure-drafts-v1 (EVAL_REPORT 110): MEASURE_DRAFTS_INTERIOR as the API read it
+    # when it started the execution; True runs ``measure_rooms`` once before the execution's
+    # first ``process_assets`` (the worker's own setting must be on too). False (every execution
+    # before it) schedules nothing new.
+    measure_drafts_interior: bool = False
     # Test-only fault injection per photo document id. The API never sets it, and the
     # analyze_photo activity honours it only when BASIS_ENV is dev or test.
     simulate_photos: dict[str, SimulateFault] = Field(default_factory=dict)
@@ -347,12 +352,58 @@ class LocalizePhotoOutput(_Frozen):
     reason: str | None = None
 
 
+class MeasureRoomsInput(_Frozen):
+    """Draft each measured room's quantities from its photos (patch ``measure-drafts-v1``,
+    ``MEASURE_DRAFTS_INTERIOR``; EVAL_REPORT 110): one vision call per room."""
+
+    study_id: str
+    revision: int
+    idempotency_key: str
+    budget_remaining_usd: float
+
+
+RoomDraftStatus = Literal["drafted", "refused", "failed"]
+
+
+class RoomDraftOut(_Frozen):
+    """One room's draft (``basis.activities.measure_rooms``): its quantities in feet and square
+    feet when ``drafted``; ``refused`` (the provider refused the photos) or ``failed`` (no usable
+    answer) leave the room's rows as today's formulas write them, with ``code``."""
+
+    room_id: str
+    room_type: str
+    photos: tuple[str, ...]
+    status: RoomDraftStatus
+    quantities: dict[str, float] = Field(default_factory=dict)
+    model: str | None = None
+    prompt_version: str | None = None
+    confidence: str | None = None
+    room_fully_seen: bool | None = None
+    notes: str | None = None
+    code: str | None = None
+    reason: str | None = None
+    cost_usd: float = 0.0
+
+
+class MeasureRoomsOutput(_Frozen):
+    rooms: int = 0  # rooms of a measured type with photos
+    drafted: int = 0
+    not_drafted: int = 0  # refused or failed: today's rows stand
+    cost_usd: float = 0.0
+    drafts: tuple[RoomDraftOut, ...] = ()
+
+
 class ProcessAssetsInput(_Frozen):
     study_id: str
     revision: int
     idempotency_key: str
     budget_remaining_usd: float
     corrections: tuple[CorrectionInput, ...] = ()
+    # Patch measure-drafts-v1: the rooms' drafts ``measure_rooms`` made for this execution,
+    # keyed by the room of the revision it measured (later revisions' rooms are matched along
+    # ``rooms.carried_from``). Empty: none (every execution before the patch, and the setting
+    # off); ``process_assets`` then carries the drafts its rejected revision priced on.
+    room_drafts: tuple[RoomDraftOut, ...] = ()
 
 
 class ProcessAssetsOutput(_Frozen):

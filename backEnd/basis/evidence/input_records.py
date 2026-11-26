@@ -37,6 +37,7 @@ from basis.config import Settings
 from basis.db.models import Org, Review, Study, User
 from basis.db.repositories.client_error import ClientErrorRepository, NewClientError
 from basis.db.repositories.document import DocumentRepository
+from basis.domain.measure_drafts import BLOCKER as DRAFT_BLOCKER
 from basis.domain.money_inputs import codes_in
 from basis.errors.codes import E
 from basis.evidence.result import (
@@ -161,7 +162,10 @@ async def _record(
         study.renovations,
         study.renovations_version,
     )
-    if not result.blockers:
+    # An unverified draft (EVAL_REPORT 110) waits on the engineer's ordinary review step, not
+    # on a missing input: it holds the report but is not an issue for the operators.
+    blockers = [b for b in result.blockers if b.code != DRAFT_BLOCKER]
+    if not blockers:
         return 0
     user_id, why = await responsible(session, study)
     person = {**(await _person(session, user_id)), **why}
@@ -184,7 +188,7 @@ async def _record(
     now = datetime.now(UTC)
     repo = ClientErrorRepository(session)
     written = 0
-    for blocker in result.blockers:
+    for blocker in blockers:
         held = held_assets(rows, blocker.code)
         event = {
             "source": "server",

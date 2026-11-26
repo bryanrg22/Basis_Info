@@ -657,6 +657,33 @@ class Settings(BaseSettings):
     traced_measurement: bool = True
     measure_image_after_service_days: int = Field(default=365, ge=0, le=36_500)
     measure_error_flag_pct: float = Field(default=10.0, gt=0, le=1000)
+    # AI-drafted measurements in the priced path (EVAL_REPORT 110; basis.domain.measure_drafts),
+    # each priced at once as a draft (`takeoff.inputs.draft`, review reason
+    # `measure:DRAFT_UNVERIFIED`) that the engineer verifies in the measure tool.
+    # MEASURE_DRAFTS_EXTERIOR (false): the roof, siding and gutter rows from the building shell
+    # a gather stored (GEO_SHELL) around the confirmed pin instead of the GLA rectangle: walls x
+    # main eave less today's 15 % openings, the roof outline x its planes' slope, the eave edges
+    # (section 105: wall face 32.5 -> 6.4 % mean absolute error, gutter 49 -> 6 %; the footprint
+    # stays the appraisal's). MEASURE_DRAFTS_INTERIOR (false): one vision call per kitchen,
+    # bedroom, bathroom or living room with photos (`measure_rooms`, patch measure-drafts-v1)
+    # sizes its floor, wall, trim, countertop and cabinet rows (section 107: wall area 25 -> 12 %,
+    # countertop 313 -> 21 %, cabinet run 270 -> 29 %, $0.009 a room); set it on the API, which
+    # starts the workflow, and on the worker. MEASURE_INTERIOR_MODEL (claude-sonnet-5-5),
+    # MEASURE_INTERIOR_REASONING_EFFORT (low) and MEASURE_INTERIOR_MAX_TOKENS (1200): section
+    # 107's chosen setup (the cheapest within one call's noise of the best on every room
+    # quantity but the ceiling), with the prompt measure_interior_reference/v1.
+    # MEASURE_DRAFT_VERIFY_USD (250): an unverified draft whose exposure, its measured expected
+    # error times its priced total, is above this many dollars holds the report (`blockers`
+    # `measure:draft_unverified`) until the engineer verifies or edits it. Section 110.4 chose
+    # it on the two replayed client exports: it holds 8 of 20 and 6 of 13 drafts, which carry
+    # 85 and 86 % of the drafts' exposure (the smallest round threshold holding at least 80 % of
+    # it with at most half the drafts; one property: the maintainer's to confirm).
+    measure_drafts_exterior: bool = False
+    measure_drafts_interior: bool = False
+    measure_interior_model: str = "claude-sonnet-5-5"
+    measure_interior_reasoning_effort: Effort = "low"
+    measure_interior_max_tokens: int = Field(default=1200, ge=256, le=8000)
+    measure_draft_verify_usd: float = Field(default=250.0, ge=0, le=1_000_000)
 
     # Property pictures (docs/review_2026-10-15/PROPERTY_CAPTURE.md, docs/api/PROPERTY_CAPTURE.md,
     # EVAL_REPORT section 98): a separate worker (`python -m basis.capture`) opens the property in
@@ -1074,6 +1101,11 @@ class Settings(BaseSettings):
             ("ROOM_MATERIALS", self.room_materials_model, self.room_materials_reasoning_effort),
             ("ROOM_CALL", self.room_call_model, self.room_call_reasoning_effort),
             ("SURFACE_CROP", self.surface_crop_model, self.surface_crop_reasoning_effort),
+            (
+                "MEASURE_INTERIOR",
+                self.measure_interior_model,
+                self.measure_interior_reasoning_effort,
+            ),
             ("CLASSIFY", self.classify_model, self.classify_reasoning_effort),
             ("EXTRACTION", self.text_model, self.extraction_reasoning_effort),
             (

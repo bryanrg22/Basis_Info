@@ -509,6 +509,22 @@ acceptance rule), `evals.interior_laser` (the mesh against a range-read sample o
 scan), `evals.interior_segment` (the production ADE20K segmenter on every photo) and
 `evals/interior_depth_run.py` (MoGe-2, Depth Anything 3, in their own environment; 107.2).
 
+### `measure_drafts_rooms` and `measure_drafts_replay` (the drafts in the pipeline, EVAL_REPORT 110)
+
+`python -m evals.measure_drafts_rooms <rooms_api.json>... --photos <dir> --out <run>` runs the
+production room step (`basis.activities.measure_rooms.room_request` and `draft_room`, the
+production provider pool) on a stored study's rooms of a measured type, each distinct room once;
+without `--paid` it prints the worst-case estimate and calls nothing, `--paid` refuses above
+`--cap-usd` (default 1), `--only <room name>` narrows it, `--replay <run>` reads a run's
+`answers.json`. `python -m evals.measure_drafts_replay <rev-n.json>... --rooms ... --answers ...
+--points <client points> --gather <gather result> --pin <lat> <lon> --cost-table ... --supplement
+... --geo <measure_truth/geo> --out <run>` replays each export today, with the exterior drafts
+(the client's shell re-derived from its cached points), the interior drafts (the room run's
+answers) and both, repriced, through the structure model and the scorer, with each draft's
+exposure swept over thresholds; and the HABS houses' shells drafted against today's formulas.
+Both write run records (component `measure_drafts`); the replay makes no call. Client figures stay
+under `--out`.
+
 ### Site items: `site_truth`, `site_views`, `site_draft_run`, `site_fence`
 
 * `python -m evals.site_truth --area name:lat,lon ... [--keep <truth dir>]`: the truth, Fairfax

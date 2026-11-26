@@ -35,6 +35,7 @@ PROVIDER_ACTIVITIES = {
     "analyze_photo",
     "localize_photo",
     "reconcile_rooms",
+    "measure_rooms",
     "process_assets",
     "export_report",
 }
@@ -45,6 +46,7 @@ LOOPING_ACTIVITIES = {
     "analyze_photo",
     "localize_photo",
     "reconcile_rooms",
+    "measure_rooms",
     "process_assets",
 }
 
