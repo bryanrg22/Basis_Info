@@ -42,7 +42,7 @@ test('2 and 6. the held rows: only pending drafts that block, highest exposure f
  assert.deepEqual(MD.held(items).map(a=>a.id),['c','d','b'],'roof $1,950.08, floor $1,556.02, counter $1,208.45; the gutter is below; verified and replaced rows hold nothing');
  assert.equal(MD.exposureText(ROOF),'Could move about $1,950.08 (its expected error times its price), more than $250: it holds the report until you verify it.');
  assert.equal(MD.exposureText(COUNTER),'Could move about $229.67 (its expected error times its price), not more than $250: it does not hold the report.');
- assert.equal(MD.exposureText({...COUNTER,exposure_usd:null,blocks:false}),'Not priced yet, so it moves no dollars; its price decides once it is priced.');
+ assert.equal(MD.exposureText({...COUNTER,exposure_usd:null,blocks:false}),'Not priced, so it moves no dollars and does not hold the report.');
  assert.equal(MD.exposureText({...COUNTER,verified:true}),null,'a verified draft moves nothing');
  const html=MD.heldHtml(items,{open:true,route:id=>`#asset-detail/s/${id}`,blocker:{code:'measure:draft_unverified',message:'3 measurements drafted by Basis are not verified and could each move more than $250.00 (its expected error times its price)',assets:3}});
  assert.match(text(html),/The report waits for these 3 measurements 3 measurements drafted by Basis are not verified and could each move more than \$250\.00 \(its expected error times its price\)\./);
@@ -139,6 +139,47 @@ test('the sample (drafts on, pin confirmed) follows the API: records, exposure, 
  // drafts off (the default): no roof or gutter rows, no draft anywhere, no blocker
  const off=A.create({state:'assets',now:()=>NOW}),api=require('../live/api-client.js').createClient({baseUrl:off.base,fetchImpl:(u,i)=>off.fetch(u,i),getToken:async()=>'t'}),s=await api.getStudy(off.mainStudyId());
  const items=(await api.assets(s.id,s.revision)).items;assert.ok(!items.some(a=>a.takeoff?.inputs?.draft||a.takeoff?.inputs?.draft_not_used||a.label==='roof'));assert.deepEqual((await api.result(s.id,s.revision)).blockers,[]);
+});
+
+/* ---------- the real API's rows (tests/fixtures/measure-drafts-api.json) ---------- */
+// What GET .../assets and GET .../result serve after process_assets ran with both draft settings on
+// (backEnd/tests/unit/activities/test_measure_drafts_api_reference.py writes it from the API's own
+// serializers on Postgres; ids and times as placeholders). The app's code runs on those rows, and
+// the sample's drafted rows carry the same fields, so the sample cannot drift from the API unseen.
+const REAL=require('./fixtures/measure-drafts-api.json');
+const DRAFT_INPUTS=['quantity_source','draft','measurement','shape_quantity','draft_factor','draft_not_used','draft_not_used_code','replaced_quantity','replaced_formula','replaced_missing_input'];
+const kindOf=a=>{const d=MD.draftOf(a);return d?(MD.interior(d)?'interior':'exterior'):a.takeoff?.inputs?.draft_not_used?'not drafted':null};
+const fieldsBy=(rows,pick)=>{const m={};for(const a of rows){const k=kindOf(a);if(k)for(const f of Object.keys(pick(a)||{}))(m[k]||=new Set()).add(f)}return Object.fromEntries(Object.entries(m).map(([k,v])=>[k,[...v].sort()]))};
+
+test('the real API’s drafted rows: held by exposure as the blocker counts, the factor gives the row, the texts read whole',()=>{
+ const items=REAL.drafted.items,blocker=REAL.drafted.blockers.find(b=>b.code===MD.BLOCKER);
+ assert.deepEqual(MD.held(items).map(a=>a.label),['roof','countertop','wall_finish'],'$539.66, $117.59, $80.71; the unpriced siding, gutter and flooring hold nothing');
+ assert.equal(MD.held(items).length,blocker.assets);
+ // the factor line's row is the row the server priced, for every exterior draft with a factor
+ const factored=items.filter(a=>kindOf(a)==='exterior'&&MD.draftOf(a).factor);
+ assert.deepEqual(factored.map(a=>a.label),['roof','siding']);
+ for(const a of factored){const d=MD.draftOf(a),[shape]=a.takeoff.inputs.shape_quantity.split(' ');
+  const line=MD.factorLine(d,shape,d.unit,{kind:/slope/.test(d.factor_reason)?'area':'line',untouched:true});
+  assert.equal(Number(line.row),Number(a.takeoff.quantity),a.label)}
+ assert.equal(MD.factorLine(MD.draftOf(factored[0]),'2011.23','SF',{kind:'area',untouched:true}).text,"2,011.23 SF in plan × 1.1518 (the roof planes' slope, 29.5 degrees on average) = 2,316.53 SF");
+ // Use this number sends the draft's own quantity and unit
+ const counter=items.find(a=>a.label==='countertop');
+ assert.deepEqual(MD.useNumberCorrection(counter,null).after,{quantity:28,quantity_unit:'SF',quantity_source:MD.INTERIOR_SOURCE});
+ assert.equal(MD.wasLine(MD.draftOf(counter)),'Was: no quantity, so the row was unpriced (the cabinet run was missing).');
+ // every card and the held list read whole: no undefined, NaN, null, an empty figure or a model id
+ for(const a of [...items,...REAL.not_drafted.items]){const t=text(MD.cardHtml(a,{open:true,propertyHref:'#property/s'}));
+  assert.ok(t.length>20,a.label);assert.doesNotMatch(t,/undefined|NaN|null|\[object|model:|claude|lidar-shell|—/,`${a.label}: ${t}`)}
+ assert.doesNotMatch(text(MD.heldHtml(items,{open:true,blocker})),/undefined|NaN|null|model:/);
+ for(const a of REAL.not_drafted.items)assert.equal(MD.notUsedHint(a.takeoff.inputs.draft_not_used).to,'property',a.label);
+});
+
+test('the sample’s drafted rows carry the real API’s fields: the record, the asset, the takeoff, the draft inputs, the blocker',async()=>{
+ const x=await boot(),real=[...REAL.drafted.items,...REAL.not_drafted.items];
+ const pickInputs=a=>Object.fromEntries(Object.entries(a.takeoff.inputs).filter(([k])=>DRAFT_INPUTS.includes(k)));
+ for(const [what,pick] of [['asset',a=>a],['takeoff',a=>a.takeoff],['draft inputs',pickInputs],['draft record',a=>MD.draftOf(a)]])
+  assert.deepEqual(fieldsBy(x.items,pick),fieldsBy(real,pick),what);
+ const sample=(await x.api.result(x.study.id,x.study.revision)).blockers.find(b=>b.code===MD.BLOCKER);
+ assert.deepEqual(Object.keys(sample).sort(),Object.keys(REAL.drafted.blockers.find(b=>b.code===MD.BLOCKER)).sort());
 });
 
 test('the Assets page lists the held rows by exposure and tags each draft; Results shows the blocker with them',async()=>{

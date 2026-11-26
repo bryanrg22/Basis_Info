@@ -18638,8 +18638,9 @@ recorded runs below; the paid check's 8 calls are in its ledger, each `ok` on th
   and 15 to 24 rooms.
 * The exterior drafts were not run from a gather in a study (the client's shell was re-derived from
   its cached points); the pin-confirmed and stale-gather rules are tested on Postgres only.
-* Not in the browser: the factor, the blocker list and the interior drafts are not shown
-  (`web/FRONTEND_BACKLOG.md` 23); no person verified a draft in the measure tool.
+* ~~Not in the browser.~~ **Built 2026-11-26** (branch `claude/measure-drafts-in-app`, 110.8):
+  the factor, the held drafts and the interior drafts are shown. Still, no engineer has verified
+  a draft in the measure tool.
 * A reopened execution measures its rooms again (new calls, possibly other numbers within one
   call's noise, 2 to 4 % in 107.5); the first execution's drafts are carried only along revisions.
 
@@ -18654,12 +18655,68 @@ on the committed code); `python -m evals.registry --component measure_drafts` li
 <measure_truth/geo> --out <run>`. Private figures:
 `$BASIS_EVAL_DATA_DIR/reports/MEASURE_DRAFTS_CLIENT_2026-11-26.md`.
 
-**Open.** The ordering fix on main (110.6.1); the measure tool showing the factor, the held drafts
-and the interior drafts; a facade measurement in the study to replace the 15 % share (EVAL_REPORT
+**Open.** A facade measurement in the study to replace the 15 % share (EVAL_REPORT
 109, with the EXIF focal length kept); interior drafts with a shape (corners on the photo) so they
 verify in the tool; tier-D truth (owners' homes measured) before trusting interior numbers; the
 threshold on more studies; ceiling height from gpt-6.1-sol (107.7) is recorded on the draft but
 prices nothing.
+
+### 110.8 The drafts in the app (2026-11-26)
+
+The six items of `web/FRONTEND_BACKLOG.md` section 23 are built in `web/live/measure-drafts.js` and
+the asset page, the Assets list, Results and the measure tool:
+* the factor beside the tool's total;
+* the rows that hold the report, highest exposure first, each with Verify (an exterior draft opens
+  the measure tool) or Use this number (a room draft queues the typed quantity with
+  `quantity_source` "verified Basis draft from the room photos");
+* the room draft's line, the model's answer and notes;
+* the "was" line and, once acted on, who verified or changed it;
+* why a roof, siding or gutter row was not drafted, with the fix;
+* the exposure against the threshold.
+
+Results now lists every blocker in the API's words.
+
+**Checked against the real API, not only the sample.** `backEnd/tests/unit/activities/
+test_measure_drafts_api_reference.py` runs `process_assets` on Postgres with both settings on and
+writes what `GET .../assets` and `GET .../result` serve (the API's own `asset_out` and
+`compute_result`; ids and times as placeholders) to `web/tests/fixtures/measure-drafts-api.json`.
+The file was stable across four runs, and the test fails when the API changes and the file is not
+rewritten.
+
+On those real rows, the app's code gives:
+* the held list roof, countertop, wall finish ($539.66, $117.59, $80.71), as many as the
+  blocker's `assets` (3);
+* the factor line's row equal to the server's row for the roof (2,011.23 SF x 1.1518 = 2,316.53)
+  and the siding (1,678.79 SF x 0.85 = 1,426.97);
+* "Use this number"'s body as the backend takes it;
+* every card free of `undefined`, `NaN`, `null`, an empty figure or a model id.
+
+The sample's drafted rows carry the same fields as the real ones (asset, takeoff, the draft
+inputs, the draft record, the blocker). The check found one difference, now fixed: the sample's
+undrafted rows lacked `quantity_source` (`appraisal_derived`).
+
+In the browser (sample API, `&drafts=on&property=confirmed`, clicked by hand):
+1. Use this number on the countertop and the floor, then Verify on the roof (the tool shows
+   "2,212.63 SF in plan x 1.1180 (...) = 2,473.72 SF on the row"), ticked Verified and saved.
+2. Review & send listed the three corrections.
+3. After the rerun, revision 3 has no blocker, the allocation is back, and the roof is verified
+   at 2,473.72 SF.
+
+The console showed no errors beyond the sample's missing photo. The facade corners move with the
+keys (FRONTEND_BACKLOG 24); this was checked by key presses in the browser and by
+`measure-drafts-display.test.cjs` (14 tests; 5 mutants caught).
+
+**Open.**
+* Not run against a live backend with a worker; this environment's Docker is down, and the
+  reference fixture stands in for the API's shapes.
+* Phones were not looked at.
+* After verifying a lidar draft, the measure tool still says "traced on an image with no capture
+  date" and "too coarse for its size". These are the trace's own flags, applied to the aerial it
+  is drawn on.
+* Every drafted row's takeoff formula, which reaches the evidence export, names its internal
+  source ("EVAL_REPORT 105.1: roof surface, two houses"), as the cabinet-unit note already does
+  on main (`basis/domain/takeoffs.py`). Whether internal references belong in exported text is
+  the maintainer's call.
 
 ## 111. Draft it and the facade mode: M2 and M3 in the engineer's hands (2026-11-26)
 

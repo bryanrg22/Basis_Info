@@ -1,0 +1,2759 @@
+{
+ "drafted": {
+  "blockers": [
+   {
+    "assets": 9,
+    "code": "unpriced",
+    "fix": "add the row to the cost table, or enter the measured quantity at the assets review",
+    "message": "the cost table has no row for these assets, or prices them per a unit the takeoff does not measure"
+   },
+   {
+    "assets": 3,
+    "code": "measure:draft_unverified",
+    "fix": "verify or edit this measurement in the measure tool",
+    "message": "3 measurements drafted by Basis are not verified and could each move more than $1.00 (its expected error times its price)"
+   },
+   {
+    "assets": 0,
+    "code": "appraisal_fields",
+    "fix": "fix the appraisal's extraction at the appraisal review",
+    "message": "the appraisal has no extracted fields, so the building's cost and its reconciliation against the purchase price cannot be made"
+   }
+  ],
+  "items": [
+   {
+    "bucket": "y5",
+    "category": "Countertops",
+    "citations": 0,
+    "component_id": "<id>",
+    "confidence": 0.9800000190734863,
+    "convention": null,
+    "cost": {
+     "cost_year": 2026,
+     "location_factor": "0.959",
+     "override": null,
+     "source_row": "synthetic_2020[countertop] synthetic 12-0002, p. 2 per SF x0.5 from per L.F.; Total Incl O&P; assumes per LF of a 24-inch-wide top: per SF is half; x1.169835 general contractor's overhead and profit pro rata (Average 2 Story item 10 17.24 / components 1-9 101.51 per SF, RSMeans Residential Costs 2020, Average 2 Story model, printed p.43 (PDF p.57); ATG ch. 4 C.11(2)) (base 2020, x1.0000 for 2026 = HCI 239.1 (Jan 2020, est.) / 239.1 (Jan 2020, est.), RSMeans Building Construction Costs 2020 p.778; no 2026 index loaded, the latest applied (assumption), from COST_YEAR setting; x0.959 location from state IL (subject.state (azure)): mean of 19 IL cities (0.92-1.00), RSMeans Residential 2020 Location Factors - Residential pp.718-722)",
+     "total": "565.32",
+     "trail": {
+      "base": {
+       "assumption": "per LF of a 24-inch-wide top: per SF is half",
+       "base_year": 2020,
+       "basis": "installed",
+       "basis_how": "Total Incl O&P",
+       "conversion": "x0.5 from per L.F.",
+       "markup": {
+        "rate": "0.169835",
+        "source": "general contractor's overhead and profit pro rata (Average 2 Story item 10 17.24 / components 1-9 101.51 per SF, RSMeans Residential Costs 2020, Average 2 Story model, printed p.43 (PDF p.57); ATG ch. 4 C.11(2))"
+       },
+       "row": "countertop",
+       "row_unit": "L.F.",
+       "source": "synthetic 12-0002, p. 2",
+       "table": "synthetic_2020",
+       "tier": null,
+       "unit": "SF",
+       "unit_cost": "18.0"
+      },
+      "cost_year": 2026,
+      "intake_version": null,
+      "kind": "unit_price",
+      "location": {
+       "citation": "mean of 19 IL cities (0.92-1.00), RSMeans Residential 2020 Location Factors - Residential pp.718-722",
+       "cities": 19,
+       "city": null,
+       "factor": "0.959",
+       "from_": "state IL (subject.state (azure)): mean of 19 IL cities (0.92-1.00), RSMeans Residential 2020 Location Factors - Residential pp.718-722",
+       "high": "1.00",
+       "lookup": "state",
+       "lookup_from": "subject.state (azure)",
+       "low": "0.92",
+       "origin": "rsmeans_2020_book",
+       "pages": "718-722",
+       "state": "IL",
+       "store": null,
+       "table_year": 2020,
+       "zip": null,
+       "zip_prefixes": null
+      },
+      "location_factor": "0.959",
+      "method": {
+       "cost_basis": "installed",
+       "modifications": true,
+       "overhead_allocation": "pro_rata",
+       "rcn_source": "square_foot",
+       "specialties_residual": "building"
+      },
+      "missing": null,
+      "override": null,
+      "priced_per": null,
+      "property_class": "residential_rental",
+      "quantity": {
+       "assumptions": [
+        "measured from ordinary room photos against objects of known size (EVAL_REPORT 107)",
+        "Legacy note replaced: Cabinet run (perimeter estimate) x 25-inch depth"
+       ],
+       "formula": "28.00 SF drafted by Basis from the room's photos: 28.00 SF of counter top; not verified; expected error about 20.8 % (EVAL_REPORT 107.4: countertop, 3 kitchens)",
+       "inputs": {
+        "assumptions": [
+         "measured from ordinary room photos against objects of known size (EVAL_REPORT 107)",
+         "Legacy note replaced: Cabinet run (perimeter estimate) x 25-inch depth"
+        ],
+        "component": "countertop",
+        "cost_year_assumption": "no published cost index for 2026 is loaded; the latest, 239.1 (Jan 2020, est.), is applied. Enter the 2026 Historical Cost Index (RSMeans quarterly Construction Cost Index or the year's book; POST /v1/cost-indices or python -m basis.costs.refresh enter) before the study is signed",
+        "cost_year_source": "COST_YEAR setting",
+        "count": 1,
+        "depth_in": "25",
+        "draft": {
+         "answer": {
+          "cabinet_lf": "16.0",
+          "ceiling_height_ft": "8.0",
+          "countertop_sf": "28.0",
+          "floor_area_sf": "180.0",
+          "length_ft": "15.0",
+          "perimeter_ft": "54.0",
+          "wall_area_sf": "432.0",
+          "width_ft": "12.0"
+         },
+         "blocks": true,
+         "confidence": "medium",
+         "drawn_by": "model:claude-sonnet-5-5@measure_interior_reference-v1",
+         "error_source": "EVAL_REPORT 107.4: countertop, 3 kitchens",
+         "expected_error_pct": "20.8",
+         "exposure_usd": "117.59",
+         "notes": "measured against the door",
+         "photos": [
+          "<id>",
+          "<id>"
+         ],
+         "quantity": "28.00",
+         "replaces": {
+          "missing_input": "cabinet_run"
+         },
+         "room_fully_seen": false,
+         "source": "2 photos of the room",
+         "unit": "SF",
+         "verified": false,
+         "verify_above_usd": "1.0"
+        },
+        "draft_expected_error_pct": "20.8",
+        "draft_quantity": "countertop_sf",
+        "drawn_by": "model:claude-sonnet-5-5@measure_interior_reference-v1",
+        "gla_field": "improvements.gla_sqft (azure)",
+        "gla_sf": "2400",
+        "location_source": "state IL (subject.state (azure)): mean of 19 IL cities (0.92-1.00), RSMeans Residential 2020 Location Factors - Residential pp.718-722",
+        "method": "perimeter",
+        "program_baths_field": "improvements.bathrooms (azure)",
+        "program_bedrooms": "4",
+        "program_bedrooms_field": "improvements.bedrooms (azure)",
+        "program_formula": "kitchen 150 + 4 bedrooms x 150 + 2 full baths x 75 + 1 half baths x 40 + 3 other rooms x 200",
+        "program_full_baths": "2",
+        "program_half_baths": "1",
+        "program_other_rooms": "3",
+        "program_rooms": "8",
+        "program_rooms_field": "improvements.total_rooms (azure)",
+        "program_weight_sf": "1540",
+        "property_class": "residential_rental",
+        "property_class_source": "PROPERTY_CLASS setting",
+        "quantity_source": "draft",
+        "replaced_missing_input": "cabinet_run",
+        "replaced_room_area_sf": "233.77",
+        "room_area_formula": "2400 SF GLA x 150 / 1540 (kitchen weight / program weight)",
+        "room_area_sf": "180",
+        "room_area_source": "room_photos_draft",
+        "room_weight_sf": "150",
+        "scale": "1.5584",
+        "study_weight_sf": "225",
+        "weight_total_from": "program weight",
+        "weight_total_sf": "1540"
+       },
+       "method": "perimeter",
+       "unit": "SF",
+       "value": "28.00"
+      },
+      "replaced": null,
+      "rounding": "unit_cost = base x (1 + markup, when recorded) x year factor x location factor, rounded half up to the cent; total = unit_cost x quantity, rounded half up to the cent",
+      "structure": null,
+      "total": "565.32",
+      "unit_cost": "20.19",
+      "version": 1,
+      "year": {
+       "assumption": "no published cost index for 2026 is loaded; the latest, 239.1 (Jan 2020, est.), is applied. Enter the 2026 Historical Cost Index (RSMeans quarterly Construction Cost Index or the year's book; POST /v1/cost-indices or python -m basis.costs.refresh enter) before the study is signed",
+       "base": {
+        "as_of": "2020-01-01",
+        "citation": "RSMeans Building Construction Costs 2020 p.778",
+        "derived": null,
+        "estimated": true,
+        "store": null,
+        "value": "239.1",
+        "year": 2020
+       },
+       "citation": "HCI 239.1 (Jan 2020, est.) / 239.1 (Jan 2020, est.), RSMeans Building Construction Costs 2020 p.778",
+       "conversion": null,
+       "cost_year": 2026,
+       "factor": "1.0000",
+       "from_": "COST_YEAR setting",
+       "index": {
+        "as_of": "2020-01-01",
+        "citation": "RSMeans Building Construction Costs 2020 p.778",
+        "derived": null,
+        "estimated": true,
+        "store": null,
+        "value": "239.1",
+        "year": 2020
+       }
+      }
+     },
+     "trail_recorded": true,
+     "unit_cost": "20.19"
+    },
+    "count": 1,
+    "id": "<id>",
+    "irs_section": "1245",
+    "label": "countertop",
+    "method": "rule",
+    "needs_review": true,
+    "provenance": {
+     "after": null,
+     "at": null,
+     "before": null,
+     "by": null,
+     "carried_from": null,
+     "changed": [],
+     "correction_id": null,
+     "origin": "model",
+     "review_id": null,
+     "revision": null,
+     "stage": null
+    },
+    "recovery_period": "5.0",
+    "review_codes": [
+     "BASIS-ASSETS-007",
+     "BASIS-ASSETS-005",
+     "BASIS-COST-001",
+     "BASIS-MEASURE-001"
+    ],
+    "review_reasons": [
+     "citation_unverified",
+     "rule_contested:countertop",
+     "cost:YEAR_INDEX_MISSING",
+     "measure:DRAFT_UNVERIFIED"
+    ],
+    "room": {
+     "floor": null,
+     "id": "<id>",
+     "name": "Kitchen",
+     "room_type": "kitchen"
+    },
+    "takeoff": {
+     "assumptions": [
+      "measured from ordinary room photos against objects of known size (EVAL_REPORT 107)",
+      "Legacy note replaced: Cabinet run (perimeter estimate) x 25-inch depth"
+     ],
+     "formula": "28.00 SF drafted by Basis from the room's photos: 28.00 SF of counter top; not verified; expected error about 20.8 % (EVAL_REPORT 107.4: countertop, 3 kitchens)",
+     "inputs": {
+      "assumptions": [
+       "measured from ordinary room photos against objects of known size (EVAL_REPORT 107)",
+       "Legacy note replaced: Cabinet run (perimeter estimate) x 25-inch depth"
+      ],
+      "component": "countertop",
+      "cost_year_assumption": "no published cost index for 2026 is loaded; the latest, 239.1 (Jan 2020, est.), is applied. Enter the 2026 Historical Cost Index (RSMeans quarterly Construction Cost Index or the year's book; POST /v1/cost-indices or python -m basis.costs.refresh enter) before the study is signed",
+      "cost_year_source": "COST_YEAR setting",
+      "count": 1,
+      "depth_in": "25",
+      "draft": {
+       "answer": {
+        "cabinet_lf": "16.0",
+        "ceiling_height_ft": "8.0",
+        "countertop_sf": "28.0",
+        "floor_area_sf": "180.0",
+        "length_ft": "15.0",
+        "perimeter_ft": "54.0",
+        "wall_area_sf": "432.0",
+        "width_ft": "12.0"
+       },
+       "blocks": true,
+       "confidence": "medium",
+       "drawn_by": "model:claude-sonnet-5-5@measure_interior_reference-v1",
+       "error_source": "EVAL_REPORT 107.4: countertop, 3 kitchens",
+       "expected_error_pct": "20.8",
+       "exposure_usd": "117.59",
+       "notes": "measured against the door",
+       "photos": [
+        "<id>",
+        "<id>"
+       ],
+       "quantity": "28.00",
+       "replaces": {
+        "missing_input": "cabinet_run"
+       },
+       "room_fully_seen": false,
+       "source": "2 photos of the room",
+       "unit": "SF",
+       "verified": false,
+       "verify_above_usd": "1.0"
+      },
+      "draft_expected_error_pct": "20.8",
+      "draft_quantity": "countertop_sf",
+      "drawn_by": "model:claude-sonnet-5-5@measure_interior_reference-v1",
+      "gla_field": "improvements.gla_sqft (azure)",
+      "gla_sf": "2400",
+      "location_source": "state IL (subject.state (azure)): mean of 19 IL cities (0.92-1.00), RSMeans Residential 2020 Location Factors - Residential pp.718-722",
+      "method": "perimeter",
+      "program_baths_field": "improvements.bathrooms (azure)",
+      "program_bedrooms": "4",
+      "program_bedrooms_field": "improvements.bedrooms (azure)",
+      "program_formula": "kitchen 150 + 4 bedrooms x 150 + 2 full baths x 75 + 1 half baths x 40 + 3 other rooms x 200",
+      "program_full_baths": "2",
+      "program_half_baths": "1",
+      "program_other_rooms": "3",
+      "program_rooms": "8",
+      "program_rooms_field": "improvements.total_rooms (azure)",
+      "program_weight_sf": "1540",
+      "property_class": "residential_rental",
+      "property_class_source": "PROPERTY_CLASS setting",
+      "quantity_source": "draft",
+      "replaced_missing_input": "cabinet_run",
+      "replaced_room_area_sf": "233.77",
+      "room_area_formula": "2400 SF GLA x 150 / 1540 (kitchen weight / program weight)",
+      "room_area_sf": "180",
+      "room_area_source": "room_photos_draft",
+      "room_weight_sf": "150",
+      "scale": "1.5584",
+      "study_weight_sf": "225",
+      "weight_total_from": "program weight",
+      "weight_total_sf": "1540"
+     },
+     "method": "perimeter",
+     "quantity": "28.0000",
+     "unit": "SF"
+    },
+    "verified_citations": 0
+   },
+   {
+    "bucket": "y27_5",
+    "category": "Building component (scripted)",
+    "citations": 0,
+    "component_id": "<id>",
+    "confidence": 0.30000001192092896,
+    "convention": null,
+    "cost": {
+     "cost_year": 2026,
+     "location_factor": "0.959",
+     "override": null,
+     "source_row": "missing: no cost row for 'flooring' per SF",
+     "total": null,
+     "trail": {
+      "base": null,
+      "cost_year": 2026,
+      "intake_version": null,
+      "kind": "unpriced",
+      "location": {
+       "citation": "mean of 19 IL cities (0.92-1.00), RSMeans Residential 2020 Location Factors - Residential pp.718-722",
+       "cities": 19,
+       "city": null,
+       "factor": "0.959",
+       "from_": "state IL (subject.state (azure)): mean of 19 IL cities (0.92-1.00), RSMeans Residential 2020 Location Factors - Residential pp.718-722",
+       "high": "1.00",
+       "lookup": "state",
+       "lookup_from": "subject.state (azure)",
+       "low": "0.92",
+       "origin": "rsmeans_2020_book",
+       "pages": "718-722",
+       "state": "IL",
+       "store": null,
+       "table_year": 2020,
+       "zip": null,
+       "zip_prefixes": null
+      },
+      "location_factor": "0.959",
+      "method": {
+       "cost_basis": "installed",
+       "modifications": true,
+       "overhead_allocation": "pro_rata",
+       "rcn_source": "square_foot",
+       "specialties_residual": "building"
+      },
+      "missing": "missing: no cost row for 'flooring' per SF",
+      "override": null,
+      "priced_per": null,
+      "property_class": "residential_rental",
+      "quantity": {
+       "assumptions": [
+        "measured from ordinary room photos against objects of known size (EVAL_REPORT 107)"
+       ],
+       "formula": "180.00 SF drafted by Basis from the room's photos: 180.00 SF of floor x 1 waste; not verified; expected error about 22.5 % (EVAL_REPORT 107.4: floor area, 24 rooms)",
+       "inputs": {
+        "assumptions": [
+         "measured from ordinary room photos against objects of known size (EVAL_REPORT 107)"
+        ],
+        "component": "flooring",
+        "cost_year_assumption": "no published cost index for 2026 is loaded; the latest, 239.1 (Jan 2020, est.), is applied. Enter the 2026 Historical Cost Index (RSMeans quarterly Construction Cost Index or the year's book; POST /v1/cost-indices or python -m basis.costs.refresh enter) before the study is signed",
+        "cost_year_source": "COST_YEAR setting",
+        "count": 1,
+        "draft": {
+         "answer": {
+          "cabinet_lf": "16.0",
+          "ceiling_height_ft": "8.0",
+          "countertop_sf": "28.0",
+          "floor_area_sf": "180.0",
+          "length_ft": "15.0",
+          "perimeter_ft": "54.0",
+          "wall_area_sf": "432.0",
+          "width_ft": "12.0"
+         },
+         "blocks": false,
+         "confidence": "medium",
+         "drawn_by": "model:claude-sonnet-5-5@measure_interior_reference-v1",
+         "error_source": "EVAL_REPORT 107.4: floor area, 24 rooms",
+         "expected_error_pct": "22.5",
+         "exposure_usd": null,
+         "notes": "measured against the door",
+         "photos": [
+          "<id>",
+          "<id>"
+         ],
+         "quantity": "180.00",
+         "replaces": {
+          "formula": "233.77 SF x 1 x 1 waste",
+          "quantity": "233.77 SF"
+         },
+         "room_fully_seen": false,
+         "source": "2 photos of the room",
+         "unit": "SF",
+         "verified": false,
+         "verify_above_usd": "1.0"
+        },
+        "draft_expected_error_pct": "22.5",
+        "draft_quantity": "floor_area_sf",
+        "drawn_by": "model:claude-sonnet-5-5@measure_interior_reference-v1",
+        "gla_field": "improvements.gla_sqft (azure)",
+        "gla_sf": "2400",
+        "location_source": "state IL (subject.state (azure)): mean of 19 IL cities (0.92-1.00), RSMeans Residential 2020 Location Factors - Residential pp.718-722",
+        "method": "area",
+        "per_sf": "1",
+        "program_baths_field": "improvements.bathrooms (azure)",
+        "program_bedrooms": "4",
+        "program_bedrooms_field": "improvements.bedrooms (azure)",
+        "program_formula": "kitchen 150 + 4 bedrooms x 150 + 2 full baths x 75 + 1 half baths x 40 + 3 other rooms x 200",
+        "program_full_baths": "2",
+        "program_half_baths": "1",
+        "program_other_rooms": "3",
+        "program_rooms": "8",
+        "program_rooms_field": "improvements.total_rooms (azure)",
+        "program_weight_sf": "1540",
+        "property_class": "residential_rental",
+        "property_class_source": "PROPERTY_CLASS setting",
+        "quantity_source": "draft",
+        "replaced_formula": "233.77 SF x 1 x 1 waste",
+        "replaced_quantity": "233.77 SF",
+        "replaced_room_area_sf": "233.77",
+        "room_area_formula": "2400 SF GLA x 150 / 1540 (kitchen weight / program weight)",
+        "room_area_sf": "180",
+        "room_area_source": "room_photos_draft",
+        "room_weight_sf": "150",
+        "scale": "1.5584",
+        "study_weight_sf": "225",
+        "waste_factor": "1",
+        "weight_total_from": "program weight",
+        "weight_total_sf": "1540"
+       },
+       "method": "area",
+       "unit": "SF",
+       "value": "180.00"
+      },
+      "replaced": null,
+      "rounding": null,
+      "structure": null,
+      "total": null,
+      "unit_cost": null,
+      "version": 1,
+      "year": {
+       "assumption": "no published cost index for 2026 is loaded; the latest, 239.1 (Jan 2020, est.), is applied. Enter the 2026 Historical Cost Index (RSMeans quarterly Construction Cost Index or the year's book; POST /v1/cost-indices or python -m basis.costs.refresh enter) before the study is signed",
+       "base": {
+        "as_of": "2020-01-01",
+        "citation": "RSMeans Building Construction Costs 2020 p.778",
+        "derived": null,
+        "estimated": true,
+        "store": null,
+        "value": "239.1",
+        "year": 2020
+       },
+       "citation": "HCI 239.1 (Jan 2020, est.) / 239.1 (Jan 2020, est.), RSMeans Building Construction Costs 2020 p.778",
+       "conversion": null,
+       "cost_year": 2026,
+       "factor": "1.0000",
+       "from_": "COST_YEAR setting",
+       "index": {
+        "as_of": "2020-01-01",
+        "citation": "RSMeans Building Construction Costs 2020 p.778",
+        "derived": null,
+        "estimated": true,
+        "store": null,
+        "value": "239.1",
+        "year": 2020
+       }
+      }
+     },
+     "trail_recorded": true,
+     "unit_cost": null
+    },
+    "count": 1,
+    "id": "<id>",
+    "irs_section": "1250",
+    "label": "flooring",
+    "method": "llm",
+    "needs_review": true,
+    "provenance": {
+     "after": null,
+     "at": null,
+     "before": null,
+     "by": null,
+     "carried_from": null,
+     "changed": [],
+     "correction_id": null,
+     "origin": "model",
+     "review_id": null,
+     "revision": null,
+     "stage": null
+    },
+    "recovery_period": "27.5",
+    "review_codes": [
+     "BASIS-ASSETS-008",
+     "BASIS-ASSETS-007",
+     "BASIS-ASSETS-009",
+     "BASIS-CHECK-012",
+     "BASIS-MEASURE-001"
+    ],
+    "review_reasons": [
+     "missing_evidence",
+     "citation_unverified",
+     "model:scripted test answer",
+     "cross:COST_ROW_MISSING",
+     "measure:DRAFT_UNVERIFIED"
+    ],
+    "room": {
+     "floor": null,
+     "id": "<id>",
+     "name": "Kitchen",
+     "room_type": "kitchen"
+    },
+    "takeoff": {
+     "assumptions": [
+      "measured from ordinary room photos against objects of known size (EVAL_REPORT 107)"
+     ],
+     "formula": "180.00 SF drafted by Basis from the room's photos: 180.00 SF of floor x 1 waste; not verified; expected error about 22.5 % (EVAL_REPORT 107.4: floor area, 24 rooms)",
+     "inputs": {
+      "assumptions": [
+       "measured from ordinary room photos against objects of known size (EVAL_REPORT 107)"
+      ],
+      "component": "flooring",
+      "cost_year_assumption": "no published cost index for 2026 is loaded; the latest, 239.1 (Jan 2020, est.), is applied. Enter the 2026 Historical Cost Index (RSMeans quarterly Construction Cost Index or the year's book; POST /v1/cost-indices or python -m basis.costs.refresh enter) before the study is signed",
+      "cost_year_source": "COST_YEAR setting",
+      "count": 1,
+      "draft": {
+       "answer": {
+        "cabinet_lf": "16.0",
+        "ceiling_height_ft": "8.0",
+        "countertop_sf": "28.0",
+        "floor_area_sf": "180.0",
+        "length_ft": "15.0",
+        "perimeter_ft": "54.0",
+        "wall_area_sf": "432.0",
+        "width_ft": "12.0"
+       },
+       "blocks": false,
+       "confidence": "medium",
+       "drawn_by": "model:claude-sonnet-5-5@measure_interior_reference-v1",
+       "error_source": "EVAL_REPORT 107.4: floor area, 24 rooms",
+       "expected_error_pct": "22.5",
+       "exposure_usd": null,
+       "notes": "measured against the door",
+       "photos": [
+        "<id>",
+        "<id>"
+       ],
+       "quantity": "180.00",
+       "replaces": {
+        "formula": "233.77 SF x 1 x 1 waste",
+        "quantity": "233.77 SF"
+       },
+       "room_fully_seen": false,
+       "source": "2 photos of the room",
+       "unit": "SF",
+       "verified": false,
+       "verify_above_usd": "1.0"
+      },
+      "draft_expected_error_pct": "22.5",
+      "draft_quantity": "floor_area_sf",
+      "drawn_by": "model:claude-sonnet-5-5@measure_interior_reference-v1",
+      "gla_field": "improvements.gla_sqft (azure)",
+      "gla_sf": "2400",
+      "location_source": "state IL (subject.state (azure)): mean of 19 IL cities (0.92-1.00), RSMeans Residential 2020 Location Factors - Residential pp.718-722",
+      "method": "area",
+      "per_sf": "1",
+      "program_baths_field": "improvements.bathrooms (azure)",
+      "program_bedrooms": "4",
+      "program_bedrooms_field": "improvements.bedrooms (azure)",
+      "program_formula": "kitchen 150 + 4 bedrooms x 150 + 2 full baths x 75 + 1 half baths x 40 + 3 other rooms x 200",
+      "program_full_baths": "2",
+      "program_half_baths": "1",
+      "program_other_rooms": "3",
+      "program_rooms": "8",
+      "program_rooms_field": "improvements.total_rooms (azure)",
+      "program_weight_sf": "1540",
+      "property_class": "residential_rental",
+      "property_class_source": "PROPERTY_CLASS setting",
+      "quantity_source": "draft",
+      "replaced_formula": "233.77 SF x 1 x 1 waste",
+      "replaced_quantity": "233.77 SF",
+      "replaced_room_area_sf": "233.77",
+      "room_area_formula": "2400 SF GLA x 150 / 1540 (kitchen weight / program weight)",
+      "room_area_sf": "180",
+      "room_area_source": "room_photos_draft",
+      "room_weight_sf": "150",
+      "scale": "1.5584",
+      "study_weight_sf": "225",
+      "waste_factor": "1",
+      "weight_total_from": "program weight",
+      "weight_total_sf": "1540"
+     },
+     "method": "area",
+     "quantity": "180.0000",
+     "unit": "SF"
+    },
+    "verified_citations": 0
+   },
+   {
+    "bucket": "y27_5",
+    "category": "Building component (scripted)",
+    "citations": 0,
+    "component_id": "<id>",
+    "confidence": 0.30000001192092896,
+    "convention": null,
+    "cost": {
+     "cost_year": 2026,
+     "location_factor": "0.959",
+     "override": null,
+     "source_row": "missing: no cost row for 'gutter' per LF",
+     "total": null,
+     "trail": {
+      "base": null,
+      "cost_year": 2026,
+      "intake_version": null,
+      "kind": "unpriced",
+      "location": {
+       "citation": "mean of 19 IL cities (0.92-1.00), RSMeans Residential 2020 Location Factors - Residential pp.718-722",
+       "cities": 19,
+       "city": null,
+       "factor": "0.959",
+       "from_": "state IL (subject.state (azure)): mean of 19 IL cities (0.92-1.00), RSMeans Residential 2020 Location Factors - Residential pp.718-722",
+       "high": "1.00",
+       "lookup": "state",
+       "lookup_from": "subject.state (azure)",
+       "low": "0.92",
+       "origin": "rsmeans_2020_book",
+       "pages": "718-722",
+       "state": "IL",
+       "store": null,
+       "table_year": 2020,
+       "zip": null,
+       "zip_prefixes": null
+      },
+      "location_factor": "0.959",
+      "method": {
+       "cost_basis": "installed",
+       "modifications": true,
+       "overhead_allocation": "pro_rata",
+       "rcn_source": "square_foot",
+       "specialties_residual": "building"
+      },
+      "missing": "missing: no cost row for 'gutter' per LF",
+      "override": null,
+      "priced_per": null,
+      "property_class": "residential_rental",
+      "quantity": {
+       "assumptions": [
+        "gutters on the eave edges the lidar planes slope down to"
+       ],
+       "formula": "111.71 LF drafted by Basis from the lidar shell: 2 eave edges of the roof outline; not verified; expected error about 6.2 % (EVAL_REPORT 105.1: gutter, two houses)",
+       "inputs": {
+        "assumptions": [
+         "gutters on the eave edges the lidar planes slope down to"
+        ],
+        "component": "gutter",
+        "cost_year_assumption": "no published cost index for 2026 is loaded; the latest, 239.1 (Jan 2020, est.), is applied. Enter the 2026 Historical Cost Index (RSMeans quarterly Construction Cost Index or the year's book; POST /v1/cost-indices or python -m basis.costs.refresh enter) before the study is signed",
+        "cost_year_source": "COST_YEAR setting",
+        "count": 1,
+        "draft": {
+         "blocks": false,
+         "drawn_by": "model:lidar-shell@v1",
+         "error_source": "EVAL_REPORT 105.1: gutter, two houses",
+         "expected_error_pct": "6.2",
+         "exposure_usd": null,
+         "quantity": "111.71",
+         "replaces": {
+          "formula": "2 eaves x (49.60 ft long side + 2 x 1 ft overhang)",
+          "quantity": "103.20 LF"
+         },
+         "source": "USGS 3DEP lidar IA_Test_2020 (2020), public records gather <id>",
+         "unit": "LF",
+         "verified": false,
+         "verify_above_usd": "1.0"
+        },
+        "draft_expected_error_pct": "6.2",
+        "draft_factor": "1",
+        "drawn_by": "model:lidar-shell@v1",
+        "gather_id": "<id>",
+        "location_source": "state IL (subject.state (azure)): mean of 19 IL cities (0.92-1.00), RSMeans Residential 2020 Location Factors - Residential pp.718-722",
+        "measurement": {
+         "corner_count": 4,
+         "cutout_count": 0,
+         "drawn_by": "model:lidar-shell@v1",
+         "expected_error_pct": "5.87",
+         "image": {
+          "pixel_size_m": 0.5,
+          "source": "USGS 3DEP lidar IA_Test_2020 (2020), public records gather <id>: the roof outline's eave edges"
+         },
+         "length_ft": "111.71",
+         "method": "local_tangent_plane_wgs84",
+         "quantity": "111.71",
+         "shape_count": 2,
+         "shapes": [
+          {
+           "kind": "line",
+           "path": [
+            [
+             -93.60010210884478,
+             41.599950592640454
+            ],
+            [
+             -93.59989789115521,
+             41.599950592640454
+            ]
+           ]
+          },
+          {
+           "kind": "line",
+           "path": [
+            [
+             -93.59989789115521,
+             41.600049407321706
+            ],
+            [
+             -93.60010210884478,
+             41.600049407321706
+            ]
+           ]
+          }
+         ],
+         "space": "lonlat",
+         "unit": "LF",
+         "verified": false
+        },
+        "method": "perimeter",
+        "property_class": "residential_rental",
+        "property_class_source": "PROPERTY_CLASS setting",
+        "quantity_source": "draft",
+        "replaced_formula": "2 eaves x (49.60 ft long side + 2 x 1 ft overhang)",
+        "replaced_quantity": "103.20 LF",
+        "room_area_sf": null,
+        "shape_quantity": "111.71 LF"
+       },
+       "method": "perimeter",
+       "unit": "LF",
+       "value": "111.71"
+      },
+      "replaced": null,
+      "rounding": null,
+      "structure": null,
+      "total": null,
+      "unit_cost": null,
+      "version": 1,
+      "year": {
+       "assumption": "no published cost index for 2026 is loaded; the latest, 239.1 (Jan 2020, est.), is applied. Enter the 2026 Historical Cost Index (RSMeans quarterly Construction Cost Index or the year's book; POST /v1/cost-indices or python -m basis.costs.refresh enter) before the study is signed",
+       "base": {
+        "as_of": "2020-01-01",
+        "citation": "RSMeans Building Construction Costs 2020 p.778",
+        "derived": null,
+        "estimated": true,
+        "store": null,
+        "value": "239.1",
+        "year": 2020
+       },
+       "citation": "HCI 239.1 (Jan 2020, est.) / 239.1 (Jan 2020, est.), RSMeans Building Construction Costs 2020 p.778",
+       "conversion": null,
+       "cost_year": 2026,
+       "factor": "1.0000",
+       "from_": "COST_YEAR setting",
+       "index": {
+        "as_of": "2020-01-01",
+        "citation": "RSMeans Building Construction Costs 2020 p.778",
+        "derived": null,
+        "estimated": true,
+        "store": null,
+        "value": "239.1",
+        "year": 2020
+       }
+      }
+     },
+     "trail_recorded": true,
+     "unit_cost": null
+    },
+    "count": 1,
+    "id": "<id>",
+    "irs_section": "1250",
+    "label": "gutter",
+    "method": "llm",
+    "needs_review": true,
+    "provenance": {
+     "after": null,
+     "at": null,
+     "before": null,
+     "by": null,
+     "carried_from": null,
+     "changed": [],
+     "correction_id": null,
+     "origin": "model",
+     "review_id": null,
+     "revision": null,
+     "stage": null
+    },
+    "recovery_period": "27.5",
+    "review_codes": [
+     "BASIS-ASSETS-008",
+     "BASIS-ASSETS-007",
+     "BASIS-ASSETS-009",
+     "BASIS-CHECK-012",
+     "BASIS-MEASURE-001",
+     "BASIS-ASSETS-021"
+    ],
+    "review_reasons": [
+     "missing_evidence",
+     "citation_unverified",
+     "model:scripted test answer",
+     "cross:COST_ROW_MISSING",
+     "measure:DRAFT_UNVERIFIED",
+     "measure:IMAGE_UNDATED"
+    ],
+    "room": {
+     "floor": null,
+     "id": "<id>",
+     "name": "Front",
+     "room_type": "exterior"
+    },
+    "takeoff": {
+     "assumptions": [
+      "gutters on the eave edges the lidar planes slope down to"
+     ],
+     "formula": "111.71 LF drafted by Basis from the lidar shell: 2 eave edges of the roof outline; not verified; expected error about 6.2 % (EVAL_REPORT 105.1: gutter, two houses)",
+     "inputs": {
+      "assumptions": [
+       "gutters on the eave edges the lidar planes slope down to"
+      ],
+      "component": "gutter",
+      "cost_year_assumption": "no published cost index for 2026 is loaded; the latest, 239.1 (Jan 2020, est.), is applied. Enter the 2026 Historical Cost Index (RSMeans quarterly Construction Cost Index or the year's book; POST /v1/cost-indices or python -m basis.costs.refresh enter) before the study is signed",
+      "cost_year_source": "COST_YEAR setting",
+      "count": 1,
+      "draft": {
+       "blocks": false,
+       "drawn_by": "model:lidar-shell@v1",
+       "error_source": "EVAL_REPORT 105.1: gutter, two houses",
+       "expected_error_pct": "6.2",
+       "exposure_usd": null,
+       "quantity": "111.71",
+       "replaces": {
+        "formula": "2 eaves x (49.60 ft long side + 2 x 1 ft overhang)",
+        "quantity": "103.20 LF"
+       },
+       "source": "USGS 3DEP lidar IA_Test_2020 (2020), public records gather <id>",
+       "unit": "LF",
+       "verified": false,
+       "verify_above_usd": "1.0"
+      },
+      "draft_expected_error_pct": "6.2",
+      "draft_factor": "1",
+      "drawn_by": "model:lidar-shell@v1",
+      "gather_id": "<id>",
+      "location_source": "state IL (subject.state (azure)): mean of 19 IL cities (0.92-1.00), RSMeans Residential 2020 Location Factors - Residential pp.718-722",
+      "measurement": {
+       "corner_count": 4,
+       "cutout_count": 0,
+       "drawn_by": "model:lidar-shell@v1",
+       "expected_error_pct": "5.87",
+       "image": {
+        "pixel_size_m": 0.5,
+        "source": "USGS 3DEP lidar IA_Test_2020 (2020), public records gather <id>: the roof outline's eave edges"
+       },
+       "length_ft": "111.71",
+       "method": "local_tangent_plane_wgs84",
+       "quantity": "111.71",
+       "shape_count": 2,
+       "shapes": [
+        {
+         "kind": "line",
+         "path": [
+          [
+           -93.60010210884478,
+           41.599950592640454
+          ],
+          [
+           -93.59989789115521,
+           41.599950592640454
+          ]
+         ]
+        },
+        {
+         "kind": "line",
+         "path": [
+          [
+           -93.59989789115521,
+           41.600049407321706
+          ],
+          [
+           -93.60010210884478,
+           41.600049407321706
+          ]
+         ]
+        }
+       ],
+       "space": "lonlat",
+       "unit": "LF",
+       "verified": false
+      },
+      "method": "perimeter",
+      "property_class": "residential_rental",
+      "property_class_source": "PROPERTY_CLASS setting",
+      "quantity_source": "draft",
+      "replaced_formula": "2 eaves x (49.60 ft long side + 2 x 1 ft overhang)",
+      "replaced_quantity": "103.20 LF",
+      "room_area_sf": null,
+      "shape_quantity": "111.71 LF"
+     },
+     "method": "perimeter",
+     "quantity": "111.7100",
+     "unit": "LF"
+    },
+    "verified_citations": 0
+   },
+   {
+    "bucket": "y27_5",
+    "category": "Building component (scripted)",
+    "citations": 0,
+    "component_id": "<id>",
+    "confidence": 0.30000001192092896,
+    "convention": null,
+    "cost": {
+     "cost_year": 2026,
+     "location_factor": "0.959",
+     "override": null,
+     "source_row": "synthetic_2020[roof] synthetic 07-0001, p. 4 per SF x0.01 from per Sq.; Total Incl O&P; assumes per square (100 SF); x1.169835 general contractor's overhead and profit pro rata (Average 2 Story item 10 17.24 / components 1-9 101.51 per SF, RSMeans Residential Costs 2020, Average 2 Story model, printed p.43 (PDF p.57); ATG ch. 4 C.11(2)) (base 2020, x1.0000 for 2026 = HCI 239.1 (Jan 2020, est.) / 239.1 (Jan 2020, est.), RSMeans Building Construction Costs 2020 p.778; no 2026 index loaded, the latest applied (assumption), from COST_YEAR setting; x0.959 location from state IL (subject.state (azure)): mean of 19 IL cities (0.92-1.00), RSMeans Residential 2020 Location Factors - Residential pp.718-722)",
+     "total": "5189.03",
+     "trail": {
+      "base": {
+       "assumption": "per square (100 SF)",
+       "base_year": 2020,
+       "basis": "installed",
+       "basis_how": "Total Incl O&P",
+       "conversion": "x0.01 from per Sq.",
+       "markup": {
+        "rate": "0.169835",
+        "source": "general contractor's overhead and profit pro rata (Average 2 Story item 10 17.24 / components 1-9 101.51 per SF, RSMeans Residential Costs 2020, Average 2 Story model, printed p.43 (PDF p.57); ATG ch. 4 C.11(2))"
+       },
+       "row": "roof",
+       "row_unit": "Sq.",
+       "source": "synthetic 07-0001, p. 4",
+       "table": "synthetic_2020",
+       "tier": null,
+       "unit": "SF",
+       "unit_cost": "2.00"
+      },
+      "cost_year": 2026,
+      "intake_version": null,
+      "kind": "unit_price",
+      "location": {
+       "citation": "mean of 19 IL cities (0.92-1.00), RSMeans Residential 2020 Location Factors - Residential pp.718-722",
+       "cities": 19,
+       "city": null,
+       "factor": "0.959",
+       "from_": "state IL (subject.state (azure)): mean of 19 IL cities (0.92-1.00), RSMeans Residential 2020 Location Factors - Residential pp.718-722",
+       "high": "1.00",
+       "lookup": "state",
+       "lookup_from": "subject.state (azure)",
+       "low": "0.92",
+       "origin": "rsmeans_2020_book",
+       "pages": "718-722",
+       "state": "IL",
+       "store": null,
+       "table_year": 2020,
+       "zip": null,
+       "zip_prefixes": null
+      },
+      "location_factor": "0.959",
+      "method": {
+       "cost_basis": "installed",
+       "modifications": true,
+       "overhead_allocation": "pro_rata",
+       "rcn_source": "square_foot",
+       "specialties_residual": "building"
+      },
+      "missing": null,
+      "override": null,
+      "priced_per": null,
+      "property_class": "residential_rental",
+      "quantity": {
+       "assumptions": [
+        "roof surface: the outline's plan area x the lidar planes' slope factor"
+       ],
+       "formula": "2,316.53 SF drafted by Basis from the lidar shell: 2,011.23 SF of roof in plan x 1.1518 (the roof planes' slope, 29.5 degrees on average); not verified; expected error about 10.4 % (EVAL_REPORT 105.1: roof surface, two houses)",
+       "inputs": {
+        "assumptions": [
+         "roof surface: the outline's plan area x the lidar planes' slope factor"
+        ],
+        "component": "roof",
+        "cost_year_assumption": "no published cost index for 2026 is loaded; the latest, 239.1 (Jan 2020, est.), is applied. Enter the 2026 Historical Cost Index (RSMeans quarterly Construction Cost Index or the year's book; POST /v1/cost-indices or python -m basis.costs.refresh enter) before the study is signed",
+        "cost_year_source": "COST_YEAR setting",
+        "count": 1,
+        "draft": {
+         "blocks": true,
+         "drawn_by": "model:lidar-shell@v1",
+         "error_source": "EVAL_REPORT 105.1: roof surface, two houses",
+         "expected_error_pct": "10.4",
+         "exposure_usd": "539.66",
+         "factor": "1.1518",
+         "factor_reason": "the roof planes' slope, 29.5 degrees on average",
+         "quantity": "2316.53",
+         "replaces": {
+          "formula": "((2400 SF GLA / 2 stories) + 440 SF garage + 165.33 ft perimeter x 1 ft overhang) x 1.118 pitch",
+          "quantity": "2018.36 SF"
+         },
+         "source": "USGS 3DEP lidar IA_Test_2020 (2020), public records gather <id>",
+         "unit": "SF",
+         "verified": false,
+         "verify_above_usd": "1.0"
+        },
+        "draft_expected_error_pct": "10.4",
+        "draft_factor": "1.1518",
+        "drawn_by": "model:lidar-shell@v1",
+        "gather_id": "<id>",
+        "location_source": "state IL (subject.state (azure)): mean of 19 IL cities (0.92-1.00), RSMeans Residential 2020 Location Factors - Residential pp.718-722",
+        "measurement": {
+         "area_sf": "2011.23",
+         "corner_count": 4,
+         "cutout_count": 0,
+         "drawn_by": "model:lidar-shell@v1",
+         "expected_error_pct": "14.99",
+         "image": {
+          "pixel_size_m": 0.5,
+          "source": "USGS 3DEP lidar IA_Test_2020 (2020), public records gather <id>: the roof's outline as flown, eaves included"
+         },
+         "method": "local_tangent_plane_wgs84",
+         "quantity": "2011.23",
+         "shape_count": 1,
+         "shapes": [
+          {
+           "kind": "area",
+           "ring": [
+            [
+             -93.60010210884478,
+             41.599950592640454
+            ],
+            [
+             -93.59989789115521,
+             41.599950592640454
+            ],
+            [
+             -93.59989789115521,
+             41.600049407321706
+            ],
+            [
+             -93.60010210884478,
+             41.600049407321706
+            ]
+           ]
+          }
+         ],
+         "space": "lonlat",
+         "unit": "SF",
+         "verified": false
+        },
+        "method": "area",
+        "property_class": "residential_rental",
+        "property_class_source": "PROPERTY_CLASS setting",
+        "quantity_source": "draft",
+        "replaced_formula": "((2400 SF GLA / 2 stories) + 440 SF garage + 165.33 ft perimeter x 1 ft overhang) x 1.118 pitch",
+        "replaced_quantity": "2018.36 SF",
+        "room_area_sf": null,
+        "shape_quantity": "2011.23 SF"
+       },
+       "method": "area",
+       "unit": "SF",
+       "value": "2316.53"
+      },
+      "replaced": null,
+      "rounding": "unit_cost = base x (1 + markup, when recorded) x year factor x location factor, rounded half up to the cent; total = unit_cost x quantity, rounded half up to the cent",
+      "structure": null,
+      "total": "5189.03",
+      "unit_cost": "2.24",
+      "version": 1,
+      "year": {
+       "assumption": "no published cost index for 2026 is loaded; the latest, 239.1 (Jan 2020, est.), is applied. Enter the 2026 Historical Cost Index (RSMeans quarterly Construction Cost Index or the year's book; POST /v1/cost-indices or python -m basis.costs.refresh enter) before the study is signed",
+       "base": {
+        "as_of": "2020-01-01",
+        "citation": "RSMeans Building Construction Costs 2020 p.778",
+        "derived": null,
+        "estimated": true,
+        "store": null,
+        "value": "239.1",
+        "year": 2020
+       },
+       "citation": "HCI 239.1 (Jan 2020, est.) / 239.1 (Jan 2020, est.), RSMeans Building Construction Costs 2020 p.778",
+       "conversion": null,
+       "cost_year": 2026,
+       "factor": "1.0000",
+       "from_": "COST_YEAR setting",
+       "index": {
+        "as_of": "2020-01-01",
+        "citation": "RSMeans Building Construction Costs 2020 p.778",
+        "derived": null,
+        "estimated": true,
+        "store": null,
+        "value": "239.1",
+        "year": 2020
+       }
+      }
+     },
+     "trail_recorded": true,
+     "unit_cost": "2.24"
+    },
+    "count": 1,
+    "id": "<id>",
+    "irs_section": "1250",
+    "label": "roof",
+    "method": "llm",
+    "needs_review": true,
+    "provenance": {
+     "after": null,
+     "at": null,
+     "before": null,
+     "by": null,
+     "carried_from": null,
+     "changed": [],
+     "correction_id": null,
+     "origin": "model",
+     "review_id": null,
+     "revision": null,
+     "stage": null
+    },
+    "recovery_period": "27.5",
+    "review_codes": [
+     "BASIS-ASSETS-008",
+     "BASIS-ASSETS-007",
+     "BASIS-ASSETS-009",
+     "BASIS-COST-001",
+     "BASIS-MEASURE-001",
+     "BASIS-ASSETS-021",
+     "BASIS-ASSETS-024"
+    ],
+    "review_reasons": [
+     "missing_evidence",
+     "citation_unverified",
+     "model:scripted test answer",
+     "cost:YEAR_INDEX_MISSING",
+     "measure:DRAFT_UNVERIFIED",
+     "measure:IMAGE_UNDATED",
+     "measure:COARSE"
+    ],
+    "room": {
+     "floor": null,
+     "id": "<id>",
+     "name": "Front",
+     "room_type": "exterior"
+    },
+    "takeoff": {
+     "assumptions": [
+      "roof surface: the outline's plan area x the lidar planes' slope factor"
+     ],
+     "formula": "2,316.53 SF drafted by Basis from the lidar shell: 2,011.23 SF of roof in plan x 1.1518 (the roof planes' slope, 29.5 degrees on average); not verified; expected error about 10.4 % (EVAL_REPORT 105.1: roof surface, two houses)",
+     "inputs": {
+      "assumptions": [
+       "roof surface: the outline's plan area x the lidar planes' slope factor"
+      ],
+      "component": "roof",
+      "cost_year_assumption": "no published cost index for 2026 is loaded; the latest, 239.1 (Jan 2020, est.), is applied. Enter the 2026 Historical Cost Index (RSMeans quarterly Construction Cost Index or the year's book; POST /v1/cost-indices or python -m basis.costs.refresh enter) before the study is signed",
+      "cost_year_source": "COST_YEAR setting",
+      "count": 1,
+      "draft": {
+       "blocks": true,
+       "drawn_by": "model:lidar-shell@v1",
+       "error_source": "EVAL_REPORT 105.1: roof surface, two houses",
+       "expected_error_pct": "10.4",
+       "exposure_usd": "539.66",
+       "factor": "1.1518",
+       "factor_reason": "the roof planes' slope, 29.5 degrees on average",
+       "quantity": "2316.53",
+       "replaces": {
+        "formula": "((2400 SF GLA / 2 stories) + 440 SF garage + 165.33 ft perimeter x 1 ft overhang) x 1.118 pitch",
+        "quantity": "2018.36 SF"
+       },
+       "source": "USGS 3DEP lidar IA_Test_2020 (2020), public records gather <id>",
+       "unit": "SF",
+       "verified": false,
+       "verify_above_usd": "1.0"
+      },
+      "draft_expected_error_pct": "10.4",
+      "draft_factor": "1.1518",
+      "drawn_by": "model:lidar-shell@v1",
+      "gather_id": "<id>",
+      "location_source": "state IL (subject.state (azure)): mean of 19 IL cities (0.92-1.00), RSMeans Residential 2020 Location Factors - Residential pp.718-722",
+      "measurement": {
+       "area_sf": "2011.23",
+       "corner_count": 4,
+       "cutout_count": 0,
+       "drawn_by": "model:lidar-shell@v1",
+       "expected_error_pct": "14.99",
+       "image": {
+        "pixel_size_m": 0.5,
+        "source": "USGS 3DEP lidar IA_Test_2020 (2020), public records gather <id>: the roof's outline as flown, eaves included"
+       },
+       "method": "local_tangent_plane_wgs84",
+       "quantity": "2011.23",
+       "shape_count": 1,
+       "shapes": [
+        {
+         "kind": "area",
+         "ring": [
+          [
+           -93.60010210884478,
+           41.599950592640454
+          ],
+          [
+           -93.59989789115521,
+           41.599950592640454
+          ],
+          [
+           -93.59989789115521,
+           41.600049407321706
+          ],
+          [
+           -93.60010210884478,
+           41.600049407321706
+          ]
+         ]
+        }
+       ],
+       "space": "lonlat",
+       "unit": "SF",
+       "verified": false
+      },
+      "method": "area",
+      "property_class": "residential_rental",
+      "property_class_source": "PROPERTY_CLASS setting",
+      "quantity_source": "draft",
+      "replaced_formula": "((2400 SF GLA / 2 stories) + 440 SF garage + 165.33 ft perimeter x 1 ft overhang) x 1.118 pitch",
+      "replaced_quantity": "2018.36 SF",
+      "room_area_sf": null,
+      "shape_quantity": "2011.23 SF"
+     },
+     "method": "area",
+     "quantity": "2316.5300",
+     "unit": "SF"
+    },
+    "verified_citations": 0
+   },
+   {
+    "bucket": "y27_5",
+    "category": "Building component (scripted)",
+    "citations": 0,
+    "component_id": "<id>",
+    "confidence": 0.30000001192092896,
+    "convention": null,
+    "cost": {
+     "cost_year": 2026,
+     "location_factor": "0.959",
+     "override": null,
+     "source_row": "missing: no cost row for 'siding' per SF",
+     "total": null,
+     "trail": {
+      "base": null,
+      "cost_year": 2026,
+      "intake_version": null,
+      "kind": "unpriced",
+      "location": {
+       "citation": "mean of 19 IL cities (0.92-1.00), RSMeans Residential 2020 Location Factors - Residential pp.718-722",
+       "cities": 19,
+       "city": null,
+       "factor": "0.959",
+       "from_": "state IL (subject.state (azure)): mean of 19 IL cities (0.92-1.00), RSMeans Residential 2020 Location Factors - Residential pp.718-722",
+       "high": "1.00",
+       "lookup": "state",
+       "lookup_from": "subject.state (azure)",
+       "low": "0.92",
+       "origin": "rsmeans_2020_book",
+       "pages": "718-722",
+       "state": "IL",
+       "store": null,
+       "table_year": 2020,
+       "zip": null,
+       "zip_prefixes": null
+      },
+      "location_factor": "0.959",
+      "method": {
+       "cost_basis": "installed",
+       "modifications": true,
+       "overhead_allocation": "pro_rata",
+       "rcn_source": "square_foot",
+       "specialties_residual": "building"
+      },
+      "missing": "missing: no cost row for 'siding' per SF",
+      "override": null,
+      "priced_per": null,
+      "property_class": "residential_rental",
+      "quantity": {
+       "assumptions": [
+        "walls: the lidar roof outline less an 18 in overhang (EVAL_REPORT 105)",
+        "wall height: the main eave above grade; 15% openings; gable ends not added"
+       ],
+       "formula": "1,426.97 SF drafted by Basis from the lidar shell: 170.61 ft of wall x 9.84 ft main eave x 0.85 (less 15 % openings); not verified; expected error about 6.4 % (EVAL_REPORT 105.1: wall face, six houses)",
+       "inputs": {
+        "assumptions": [
+         "walls: the lidar roof outline less an 18 in overhang (EVAL_REPORT 105)",
+         "wall height: the main eave above grade; 15% openings; gable ends not added"
+        ],
+        "component": "siding",
+        "cost_year_assumption": "no published cost index for 2026 is loaded; the latest, 239.1 (Jan 2020, est.), is applied. Enter the 2026 Historical Cost Index (RSMeans quarterly Construction Cost Index or the year's book; POST /v1/cost-indices or python -m basis.costs.refresh enter) before the study is signed",
+        "cost_year_source": "COST_YEAR setting",
+        "count": 1,
+        "draft": {
+         "blocks": false,
+         "drawn_by": "model:lidar-shell@v1",
+         "error_source": "EVAL_REPORT 105.1: wall face, six houses",
+         "expected_error_pct": "6.4",
+         "exposure_usd": null,
+         "factor": "0.85",
+         "factor_reason": "less 15 % openings",
+         "quantity": "1426.97",
+         "replaces": {
+          "formula": "165.33 ft ground perimeter x 9 ft + 141.42 ft x 9 ft x 1 upper stories, less 15% openings",
+          "quantity": "2346.63 SF"
+         },
+         "source": "USGS 3DEP lidar IA_Test_2020 (2020), public records gather <id>",
+         "unit": "SF",
+         "verified": false,
+         "verify_above_usd": "1.0"
+        },
+        "draft_expected_error_pct": "6.4",
+        "draft_factor": "0.85",
+        "drawn_by": "model:lidar-shell@v1",
+        "gather_id": "<id>",
+        "location_source": "state IL (subject.state (azure)): mean of 19 IL cities (0.92-1.00), RSMeans Residential 2020 Location Factors - Residential pp.718-722",
+        "measurement": {
+         "corner_count": 5,
+         "cutout_count": 0,
+         "drawn_by": "model:lidar-shell@v1",
+         "expected_error_pct": "1.92",
+         "height_ft": 9.84,
+         "image": {
+          "pixel_size_m": 0.5,
+          "source": "USGS 3DEP lidar IA_Test_2020 (2020), public records gather <id>: walls 18 in inside the roof's edge, main eave height"
+         },
+         "length_ft": "170.61",
+         "method": "local_tangent_plane_wgs84",
+         "quantity": "1678.79",
+         "shape_count": 1,
+         "shapes": [
+          {
+           "kind": "line",
+           "path": [
+            [
+             -93.60009610244214,
+             41.599955084220156
+            ],
+            [
+             -93.59990389755784,
+             41.599955084220156
+            ],
+            [
+             -93.59990389755784,
+             41.60004491574859
+            ],
+            [
+             -93.60009610244214,
+             41.60004491574859
+            ],
+            [
+             -93.60009610244214,
+             41.599955084220156
+            ]
+           ]
+          }
+         ],
+         "space": "lonlat",
+         "unit": "SF",
+         "verified": false
+        },
+        "method": "area",
+        "property_class": "residential_rental",
+        "property_class_source": "PROPERTY_CLASS setting",
+        "quantity_source": "draft",
+        "replaced_formula": "165.33 ft ground perimeter x 9 ft + 141.42 ft x 9 ft x 1 upper stories, less 15% openings",
+        "replaced_quantity": "2346.63 SF",
+        "room_area_sf": null,
+        "shape_quantity": "1678.79 SF"
+       },
+       "method": "area",
+       "unit": "SF",
+       "value": "1426.97"
+      },
+      "replaced": null,
+      "rounding": null,
+      "structure": null,
+      "total": null,
+      "unit_cost": null,
+      "version": 1,
+      "year": {
+       "assumption": "no published cost index for 2026 is loaded; the latest, 239.1 (Jan 2020, est.), is applied. Enter the 2026 Historical Cost Index (RSMeans quarterly Construction Cost Index or the year's book; POST /v1/cost-indices or python -m basis.costs.refresh enter) before the study is signed",
+       "base": {
+        "as_of": "2020-01-01",
+        "citation": "RSMeans Building Construction Costs 2020 p.778",
+        "derived": null,
+        "estimated": true,
+        "store": null,
+        "value": "239.1",
+        "year": 2020
+       },
+       "citation": "HCI 239.1 (Jan 2020, est.) / 239.1 (Jan 2020, est.), RSMeans Building Construction Costs 2020 p.778",
+       "conversion": null,
+       "cost_year": 2026,
+       "factor": "1.0000",
+       "from_": "COST_YEAR setting",
+       "index": {
+        "as_of": "2020-01-01",
+        "citation": "RSMeans Building Construction Costs 2020 p.778",
+        "derived": null,
+        "estimated": true,
+        "store": null,
+        "value": "239.1",
+        "year": 2020
+       }
+      }
+     },
+     "trail_recorded": true,
+     "unit_cost": null
+    },
+    "count": 1,
+    "id": "<id>",
+    "irs_section": "1250",
+    "label": "siding",
+    "method": "llm",
+    "needs_review": true,
+    "provenance": {
+     "after": null,
+     "at": null,
+     "before": null,
+     "by": null,
+     "carried_from": null,
+     "changed": [],
+     "correction_id": null,
+     "origin": "model",
+     "review_id": null,
+     "revision": null,
+     "stage": null
+    },
+    "recovery_period": "27.5",
+    "review_codes": [
+     "BASIS-ASSETS-008",
+     "BASIS-ASSETS-007",
+     "BASIS-ASSETS-009",
+     "BASIS-CHECK-012",
+     "BASIS-MEASURE-001",
+     "BASIS-ASSETS-021"
+    ],
+    "review_reasons": [
+     "missing_evidence",
+     "citation_unverified",
+     "model:scripted test answer",
+     "cross:COST_ROW_MISSING",
+     "measure:DRAFT_UNVERIFIED",
+     "measure:IMAGE_UNDATED"
+    ],
+    "room": {
+     "floor": null,
+     "id": "<id>",
+     "name": "Front",
+     "room_type": "exterior"
+    },
+    "takeoff": {
+     "assumptions": [
+      "walls: the lidar roof outline less an 18 in overhang (EVAL_REPORT 105)",
+      "wall height: the main eave above grade; 15% openings; gable ends not added"
+     ],
+     "formula": "1,426.97 SF drafted by Basis from the lidar shell: 170.61 ft of wall x 9.84 ft main eave x 0.85 (less 15 % openings); not verified; expected error about 6.4 % (EVAL_REPORT 105.1: wall face, six houses)",
+     "inputs": {
+      "assumptions": [
+       "walls: the lidar roof outline less an 18 in overhang (EVAL_REPORT 105)",
+       "wall height: the main eave above grade; 15% openings; gable ends not added"
+      ],
+      "component": "siding",
+      "cost_year_assumption": "no published cost index for 2026 is loaded; the latest, 239.1 (Jan 2020, est.), is applied. Enter the 2026 Historical Cost Index (RSMeans quarterly Construction Cost Index or the year's book; POST /v1/cost-indices or python -m basis.costs.refresh enter) before the study is signed",
+      "cost_year_source": "COST_YEAR setting",
+      "count": 1,
+      "draft": {
+       "blocks": false,
+       "drawn_by": "model:lidar-shell@v1",
+       "error_source": "EVAL_REPORT 105.1: wall face, six houses",
+       "expected_error_pct": "6.4",
+       "exposure_usd": null,
+       "factor": "0.85",
+       "factor_reason": "less 15 % openings",
+       "quantity": "1426.97",
+       "replaces": {
+        "formula": "165.33 ft ground perimeter x 9 ft + 141.42 ft x 9 ft x 1 upper stories, less 15% openings",
+        "quantity": "2346.63 SF"
+       },
+       "source": "USGS 3DEP lidar IA_Test_2020 (2020), public records gather <id>",
+       "unit": "SF",
+       "verified": false,
+       "verify_above_usd": "1.0"
+      },
+      "draft_expected_error_pct": "6.4",
+      "draft_factor": "0.85",
+      "drawn_by": "model:lidar-shell@v1",
+      "gather_id": "<id>",
+      "location_source": "state IL (subject.state (azure)): mean of 19 IL cities (0.92-1.00), RSMeans Residential 2020 Location Factors - Residential pp.718-722",
+      "measurement": {
+       "corner_count": 5,
+       "cutout_count": 0,
+       "drawn_by": "model:lidar-shell@v1",
+       "expected_error_pct": "1.92",
+       "height_ft": 9.84,
+       "image": {
+        "pixel_size_m": 0.5,
+        "source": "USGS 3DEP lidar IA_Test_2020 (2020), public records gather <id>: walls 18 in inside the roof's edge, main eave height"
+       },
+       "length_ft": "170.61",
+       "method": "local_tangent_plane_wgs84",
+       "quantity": "1678.79",
+       "shape_count": 1,
+       "shapes": [
+        {
+         "kind": "line",
+         "path": [
+          [
+           -93.60009610244214,
+           41.599955084220156
+          ],
+          [
+           -93.59990389755784,
+           41.599955084220156
+          ],
+          [
+           -93.59990389755784,
+           41.60004491574859
+          ],
+          [
+           -93.60009610244214,
+           41.60004491574859
+          ],
+          [
+           -93.60009610244214,
+           41.599955084220156
+          ]
+         ]
+        }
+       ],
+       "space": "lonlat",
+       "unit": "SF",
+       "verified": false
+      },
+      "method": "area",
+      "property_class": "residential_rental",
+      "property_class_source": "PROPERTY_CLASS setting",
+      "quantity_source": "draft",
+      "replaced_formula": "165.33 ft ground perimeter x 9 ft + 141.42 ft x 9 ft x 1 upper stories, less 15% openings",
+      "replaced_quantity": "2346.63 SF",
+      "room_area_sf": null,
+      "shape_quantity": "1678.79 SF"
+     },
+     "method": "area",
+     "quantity": "1426.9700",
+     "unit": "SF"
+    },
+    "verified_citations": 0
+   },
+   {
+    "bucket": "y27_5",
+    "category": "Building component (scripted)",
+    "citations": 0,
+    "component_id": "<id>",
+    "confidence": 0.30000001192092896,
+    "convention": null,
+    "cost": {
+     "cost_year": 2026,
+     "location_factor": "0.959",
+     "override": null,
+     "source_row": "synthetic_2020[wall_finish] synthetic 09-0001, p. 3 per SF; Total Incl O&P; x1.169835 general contractor's overhead and profit pro rata (Average 2 Story item 10 17.24 / components 1-9 101.51 per SF, RSMeans Residential Costs 2020, Average 2 Story model, printed p.43 (PDF p.57); ATG ch. 4 C.11(2)) (base 2020, x1.0000 for 2026 = HCI 239.1 (Jan 2020, est.) / 239.1 (Jan 2020, est.), RSMeans Building Construction Costs 2020 p.778; no 2026 index loaded, the latest applied (assumption), from COST_YEAR setting; x0.959 location from state IL (subject.state (azure)): mean of 19 IL cities (0.92-1.00), RSMeans Residential 2020 Location Factors - Residential pp.718-722)",
+     "total": "678.24",
+     "trail": {
+      "base": {
+       "assumption": null,
+       "base_year": 2020,
+       "basis": "installed",
+       "basis_how": "Total Incl O&P",
+       "conversion": null,
+       "markup": {
+        "rate": "0.169835",
+        "source": "general contractor's overhead and profit pro rata (Average 2 Story item 10 17.24 / components 1-9 101.51 per SF, RSMeans Residential Costs 2020, Average 2 Story model, printed p.43 (PDF p.57); ATG ch. 4 C.11(2))"
+       },
+       "row": "wall_finish",
+       "row_unit": "S.F.",
+       "source": "synthetic 09-0001, p. 3",
+       "table": "synthetic_2020",
+       "tier": null,
+       "unit": "SF",
+       "unit_cost": "1.4"
+      },
+      "cost_year": 2026,
+      "intake_version": null,
+      "kind": "unit_price",
+      "location": {
+       "citation": "mean of 19 IL cities (0.92-1.00), RSMeans Residential 2020 Location Factors - Residential pp.718-722",
+       "cities": 19,
+       "city": null,
+       "factor": "0.959",
+       "from_": "state IL (subject.state (azure)): mean of 19 IL cities (0.92-1.00), RSMeans Residential 2020 Location Factors - Residential pp.718-722",
+       "high": "1.00",
+       "lookup": "state",
+       "lookup_from": "subject.state (azure)",
+       "low": "0.92",
+       "origin": "rsmeans_2020_book",
+       "pages": "718-722",
+       "state": "IL",
+       "store": null,
+       "table_year": 2020,
+       "zip": null,
+       "zip_prefixes": null
+      },
+      "location_factor": "0.959",
+      "method": {
+       "cost_basis": "installed",
+       "modifications": true,
+       "overhead_allocation": "pro_rata",
+       "rcn_source": "square_foot",
+       "specialties_residual": "building"
+      },
+      "missing": null,
+      "override": null,
+      "priced_per": null,
+      "property_class": "residential_rental",
+      "quantity": {
+       "assumptions": [
+        "measured from ordinary room photos against objects of known size (EVAL_REPORT 107)"
+       ],
+       "formula": "432.00 SF drafted by Basis from the room's photos: 432.00 SF of wall; not verified; expected error about 11.9 % (EVAL_REPORT 107.4: wall area, 15 rooms)",
+       "inputs": {
+        "assumptions": [
+         "measured from ordinary room photos against objects of known size (EVAL_REPORT 107)"
+        ],
+        "component": "wall_finish",
+        "cost_year_assumption": "no published cost index for 2026 is loaded; the latest, 239.1 (Jan 2020, est.), is applied. Enter the 2026 Historical Cost Index (RSMeans quarterly Construction Cost Index or the year's book; POST /v1/cost-indices or python -m basis.costs.refresh enter) before the study is signed",
+        "cost_year_source": "COST_YEAR setting",
+        "count": 1,
+        "draft": {
+         "answer": {
+          "cabinet_lf": "16.0",
+          "ceiling_height_ft": "8.0",
+          "countertop_sf": "28.0",
+          "floor_area_sf": "180.0",
+          "length_ft": "15.0",
+          "perimeter_ft": "54.0",
+          "wall_area_sf": "432.0",
+          "width_ft": "12.0"
+         },
+         "blocks": true,
+         "confidence": "medium",
+         "drawn_by": "model:claude-sonnet-5-5@measure_interior_reference-v1",
+         "error_source": "EVAL_REPORT 107.4: wall area, 15 rooms",
+         "expected_error_pct": "11.9",
+         "exposure_usd": "80.71",
+         "notes": "measured against the door",
+         "photos": [
+          "<id>",
+          "<id>"
+         ],
+         "quantity": "432.00",
+         "replaces": {
+          "formula": "233.77 SF x 3.5 x 1 waste",
+          "quantity": "818.20 SF"
+         },
+         "room_fully_seen": false,
+         "source": "2 photos of the room",
+         "unit": "SF",
+         "verified": false,
+         "verify_above_usd": "1.0"
+        },
+        "draft_expected_error_pct": "11.9",
+        "draft_quantity": "wall_area_sf",
+        "drawn_by": "model:claude-sonnet-5-5@measure_interior_reference-v1",
+        "gla_field": "improvements.gla_sqft (azure)",
+        "gla_sf": "2400",
+        "location_source": "state IL (subject.state (azure)): mean of 19 IL cities (0.92-1.00), RSMeans Residential 2020 Location Factors - Residential pp.718-722",
+        "method": "area",
+        "per_sf": "3.5",
+        "program_baths_field": "improvements.bathrooms (azure)",
+        "program_bedrooms": "4",
+        "program_bedrooms_field": "improvements.bedrooms (azure)",
+        "program_formula": "kitchen 150 + 4 bedrooms x 150 + 2 full baths x 75 + 1 half baths x 40 + 3 other rooms x 200",
+        "program_full_baths": "2",
+        "program_half_baths": "1",
+        "program_other_rooms": "3",
+        "program_rooms": "8",
+        "program_rooms_field": "improvements.total_rooms (azure)",
+        "program_weight_sf": "1540",
+        "property_class": "residential_rental",
+        "property_class_source": "PROPERTY_CLASS setting",
+        "quantity_source": "draft",
+        "replaced_formula": "233.77 SF x 3.5 x 1 waste",
+        "replaced_quantity": "818.20 SF",
+        "replaced_room_area_sf": "233.77",
+        "room_area_formula": "2400 SF GLA x 150 / 1540 (kitchen weight / program weight)",
+        "room_area_sf": "180",
+        "room_area_source": "room_photos_draft",
+        "room_weight_sf": "150",
+        "scale": "1.5584",
+        "study_weight_sf": "225",
+        "waste_factor": "1",
+        "weight_total_from": "program weight",
+        "weight_total_sf": "1540"
+       },
+       "method": "area",
+       "unit": "SF",
+       "value": "432.00"
+      },
+      "replaced": null,
+      "rounding": "unit_cost = base x (1 + markup, when recorded) x year factor x location factor, rounded half up to the cent; total = unit_cost x quantity, rounded half up to the cent",
+      "structure": null,
+      "total": "678.24",
+      "unit_cost": "1.57",
+      "version": 1,
+      "year": {
+       "assumption": "no published cost index for 2026 is loaded; the latest, 239.1 (Jan 2020, est.), is applied. Enter the 2026 Historical Cost Index (RSMeans quarterly Construction Cost Index or the year's book; POST /v1/cost-indices or python -m basis.costs.refresh enter) before the study is signed",
+       "base": {
+        "as_of": "2020-01-01",
+        "citation": "RSMeans Building Construction Costs 2020 p.778",
+        "derived": null,
+        "estimated": true,
+        "store": null,
+        "value": "239.1",
+        "year": 2020
+       },
+       "citation": "HCI 239.1 (Jan 2020, est.) / 239.1 (Jan 2020, est.), RSMeans Building Construction Costs 2020 p.778",
+       "conversion": null,
+       "cost_year": 2026,
+       "factor": "1.0000",
+       "from_": "COST_YEAR setting",
+       "index": {
+        "as_of": "2020-01-01",
+        "citation": "RSMeans Building Construction Costs 2020 p.778",
+        "derived": null,
+        "estimated": true,
+        "store": null,
+        "value": "239.1",
+        "year": 2020
+       }
+      }
+     },
+     "trail_recorded": true,
+     "unit_cost": "1.57"
+    },
+    "count": 1,
+    "id": "<id>",
+    "irs_section": "1250",
+    "label": "wall_finish",
+    "method": "llm",
+    "needs_review": true,
+    "provenance": {
+     "after": null,
+     "at": null,
+     "before": null,
+     "by": null,
+     "carried_from": null,
+     "changed": [],
+     "correction_id": null,
+     "origin": "model",
+     "review_id": null,
+     "revision": null,
+     "stage": null
+    },
+    "recovery_period": "27.5",
+    "review_codes": [
+     "BASIS-ASSETS-008",
+     "BASIS-ASSETS-007",
+     "BASIS-ASSETS-009",
+     "BASIS-COST-001",
+     "BASIS-MEASURE-001"
+    ],
+    "review_reasons": [
+     "missing_evidence",
+     "citation_unverified",
+     "model:scripted test answer",
+     "cost:YEAR_INDEX_MISSING",
+     "measure:DRAFT_UNVERIFIED"
+    ],
+    "room": {
+     "floor": null,
+     "id": "<id>",
+     "name": "Kitchen",
+     "room_type": "kitchen"
+    },
+    "takeoff": {
+     "assumptions": [
+      "measured from ordinary room photos against objects of known size (EVAL_REPORT 107)"
+     ],
+     "formula": "432.00 SF drafted by Basis from the room's photos: 432.00 SF of wall; not verified; expected error about 11.9 % (EVAL_REPORT 107.4: wall area, 15 rooms)",
+     "inputs": {
+      "assumptions": [
+       "measured from ordinary room photos against objects of known size (EVAL_REPORT 107)"
+      ],
+      "component": "wall_finish",
+      "cost_year_assumption": "no published cost index for 2026 is loaded; the latest, 239.1 (Jan 2020, est.), is applied. Enter the 2026 Historical Cost Index (RSMeans quarterly Construction Cost Index or the year's book; POST /v1/cost-indices or python -m basis.costs.refresh enter) before the study is signed",
+      "cost_year_source": "COST_YEAR setting",
+      "count": 1,
+      "draft": {
+       "answer": {
+        "cabinet_lf": "16.0",
+        "ceiling_height_ft": "8.0",
+        "countertop_sf": "28.0",
+        "floor_area_sf": "180.0",
+        "length_ft": "15.0",
+        "perimeter_ft": "54.0",
+        "wall_area_sf": "432.0",
+        "width_ft": "12.0"
+       },
+       "blocks": true,
+       "confidence": "medium",
+       "drawn_by": "model:claude-sonnet-5-5@measure_interior_reference-v1",
+       "error_source": "EVAL_REPORT 107.4: wall area, 15 rooms",
+       "expected_error_pct": "11.9",
+       "exposure_usd": "80.71",
+       "notes": "measured against the door",
+       "photos": [
+        "<id>",
+        "<id>"
+       ],
+       "quantity": "432.00",
+       "replaces": {
+        "formula": "233.77 SF x 3.5 x 1 waste",
+        "quantity": "818.20 SF"
+       },
+       "room_fully_seen": false,
+       "source": "2 photos of the room",
+       "unit": "SF",
+       "verified": false,
+       "verify_above_usd": "1.0"
+      },
+      "draft_expected_error_pct": "11.9",
+      "draft_quantity": "wall_area_sf",
+      "drawn_by": "model:claude-sonnet-5-5@measure_interior_reference-v1",
+      "gla_field": "improvements.gla_sqft (azure)",
+      "gla_sf": "2400",
+      "location_source": "state IL (subject.state (azure)): mean of 19 IL cities (0.92-1.00), RSMeans Residential 2020 Location Factors - Residential pp.718-722",
+      "method": "area",
+      "per_sf": "3.5",
+      "program_baths_field": "improvements.bathrooms (azure)",
+      "program_bedrooms": "4",
+      "program_bedrooms_field": "improvements.bedrooms (azure)",
+      "program_formula": "kitchen 150 + 4 bedrooms x 150 + 2 full baths x 75 + 1 half baths x 40 + 3 other rooms x 200",
+      "program_full_baths": "2",
+      "program_half_baths": "1",
+      "program_other_rooms": "3",
+      "program_rooms": "8",
+      "program_rooms_field": "improvements.total_rooms (azure)",
+      "program_weight_sf": "1540",
+      "property_class": "residential_rental",
+      "property_class_source": "PROPERTY_CLASS setting",
+      "quantity_source": "draft",
+      "replaced_formula": "233.77 SF x 3.5 x 1 waste",
+      "replaced_quantity": "818.20 SF",
+      "replaced_room_area_sf": "233.77",
+      "room_area_formula": "2400 SF GLA x 150 / 1540 (kitchen weight / program weight)",
+      "room_area_sf": "180",
+      "room_area_source": "room_photos_draft",
+      "room_weight_sf": "150",
+      "scale": "1.5584",
+      "study_weight_sf": "225",
+      "waste_factor": "1",
+      "weight_total_from": "program weight",
+      "weight_total_sf": "1540"
+     },
+     "method": "area",
+     "quantity": "432.0000",
+     "unit": "SF"
+    },
+    "verified_citations": 0
+   }
+  ]
+ },
+ "not_drafted": {
+  "items": [
+   {
+    "bucket": "y27_5",
+    "category": "Building component (scripted)",
+    "citations": 0,
+    "component_id": "<id>",
+    "confidence": 0.30000001192092896,
+    "convention": null,
+    "cost": {
+     "cost_year": 2026,
+     "location_factor": "0.959",
+     "override": null,
+     "source_row": "missing: no cost row for 'gutter' per LF",
+     "total": null,
+     "trail": {
+      "base": null,
+      "cost_year": 2026,
+      "intake_version": null,
+      "kind": "unpriced",
+      "location": {
+       "citation": "mean of 19 IL cities (0.92-1.00), RSMeans Residential 2020 Location Factors - Residential pp.718-722",
+       "cities": 19,
+       "city": null,
+       "factor": "0.959",
+       "from_": "state IL (subject.state (azure)): mean of 19 IL cities (0.92-1.00), RSMeans Residential 2020 Location Factors - Residential pp.718-722",
+       "high": "1.00",
+       "lookup": "state",
+       "lookup_from": "subject.state (azure)",
+       "low": "0.92",
+       "origin": "rsmeans_2020_book",
+       "pages": "718-722",
+       "state": "IL",
+       "store": null,
+       "table_year": 2020,
+       "zip": null,
+       "zip_prefixes": null
+      },
+      "location_factor": "0.959",
+      "method": {
+       "cost_basis": "installed",
+       "modifications": true,
+       "overhead_allocation": "pro_rata",
+       "rcn_source": "square_foot",
+       "specialties_residual": "building"
+      },
+      "missing": "missing: no cost row for 'gutter' per LF",
+      "override": null,
+      "priced_per": null,
+      "property_class": "residential_rental",
+      "quantity": {
+       "assumptions": [
+        "the garage is attached and shares the roof",
+        "rectangular footprint, 1.50:1",
+        "gable roof: gutters on the two long eaves (a hip roof takes the whole perimeter)"
+       ],
+       "formula": "2 eaves x (49.60 ft long side + 2 x 1 ft overhang)",
+       "inputs": {
+        "aspect_ratio": "1.50",
+        "assumptions": [
+         "the garage is attached and shares the roof",
+         "rectangular footprint, 1.50:1",
+         "gable roof: gutters on the two long eaves (a hip roof takes the whole perimeter)"
+        ],
+        "component": "gutter",
+        "cost_year_assumption": "no published cost index for 2026 is loaded; the latest, 239.1 (Jan 2020, est.), is applied. Enter the 2026 Historical Cost Index (RSMeans quarterly Construction Cost Index or the year's book; POST /v1/cost-indices or python -m basis.costs.refresh enter) before the study is signed",
+        "cost_year_source": "COST_YEAR setting",
+        "count": 1,
+        "draft_not_used": "the pin is not confirmed (nothing is measured before it)",
+        "draft_not_used_code": "BASIS-MEASURE-004",
+        "eaves": "2",
+        "garage_sf": "440",
+        "garage_sf_field": "cost_approach.garage_sqft (azure)",
+        "gla_field": "improvements.gla_sqft (azure)",
+        "gla_sf": "2400",
+        "ground_footprint_sf": "1640",
+        "location_source": "state IL (subject.state (azure)): mean of 19 IL cities (0.92-1.00), RSMeans Residential 2020 Location Factors - Residential pp.718-722",
+        "long_side_ft": "49.60",
+        "method": "perimeter",
+        "overhang_ft": "1",
+        "property_class": "residential_rental",
+        "property_class_source": "PROPERTY_CLASS setting",
+        "quantity_source": "appraisal_derived",
+        "room_area_sf": null,
+        "stories": "2",
+        "stories_field": "improvements.stories (azure)"
+       },
+       "method": "perimeter",
+       "unit": "LF",
+       "value": "103.20"
+      },
+      "replaced": null,
+      "rounding": null,
+      "structure": null,
+      "total": null,
+      "unit_cost": null,
+      "version": 1,
+      "year": {
+       "assumption": "no published cost index for 2026 is loaded; the latest, 239.1 (Jan 2020, est.), is applied. Enter the 2026 Historical Cost Index (RSMeans quarterly Construction Cost Index or the year's book; POST /v1/cost-indices or python -m basis.costs.refresh enter) before the study is signed",
+       "base": {
+        "as_of": "2020-01-01",
+        "citation": "RSMeans Building Construction Costs 2020 p.778",
+        "derived": null,
+        "estimated": true,
+        "store": null,
+        "value": "239.1",
+        "year": 2020
+       },
+       "citation": "HCI 239.1 (Jan 2020, est.) / 239.1 (Jan 2020, est.), RSMeans Building Construction Costs 2020 p.778",
+       "conversion": null,
+       "cost_year": 2026,
+       "factor": "1.0000",
+       "from_": "COST_YEAR setting",
+       "index": {
+        "as_of": "2020-01-01",
+        "citation": "RSMeans Building Construction Costs 2020 p.778",
+        "derived": null,
+        "estimated": true,
+        "store": null,
+        "value": "239.1",
+        "year": 2020
+       }
+      }
+     },
+     "trail_recorded": true,
+     "unit_cost": null
+    },
+    "count": 1,
+    "id": "<id>",
+    "irs_section": "1250",
+    "label": "gutter",
+    "method": "llm",
+    "needs_review": true,
+    "provenance": {
+     "after": null,
+     "at": null,
+     "before": null,
+     "by": null,
+     "carried_from": null,
+     "changed": [],
+     "correction_id": null,
+     "origin": "model",
+     "review_id": null,
+     "revision": null,
+     "stage": null
+    },
+    "recovery_period": "27.5",
+    "review_codes": [
+     "BASIS-ASSETS-008",
+     "BASIS-ASSETS-007",
+     "BASIS-ASSETS-009",
+     "BASIS-CHECK-012"
+    ],
+    "review_reasons": [
+     "missing_evidence",
+     "citation_unverified",
+     "model:scripted test answer",
+     "cross:COST_ROW_MISSING"
+    ],
+    "room": {
+     "floor": null,
+     "id": "<id>",
+     "name": "Front",
+     "room_type": "exterior"
+    },
+    "takeoff": {
+     "assumptions": [
+      "the garage is attached and shares the roof",
+      "rectangular footprint, 1.50:1",
+      "gable roof: gutters on the two long eaves (a hip roof takes the whole perimeter)"
+     ],
+     "formula": "2 eaves x (49.60 ft long side + 2 x 1 ft overhang)",
+     "inputs": {
+      "aspect_ratio": "1.50",
+      "assumptions": [
+       "the garage is attached and shares the roof",
+       "rectangular footprint, 1.50:1",
+       "gable roof: gutters on the two long eaves (a hip roof takes the whole perimeter)"
+      ],
+      "component": "gutter",
+      "cost_year_assumption": "no published cost index for 2026 is loaded; the latest, 239.1 (Jan 2020, est.), is applied. Enter the 2026 Historical Cost Index (RSMeans quarterly Construction Cost Index or the year's book; POST /v1/cost-indices or python -m basis.costs.refresh enter) before the study is signed",
+      "cost_year_source": "COST_YEAR setting",
+      "count": 1,
+      "draft_not_used": "the pin is not confirmed (nothing is measured before it)",
+      "draft_not_used_code": "BASIS-MEASURE-004",
+      "eaves": "2",
+      "garage_sf": "440",
+      "garage_sf_field": "cost_approach.garage_sqft (azure)",
+      "gla_field": "improvements.gla_sqft (azure)",
+      "gla_sf": "2400",
+      "ground_footprint_sf": "1640",
+      "location_source": "state IL (subject.state (azure)): mean of 19 IL cities (0.92-1.00), RSMeans Residential 2020 Location Factors - Residential pp.718-722",
+      "long_side_ft": "49.60",
+      "method": "perimeter",
+      "overhang_ft": "1",
+      "property_class": "residential_rental",
+      "property_class_source": "PROPERTY_CLASS setting",
+      "quantity_source": "appraisal_derived",
+      "room_area_sf": null,
+      "stories": "2",
+      "stories_field": "improvements.stories (azure)"
+     },
+     "method": "perimeter",
+     "quantity": "103.2000",
+     "unit": "LF"
+    },
+    "verified_citations": 0
+   },
+   {
+    "bucket": "y27_5",
+    "category": "Building component (scripted)",
+    "citations": 0,
+    "component_id": "<id>",
+    "confidence": 0.30000001192092896,
+    "convention": null,
+    "cost": {
+     "cost_year": 2026,
+     "location_factor": "0.959",
+     "override": null,
+     "source_row": "synthetic_2020[roof] synthetic 07-0001, p. 4 per SF x0.01 from per Sq.; Total Incl O&P; assumes per square (100 SF); x1.169835 general contractor's overhead and profit pro rata (Average 2 Story item 10 17.24 / components 1-9 101.51 per SF, RSMeans Residential Costs 2020, Average 2 Story model, printed p.43 (PDF p.57); ATG ch. 4 C.11(2)) (base 2020, x1.0000 for 2026 = HCI 239.1 (Jan 2020, est.) / 239.1 (Jan 2020, est.), RSMeans Building Construction Costs 2020 p.778; no 2026 index loaded, the latest applied (assumption), from COST_YEAR setting; x0.959 location from state IL (subject.state (azure)): mean of 19 IL cities (0.92-1.00), RSMeans Residential 2020 Location Factors - Residential pp.718-722)",
+     "total": "0.00",
+     "trail": {
+      "base": {
+       "assumption": "per square (100 SF)",
+       "base_year": 2020,
+       "basis": "installed",
+       "basis_how": "Total Incl O&P",
+       "conversion": "x0.01 from per Sq.",
+       "markup": {
+        "rate": "0.169835",
+        "source": "general contractor's overhead and profit pro rata (Average 2 Story item 10 17.24 / components 1-9 101.51 per SF, RSMeans Residential Costs 2020, Average 2 Story model, printed p.43 (PDF p.57); ATG ch. 4 C.11(2))"
+       },
+       "row": "roof",
+       "row_unit": "Sq.",
+       "source": "synthetic 07-0001, p. 4",
+       "table": "synthetic_2020",
+       "tier": null,
+       "unit": "SF",
+       "unit_cost": "2.00"
+      },
+      "cost_year": 2026,
+      "intake_version": null,
+      "kind": "unit_price",
+      "location": {
+       "citation": "mean of 19 IL cities (0.92-1.00), RSMeans Residential 2020 Location Factors - Residential pp.718-722",
+       "cities": 19,
+       "city": null,
+       "factor": "0.959",
+       "from_": "state IL (subject.state (azure)): mean of 19 IL cities (0.92-1.00), RSMeans Residential 2020 Location Factors - Residential pp.718-722",
+       "high": "1.00",
+       "lookup": "state",
+       "lookup_from": "subject.state (azure)",
+       "low": "0.92",
+       "origin": "rsmeans_2020_book",
+       "pages": "718-722",
+       "state": "IL",
+       "store": null,
+       "table_year": 2020,
+       "zip": null,
+       "zip_prefixes": null
+      },
+      "location_factor": "0.959",
+      "method": {
+       "cost_basis": "installed",
+       "modifications": true,
+       "overhead_allocation": "pro_rata",
+       "rcn_source": "square_foot",
+       "specialties_residual": "building"
+      },
+      "missing": null,
+      "override": null,
+      "priced_per": null,
+      "property_class": "residential_rental",
+      "quantity": {
+       "assumptions": [
+        "the garage is attached and shares the roof",
+        "rectangular footprint, 1.50:1",
+        "6/12 pitch (factor 1.118); 1 ft eave overhang; no waste"
+       ],
+       "formula": "measured once per property: see asset <id>",
+       "inputs": {
+        "aspect_ratio": "1.50",
+        "assumptions": [
+         "the garage is attached and shares the roof",
+         "rectangular footprint, 1.50:1",
+         "6/12 pitch (factor 1.118); 1 ft eave overhang; no waste"
+        ],
+        "component": "roof",
+        "cost_year_assumption": "no published cost index for 2026 is loaded; the latest, 239.1 (Jan 2020, est.), is applied. Enter the 2026 Historical Cost Index (RSMeans quarterly Construction Cost Index or the year's book; POST /v1/cost-indices or python -m basis.costs.refresh enter) before the study is signed",
+        "cost_year_source": "COST_YEAR setting",
+        "count": 1,
+        "draft_not_used": "the pin is not confirmed (nothing is measured before it)",
+        "draft_not_used_code": "BASIS-MEASURE-004",
+        "garage_sf": "440",
+        "garage_sf_field": "cost_approach.garage_sqft (azure)",
+        "gla_field": "improvements.gla_sqft (azure)",
+        "gla_sf": "2400",
+        "ground_footprint_sf": "1640",
+        "location_source": "state IL (subject.state (azure)): mean of 19 IL cities (0.92-1.00), RSMeans Residential 2020 Location Factors - Residential pp.718-722",
+        "measured_with_asset": "<id>",
+        "method": "area",
+        "overhang_ft": "1",
+        "perimeter_ft": "165.33",
+        "pitch_factor": "1.118",
+        "property_class": "residential_rental",
+        "property_class_source": "PROPERTY_CLASS setting",
+        "quantity_source": "appraisal_derived",
+        "room_area_sf": null,
+        "stories": "2",
+        "stories_field": "improvements.stories (azure)"
+       },
+       "method": "area",
+       "unit": "SF",
+       "value": "0.00"
+      },
+      "replaced": null,
+      "rounding": "unit_cost = base x (1 + markup, when recorded) x year factor x location factor, rounded half up to the cent; total = unit_cost x quantity, rounded half up to the cent",
+      "structure": null,
+      "total": "0.00",
+      "unit_cost": "2.24",
+      "version": 1,
+      "year": {
+       "assumption": "no published cost index for 2026 is loaded; the latest, 239.1 (Jan 2020, est.), is applied. Enter the 2026 Historical Cost Index (RSMeans quarterly Construction Cost Index or the year's book; POST /v1/cost-indices or python -m basis.costs.refresh enter) before the study is signed",
+       "base": {
+        "as_of": "2020-01-01",
+        "citation": "RSMeans Building Construction Costs 2020 p.778",
+        "derived": null,
+        "estimated": true,
+        "store": null,
+        "value": "239.1",
+        "year": 2020
+       },
+       "citation": "HCI 239.1 (Jan 2020, est.) / 239.1 (Jan 2020, est.), RSMeans Building Construction Costs 2020 p.778",
+       "conversion": null,
+       "cost_year": 2026,
+       "factor": "1.0000",
+       "from_": "COST_YEAR setting",
+       "index": {
+        "as_of": "2020-01-01",
+        "citation": "RSMeans Building Construction Costs 2020 p.778",
+        "derived": null,
+        "estimated": true,
+        "store": null,
+        "value": "239.1",
+        "year": 2020
+       }
+      }
+     },
+     "trail_recorded": true,
+     "unit_cost": "2.24"
+    },
+    "count": 1,
+    "id": "<id>",
+    "irs_section": "1250",
+    "label": "roof",
+    "method": "llm",
+    "needs_review": true,
+    "provenance": {
+     "after": null,
+     "at": null,
+     "before": null,
+     "by": null,
+     "carried_from": null,
+     "changed": [],
+     "correction_id": null,
+     "origin": "model",
+     "review_id": null,
+     "revision": null,
+     "stage": null
+    },
+    "recovery_period": "27.5",
+    "review_codes": [
+     "BASIS-ASSETS-008",
+     "BASIS-ASSETS-007",
+     "BASIS-ASSETS-009",
+     "BASIS-COST-001"
+    ],
+    "review_reasons": [
+     "missing_evidence",
+     "citation_unverified",
+     "model:scripted test answer",
+     "cost:YEAR_INDEX_MISSING"
+    ],
+    "room": {
+     "floor": null,
+     "id": "<id>",
+     "name": "Front",
+     "room_type": "exterior"
+    },
+    "takeoff": {
+     "assumptions": [
+      "the garage is attached and shares the roof",
+      "rectangular footprint, 1.50:1",
+      "6/12 pitch (factor 1.118); 1 ft eave overhang; no waste"
+     ],
+     "formula": "measured once per property: see asset <id>",
+     "inputs": {
+      "aspect_ratio": "1.50",
+      "assumptions": [
+       "the garage is attached and shares the roof",
+       "rectangular footprint, 1.50:1",
+       "6/12 pitch (factor 1.118); 1 ft eave overhang; no waste"
+      ],
+      "component": "roof",
+      "cost_year_assumption": "no published cost index for 2026 is loaded; the latest, 239.1 (Jan 2020, est.), is applied. Enter the 2026 Historical Cost Index (RSMeans quarterly Construction Cost Index or the year's book; POST /v1/cost-indices or python -m basis.costs.refresh enter) before the study is signed",
+      "cost_year_source": "COST_YEAR setting",
+      "count": 1,
+      "draft_not_used": "the pin is not confirmed (nothing is measured before it)",
+      "draft_not_used_code": "BASIS-MEASURE-004",
+      "garage_sf": "440",
+      "garage_sf_field": "cost_approach.garage_sqft (azure)",
+      "gla_field": "improvements.gla_sqft (azure)",
+      "gla_sf": "2400",
+      "ground_footprint_sf": "1640",
+      "location_source": "state IL (subject.state (azure)): mean of 19 IL cities (0.92-1.00), RSMeans Residential 2020 Location Factors - Residential pp.718-722",
+      "measured_with_asset": "<id>",
+      "method": "area",
+      "overhang_ft": "1",
+      "perimeter_ft": "165.33",
+      "pitch_factor": "1.118",
+      "property_class": "residential_rental",
+      "property_class_source": "PROPERTY_CLASS setting",
+      "quantity_source": "appraisal_derived",
+      "room_area_sf": null,
+      "stories": "2",
+      "stories_field": "improvements.stories (azure)"
+     },
+     "method": "area",
+     "quantity": "0.0000",
+     "unit": "SF"
+    },
+    "verified_citations": 0
+   },
+   {
+    "bucket": "y27_5",
+    "category": "Building component (scripted)",
+    "citations": 0,
+    "component_id": "<id>",
+    "confidence": 0.30000001192092896,
+    "convention": null,
+    "cost": {
+     "cost_year": 2026,
+     "location_factor": "0.959",
+     "override": null,
+     "source_row": "synthetic_2020[roof] synthetic 07-0001, p. 4 per SF x0.01 from per Sq.; Total Incl O&P; assumes per square (100 SF); x1.169835 general contractor's overhead and profit pro rata (Average 2 Story item 10 17.24 / components 1-9 101.51 per SF, RSMeans Residential Costs 2020, Average 2 Story model, printed p.43 (PDF p.57); ATG ch. 4 C.11(2)) (base 2020, x1.0000 for 2026 = HCI 239.1 (Jan 2020, est.) / 239.1 (Jan 2020, est.), RSMeans Building Construction Costs 2020 p.778; no 2026 index loaded, the latest applied (assumption), from COST_YEAR setting; x0.959 location from state IL (subject.state (azure)): mean of 19 IL cities (0.92-1.00), RSMeans Residential 2020 Location Factors - Residential pp.718-722)",
+     "total": "4521.13",
+     "trail": {
+      "base": {
+       "assumption": "per square (100 SF)",
+       "base_year": 2020,
+       "basis": "installed",
+       "basis_how": "Total Incl O&P",
+       "conversion": "x0.01 from per Sq.",
+       "markup": {
+        "rate": "0.169835",
+        "source": "general contractor's overhead and profit pro rata (Average 2 Story item 10 17.24 / components 1-9 101.51 per SF, RSMeans Residential Costs 2020, Average 2 Story model, printed p.43 (PDF p.57); ATG ch. 4 C.11(2))"
+       },
+       "row": "roof",
+       "row_unit": "Sq.",
+       "source": "synthetic 07-0001, p. 4",
+       "table": "synthetic_2020",
+       "tier": null,
+       "unit": "SF",
+       "unit_cost": "2.00"
+      },
+      "cost_year": 2026,
+      "intake_version": null,
+      "kind": "unit_price",
+      "location": {
+       "citation": "mean of 19 IL cities (0.92-1.00), RSMeans Residential 2020 Location Factors - Residential pp.718-722",
+       "cities": 19,
+       "city": null,
+       "factor": "0.959",
+       "from_": "state IL (subject.state (azure)): mean of 19 IL cities (0.92-1.00), RSMeans Residential 2020 Location Factors - Residential pp.718-722",
+       "high": "1.00",
+       "lookup": "state",
+       "lookup_from": "subject.state (azure)",
+       "low": "0.92",
+       "origin": "rsmeans_2020_book",
+       "pages": "718-722",
+       "state": "IL",
+       "store": null,
+       "table_year": 2020,
+       "zip": null,
+       "zip_prefixes": null
+      },
+      "location_factor": "0.959",
+      "method": {
+       "cost_basis": "installed",
+       "modifications": true,
+       "overhead_allocation": "pro_rata",
+       "rcn_source": "square_foot",
+       "specialties_residual": "building"
+      },
+      "missing": null,
+      "override": null,
+      "priced_per": null,
+      "property_class": "residential_rental",
+      "quantity": {
+       "assumptions": [
+        "the garage is attached and shares the roof",
+        "rectangular footprint, 1.50:1",
+        "6/12 pitch (factor 1.118); 1 ft eave overhang; no waste"
+       ],
+       "formula": "((2400 SF GLA / 2 stories) + 440 SF garage + 165.33 ft perimeter x 1 ft overhang) x 1.118 pitch",
+       "inputs": {
+        "aspect_ratio": "1.50",
+        "assumptions": [
+         "the garage is attached and shares the roof",
+         "rectangular footprint, 1.50:1",
+         "6/12 pitch (factor 1.118); 1 ft eave overhang; no waste"
+        ],
+        "component": "roof",
+        "cost_year_assumption": "no published cost index for 2026 is loaded; the latest, 239.1 (Jan 2020, est.), is applied. Enter the 2026 Historical Cost Index (RSMeans quarterly Construction Cost Index or the year's book; POST /v1/cost-indices or python -m basis.costs.refresh enter) before the study is signed",
+        "cost_year_source": "COST_YEAR setting",
+        "count": 1,
+        "draft_not_used": "the pin is not confirmed (nothing is measured before it)",
+        "draft_not_used_code": "BASIS-MEASURE-004",
+        "garage_sf": "440",
+        "garage_sf_field": "cost_approach.garage_sqft (azure)",
+        "gla_field": "improvements.gla_sqft (azure)",
+        "gla_sf": "2400",
+        "ground_footprint_sf": "1640",
+        "location_source": "state IL (subject.state (azure)): mean of 19 IL cities (0.92-1.00), RSMeans Residential 2020 Location Factors - Residential pp.718-722",
+        "method": "area",
+        "overhang_ft": "1",
+        "perimeter_ft": "165.33",
+        "pitch_factor": "1.118",
+        "property_class": "residential_rental",
+        "property_class_source": "PROPERTY_CLASS setting",
+        "quantity_source": "appraisal_derived",
+        "room_area_sf": null,
+        "stories": "2",
+        "stories_field": "improvements.stories (azure)"
+       },
+       "method": "area",
+       "unit": "SF",
+       "value": "2018.36"
+      },
+      "replaced": null,
+      "rounding": "unit_cost = base x (1 + markup, when recorded) x year factor x location factor, rounded half up to the cent; total = unit_cost x quantity, rounded half up to the cent",
+      "structure": null,
+      "total": "4521.13",
+      "unit_cost": "2.24",
+      "version": 1,
+      "year": {
+       "assumption": "no published cost index for 2026 is loaded; the latest, 239.1 (Jan 2020, est.), is applied. Enter the 2026 Historical Cost Index (RSMeans quarterly Construction Cost Index or the year's book; POST /v1/cost-indices or python -m basis.costs.refresh enter) before the study is signed",
+       "base": {
+        "as_of": "2020-01-01",
+        "citation": "RSMeans Building Construction Costs 2020 p.778",
+        "derived": null,
+        "estimated": true,
+        "store": null,
+        "value": "239.1",
+        "year": 2020
+       },
+       "citation": "HCI 239.1 (Jan 2020, est.) / 239.1 (Jan 2020, est.), RSMeans Building Construction Costs 2020 p.778",
+       "conversion": null,
+       "cost_year": 2026,
+       "factor": "1.0000",
+       "from_": "COST_YEAR setting",
+       "index": {
+        "as_of": "2020-01-01",
+        "citation": "RSMeans Building Construction Costs 2020 p.778",
+        "derived": null,
+        "estimated": true,
+        "store": null,
+        "value": "239.1",
+        "year": 2020
+       }
+      }
+     },
+     "trail_recorded": true,
+     "unit_cost": "2.24"
+    },
+    "count": 1,
+    "id": "<id>",
+    "irs_section": "1250",
+    "label": "roof",
+    "method": "llm",
+    "needs_review": true,
+    "provenance": {
+     "after": null,
+     "at": null,
+     "before": null,
+     "by": null,
+     "carried_from": null,
+     "changed": [],
+     "correction_id": null,
+     "origin": "model",
+     "review_id": null,
+     "revision": null,
+     "stage": null
+    },
+    "recovery_period": "27.5",
+    "review_codes": [
+     "BASIS-ASSETS-008",
+     "BASIS-ASSETS-007",
+     "BASIS-ASSETS-009",
+     "BASIS-COST-001"
+    ],
+    "review_reasons": [
+     "missing_evidence",
+     "citation_unverified",
+     "model:scripted test answer",
+     "cost:YEAR_INDEX_MISSING"
+    ],
+    "room": {
+     "floor": null,
+     "id": "<id>",
+     "name": "Front",
+     "room_type": "exterior"
+    },
+    "takeoff": {
+     "assumptions": [
+      "the garage is attached and shares the roof",
+      "rectangular footprint, 1.50:1",
+      "6/12 pitch (factor 1.118); 1 ft eave overhang; no waste"
+     ],
+     "formula": "((2400 SF GLA / 2 stories) + 440 SF garage + 165.33 ft perimeter x 1 ft overhang) x 1.118 pitch",
+     "inputs": {
+      "aspect_ratio": "1.50",
+      "assumptions": [
+       "the garage is attached and shares the roof",
+       "rectangular footprint, 1.50:1",
+       "6/12 pitch (factor 1.118); 1 ft eave overhang; no waste"
+      ],
+      "component": "roof",
+      "cost_year_assumption": "no published cost index for 2026 is loaded; the latest, 239.1 (Jan 2020, est.), is applied. Enter the 2026 Historical Cost Index (RSMeans quarterly Construction Cost Index or the year's book; POST /v1/cost-indices or python -m basis.costs.refresh enter) before the study is signed",
+      "cost_year_source": "COST_YEAR setting",
+      "count": 1,
+      "draft_not_used": "the pin is not confirmed (nothing is measured before it)",
+      "draft_not_used_code": "BASIS-MEASURE-004",
+      "garage_sf": "440",
+      "garage_sf_field": "cost_approach.garage_sqft (azure)",
+      "gla_field": "improvements.gla_sqft (azure)",
+      "gla_sf": "2400",
+      "ground_footprint_sf": "1640",
+      "location_source": "state IL (subject.state (azure)): mean of 19 IL cities (0.92-1.00), RSMeans Residential 2020 Location Factors - Residential pp.718-722",
+      "method": "area",
+      "overhang_ft": "1",
+      "perimeter_ft": "165.33",
+      "pitch_factor": "1.118",
+      "property_class": "residential_rental",
+      "property_class_source": "PROPERTY_CLASS setting",
+      "quantity_source": "appraisal_derived",
+      "room_area_sf": null,
+      "stories": "2",
+      "stories_field": "improvements.stories (azure)"
+     },
+     "method": "area",
+     "quantity": "2018.3600",
+     "unit": "SF"
+    },
+    "verified_citations": 0
+   },
+   {
+    "bucket": "y27_5",
+    "category": "Building component (scripted)",
+    "citations": 0,
+    "component_id": "<id>",
+    "confidence": 0.30000001192092896,
+    "convention": null,
+    "cost": {
+     "cost_year": 2026,
+     "location_factor": "0.959",
+     "override": null,
+     "source_row": "missing: no cost row for 'siding' per SF",
+     "total": null,
+     "trail": {
+      "base": null,
+      "cost_year": 2026,
+      "intake_version": null,
+      "kind": "unpriced",
+      "location": {
+       "citation": "mean of 19 IL cities (0.92-1.00), RSMeans Residential 2020 Location Factors - Residential pp.718-722",
+       "cities": 19,
+       "city": null,
+       "factor": "0.959",
+       "from_": "state IL (subject.state (azure)): mean of 19 IL cities (0.92-1.00), RSMeans Residential 2020 Location Factors - Residential pp.718-722",
+       "high": "1.00",
+       "lookup": "state",
+       "lookup_from": "subject.state (azure)",
+       "low": "0.92",
+       "origin": "rsmeans_2020_book",
+       "pages": "718-722",
+       "state": "IL",
+       "store": null,
+       "table_year": 2020,
+       "zip": null,
+       "zip_prefixes": null
+      },
+      "location_factor": "0.959",
+      "method": {
+       "cost_basis": "installed",
+       "modifications": true,
+       "overhead_allocation": "pro_rata",
+       "rcn_source": "square_foot",
+       "specialties_residual": "building"
+      },
+      "missing": "missing: no cost row for 'siding' per SF",
+      "override": null,
+      "priced_per": null,
+      "property_class": "residential_rental",
+      "quantity": {
+       "assumptions": [
+        "the garage is attached and shares the roof",
+        "rectangular footprint, 1.50:1",
+        "9 ft of exterior wall per story; 15% openings; gable ends not added"
+       ],
+       "formula": "165.33 ft ground perimeter x 9 ft + 141.42 ft x 9 ft x 1 upper stories, less 15% openings",
+       "inputs": {
+        "aspect_ratio": "1.50",
+        "assumptions": [
+         "the garage is attached and shares the roof",
+         "rectangular footprint, 1.50:1",
+         "9 ft of exterior wall per story; 15% openings; gable ends not added"
+        ],
+        "component": "siding",
+        "cost_year_assumption": "no published cost index for 2026 is loaded; the latest, 239.1 (Jan 2020, est.), is applied. Enter the 2026 Historical Cost Index (RSMeans quarterly Construction Cost Index or the year's book; POST /v1/cost-indices or python -m basis.costs.refresh enter) before the study is signed",
+        "cost_year_source": "COST_YEAR setting",
+        "count": 1,
+        "draft_not_used": "the pin is not confirmed (nothing is measured before it)",
+        "draft_not_used_code": "BASIS-MEASURE-004",
+        "dwelling_perimeter_ft": "141.42",
+        "garage_sf": "440",
+        "garage_sf_field": "cost_approach.garage_sqft (azure)",
+        "gla_field": "improvements.gla_sqft (azure)",
+        "gla_sf": "2400",
+        "ground_perimeter_ft": "165.33",
+        "location_source": "state IL (subject.state (azure)): mean of 19 IL cities (0.92-1.00), RSMeans Residential 2020 Location Factors - Residential pp.718-722",
+        "method": "area",
+        "openings_share": "0.15",
+        "property_class": "residential_rental",
+        "property_class_source": "PROPERTY_CLASS setting",
+        "quantity_source": "appraisal_derived",
+        "room_area_sf": null,
+        "stories": "2",
+        "stories_field": "improvements.stories (azure)",
+        "wall_height_ft": "9"
+       },
+       "method": "area",
+       "unit": "SF",
+       "value": "2346.63"
+      },
+      "replaced": null,
+      "rounding": null,
+      "structure": null,
+      "total": null,
+      "unit_cost": null,
+      "version": 1,
+      "year": {
+       "assumption": "no published cost index for 2026 is loaded; the latest, 239.1 (Jan 2020, est.), is applied. Enter the 2026 Historical Cost Index (RSMeans quarterly Construction Cost Index or the year's book; POST /v1/cost-indices or python -m basis.costs.refresh enter) before the study is signed",
+       "base": {
+        "as_of": "2020-01-01",
+        "citation": "RSMeans Building Construction Costs 2020 p.778",
+        "derived": null,
+        "estimated": true,
+        "store": null,
+        "value": "239.1",
+        "year": 2020
+       },
+       "citation": "HCI 239.1 (Jan 2020, est.) / 239.1 (Jan 2020, est.), RSMeans Building Construction Costs 2020 p.778",
+       "conversion": null,
+       "cost_year": 2026,
+       "factor": "1.0000",
+       "from_": "COST_YEAR setting",
+       "index": {
+        "as_of": "2020-01-01",
+        "citation": "RSMeans Building Construction Costs 2020 p.778",
+        "derived": null,
+        "estimated": true,
+        "store": null,
+        "value": "239.1",
+        "year": 2020
+       }
+      }
+     },
+     "trail_recorded": true,
+     "unit_cost": null
+    },
+    "count": 1,
+    "id": "<id>",
+    "irs_section": "1250",
+    "label": "siding",
+    "method": "llm",
+    "needs_review": true,
+    "provenance": {
+     "after": null,
+     "at": null,
+     "before": null,
+     "by": null,
+     "carried_from": null,
+     "changed": [],
+     "correction_id": null,
+     "origin": "model",
+     "review_id": null,
+     "revision": null,
+     "stage": null
+    },
+    "recovery_period": "27.5",
+    "review_codes": [
+     "BASIS-ASSETS-008",
+     "BASIS-ASSETS-007",
+     "BASIS-ASSETS-009",
+     "BASIS-CHECK-012"
+    ],
+    "review_reasons": [
+     "missing_evidence",
+     "citation_unverified",
+     "model:scripted test answer",
+     "cross:COST_ROW_MISSING"
+    ],
+    "room": {
+     "floor": null,
+     "id": "<id>",
+     "name": "Front",
+     "room_type": "exterior"
+    },
+    "takeoff": {
+     "assumptions": [
+      "the garage is attached and shares the roof",
+      "rectangular footprint, 1.50:1",
+      "9 ft of exterior wall per story; 15% openings; gable ends not added"
+     ],
+     "formula": "165.33 ft ground perimeter x 9 ft + 141.42 ft x 9 ft x 1 upper stories, less 15% openings",
+     "inputs": {
+      "aspect_ratio": "1.50",
+      "assumptions": [
+       "the garage is attached and shares the roof",
+       "rectangular footprint, 1.50:1",
+       "9 ft of exterior wall per story; 15% openings; gable ends not added"
+      ],
+      "component": "siding",
+      "cost_year_assumption": "no published cost index for 2026 is loaded; the latest, 239.1 (Jan 2020, est.), is applied. Enter the 2026 Historical Cost Index (RSMeans quarterly Construction Cost Index or the year's book; POST /v1/cost-indices or python -m basis.costs.refresh enter) before the study is signed",
+      "cost_year_source": "COST_YEAR setting",
+      "count": 1,
+      "draft_not_used": "the pin is not confirmed (nothing is measured before it)",
+      "draft_not_used_code": "BASIS-MEASURE-004",
+      "dwelling_perimeter_ft": "141.42",
+      "garage_sf": "440",
+      "garage_sf_field": "cost_approach.garage_sqft (azure)",
+      "gla_field": "improvements.gla_sqft (azure)",
+      "gla_sf": "2400",
+      "ground_perimeter_ft": "165.33",
+      "location_source": "state IL (subject.state (azure)): mean of 19 IL cities (0.92-1.00), RSMeans Residential 2020 Location Factors - Residential pp.718-722",
+      "method": "area",
+      "openings_share": "0.15",
+      "property_class": "residential_rental",
+      "property_class_source": "PROPERTY_CLASS setting",
+      "quantity_source": "appraisal_derived",
+      "room_area_sf": null,
+      "stories": "2",
+      "stories_field": "improvements.stories (azure)",
+      "wall_height_ft": "9"
+     },
+     "method": "area",
+     "quantity": "2346.6300",
+     "unit": "SF"
+    },
+    "verified_citations": 0
+   }
+  ]
+ }
+}

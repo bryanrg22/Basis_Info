@@ -1420,7 +1420,7 @@
   function apply(asset,{S,id}){
    if(!S.main||!draftsMode(S.inst))return;
    const D=draftFor(S,asset);if(!D)return;const edit=S.assetEdits[id];
-   if(D.notUsed){if(!edit)setTakeoff(asset,{...asset.takeoff,inputs:{...asset.takeoff.inputs,draft_not_used:D.notUsed,draft_not_used_code:'BASIS-MEASURE-004'}});return}
+   if(D.notUsed){if(!edit)setTakeoff(asset,{...asset.takeoff,inputs:{...asset.takeoff.inputs,quantity_source:'appraisal_derived',draft_not_used:D.notUsed,draft_not_used_code:'BASIS-MEASURE-004'}});return}
    const today=D.today;// today's formula, not an engineer's correction written on the row since
    let rec=record({drawnBy:D.kind==='exterior'?'model:lidar-shell@v1':INTERIOR_BY,quantity:D.quantity,unit:D.unit,err:D.err,source:D.source,
     replaces:D.missing?{missing_input:D.missing}:today,factor:D.factor,reason:D.reason,

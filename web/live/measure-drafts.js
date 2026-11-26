@@ -82,7 +82,7 @@
  function exposureText(d){
   if(!pending(d))return null;
   const e=exposure(d),t=num(d.verify_above_usd);
-  if(e===null)return 'Not priced yet, so it moves no dollars; its price decides once it is priced.';
+  if(e===null)return 'Not priced, so it moves no dollars and does not hold the report.';
   const could=`Could move about ${money(e)} (its expected error times its price)`;
   if(t===null)return `${could}.`;
   return d.blocks?`${could}, more than ${money(t)}: it holds the report until you verify it.`:`${could}, not more than ${money(t)}: it does not hold the report.`;
