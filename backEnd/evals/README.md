@@ -487,6 +487,15 @@ size). `evals.measure_capture` takes the Google views through the production cap
 with its own page-load ledger. Writes `measure_eval.md` and `measure_eval.json`. No model
 call; cost $0. Component `measure_eval`, version `v1`.
 
+M5, a vision model asked for each quantity (EVAL_REPORT 108): `--m5 <model:prompt,...>
+--captures <captures dir> [--m5-repeats N] [--m5-repeat-houses ids] [--budget-usd D]
+[--m5-estimate] [--m5-replay <run dir>] [--houses ids]`. Models `sol`, `luna`, `opus`,
+`sonnet` at the settings of the production call each copies (`evals.measure_vlm`); prompts
+`plain`, `pixels`, `reference` (`basis/prompts/measure_exterior_*/v1`). **Paid**: every call
+goes through `call_model` into the run's `llm_calls.jsonl` under `--budget-usd` (default $1);
+`--m5-estimate` prints the worst case and calls nothing; `--m5-replay` rescores a recorded run
+for free. Houses without pictures, changed since drawn or not located are listed, not run.
+
 ### `structure_replay` (the structure model over a stored export)
 
 `python -m evals.structure_replay export/rev-5.json --out export/rev-5.structure.json

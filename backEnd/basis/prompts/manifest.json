@@ -152,6 +152,21 @@
       "v1": {
         "sha256": "4f63391cf901eca0ca263000fbc31d9f479b0de730c9c3c480a5dcd5ac9c3d90"
       }
+    },
+    "measure_exterior_plain": {
+      "v1": {
+        "sha256": "3fe313c50061b134d1bb574ccff6a942704604af93a0239b0b684000ddec1938"
+      }
+    },
+    "measure_exterior_pixels": {
+      "v1": {
+        "sha256": "e17af2075359a3b9d92f634c4df50ffcd7d9f213684914a81bf06eb53ea8b802"
+      }
+    },
+    "measure_exterior_reference": {
+      "v1": {
+        "sha256": "b3c9387e69679e1ecc34c1d746ab14a4b2226b285f5bd9a83e735da199cfdf54"
+      }
     }
   }
 }
