@@ -498,6 +498,14 @@ box read again through `basis.geo.shell.read_points` (the production client and 
 the return numbers kept) as `points.npz` (the box's points only, never tiles) and the USA
 Structures polygon query as `structures.json`, privately under
 `$BASIS_EVAL_DATA_DIR/measure_truth/geo/`.
+M5, a vision model asked for each quantity (EVAL_REPORT 108): `--m5 <model:prompt,...>
+--captures <captures dir> [--m5-repeats N] [--m5-repeat-houses ids] [--budget-usd D]
+[--m5-estimate] [--m5-replay <run dir>] [--houses ids]`. Models `sol`, `luna`, `opus`,
+`sonnet` at the settings of the production call each copies (`evals.measure_vlm`); prompts
+`plain`, `pixels`, `reference` (`basis/prompts/measure_exterior_*/v1`). **Paid**: every call
+goes through `call_model` into the run's `llm_calls.jsonl` under `--budget-usd` (default $1);
+`--m5-estimate` prints the worst case and calls nothing; `--m5-replay` rescores a recorded run
+for free. Houses without pictures, changed since drawn or not located are listed, not run.
 
 ### `structure_replay` (the structure model over a stored export)
 
