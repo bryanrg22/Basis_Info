@@ -7,7 +7,7 @@ Format ``BASIS-<AREA>-<nnn>``: the area names the step or component the failure 
 the cost index store, ``REPORT`` for the study report, ``RETENTION`` for the client-data
 purge, ``ALERT`` for the operator alerts, ``CLIENT`` for the browser error capture, ``DEMO``
 for the public site's demo requests, ``CAPTURE`` for the property pictures, ``GEO`` for the
-public geographic sources) and the
+public geographic sources, ``SITE`` for the AI-drafted site-item outlines) and the
 number is stable once published: a code is never renumbered or reused, a retired one is
 marked retired in the catalogue.
 
@@ -449,6 +449,16 @@ class E:
     GEO_GATHER_FAILED = "BASIS-GEO-015"
     GEO_NO_BUILDING = "BASIS-GEO-016"
     GEO_LIDAR_FOOTPRINT_UNCERTAIN = "BASIS-GEO-017"
+
+    # SITE: AI-drafted site-item outlines on a top-down view (basis.vision.site_items)
+    SITE_NOT_TOP_DOWN = "BASIS-SITE-001"
+    SITE_VIEW_TOO_COARSE = "BASIS-SITE-002"
+    SITE_NOTHING_FOUND = "BASIS-SITE-003"
+    SITE_AT_EDGE = "BASIS-SITE-004"
+    SITE_TOO_SMALL = "BASIS-SITE-005"
+    SITE_SHAPE_INVALID = "BASIS-SITE-006"
+    SITE_SEGMENTER_FAILED = "BASIS-SITE-007"
+    SITE_NOT_DRAFTED = "BASIS-SITE-008"
 
 
 def tag(code: str, message: str) -> str:

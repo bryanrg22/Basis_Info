@@ -152,6 +152,11 @@
       "v1": {
         "sha256": "4f63391cf901eca0ca263000fbc31d9f479b0de730c9c3c480a5dcd5ac9c3d90"
       }
+    },
+    "site_items": {
+      "v1": {
+        "sha256": "400d83d391b2d5935f88c7bdabcad9137135123bb39d023a1ef34d33cafc53ae"
+      }
     }
   }
 }

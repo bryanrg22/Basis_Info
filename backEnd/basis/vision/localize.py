@@ -710,6 +710,44 @@ class Point(_Model):
     y: float = Field(ge=0.0, le=1.0)
 
 
+class VisualPrompt(_Model):
+    """One prompt object of :meth:`ReplicateSam3Localizer.run_prompts`: a noun phrase, positive
+    boxes and points, negative points, in any combination with at least one of the phrase, a
+    box or a point (the model's own rule). A prompt with no phrase is a purely visual one
+    (EVAL_REPORT 106: on a straight-down aerial a box alone beats a phrase)."""
+
+    label: ComponentLabel
+    text: str | None = Field(default=None, min_length=1, max_length=80)
+    boxes: tuple[Box, ...] = ()
+    points: tuple[Point, ...] = ()
+    negative_points: tuple[Point, ...] = ()
+
+    @model_validator(mode="after")
+    def _something(self) -> VisualPrompt:
+        if self.text is None and not self.boxes and not self.points:
+            raise ValueError("a prompt needs a phrase, a box or a point")
+        return self
+
+    def body(self) -> dict[str, Any]:
+        """The prompt object as the Cog model reads it (boxes centre-x, centre-y, w, h)."""
+        out: dict[str, Any] = {}
+        if self.text is not None:
+            out["text"] = self.text
+        if self.boxes:
+            out["positive_boxes"] = [_center_box(b) for b in self.boxes]
+        if self.points:
+            out["positive_points"] = [[p.x, p.y] for p in self.points]
+        if self.negative_points:
+            out["negative_points"] = [[p.x, p.y] for p in self.negative_points]
+        return out
+
+    @property
+    def name(self) -> str:
+        """What the call record lists for this prompt."""
+        kinds = [k for k, v in (("box", self.boxes), ("point", self.points)) if v]
+        return self.text or f"{self.label.value} ({'+'.join(kinds)})"
+
+
 @runtime_checkable
 class Localizer(Protocol):
     async def localize(
@@ -1105,6 +1143,17 @@ class ReplicateSam3Localizer:
             phrase_set,
         )
 
+    async def run_prompts(
+        self,
+        image: PreparedImage,
+        prompts: Sequence[VisualPrompt],
+        *,
+        threshold: float = DEFAULT_THRESHOLD,
+    ) -> tuple[list[list[Instance]], LocalizeCall]:
+        """Raw prompts (a phrase, boxes, points, or a mix) in one prediction: each prompt's
+        instances as returned, and the call (:func:`_run_prompts`)."""
+        return await _run_prompts(self._run, image, prompts, threshold, self.compact)
+
 
 # --------------------------------------------------------------------------- self-hosted
 
@@ -1222,6 +1271,17 @@ class CogSam3Localizer:
             phrase_set,
         )
 
+    async def run_prompts(
+        self,
+        image: PreparedImage,
+        prompts: Sequence[VisualPrompt],
+        *,
+        threshold: float = DEFAULT_THRESHOLD,
+    ) -> tuple[list[list[Instance]], LocalizeCall]:
+        """Raw prompts (a phrase, boxes, points, or a mix) in one prediction: each prompt's
+        instances as returned, and the call (:func:`_run_prompts`)."""
+        return await _run_prompts(self._run, image, prompts, threshold, self.compact)
+
 
 # --------------------------------------------------------------------------- shared steps
 
@@ -1308,6 +1368,34 @@ async def _segment_prompt(
     return Prompted(
         instances=tuple(pick_prompted(found, points, boxes)), returned=len(found), calls=(call,)
     )
+
+
+async def _run_prompts(
+    run: _Run,
+    image: PreparedImage,
+    prompts: Sequence[VisualPrompt],
+    threshold: float,
+    compact: bool,
+) -> tuple[list[list[Instance]], LocalizeCall]:
+    """Every prompt in one prediction; each prompt's instances at or above ``threshold``, in
+    the prompts' order, as returned (no deduplication and no narrowing: the caller picks)."""
+    if not prompts:
+        raise ValueError("no prompts")
+    bodies = [json.dumps(p.body()) for p in prompts]
+    results, call = await run(
+        model_input(image, bodies, threshold, compact), tuple(p.name for p in prompts)
+    )
+    found: list[list[Instance]] = []
+    for prompt, data in zip(prompts, results, strict=True):
+        phrase = Phrase(
+            label=prompt.label, text=prompt.text or prompt.label.value.replace("_", " ")
+        )
+        found.append(
+            await asyncio.to_thread(
+                parse_result, data, phrase, image.width, image.height, threshold
+            )
+        )
+    return found, call
 
 
 def prompt_phrases(label: ComponentLabel, phrase_set: str = DEFAULT_PHRASE_SET) -> list[Phrase]:
@@ -1765,6 +1853,7 @@ __all__ = [
     "ReplicateSam3Localizer",
     "Rle",
     "Tile",
+    "VisualPrompt",
     "best_box_match",
     "box_iou",
     "class_counts",

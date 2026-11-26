@@ -22,7 +22,7 @@ Numbers are never reused. Source of truth: `backEnd/basis/errors/catalogue.py` (
 rendered from it: `uv run python -m basis.errors.catalogue --write`; a test fails while it is
 stale).
 
-361 codes in 26 areas.
+369 codes in 27 areas.
 
 ## API: API: request plumbing (authentication, idempotency, limits, dependencies)
 
@@ -514,4 +514,17 @@ stale).
 | `BASIS-GEO-015` | error | the geo worker (`python -m basis.geo`); `basis.geo.workflow` | The gather step itself failed after its retries (a timeout, a dead worker, an error it did not classify). | The gather's status `failed` with this `code`; `geo.failed` on the timeline; the `geo_incidents` row. | Ask again (`POST .../property/public`). | yes |
 | `BASIS-GEO-016` | outcome | the geo worker (`python -m basis.geo`); `basis.geo.lidar` | The lidar covers the point but has no building-classified points (class 6) near the pin, so no heights or footprint are read; the project and its density are still reported. | `lidar.building` null with this `code`. | Nothing; the project may not classify buildings. | no |
 | `BASIS-GEO-017` | outcome | the geo worker (`python -m basis.geo`); `basis.geo.lidar` | The building under the pin comes within 1 m of the edge of the area read, so its footprint may be cut there or be a block of attached roofs running to it, and its heights may be a neighbour's (EVAL_REPORT 101.5). Cautious: a building that just fits is flagged too; attached roofs merged well inside the area are not. | `lidar.building.reaches_box_edge` true with this `code`. | Measure the building another way (the sketch or a traced outline); do not take this footprint as the building's. | no |
+
+## SITE: AI-drafted site-item outlines on a top-down view (basis.vision.site_items, EVAL_REPORT 106; off by default, not wired into the pipeline)
+
+| Code | Kind | Where (step; component) | What happened | What you see | How to fix | Retry |
+|---|---|---|---|---|---|---|
+| `BASIS-SITE-001` | outcome | the site-item drafter (`basis.vision.site_items`, `SITE_DRAFTS`); `basis.vision.site_items` | The view carries no pixel size, so it is not a top-down view and nothing on it can be measured. | No draft for the prompt: a `Refused` with this code. | Draft on a straight-down capture or a public ortho. | no |
+| `BASIS-SITE-002` | outcome | the site-item drafter (`basis.vision.site_items`, `SITE_DRAFTS`); `basis.vision.site_items` | The view's pixel is coarser than the drafter's limit (`SITE_DRAFT_MAX_PIXEL_M`, 0.16 m by default): on the 0.6 m federal view the drafts were off by a median 30 % and the one-pixel bound alone is 41 % (EVAL_REPORT 106.3). | No draft for the prompt: a `Refused` with this code. | Draft on a sharper view (a state or county ortho, or the straight-down capture), or trace by hand. | no |
+| `BASIS-SITE-003` | outcome | the site-item drafter (`basis.vision.site_items`, `SITE_DRAFTS`); `basis.vision.site_items` | SAM 3 returned no instance at the prompt: none overlapping the box at box IoU 0.5 or more, none under the point, or an instance without a mask. | No draft for the prompt: a `Refused` with this code. | Move the box or point onto the item, or trace it by hand. | no |
+| `BASIS-SITE-004` | outcome | the site-item drafter (`basis.vision.site_items`, `SITE_DRAFTS`); `basis.vision.site_items` | The outline reaches the edge of the picture, so the item runs out of it and its area would be short. | No draft for the prompt: a `Refused` with this code. | Draft on a view that holds the whole item, or trace it by hand. | no |
+| `BASIS-SITE-005` | outcome | the site-item drafter (`basis.vision.site_items`, `SITE_DRAFTS`); `basis.vision.site_items` | The outline covers less ground than the drafter's floor (`MIN_AREA_M2`, 3 m2, a small stoop): too small to outline from above. | No draft for the prompt: a `Refused` with this code. | Type the quantity or trace it by hand. | no |
+| `BASIS-SITE-006` | outcome | the site-item drafter (`basis.vision.site_items`, `SITE_DRAFTS`); `basis.vision.site_items` | The outline is not a shape `basis.domain.traced.measure` accepts (the reasons are in the refusal). | No draft for the prompt: a `Refused` with this code and the measurement's problems. | Trace it by hand. | no |
+| `BASIS-SITE-007` | outcome | the site-item drafter (`basis.vision.site_items`, `SITE_DRAFTS`); `basis.vision.site_items` | The call to SAM 3 (Replicate or the self-hosted Cog server) failed after the localizer's own retries. | No draft for any prompt of the view: a `Refused` with this code and the error. | Try again later, or trace by hand. | no |
+| `BASIS-SITE-008` | outcome | the site-item drafter (`basis.vision.site_items`, `SITE_DRAFTS`); `basis.vision.site_items` | The family is not drafted from above: a fence (1 to 3 pixels wide, often under trees; EVAL_REPORT 106 found no line method that holds). | No draft for the prompt: a `Refused` with this code. | Trace the fence on the picture or from the lot line. | no |
 
