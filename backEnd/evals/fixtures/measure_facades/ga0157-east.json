@@ -1,0 +1,117 @@
+{
+ "schema": "measure_facade/v1",
+ "id": "ga0157-east",
+ "house": "ga0157",
+ "side": "east",
+ "description": "The enclosed house's east wall, clapboarded, between the glazed/screened south porch at the sheet's left and the open (lattice-ended) north porch at the sheet's right, the gabled bay in the middle included (its face projects 2'-0\"), from grade to the soffit; one window left of the bay, a paired window in the bay face, a small nine-light window and one window right of it.",
+ "sheet": "4",
+ "scale": "1/4\" = 1'-0\"",
+ "px_per_ft": 100.0,
+ "length": {
+  "ft": 56.2917,
+  "how": "derived",
+  "sheet": "2",
+  "note": "plan's bottom string 18'-3\" + 2'-0\" + 16'-0 1/4\" + 2'-0\" + 18'-0 1/4\" = 56'-3 1/2\" (the same as the top string's printed overall for the west side). On the elevation the bay face's corner boards are at x 6419 and 8020 px (16.01 ft); the sheet-right corner, where the lattice porch begins, is at x 10020 px (20.00 ft from the bay, printed 20'-0 1/4\"); the sheet-left corner is hidden behind the glazed porch's end frame (siding starts at x 4492 px, 19.27 ft from the bay where the plan prints 20'-3\", which puts the corner at x 4394 px, used as left_x). Scaled 4492 to 10020 px is 55.28 ft."
+ },
+ "eave": {
+  "ft": 9.8125,
+  "how": "printed",
+  "text": "8'-6 1/4\"",
+  "sheet": "4",
+  "note": "printed SOFFIT 8'-6 1/4\" above FLOOR 0'-0\" with GRADE -1'-3 1/2\" on this elevation = 9.8125 ft (the house truth's heights.eave, 9.875 ft, uses the north/west grade -1'-4 1/4\"). As on the west elevation the level marks and the drawing disagree vertically; the drawn grade line is at y 7618 px at the sheet-left corner and 7600 at the right (mean 7609). The drawn soffit (the fascia's lower edge where the wall starts) is at y 6575 px, 10.34 ft above the drawn grade; sill_ft is measured from the printed grade placed 9.8125 ft below it (y 7556 px)."
+ },
+ "openings": [
+  {
+   "id": "W1",
+   "kind": "window",
+   "storey": "first",
+   "width_ft": 3.6925,
+   "height_ft": 6.37,
+   "left_ft": 6.4575,
+   "sill_ft": 3.1125,
+   "sheet_box": null,
+   "behind_porch": false,
+   "how": "scaled",
+   "note": "mean of the passes. A: plan rough opening 2'-8\" | B: double-hung, south part of the wall; top at the head cap's top line, bottom at the sill's bottom line (the sill horns run about 5 px past the casings, not counted). Plan prints a 2'-8\" window 6'-9 1/2\" from the corner."
+  },
+  {
+   "id": "W2",
+   "kind": "window",
+   "storey": "first",
+   "width_ft": 7.2575,
+   "height_ft": 6.3575,
+   "left_ft": 24.4375,
+   "sill_ft": 3.155,
+   "sheet_box": null,
+   "behind_porch": false,
+   "how": "scaled",
+   "note": "mean of the passes. A: a pair of double-hung windows in one trim with a wide centre casing (x 7176 to 7269 px), in the gabled bay's face (projecting 2'-0\"): one opening | B: a pair of double-hung windows in one trim (shared centre casing) on the gable bay's face; the bay face is 2'-0\" in front of the main wall"
+  },
+  {
+   "id": "W3",
+   "kind": "window",
+   "storey": "first",
+   "width_ft": 3.07,
+   "height_ft": 3.475,
+   "left_ft": 37.565,
+   "sill_ft": 4.6025,
+   "sheet_box": null,
+   "behind_porch": false,
+   "how": "scaled",
+   "note": "mean of the passes. A: small nine-light window (3 x 3 panes), plain frame trim | B: small nine-light window just north of the bay; plan prints it 2'-6\" wide"
+  },
+  {
+   "id": "W4",
+   "kind": "window",
+   "storey": "first",
+   "width_ft": 3.52,
+   "height_ft": 6.225,
+   "left_ft": 47.715,
+   "sill_ft": 3.4825,
+   "sheet_box": null,
+   "behind_porch": false,
+   "how": "scaled",
+   "note": "mean of the passes. A: plan rough opening 2'-8\" | B: double-hung, north part of the wall; plan prints it 2'-8\" wide"
+  }
+ ],
+ "porch": "Nothing stands in front of the wall itself: the glazed/screened south porch is beyond the sheet-left corner (its end frame hides the last 1 ft or so of the wall) and the open north porch beyond the sheet-right corner.",
+ "passes": {
+  "a": "pass A reader (independent)",
+  "b": "pass B reader (independent)",
+  "disagreements": [
+   {
+    "what": "W1 height",
+    "a": "6.25",
+    "b": "6.49",
+    "kept": "the mean, 6.37 (A: plan rough opening 2'-8\" | B: double-hung, south part of the wall; top at the head cap's top line, bottom at the sill's bottom line (the sill horns run about 5 px past the casings, not count)"
+   },
+   {
+    "what": "W2 height",
+    "a": "6.24",
+    "b": "6.48",
+    "kept": "the mean, 6.36 (A: a pair of double-hung windows in one trim with a wide centre casing (x 7176 to 7269 px), in the gabled bay's face (projecting 2'-0\"): one opening | B: a pair of double-hung windows in one trim (shared centre casing) on the gable bay's face; the bay face is 2'-0\" in front of the main wall)"
+   },
+   {
+    "what": "W4 height",
+    "a": "6.08",
+    "b": "6.37",
+    "kept": "the mean, 6.22 (A: plan rough opening 2'-8\" | B: double-hung, north part of the wall; plan prints it 2'-8\" wide)"
+   }
+  ]
+ },
+ "photos": [
+  {
+   "id": "daeba06df4",
+   "path": "full/ga0157/daeba06df4.jpg",
+   "source": "https://commons.wikimedia.org/wiki/File:SOUTHEAST_SIDE_-_Jimmy_Carter_Boyhood_Home,_Old_Plains_Highway_(Lebanon_Cemetery_Road),_Plains,_Sumter_County,_GA_HABS_GA,131-PLAIN.V,1-8.tif",
+   "licence": "Public domain",
+   "taken": null,
+   "hfov_deg": null,
+   "hfov_from": "unknown: no EXIF focal length (HABS large-format negative or no 35 mm equivalent)",
+   "which": "the long one-storey side wall facing the camera, behind the large tree",
+   "width_px": 3840,
+   "height_px": 3054
+  }
+ ],
+ "note": "Two independent readings of the elevation merged by work/merge_facades.py."
+}

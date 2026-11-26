@@ -1,0 +1,104 @@
+{
+ "schema": "measure_facade/v1",
+ "id": "md1464-east",
+ "house": "md1464",
+ "side": "east",
+ "description": "The east (front) face of the two-storey block, corner to corner across the whole front as the elevation projects it: the parlor's wall (18'-0\", sheet right, under the front gable upstairs) and the hall's wall (6'-6\", sheet left, set back 2'-4\", the front door below and the bell-roofed bay with a small casement above), from grade to the main eave (the front gable's eave level); the wraparound porch covers the whole first storey.",
+ "sheet": "2",
+ "scale": "1/4\" = 1'-0\"",
+ "px_per_ft": 100.0,
+ "length": {
+  "ft": 24.5,
+  "how": "derived",
+  "sheet": "6",
+  "note": "first floor plan: the parlor's east wall 18'-0\" + the hall's east wall 6'-6\" (printed), the two planes 2'-4\" apart (the hall's is set back); on the elevation the second storey scales 24.59 ft (x 5440 to 7899 px) and the portion behind the porch 24.39 ft (x 5446 to 7885 px) at 100 px/ft. If only the parlor's plane is wanted it is 18'-0\"."
+ },
+ "eave": {
+  "ft": 23.11,
+  "how": "scaled",
+  "sheet": "2",
+  "note": "mean of pass A (23.12) and pass B (23.10). A: no eave level is printed. The house truth's main eave (the lower edge of the main roof, 20.34 ft above the first floor, scaled on the north elevation where the floor stands 2.08 ft above grade: 22.26 ft) falls on this sheet at y 2152 px (first floor level line y 4186.5 px), where the front gable's rake ends (its returns' lowest point y 2168; the bell-roofed bay's fascia is at y 2064 to 2100). Grade here is lower: the drawn grade line is at y 4476 px at the sheet-left corner and 4452 px at the right (mean 4464), 2.78 ft below the floor, so grade to eave scales 23.12 ft on this wall. Level marks check the scale vertically (first to second floor 1081.5 px for the printed 10'-10 1/4\", 99.6 px/ft); the sheet's scale bar reads 101 px/ft. | B: the house truth's eave (main roof's lower edge, 20.34 ft above the first floor, scaled on the north elevation) plus this wall's first floor above grade: floor marker 4186.5, drawn grade 4478 at the left (south) corner and 4451 at the right (north) corner, mean 4464.5, so 2.76 ft. Confirmed on this elevation: the front gable's eave ends (about 2150-2165) and the bay roof's eave (2056-2131) sit 20.2-20.8 ft above the floor; the printed ceiling level (19'-10 1/4\") marker is at 2199. Above this line are the gable triangle and, at the right, a plain upper area to about 1764 that is not part of the rectangle."
+ },
+ "openings": [
+  {
+   "id": "D1",
+   "kind": "door",
+   "storey": "first",
+   "width_ft": 3.7275,
+   "height_ft": 7.5225,
+   "left_ft": 1.7975,
+   "sill_ft": 2.96,
+   "sheet_box": null,
+   "behind_porch": true,
+   "how": "scaled",
+   "note": "mean of the passes. A: front door, in the hall's set-back wall; read on the 'portion of elevation behind porch' (sheet_box in that view's sheet px: it sits 2178 px lower on the sheet than the elevation, from the door cap and three wall lines matching within 4 px). Top is the head cap's top; bottom is the floor line at the threshold. | B: front door in the hall wall, read on the 'portion of elevation behind porch' (its box is in that drawing's px); bottom at the threshold line under the casings (the porch floor line is 5-12 px lower). Mapped to the main elevation by the door itself: threshold 6341 there = 4163 on the main elevation (door top 3407 there, 3404 mapped), so sill_ft = (4464.5 - 4163) / 100.8. Sides agree with the main elevation (5623-5998)."
+  },
+  {
+   "id": "W1",
+   "kind": "window",
+   "storey": "first",
+   "width_ft": 6.32,
+   "height_ft": 6.9975,
+   "left_ft": 12.2625,
+   "sill_ft": 4.535,
+   "sheet_box": null,
+   "behind_porch": true,
+   "how": "scaled",
+   "note": "mean of the passes. A: a pair of double-hung windows in one trim (one opening), the parlor's; read on the portion behind the porch (box in that view's px, 2178 px below the elevation). Shutters at both sides (x 6546 to 6660 and 7330 to 7437 px) not counted. Top is where the casings start under a wall band line (y 5485.5); bottom is the sill board's bottom. | B: a pair of double-hung windows in one trim (wide centre mullion) in the parlor wall, read on the 'portion of elevation behind porch'; sides at the casings' outer lines inside the shutters (shutters 6550-6677 and 7310-7437 left out); the sill runs about 0.45 ft wider under the shutters, not counted. Heights mapped with the door's offset (2178 px)."
+  },
+  {
+   "id": "W2",
+   "kind": "window",
+   "storey": "second",
+   "width_ft": 2.9075,
+   "height_ft": 3.115,
+   "left_ft": 1.8875,
+   "sill_ft": 18.95,
+   "sheet_box": null,
+   "behind_porch": false,
+   "how": "scaled",
+   "note": "mean of the passes. A: the small in-swinging casement in the hall's bell-roofed upper bay (labelled IN-SWINGING CASEMENT) | B: in-swinging casement in the small bay under the bell-shaped roof"
+  },
+  {
+   "id": "W3",
+   "kind": "window",
+   "storey": "second",
+   "width_ft": 6.7375,
+   "height_ft": 7.425,
+   "left_ft": 9.305,
+   "sill_ft": 15.755,
+   "sheet_box": null,
+   "behind_porch": false,
+   "how": "scaled",
+   "note": "mean of the passes. A: a pair of double-hung windows under one segmental-arched head in the front gable (one opening). The box's top is the arch's crown (y 2138 px, about 0.15 ft above the eave line, inside the gable); the arch springs at y 2222 at the sides, so the box overstates the trim by the two corners above the arch (about 1.9 SF). Bottom is the sill's bottom, which sits on the porch roof (roof line y 2883 px). Shutters either side not counted. | B: a pair of windows (multi-light upper sashes) in one trim under the front gable, with an arched head: top at the arch's apex (2136, which is at the eave line), bottom on the belt line under the second floor; shutters (6262-6362, 7075-7187) left out"
+  }
+ ],
+ "porch": "A wraparound front porch (6'-8\" deep along the parlor, 9'-0\" along the hall, posts, spindle frieze, railing and lattice skirt) covers the whole first storey across the full width; its roof is the deep band at the second floor line, which the gable window's sill sits on.",
+ "passes": {
+  "a": "pass A reader (independent)",
+  "b": "pass B reader (independent)",
+  "disagreements": [
+   {
+    "what": "eave above grade",
+    "a": "23.12 ft (scaled: )",
+    "b": "23.10 ft (scaled: )",
+    "kept": "the mean, 23.11 ft"
+   }
+  ]
+ },
+ "photos": [
+  {
+   "id": "md1464-street",
+   "path": "sv/md1464-street.jpg",
+   "source": "street-level picture of the EVAL_REPORT 103 capture (gs://measure-truth/studies/6e3f9bab-5a9e-47e6-a3a1-9adbbfeffb75/captures/2b231469-c745-4b9b-8442-68f567354ee4/street-front.png)",
+   "licence": "Google street-level imagery, viewed (evaluation only, terms set aside for the MVP)",
+   "taken": null,
+   "hfov_deg": 75.0,
+   "hfov_from": "the capture's 75 deg taken as horizontal (Static API meaning); vertical over the 1,240 px viewport would be 83.4 deg",
+   "which": "the two-storey front wall behind the porch and the trees, facing the camera",
+   "width_px": 1440,
+   "height_px": 830
+  }
+ ],
+ "note": "Two independent readings of the elevation merged by work/merge_facades.py."
+}

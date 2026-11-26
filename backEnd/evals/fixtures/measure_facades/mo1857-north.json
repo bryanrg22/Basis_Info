@@ -1,0 +1,90 @@
+{
+ "schema": "measure_facade/v1",
+ "id": "mo1857-north",
+ "house": "mo1857",
+ "side": "north",
+ "description": "The north wall of the two-storey, hip-roofed main (west) block only, the sheet's right-hand block: from its north-east corner board (sheet left, where the lower-roofed two-storey dining block, set back 8'-11\", begins and a downspout runs down) to its north-west (front) corner board at the sheet's right end, from grade to the top of the box gutter/cornice; one window per storey, the lower one with a crown cap.",
+ "sheet": "6",
+ "scale": "3/8\" = 1'-0\"",
+ "px_per_ft": 150.0,
+ "length": {
+  "ft": 16.25,
+  "how": "derived",
+  "sheet": "2",
+  "note": "first floor plan's top string over the parlor's north wall, 6'-11\" + 2'-5\" + 6'-11\" = 16'-3\" (the house truth's first chain leg); the elevation scales 16.19 ft between the corner boards' outer edges (x 7646 to 10075 px at 150 px/ft); the second floor plan gives 16'-1\""
+ },
+ "eave": {
+  "ft": 19.8058,
+  "how": "derived",
+  "sheet": "5",
+  "note": "mean of pass A (19.79) and pass B (19.82). A: the house's eave (west elevation, grade to the top of the box gutter/cornice), the same cornice on this block. This sheet's right string prints 1'-1\" + 9'-2\" + 10'-6\" (= 20'-9\") but its ticks scale 1.10 + 9.20 + 9.52 = 19.82 ft (grade tick y 6831.5, eave tick y 3858.5 px), so 10'-6\" reads as a misprint for 9'-6\". The drawn grade slopes along this wall (y 6879.5 px at the sheet-left corner, 6844 px at the right; mean 6861.8), which puts the cornice top 20.02 ft above the mean drawn grade. | B: the north elevation's right height string prints grade to first floor 1'-1\", first to second floor 9'-2\", second floor to eave 10'-6\" (a misprint: its ticks are 1429.5 px = 9.53 ft apart; read as 9'-6\" the string gives 19'-9\"). Scaled between the string's grade tick (6831) and eave tick (3858): 19.82 ft, which agrees with the house truth's eave (19'-9 1/2\" printed on the west elevation, top of the box gutter/cornice). The drawn ground is at 6880 at the left corner and 6845 at the right corner; sill_ft uses the string's grade tick, 6831."
+ },
+ "openings": [
+  {
+   "id": "W1",
+   "kind": "window",
+   "storey": "first",
+   "width_ft": 3.0115,
+   "height_ft": 6.7135,
+   "left_ft": 6.6665,
+   "sill_ft": 2.7345,
+   "sheet_box": null,
+   "behind_porch": false,
+   "how": "scaled",
+   "note": "mean of the passes. A: top is the top of the crown cap (the cap overhangs the casings to x 8615 and 9130 px; the width is the casings'); bottom is the sill's bottom | B: double-hung with a cornice head: top at the cap's crown (5429; the cap projects about 0.2 ft past the casings, not counted); bottom at the sill's bottom (6437), the sill band running 6409-6437 between the casings"
+  },
+  {
+   "id": "W2",
+   "kind": "window",
+   "storey": "second",
+   "width_ft": 3.04,
+   "height_ft": 6.0835,
+   "left_ft": 6.6215,
+   "sill_ft": 12.2375,
+   "sheet_box": null,
+   "behind_porch": false,
+   "how": "scaled",
+   "note": "mean of the passes. A: top is the frame's top line between the two cornice brackets that sit over the side casings (brackets and their base blocks run from the frieze at y 3990 down to y 4150 px; not counted: counted as trim they would raise the top by about 0.7 ft) | B: double-hung; its head is directly under the cornice's frieze, with cornice brackets over its casings (left out)"
+  }
+ ],
+ "porch": "Nothing stands in front of this wall; the open front porch is beyond its sheet-right (west) corner and the dining block is set back at its sheet-left end.",
+ "passes": {
+  "a": "pass A reader (independent)",
+  "b": "pass B reader (independent)",
+  "disagreements": [
+   {
+    "what": "eave above grade",
+    "a": "19.79 ft (printed: 19'-9 1/2\")",
+    "b": "19.82 ft (scaled: )",
+    "kept": "the mean, 19.81 ft"
+   }
+  ]
+ },
+ "photos": [
+  {
+   "id": "4f5eeea77b",
+   "path": "full/mo1857/4f5eeea77b.jpg",
+   "source": "https://commons.wikimedia.org/wiki/File:Truman_Farm_Home_and_grounds_at_dusk_in_July_2022_-_16.jpg",
+   "licence": "CC BY-SA 4.0",
+   "taken": "2022:07:26 20:13:52",
+   "hfov_deg": 63.44,
+   "hfov_from": "EXIF 35 mm-equivalent 28 mm (diagonal), 4:3 landscape",
+   "which": "the tall two-storey wall at the right of the picture (one window on each floor), not the lower parts at the left",
+   "width_px": 3264,
+   "height_px": 2448
+  },
+  {
+   "id": "301be8d2c0",
+   "path": "full/mo1857/301be8d2c0.jpg",
+   "source": "https://commons.wikimedia.org/wiki/File:Truman_Farm_Home_and_grounds_at_dusk_in_July_2022_-_17.jpg",
+   "licence": "CC BY-SA 4.0",
+   "taken": "2022:07:26 20:14:26",
+   "hfov_deg": 63.44,
+   "hfov_from": "EXIF 35 mm-equivalent 28 mm (diagonal), 4:3 landscape",
+   "which": "the wall at the left of the picture: the two-storey end wall with one window on each floor",
+   "width_px": 3264,
+   "height_px": 2448
+  }
+ ],
+ "note": "Two independent readings of the elevation merged by work/merge_facades.py."
+}

@@ -171,7 +171,13 @@ On the asset page (and the Property page), for any asset with an SF, SY or LF qu
 4. **M2 / M2v, site items**, on HABS site plans and the county shapes; the Google view against
    the public ortho.
 5. **M4 interiors** on ARKitScenes, then **M3 facades** (the novel one), then **M5** as the
-   floor every other method must beat. *M4 done (EVAL_REPORT 107, 31 rooms, 12 kitchens, truth
+   floor every other method must beat. *M3 done (EVAL_REPORT 109): single-view metrology on a
+   photo scaled by the wall's length reads openings 5 % off (an engineer's corners; 7 % with
+   gpt-6.1-sol placing them) against the 15 % share's 17 %, every window and door counted;
+   the net face is no better than the 15 % share on M1's eave (2.5 %); 8 facades, 9 measured
+   photos, 8 of them on one house; `basis/geo/facade.py` behind `GEO_FACADE`, off; the
+   depth-model variant not run; the EXIF focal length must be kept at upload before wiring.*
+   *M4 done (EVAL_REPORT 107, 31 rooms, 12 kitchens, truth
    checked against a second scan and the laser): no depth setup beats today's formulas (owners'
    photos do not show the whole room: single-view floor area 33 to 47 % low, even at the right
    scale); a vision model asked with rulers (claude-sonnet-5-5) does: length 11 %, perimeter 10 %,

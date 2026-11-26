@@ -1691,7 +1691,38 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     )
     parser.add_argument("--houses", help="comma-separated house ids (default all)")
     m4_arguments(parser)
+    m3_parser_arguments(parser)
     return parser.parse_args(argv)
+
+
+# ------------------------------------------------------------------ M3: facades (EVAL_REPORT 109)
+
+
+def m3_parser_arguments(parser: argparse.ArgumentParser) -> None:
+    """M3's flags (:mod:`evals.measure_facades`): the facade truths, the engineer's clicks, the
+    paid setups. ``--points`` gives M1's walls and eaves; ``--budget-usd`` caps the calls."""
+    from evals import measure_facade_truth
+
+    parser.add_argument("--m3", action="store_true", help="add M3, facades from ground photos")
+    parser.add_argument("--m3-truth", type=Path, default=measure_facade_truth.FIXTURES)
+    parser.add_argument(
+        "--m3-clicks",
+        type=Path,
+        help="the engineer's corners (default $BASIS_EVAL_DATA_DIR/measure_truth/clicks/engineer)",
+    )
+    parser.add_argument("--m3-vlm", help="M3 paid setups, model:prompt ('sol:*', 'opus:corners')")
+    parser.add_argument("--m3-repeats", type=int, default=1)
+    parser.add_argument("--m3-estimate", action="store_true", help="estimate M3, call nothing")
+    parser.add_argument("--m3-replay", type=Path, help="a recorded run: rescore its M3 answers")
+    parser.add_argument("--m3-facades", help="comma-separated facade ids (default all)")
+
+
+def run_m3(args: argparse.Namespace, run: record.EvalRun) -> tuple[str, dict[str, Any]] | None:
+    from evals import measure_facades
+
+    if args.m3_clicks is None:
+        args.m3_clicks = measure_facades.data_root() / "measure_truth/clicks/engineer"
+    return measure_facades.run_m3(args, run)
 
 
 def main(argv: Sequence[str] | None = None) -> int:
@@ -1777,6 +1808,14 @@ def main(argv: Sequence[str] | None = None) -> int:
                 )
         if m5_setups:
             text += render_m5(houses, methods, scores, m5_outcomes, m5_setups)
+        m3: dict[str, Any] | None = None
+        if args.m3:
+            got_m3 = run_m3(args, run)
+            if got_m3 is None:  # --m3-estimate: nothing was called
+                run.finish({"m3_estimate_only": True, "cost_usd": 0.0})
+                return 0
+            m3_text, m3 = got_m3
+            text += m3_text
         m4 = run_m4(args, run)
         if m4 is not None:
             text += "\n" + m4["text"]
@@ -1794,6 +1833,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             "paired_all": paired(scores, houses, standing=None),
             "m5": [asdict(o) for o in m5_outcomes],
             "m4": None if m4 is None else m4["json"],
+            "m3": m3,
         }
         (args.out / "measure_eval.json").write_text(
             json.dumps(result, indent=1) + "\n", encoding="utf-8"
@@ -1806,6 +1846,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 "methods": wanted,
                 "summary": summarize(scores),
                 "cost_usd": sum(c["cost_usd"] for c in costs)
+                + sum(r["cost_usd"] for r in (m3 or {}).get("rows", []))
                 + (0.0 if m4 is None else m4["cost_usd"]),
                 "m4_rooms": None if m4 is None else m4["json"]["rooms"],
                 "site_parcels": None if site is None else len(site["parcels"]),

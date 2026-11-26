@@ -1,0 +1,209 @@
+{
+ "schema": "measure_facade/v1",
+ "id": "mo1857-west",
+ "house": "mo1857",
+ "side": "west",
+ "description": "The front (west) wall of the two-storey, hip-roofed main block, between its two corner boards (the whole width of the elevation's house), from grade to the top of the box gutter/cornice; three windows upstairs, two windows and the front door downstairs behind the open front porch.",
+ "sheet": "5",
+ "scale": "3/8\" = 1'-0\"",
+ "px_per_ft": 150.0,
+ "length": {
+  "ft": 36.3333,
+  "how": "printed",
+  "text": "36'-4\"",
+  "sheet": "2",
+  "note": "first floor plan's left (west) overall string; the elevation scales 36.06 ft between the corner boards' outer edges (x 4499.5 to 9908 px at 150 px/ft); the second floor plan prints 36'-2\""
+ },
+ "eave": {
+  "ft": 19.8229,
+  "how": "derived",
+  "sheet": "5",
+  "note": "mean of pass A (19.79) and pass B (19.85). A: sheet-left height string (the north end, looking east), grade to the top of the box gutter/cornice (tick at y 3911 px, grade tick at 6880.5 px); the sheet-right string prints 19'-11\". The drawn grade line is at y 6889.5 px at the left corner and 6878.5 px at the right (mean 6884); the cornice top scales 19.83 ft above that mean. | B: the west elevation prints grade to eave (top of the box gutter/cornice) at both ends: 19'-9 1/2\" on the left (south) string and 19'-11\" on the right (north) string; their mean is used (the house truth keeps the left one, 19'-9 1/2\" = 19.79 ft). The strings' ticks scale true: left grade 6880, eave 3910.5 (19.76 ft); right grade 6869, eave 3873 (19.94 ft). sill_ft uses the mean grade tick, 6874.5 (the drawn ground is at about 6888 left and 6875 right)."
+ },
+ "openings": [
+  {
+   "id": "W1",
+   "kind": "window",
+   "storey": "first",
+   "width_ft": 3.0385,
+   "height_ft": 6.7,
+   "left_ft": 5.5635,
+   "sill_ft": 2.765,
+   "sheet_box": null,
+   "behind_porch": true,
+   "how": "derived",
+   "note": "mean of the passes. A: head trim hidden behind the porch's beam and spindle frieze (frieze bottom at y 5590 px): the box's top is the frieze's lower edge, so the true trim is taller; the top-left of the casing is also behind a porch bracket; bottom is the sill board's bottom. For scale: the same block's first floor window on the north elevation (sheet 6), with its crown cap, is 3.00 x 6.71 ft, and the south one 3.05 x 6.67 ft, so the hidden cap probably adds about 0.8 to 1.0 ft here. | B: double-hung behind the porch; its head is hidden by the porch frieze, so the top is the frieze beam's underside (5594), the lowest the head can be. The same windows on the north and south walls have their cornice head's top 9.35-9.37 ft above grade, which would be about y 5468 here (0.84 ft higher, 2.6 SF more); not read, so not used. A porch post and its bracket stand just left of the left casing."
+  },
+  {
+   "id": "D1",
+   "kind": "door",
+   "storey": "first",
+   "width_ft": 3.37,
+   "height_ft": 8.0475,
+   "left_ft": 16.41,
+   "sill_ft": 1.4765,
+   "sheet_box": null,
+   "behind_porch": true,
+   "how": "derived",
+   "note": "mean of the passes. A: front door; head trim hidden behind the porch frieze (box top at the frieze's lower edge, y 5594 px), so the true trim is taller; bottom is the porch floor's top line at the door | B: front door (drawn with its screen door) behind the porch; the casings run up behind the porch frieze, so the top is the frieze beam's underside (5596) and the head trim may be higher; bottom at the threshold on the porch floor (6658)"
+  },
+  {
+   "id": "W2",
+   "kind": "window",
+   "storey": "first",
+   "width_ft": 2.9885,
+   "height_ft": 6.7,
+   "left_ft": 27.6135,
+   "sill_ft": 2.8785,
+   "sheet_box": null,
+   "behind_porch": true,
+   "how": "derived",
+   "note": "mean of the passes. A: head trim hidden behind the porch frieze (box top at its lower edge, y 5598 px), so the true trim is taller; the casing's top-right is behind a porch bracket. For scale: the same block's first floor window on the north elevation (sheet 6), with its crown cap, is 3.00 x 6.71 ft, and the south one 3.05 x 6.67 ft, so the hidden cap probably adds about 0.8 to 1.0 ft here. | B: double-hung behind the porch; head hidden by the porch frieze as for W1 (top at the beam's underside, 5601). Its sill is drawn 17 px higher than W1's."
+  },
+  {
+   "id": "W3",
+   "kind": "window",
+   "storey": "second",
+   "width_ft": 2.965,
+   "height_ft": 5.9635,
+   "left_ft": 5.7485,
+   "sill_ft": 12.1265,
+   "sheet_box": null,
+   "behind_porch": false,
+   "how": "scaled",
+   "note": "mean of the passes. A: top is the frame's top line just under a siding course; the cornice brackets above the side casings (y 4000 to 4198 px) are not counted | B: double-hung; head directly under the cornice's frieze (brackets over its casings left out); bottom at the sill's bottom line with its horns (5059)"
+  },
+  {
+   "id": "W4",
+   "kind": "window",
+   "storey": "second",
+   "width_ft": 2.9815,
+   "height_ft": 5.9515,
+   "left_ft": 16.4935,
+   "sill_ft": 12.1965,
+   "sheet_box": null,
+   "behind_porch": false,
+   "how": "scaled",
+   "note": "mean of the passes. A: the sill's lower part meets the front porch roof's top edge: the box's bottom is where the porch roof cuts the trim (y 5046 px); the full sill would reach about y 5060 | B: double-hung over the front door; the porch roof's top edge meets its sill, so the bottom (5050) is where the sill and the roof edge coincide"
+  },
+  {
+   "id": "W5",
+   "kind": "window",
+   "storey": "second",
+   "width_ft": 3.0215,
+   "height_ft": 6.0035,
+   "left_ft": 27.67,
+   "sill_ft": 12.175,
+   "sheet_box": null,
+   "behind_porch": false,
+   "how": "scaled",
+   "note": "mean of the passes. A: top is the frame's top line just under a siding course; brackets above not counted | B: double-hung; head under the cornice's frieze; bottom at the sill's bottom line with its horns"
+  }
+ ],
+ "porch": "An open, hip-roofed front porch (5'-10 1/2\" deep) stands in front of the middle of the first storey, about 27 ft of the 36 ft wall (sheet x 5200 to 9240 px), covering both first floor windows and the door; its frieze hides their heads; its roof rises to the middle second-storey window's sill.",
+ "passes": {
+  "a": "pass A reader (independent)",
+  "b": "pass B reader (independent)",
+  "disagreements": [
+   {
+    "what": "eave above grade",
+    "a": "19.79 ft (printed: 19'-9 1/2\")",
+    "b": "19.85 ft (derived: (19'-9 1/2\" + 19'-11\") / 2)",
+    "kept": "the mean, 19.82 ft"
+   },
+   {
+    "what": "D1 width",
+    "a": "3.53",
+    "b": "3.21",
+    "kept": "the mean, 3.37 (A: front door; head trim hidden behind the porch frieze (box top at the frieze's lower edge, y 5594 px), so the true trim is taller; bottom is the porch floor's to | B: front door (drawn with its screen door) behind the porch; the casings run up behind the porch frieze, so the top is the frieze beam's underside (5596) and the h)"
+   },
+   {
+    "what": "W3 height",
+    "a": "5.77",
+    "b": "6.16",
+    "kept": "the mean, 5.96 (A: top is the frame's top line just under a siding course; the cornice brackets above the side casings (y 4000 to 4198 px) are not counted | B: double-hung; head directly under the cornice's frieze (brackets over its casings left out); bottom at the sill's bottom line with its horns (5059))"
+   },
+   {
+    "what": "W4 height",
+    "a": "5.74",
+    "b": "6.16",
+    "kept": "the mean, 5.95 (A: the sill's lower part meets the front porch roof's top edge: the box's bottom is where the porch roof cuts the trim (y 5046 px); the full sill would reach about | B: double-hung over the front door; the porch roof's top edge meets its sill, so the bottom (5050) is where the sill and the roof edge coincide)"
+   },
+   {
+    "what": "W5 height",
+    "a": "5.80",
+    "b": "6.21",
+    "kept": "the mean, 6.00 (A: top is the frame's top line just under a siding course; brackets above not counted | B: double-hung; head under the cornice's frieze; bottom at the sill's bottom line with its horns)"
+   },
+   {
+    "what": "W1 height (head behind the porch frieze)",
+    "a": "drawn part only",
+    "b": "drawn part only",
+    "kept": "6.70 ft, the mean of the block's first-floor windows on its north and south walls (drawn 5.81)"
+   },
+   {
+    "what": "W2 height (head behind the porch frieze)",
+    "a": "drawn part only",
+    "b": "drawn part only",
+    "kept": "6.70 ft, the mean of the block's first-floor windows on its north and south walls (drawn 5.65)"
+   },
+   {
+    "what": "D1 height (head behind the porch frieze)",
+    "a": "drawn part only",
+    "b": "drawn part only",
+    "kept": "drawn 7.08 ft + the windows' mean hidden 0.97 ft"
+   }
+  ]
+ },
+ "photos": [
+  {
+   "id": "5798189ff0",
+   "path": "full/mo1857/5798189ff0.jpg",
+   "source": "https://commons.wikimedia.org/wiki/File:Trumanfarm.JPG",
+   "licence": "CC BY-SA 2.5",
+   "taken": "2006:03:31 12:56:16",
+   "hfov_deg": null,
+   "hfov_from": "unknown: no EXIF focal length (HABS large-format negative or no 35 mm equivalent)",
+   "which": "the two-storey front facing the camera, with the porch across it",
+   "width_px": 2560,
+   "height_px": 1920
+  },
+  {
+   "id": "b2337b3f86",
+   "path": "full/mo1857/b2337b3f86.jpg",
+   "source": "https://commons.wikimedia.org/wiki/File:Truman_Farm_Home_and_grounds_at_dusk_in_July_2022_-_18.jpg",
+   "licence": "CC BY-SA 4.0",
+   "taken": "2022:07:26 20:14:51",
+   "hfov_deg": 63.44,
+   "hfov_from": "EXIF 35 mm-equivalent 28 mm (diagonal), 4:3 landscape",
+   "which": "the two-storey front facing the camera, with the porch across it",
+   "width_px": 3264,
+   "height_px": 2448
+  },
+  {
+   "id": "301be8d2c0",
+   "path": "full/mo1857/301be8d2c0.jpg",
+   "source": "https://commons.wikimedia.org/wiki/File:Truman_Farm_Home_and_grounds_at_dusk_in_July_2022_-_17.jpg",
+   "licence": "CC BY-SA 4.0",
+   "taken": "2022:07:26 20:14:26",
+   "hfov_deg": 63.44,
+   "hfov_from": "EXIF 35 mm-equivalent 28 mm (diagonal), 4:3 landscape",
+   "which": "the wall at the right of the picture: the front, with the porch",
+   "width_px": 3264,
+   "height_px": 2448
+  },
+  {
+   "id": "7640f3803d",
+   "path": "full/mo1857/7640f3803d.jpg",
+   "source": "https://commons.wikimedia.org/wiki/File:Truman_Farm_Home_and_grounds_at_dusk_in_July_2022_-_02.jpg",
+   "licence": "CC BY-SA 4.0",
+   "taken": "2022:07:26 20:07:15",
+   "hfov_deg": 63.44,
+   "hfov_from": "EXIF 35 mm-equivalent 28 mm (diagonal), 4:3 landscape",
+   "which": "the wall at the left of the picture: the front, with the porch",
+   "width_px": 3264,
+   "height_px": 2448
+  }
+ ],
+ "note": "Two independent readings of the elevation merged by work/merge_facades.py."
+}

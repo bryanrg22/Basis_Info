@@ -1,0 +1,71 @@
+{
+ "schema": "measure_facade/v1",
+ "id": "mo1224-east",
+ "house": "mo1224",
+ "side": "east",
+ "description": "The east (front) wall of the two-storey front block (the parlor below), the clapboarded wall under the front gable, between its two corner boards, from grade to the main eave (19'-0 1/2\" above the first floor); a paired window upstairs and one wide window downstairs behind the open front porch. The set-back foyer and the one-storey bedroom to its left on the sheet are not part of it.",
+ "sheet": "6",
+ "scale": "1/4\" = 1'-0\"",
+ "px_per_ft": 100.0,
+ "length": {
+  "ft": 16.3333,
+  "how": "derived",
+  "sheet": "3",
+  "note": "first floor plan's east string, first row 6'-3 1/2\" + 3'-9\" + 6'-3 1/2\" = 16'-4\" (the second row's \"10'-4\" is a misprint, see the house truth); the elevation scales 16.28 ft between the corner boards' outer edges (x 9620 to 11248 px at 100 px/ft)"
+ },
+ "eave": {
+  "ft": 21.5,
+  "how": "derived",
+  "sheet": "6",
+  "note": "this elevation's printed levels: EAVE 19'-0 1/2\" above FIRST FLOOR 0'-0\" plus GRADE 2'-5 1/2\" below it (the only grade printed on this elevation) = 21.50 ft; level lines at y 3564 (eave), 5461.5 (floor), 5706 px (grade) scale 18.98 and 2.45 ft. The house truth's heights.eave is 21.458 ft (the same eave over the mean of the four elevations' grades, 2.417 ft). The front gable's triangle above the eave is not in the wall."
+ },
+ "openings": [
+  {
+   "id": "W1",
+   "kind": "window",
+   "storey": "first",
+   "width_ft": 4.84,
+   "height_ft": 5.1725,
+   "left_ft": 5.8625,
+   "sill_ft": 4.0775,
+   "sheet_box": null,
+   "behind_porch": true,
+   "how": "scaled",
+   "note": "mean of the passes. A: one wide window (no meeting rail visible; a porch post with its bracket stands in front of its left third, x 10331 to 10411 px). Its head is hidden behind the porch's sawtooth valance: the casings run up into it, so the box's top is the valance's lower edge (y 4785 px) and the true trim top is somewhat higher (unknown, probably under 0.2 ft). Bottom is the sill's bottom. | B: one wide window in the parlor wall behind the front porch, a porch post in front of its middle; plan prints the opening 3'-9\". Its head trim is hidden behind the porch frieze: the casings disappear under the frieze's scallops at about 4780 and the sash frame's top is at 4796; the top is taken at 4780 (the upstairs window's trim top is 15 px above its sash frame), so the real head may be up to about 0.2 ft higher. If the head matched the main block's first-floor window on the south elevation (8.35 ft above the floor, y 4628 here) the window would be 1.52 ft taller."
+  },
+  {
+   "id": "W2",
+   "kind": "window",
+   "storey": "second",
+   "width_ft": 5.315,
+   "height_ft": 6.49,
+   "left_ft": 5.4825,
+   "sill_ft": 14.28,
+   "sheet_box": null,
+   "behind_porch": false,
+   "how": "scaled",
+   "note": "mean of the passes. A: a pair of double-hung windows in one trim (centre mullion at x 10397 to 10461 px): one opening. Top is where the casings stop under the eave's frieze (line at y 3633 px); bottom is the sill's bottom (the line under it at y 4290 px runs on past the sill and is taken as siding). | B: a pair of double-hung windows in one trim (shared centre casing); its top meets the bottom of the gable's frieze band (the head may run behind it); bottom at the sill's bottom line"
+  }
+ ],
+ "porch": "An open front porch (5'-9 3/4\" deep, posts, spindle frieze and sawtooth valance, its roof eave 9'-5 1/4\" above the floor) runs across the whole first storey of this wall and wraps round to the left (south) in front of the foyer; its roof covers the wall up to just under the upper window's sill.",
+ "passes": {
+  "a": "pass A reader (independent)",
+  "b": "pass B reader (independent)",
+  "disagreements": []
+ },
+ "photos": [
+  {
+   "id": "096c6089b7",
+   "path": "full/mo1224/096c6089b7.jpg",
+   "source": "https://commons.wikimedia.org/wiki/File:Noland_Home_P5300334_Harry_Truman_house.JPG",
+   "licence": "CC BY-SA 4.0",
+   "taken": "2012:05:30 13:18:00",
+   "hfov_deg": 37.6,
+   "hfov_from": "EXIF 6.3 mm on a 1/2.5-inch sensor (nominal 5.76 x 4.29 mm), portrait",
+   "which": "the two-storey front under the gable, with the porch across its ground floor",
+   "width_px": 2304,
+   "height_px": 3072
+  }
+ ],
+ "note": "Two independent readings of the elevation merged by work/merge_facades.py."
+}
