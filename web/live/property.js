@@ -356,7 +356,21 @@
   if(t.shapes.length){try{r=PM.measure(traceBody(t,v,c))}catch(e){problems=e.problems||[e.message]}}
   const prov=!r&&t.draft.length>=(t.tool==='line'?2:3)&&!problems.length?provisional(v,t,c):null;
   const msg=t.msg?`<span class="pa-problem" role="alert">${esc(t.msg)}</span>`:'';
-  return {r,html:`${r?`<strong>${fmt(r.quantity,2)} ${esc(r.unit)}</strong><span>${r.expected_error_pct===null?'Expected error unknown (no pixel size)':`Expected error up to ${esc(r.expected_error_pct)} %`} · ${r.shape_count} ${r.area_sf!==null?'area':'line'}${r.shape_count===1?'':'s'}${r.cutout_count?`, ${r.cutout_count} cut out`:''}</span>`:prov?`<strong class="is-provisional">${fmt(prov.quantity,2)} ${esc(prov.unit)}</strong><span>while drawing</span>`:problems.length?`<span class="pa-problem">${esc(problems[0].replace(/^measurement/,'The shape'))}</span>`:'<span>Nothing traced yet.</span>'}${msg}`};
+  const factor=r?draftFactor(t,r):null;
+  return {r,html:`${r?`<strong>${fmt(r.quantity,2)} ${esc(r.unit)}</strong>${factor?`<span class="md-factor" data-md-factor>${esc(factor.text)} on the row</span>`:''}<span>${r.expected_error_pct===null?'Expected error unknown (no pixel size)':`Expected error up to ${esc(r.expected_error_pct)} %`} · ${r.shape_count} ${r.area_sf!==null?'area':'line'}${r.shape_count===1?'':'s'}${r.cutout_count?`, ${r.cutout_count} cut out`:''}</span>`:prov?`<strong class="is-provisional">${fmt(prov.quantity,2)} ${esc(prov.unit)}</strong><span>while drawing</span>`:problems.length?`<span class="pa-problem">${esc(problems[0].replace(/^measurement/,'The shape'))}</span>`:'<span>Nothing traced yet.</span>'}${msg}`};
+ }
+ // A trace of a row Basis drafted from the lidar shell (EVAL_REPORT 110) is priced at the shape
+ // times the draft's factor (the roof's slope, the siding's openings), which an edit keeps
+ // (docs/api/MEASURE_DRAFTS.md section 3): the line beside the total says so. Only for a trace that
+ // descends from the draft (its base is the draft, or a measurement whose original is); a fresh
+ // trace is taken as it is.
+ function draftFactor(t,r){
+  const MD=globalThis.BasisMeasureDrafts,b=t.base;if(!MD||!b)return null;
+  const fromModel=x=>typeof x?.drawn_by==='string'&&x.drawn_by.startsWith('model:');if(!fromModel(b)&&!fromModel(b.original))return null;
+  const a=L.study?(assetsEntry(L.study).data?.items||[]).find(x=>x.id===t.assetId):null,d=MD.draftOf(a);
+  // Untouched, the draft is sent as it is stored (finalBody), so its own quantity is the one priced.
+  let shape=r;if(t.fromBase){try{shape=PM.measure(b)}catch{}}
+  return d?MD.factorLine(d,shape.quantity,shape.unit,{kind:t.shapes[0]?.kind,untouched:!!t.fromBase}):null;
  }
  // Every edge in a table (the labels a short edge hides, a keyboard way to type a length, and the
  // per-edge before and after against the original).
@@ -433,7 +447,7 @@ ${edgeTable(t,v,scope,c)}
  function savedPanel(s,a,u,scope='property'){
   const sv=u.saved,texts=(globalThis.BasisReasons?.explainAll(sv.flags)||sv.flags.map(f=>({text:f}))).map(x=>x.text);
   const back=scope==='dialog'?`<button class="button primary" data-live="mt-close">Back to ${esc(L.mtDialog?.from==='asset-detail'?'the asset':'the assets')}</button>`:`<a class="button primary" href="${Live.route('assets',s.id)}">Back to assets</a>`;
-  return `<section class="pa-card pa-measure is-saved"><header class="pa-measure-head"><h2>${esc(a.label?name(a.label):a.category)} measured</h2></header><p><strong>${fmt(sv.quantity,2)} ${esc(sv.unit)}</strong> is in the assets review’s corrections, waiting for Review &amp; send.</p><p class="pa-muted">${esc(sv.formula)}</p>${texts.length?`<div class="pa-flags"><h3>The review will flag it</h3><ul>${texts.map(x=>`<li>${esc(x)}</li>`).join('')}</ul></div>`:'<p class="pa-muted">No review flag: the picture is dated no later than a year after the placed-in-service date and is sharp enough for its size.</p>'}<div class="row wrap">${back}<button class="button" data-live="pa-trace-again" data-mt-scope="${scope}">Trace it again</button></div></section>`;
+  return `<section class="pa-card pa-measure is-saved"><header class="pa-measure-head"><h2>${esc(a.label?name(a.label):a.category)} measured</h2></header><p><strong>${fmt(sv.quantity,2)} ${esc(sv.unit)}</strong> is in the assets review’s corrections, waiting for Review &amp; send.</p>${sv.factor?`<p class="md-factor">The row is priced at ${esc(sv.factor.text)}.</p>`:''}<p class="pa-muted">${esc(sv.formula)}</p>${texts.length?`<div class="pa-flags"><h3>The review will flag it</h3><ul>${texts.map(x=>`<li>${esc(x)}</li>`).join('')}</ul></div>`:'<p class="pa-muted">No review flag: the picture is dated no later than a year after the placed-in-service date and is sharp enough for its size.</p>'}<div class="row wrap">${back}<button class="button" data-live="pa-trace-again" data-mt-scope="${scope}">Trace it again</button></div></section>`;
  }
  function measurePanel(s,prop,v,u){
   if(!caps().tracedMeasurement)return '';
@@ -632,7 +646,7 @@ ${toolPanel('property',s,a,t,v,{})}
  const facadeOffered=a=>!!caps().facadeMeasure&&!!caps().tracedMeasurement&&['SF','SY'].includes(PM.measureOffer(a).unit);
  function newFacade(a,doc,w,h){
   const unit=PM.measureOffer(a).unit==='SY'?'SY':'SF',cam=doc.camera||null,f35=Number(cam?.focal_length_35mm)>0?Number(cam.focal_length_35mm):null;
-  const F={assetId:a.id,docId:doc.id,w,h,unit,wall:[],openings:[],current:[],tool:'wall',length:{text:'',ft:null,from:null},lens:{text:f35?String(f35):'',f35,from:f35?'photo':null},camera:cam,verified:true,msg:null,hist:[],sel:null};
+  const F={assetId:a.id,docId:doc.id,w,h,unit,wall:[],openings:[],current:[],tool:'wall',reopen:null,length:{text:'',ft:null,from:null},lens:{text:f35?String(f35):'',f35,from:f35?'photo':null},camera:cam,verified:true,msg:null,hist:[],future:[],sel:null,focusSel:false};
   // An unsent facade on this photo is where the engineer left off.
   const m=Live.pendingCorrection?.('assets_review',a.id)?.after?.measurement;
   if(m?.space==='facade'&&m.image?.document_id===doc.id&&m.facade){const sx=w/(Number(m.view?.width)||w),sy=h/(Number(m.view?.height)||h),scale=q=>q.map(([x,y])=>rp([x*sx,y*sy]));
@@ -666,15 +680,53 @@ ${toolPanel('property',s,a,t,v,{})}
   F.openings.forEach((o,i)=>{const q=PM.orderQuad(o.pts),c=[q.reduce((t,p)=>t+p[0],0)/4,q.reduce((t,p)=>t+p[1],0)/4],mo=m?.openings?.[i];
    out.push(`<polygon class="fc-opening is-${o.kind}" points="${pts(q)}"/>`);labels.push(tag(c[0],c[1],String(i+1),'is-opening',mo?`Opening ${i+1}: ${PM.ftIn(Number(mo.width_ft))} × ${PM.ftIn(Number(mo.height_ft))}`:''))});// the number on the photo; its size in the table (sizes on the photo meet each other)
   if(F.current.length){out.push(`<polyline class="fc-current" points="${pts(F.current)}"/>`)}
-  const handle=(ref,p,label)=>handles.push(handleSvg(`mt-vertex${F.sel===ref?' is-selected':''}`,`data-fc-vertex="${ref}"`,p,hr,label));
+  const keys='; Enter selects it, then the arrow keys move it and Delete removes it';
+  const handle=(ref,p,label)=>handles.push(handleSvg(`mt-vertex${F.sel===ref?' is-selected':''}`,`data-fc-vertex="${ref}"`,p,F.sel===ref?hr*1.25:hr,label+keys));
   F.wall.forEach((p,i)=>handle(`w:${i}`,p,`Wall corner ${i+1}: drag it onto the corner`));
   F.openings.forEach((o,k2)=>o.pts.forEach((p,i)=>handle(`o:${k2}:${i}`,p,`Opening ${k2+1} corner ${i+1}: drag it onto the trim’s corner`)));
-  F.current.forEach((p,i)=>handle(`c:${i}`,p,`Corner ${i+1} of the next ${F.tool}`));
+  F.current.forEach((p,i)=>handle(`c:${i}`,p,`Corner ${i+1} of the next ${F.tool==='garage'?'garage door':F.tool}`));
   return `<g class="fc-layer" data-fc-layer>${out.join('')}${labels.join('')}${handles.join('')}</g>`;
  }
  const ptAt=(F,ref)=>{const [w,a,b]=ref.split(':');return w==='w'?{list:F.wall,i:Number(a)}:w==='o'?{list:F.openings[Number(a)]?.pts,i:Number(b)}:{list:F.current,i:Number(a)}};
- function facadeSnapshot(F){return JSON.stringify({wall:F.wall,openings:F.openings,current:F.current,tool:F.tool})}
- function facadeRemember(F){F.hist.push(facadeSnapshot(F));if(F.hist.length>200)F.hist.shift()}
+ function facadeSnapshot(F){return JSON.stringify({wall:F.wall,openings:F.openings,current:F.current,tool:F.tool,reopen:F.reopen??null})}
+ // Every change remembers the state before it (Undo) and drops what was undone (Redo), as the trace
+ // does (PM.remember, undoTrace, redoTrace).
+ function facadePush(F,snap){F.hist.push(snap);if(F.hist.length>200)F.hist.shift();F.future=[]}
+ function facadeRemember(F){facadePush(F,facadeSnapshot(F))}
+ function facadeUndo(F){if(!F.hist.length)return false;(F.future||=[]).push(facadeSnapshot(F));Object.assign(F,JSON.parse(F.hist.pop()));F.sel=null;F.msg=null;return true}
+ function facadeRedo(F){if(!F.future?.length)return false;F.hist.push(facadeSnapshot(F));Object.assign(F,JSON.parse(F.future.pop()));F.sel=null;F.msg=null;return true}
+ // The keyboard on a facade's corners (the trace's keys, keyMove and deleteCorner): the selected
+ // corner moves by KEY_STEP_PX screen pixels a press (10 with Shift), kept on the photo as a drag
+ // keeps it. A wall or an opening is four corners, so deleting one of a finished one takes it back
+ // to its three others, to be finished with one click where the corner belongs (it keeps its place
+ // in the openings); a corner of the one being clicked is simply dropped.
+ function facadeNudge(c,dx,dy){
+  const F=c.F,{list,i}=ptAt(F,F.sel||'');if(!list||!list[i])return false;const k=F.k||1,p=list[i];
+  const q=rp([Math.max(0,Math.min(c.w,p[0]+dx*k)),Math.max(0,Math.min(c.h,p[1]+dy*k))]);if(q[0]===p[0]&&q[1]===p[1])return false;
+  facadeRemember(F);list[i]=q;F.msg=null;return true;
+ }
+ function facadeDelete(c){
+  const F=c.F,ref=F.sel;if(!ref)return false;const [w,a,b]=ref.split(':'),n=Number(a);
+  if(w==='c'){if(!F.current[n])return false;facadeRemember(F);F.current.splice(n,1);F.sel=null;announce(`Corner ${n+1} of the ${F.tool==='garage'?'garage door':F.tool} deleted.`);return true}
+  if(F.current.length){F.msg=`Finish the ${F.tool==='garage'?'garage door':F.tool} you are clicking first, or press Escape to drop its corners.`;return false}
+  facadeRemember(F);
+  if(w==='w'){F.current=F.wall.filter((_,j)=>j!==n);F.wall=[];F.tool='wall';F.reopen=null}
+  else{const o=F.openings[n];if(!o){F.hist.pop();return false}F.current=o.pts.filter((_,j)=>j!==Number(b));F.openings.splice(n,1);F.tool=o.kind;F.reopen={index:n}}
+  const what=w==='w'?'wall':F.tool==='garage'?'garage door':F.tool;
+  F.sel=null;F.msg=null;announce(`Corner deleted. Click where the ${what}’s fourth corner belongs to finish it.`);return true;
+ }
+ function facadeKey(ev){
+  const c=scopes.facade,F=c?.F;if(!F)return;
+  const vx=ev.target.closest?.('[data-fc-vertex]'),mod=ev.metaKey||ev.ctrlKey;
+  if(ev.key==='Escape'){ev.preventDefault();if(F.sel){F.sel=null;Live.render();return}if(F.current.length){facadeRemember(F);F.current=[];F.reopen=null;Live.render();return}closeDialog();return}
+  if(vx&&(ev.key==='Enter'||ev.key===' ')){ev.preventDefault();F.sel=vx.dataset.fcVertex;F.focusSel=true;Live.render();return}
+  if(mod&&(ev.key==='z'||ev.key==='Z')){ev.preventDefault();if(ev.shiftKey?facadeRedo(F):facadeUndo(F))Live.render();return}
+  if(mod&&(ev.key==='y'||ev.key==='Y')){ev.preventDefault();if(facadeRedo(F))Live.render();return}
+  if(!F.sel)return;
+  if(ev.key==='Delete'||ev.key==='Backspace'){ev.preventDefault();facadeDelete(c);Live.render();return}
+  const step=ev.shiftKey?10*KEY_STEP_PX:KEY_STEP_PX,mv={ArrowLeft:[-step,0],ArrowRight:[step,0],ArrowUp:[0,-step],ArrowDown:[0,step]}[ev.key];
+  if(mv){ev.preventDefault();facadeNudge(c,...mv);F.focusSel=true;Live.render()}
+ }
  function facadePanel(s,a,F,doc,res,shell){
   const fmt2=v=>fmt(Number(v),2),m=res.r?.facade_measured,lens=F.lens;
   const sides=(shell?.sides||[]).filter(x=>x.width_m>0);
@@ -685,12 +737,12 @@ ${toolPanel('property',s,a,t,v,{})}
   const rows=F.openings.map((o,i)=>{const mo=m?.openings?.[i];return `<tr><th scope="row">${i+1}</th><td>${esc(FC_TOOLS.find(t=>t[0]===o.kind)?.[1]||o.kind)}</td><td>${mo?`${esc(PM.ftIn(Number(mo.width_ft)))} × ${esc(PM.ftIn(Number(mo.height_ft)))}`:'—'}</td><td>${mo?fmt2(mo.area_sf):'—'}</td><td><button class="button small" data-live="fc-remove" data-value="${i}" aria-label="Remove opening ${i+1}">Remove</button></td></tr>`}).join('');
   const table=F.openings.length?`<details class="mt-edges" open><summary>Openings <span class="pa-muted">${F.openings.length}</span></summary><table class="mt-edge-table"><thead><tr><th scope="col">#</th><th scope="col">Kind</th><th scope="col">Width × height</th><th scope="col">SF</th><th scope="col"><span class="sr-only">Remove</span></th></tr></thead><tbody>${rows}</tbody></table></details>`:'';
   return `<div class="pa-seg fc-tools" role="group" aria-label="What to click">${FC_TOOLS.map(([k,l])=>`<button data-live="fc-tool" data-value="${k}" aria-pressed="${F.tool===k}" ${k!=='wall'&&F.wall.length<4?'disabled':''}>${l}</button>`).join('')}</div>
-<p class="pa-hint">${esc(FC_HINT[F.tool])}${F.current.length?` ${F.current.length} of 4 clicked.`:''} Drag a corner to move it.</p>
+<p class="pa-hint">${esc(FC_HINT[F.tool])}${F.current.length?` ${F.current.length} of 4 clicked.`:''} Drag a corner to move it, or select it and use the arrow keys (Shift for larger steps); Delete removes it.</p>
 ${lengthBlock}${lensBlock}
 <div class="pa-readout" aria-live="polite" data-fc-readout>${read}${F.msg?`<span class="pa-problem" role="alert">${esc(F.msg)}</span>`:''}</div>
 ${table}
 <label class="mt-verified"><input type="checkbox" data-fc-input="verified" ${F.verified?'checked':''} ${res.r?'':'disabled'}> <span><strong>Verified</strong> I checked the corners against the photo</span></label>
-<div class="row wrap pa-measure-actions"><button class="button" data-live="fc-undo" ${F.hist.length?'':'disabled'}>Undo</button><button class="button" data-live="fc-clear" ${F.wall.length||F.openings.length||F.current.length?'':'disabled'}>Clear</button><button class="button primary" data-live="fc-save" ${res.r?'':'disabled'}>Save measurement</button></div>`;
+<div class="row wrap pa-measure-actions"><button class="button" data-live="fc-undo" ${F.hist.length?'':'disabled'}>Undo</button><button class="button" data-live="fc-redo" ${F.future?.length?'':'disabled'}>Redo</button><button class="button" data-live="fc-delete" ${F.sel?'':'disabled'}>Delete corner</button><button class="button" data-live="fc-clear" ${F.wall.length||F.openings.length||F.current.length?'':'disabled'}>Clear</button><button class="button primary" data-live="fc-save" ${res.r?'':'disabled'}>Save measurement</button></div>`;
  }
  function facadeDialog(s,a,D,pick,w,h,imgHtml,views,title){
   const doc=pick.doc;if(!D.facade||D.facade.docId!==doc.id||D.facade.assetId!==a.id)D.facade=newFacade(a,doc,w,h);
@@ -716,14 +768,17 @@ ${table}
   if(ev.target.closest?.('[data-fc-vertex]'))return;
   const [x,y]=pixelOf(svg,ev),p=rp([Math.max(0,Math.min(c.w,x)),Math.max(0,Math.min(c.h,y))]);
   facadeRemember(F);F.msg=null;F.sel=null;F.current.push(p);
-  if(F.current.length===4){if(F.tool==='wall'){F.wall=F.current;F.tool='window'}else F.openings.push({kind:F.tool,pts:F.current});F.current=[]}
+  // A finished wall or opening whose corner was deleted (facadeDelete) goes back where it was.
+  if(F.current.length===4){if(F.tool==='wall'){F.wall=F.current;F.tool='window'}else if(F.reopen&&F.reopen.index<=F.openings.length)F.openings.splice(F.reopen.index,0,{kind:F.tool,pts:F.current});else F.openings.push({kind:F.tool,pts:F.current});F.current=[];F.reopen=null}
   Live.render();
  }
  Live.actions['mt-mode']=(el,m)=>{const D=L.mtDialog;if(!D)return;D.mode=m==='facade'?'facade':'trace';Live.render()};
- Live.actions['fc-tool']=(el,k)=>{const F=scopes.facade?.F;if(!F)return;F.tool=k;F.current=[];Live.render()};
- Live.actions['fc-undo']=()=>{const F=scopes.facade?.F;if(!F||!F.hist.length)return;Object.assign(F,JSON.parse(F.hist.pop()));F.sel=null;F.msg=null;Live.render()};
- Live.actions['fc-clear']=()=>{const F=scopes.facade?.F;if(!F)return;facadeRemember(F);F.wall=[];F.openings=[];F.current=[];F.tool='wall';F.msg=null;Live.render()};
- Live.actions['fc-remove']=(el,i)=>{const F=scopes.facade?.F;if(!F)return;facadeRemember(F);F.openings.splice(Number(i),1);Live.render()};
+ Live.actions['fc-tool']=(el,k)=>{const F=scopes.facade?.F;if(!F)return;F.tool=k;F.current=[];F.reopen=null;Live.render()};
+ Live.actions['fc-undo']=()=>{const F=scopes.facade?.F;if(F&&facadeUndo(F))Live.render()};
+ Live.actions['fc-redo']=()=>{const F=scopes.facade?.F;if(F&&facadeRedo(F))Live.render()};
+ Live.actions['fc-delete']=()=>{const c=scopes.facade;if(c){facadeDelete(c);Live.render()}};
+ Live.actions['fc-clear']=()=>{const F=scopes.facade?.F;if(!F)return;facadeRemember(F);F.wall=[];F.openings=[];F.current=[];F.tool='wall';F.reopen=null;F.sel=null;F.msg=null;Live.render()};
+ Live.actions['fc-remove']=(el,i)=>{const F=scopes.facade?.F;if(!F)return;facadeRemember(F);F.openings.splice(Number(i),1);if(F.reopen&&F.reopen.index>Number(i))F.reopen.index--;if(F.sel?.startsWith('o:'))F.sel=null;Live.render()};
  Live.actions['fc-side']=(el,side)=>{const F=scopes.facade?.F,shell=pubEntry(L.study)?.data?.lidar;const x=shell?.shell?.sides?.find(t=>t.side===side);if(!F||!x)return;
   const ft=x.width_m*PM.FT_PER_M;F.length={text:PM.ftIn(ft),ft,from:`the lidar shell's ${side} side${shell.year?` (${shell.year} lidar)`:''}`};Live.render()};
  Live.actions['fc-save']=()=>saveFacade();
@@ -1026,7 +1081,7 @@ ${noViews?'':`<section class="pa-history" aria-label="Dated views">${strips(s,ca
   const formula=PM.formula(r,{source:body.image.source,captured_on:body.image.captured_on,height_ft:body.height_ft,drawn_by:body.drawn_by,verified:body.verified});
   const on=t.space==='image'?`photo ${c.doc?.filename||''}`:v.source_id?viewDate(v):PM.dateText(PM.dateOf(v));
   Live.addCorrection('assets_review',{key:a.id,entity_type:'asset',entity_id:a.id,before:{...(cur?.before||{}),quantity:a.takeoff?.quantity??null,quantity_unit:a.takeoff?.unit??null},after,reason:cur?.reason??null,title:a.label?name(a.label):a.category,summary:`${t.space==='image'?'measured':'traced'} ${r.quantity} ${r.unit} on ${on}${body.verified?', verified':''}`});
-  const saved={assetId:a.id,viewId:v.id,shapes:t.shapes,quantity:r.quantity,unit:r.unit,formula,flags:PM.reviewFlags(r,{captured_on:body.image.captured_on,placedInService:s.intake?.placed_in_service_date})};
+  const saved={assetId:a.id,viewId:v.id,shapes:t.shapes,quantity:r.quantity,factor:globalThis.BasisMeasureDrafts?.measuredRow(a,body,r)||null,unit:r.unit,formula,flags:PM.reviewFlags(r,{captured_on:body.image.captured_on,placedInService:s.intake?.placed_in_service_date})};
   if(scope==='dialog'&&L.mtDialog){L.mtDialog.saved=saved;L.mtDialog.trace={...t,shapes:[],draft:[]}}else ui(s).saved=saved;
   t.shapes=[];t.draft=[];t.sel=null;t.edit=null;Live.render();
  }
@@ -1069,7 +1124,7 @@ ${noViews?'':`<section class="pa-history" aria-label="Dated views">${strips(s,ca
  });
  function endDrag(ev){
   if(!drag||ev.pointerId!==drag.id)return;const d=drag;drag=null;
-  if(d.facadeRef){const f=scopes.facade;try{d.svg.releasePointerCapture(ev.pointerId)}catch{}if(f&&d.moved){f.F.hist.push(d.before);suppressClick=true;setTimeout(()=>{suppressClick=false},50)}setTimeout(()=>Live.render(),0);return}
+  if(d.facadeRef){const f=scopes.facade;try{d.svg.releasePointerCapture(ev.pointerId)}catch{}if(f&&d.moved){facadePush(f.F,d.before);suppressClick=true;setTimeout(()=>{suppressClick=false},50)}setTimeout(()=>Live.render(),0);return}
   const c=ctxOf(d.scope);if(!c)return;
   try{d.svg.releasePointerCapture(ev.pointerId)}catch{}
   if(d.boxFrom){const b=c.t.box,k=c.t.k||1;if(!b||b[2]-b[0]<4*k||b[3]-b[1]<4*k)c.t.box=null;suppressClick=true;setTimeout(()=>{suppressClick=false},50);setTimeout(()=>Live.render(),0);return}
@@ -1117,6 +1172,8 @@ ${noViews?'':`<section class="pa-history" aria-label="Dated views">${strips(s,ca
   if(form){if(ev.key==='Escape'){const t=traceOf(form.dataset.mtScope);if(t){ev.preventDefault();ev.stopPropagation();t.edit=null;Live.render()}}return}
   if(ev.target.closest?.('input,select,textarea'))return;
   const scope=L.mtDialog?'dialog':Live.screen()==='property'?'property':null;if(!scope||!L.study)return;
+  // The facade's corners take the trace's keys (facadeKey); the hidden trace is left alone.
+  if(scope==='dialog'&&L.mtDialog?.facadeShown){facadeKey(ev);return}
   const u=scope==='property'?ui(L.study):null,c=ctxOf(scope),t=c?.t||null;
   if(ev.key==='Escape'){
    if(u?.mode==='pin'){u.mode=null;u.candidate=null;Live.render();return}
@@ -1127,7 +1184,6 @@ ${noViews?'':`<section class="pa-history" aria-label="Dated views">${strips(s,ca
    return;
   }
   if(!t||!measuring(scope))return;
-  if(scope==='dialog'&&L.mtDialog?.facadeShown)return;// the facade's corners are edited with the pointer; the hidden trace is left alone
   const onLabel=ev.target.closest?.('[data-mt-edge]'),onVertex=ev.target.closest?.('[data-mt-vertex],[data-mt-scale]');
   if(onLabel&&(ev.key==='Enter'||ev.key===' ')){ev.preventDefault();openEdit(scope,parseRef(onLabel.dataset.mtEdge));return}
   if(onVertex&&(ev.key==='Enter'||ev.key===' ')){ev.preventDefault();const r=onVertex.dataset.mtVertex;t.sel=r?parseRef(r):{scale:true,i:Number(onVertex.dataset.mtScale)};t.focusSel=true;Live.render();return}
@@ -1193,6 +1249,7 @@ ${noViews?'':`<section class="pa-history" aria-label="Dated views">${strips(s,ca
   for(const scope of ['property','dialog']){const t=traceOf(scope);if(!t)continue;
    if(t.focusEdit){t.focusEdit=false;const i=document.querySelector(`form[data-mt-scope="${scope}"] input`);if(i){i.focus();i.select?.()}}
    else if(t.focusSel&&t.sel){t.focusSel=false;const ref=t.sel.scale?`[data-mt-scale="${t.sel.i}"]`:`[data-mt-vertex="${refKey(t.sel.s,t.sel.r,t.sel.i)}"]`;document.querySelector(`svg[data-mt-scope="${scope}"] ${ref}`)?.focus?.()}}
+  if(fc?.F.focusSel&&fc.F.sel){fc.F.focusSel=false;document.querySelector(`svg[data-mt-scope="facade"] [data-fc-vertex="${fc.F.sel}"]`)?.focus?.()}
   const D=L.mtDialog;if(D?.focus){D.focus=false;document.querySelector('.mt-dialog')?.focus?.()}
   // Scroll the zoomed picture: onto the shape when it opens, onto the same middle after a zoom.
   const pane=D&&document.querySelector('.mt-stage .pa-zoom');

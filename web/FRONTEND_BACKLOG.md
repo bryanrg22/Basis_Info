@@ -160,7 +160,9 @@ Plain bugs an engineer would hit on the first day, in the order they bite:
 * **Blockers on the result and the report screens.** `GET .../result` `blockers` lists every
   reason the report is withheld, each with `message`, `assets` and `fix`
   (docs/api/STUDY_RESULT.md). Show them where the engineer would look for the report, with a
-  link to the screen each fix names.
+  link to the screen each fix names. *Partly built (section 23):* Results lists each blocker's
+  message and fix, and the drafted measurements' held rows with Verify; the report screen does
+  not list them, and the other fixes are not links yet.
 * **Unpriced rows on the assets review.** A row with an `input:<code>` review reason shows
   "missing input" with the reason's text from its cost row (`source_row`), not a $0.
 * **Measured quantity.** On an unpriced asset that needs one (`input:exterior_area`,
@@ -535,43 +537,65 @@ stored, AI_MEASUREMENT_PLAN.md section 2) and to right angles; slope typed onto 
 asset type with a legend; the diagram in the report; phones (measuring needs a larger screen, as
 before); a later assets rejection still does not resend the measurement (section 17).
 
-## 23. AI-drafted measurements: what the API offers and the app does not use yet (EVAL_REPORT 110)
+## 23. AI-drafted measurements (EVAL_REPORT 110, November 2026)
 
 `docs/api/MEASURE_DRAFTS.md`. Behind `MEASURE_DRAFTS_EXTERIOR` and `MEASURE_DRAFTS_INTERIOR`
 (both off), a drafted row carries `takeoff.inputs.quantity_source: draft`, the record
 `takeoff.inputs.draft` and, for the roof, siding and gutter, `takeoff.inputs.measurement`
 (`drawn_by: model:lidar-shell@v1`, `verified: false`).
 
-**What the app already does with it (section 22, unchanged code):** the exterior drafts are
-model measurements, so the Assets list tags them Draft, the asset page shows the shape read-only
-with its lengths, and Measure opens it dashed as the base; checking Verified and saving sends it
-back `verified: true`, which clears the draft (and its blocker) at the same quantity; an edit is
-sent with the draft as `original`.
+Built in `live/measure-drafts.js` (the text, the ordering, the correction body, the asset page's
+card and the held rows; its pure part is tested in node), with hooks in `live/new-design.js`
+(Assets and Results), `live/live-review.js` (the asset page, the Review & send lines),
+`live/property.js` (the measure tool's readout and saved panel), `live/review-reasons.js` and
+`live/property.css`. The sample API follows the real API with `&drafts=on` (or
+`create({measureDrafts:true})`): with `&property=confirmed`, the roof (held) and the gutters (below
+the threshold) drafted from the lidar shell and the siding not drafted (the shell refused the
+walls); with the default pin (not confirmed) all three say why; the kitchen's countertop (supplying
+the missing cabinet run) and floor drafted from its photos, both held; the
+`measure:draft_unverified` blocker until they are verified. Tests:
+`web/tests/measure-drafts-display.test.cjs`.
 
-**What it lacks:**
+**What the app now uses (the six items):**
 
-1. **The factor.** The tool shows the shape's own quantity (the roof's outline in plan, the walls'
-   gross face); the row is the shape times `draft_factor` (the roof's lidar slope, the siding's
-   15 % openings), and an engineer's edit of a draft keeps the factor. Show "3,412.55 SF in plan x
-   1.2357 slope = 4,216.89 SF" (the record's `factor_reason`) beside the total, so the engineer
-   is not surprised that the row is not the shape's number.
-2. **The blocker.** `GET .../result` `blockers` `measure:draft_unverified` (with `assets`, the
-   count above the threshold) withholds the report; list the held rows (the rows whose
-   `takeoff.inputs.draft.blocks` is true, highest `exposure_usd` first) with a Verify action each.
-3. **Interior drafts have no shape.** A room's floor, wall, trim, countertop and cabinet rows show
-   `draft.quantity` with "Drafted by Basis from N photos of the room · not verified · expected
-   error about X %" and the model's `answer` (length, width, ceiling) and `notes`. Verifying needs
-   a "Use this number" that sends it as a typed quantity (`quantity`, `quantity_unit`,
-   `quantity_source: "verified Basis draft from the room photos"`), or the engineer's own trace on
-   the room's photo (section 22's image mode, the 36 in counter as the scale).
-4. **Who and what it replaced.** `draft.replaces` (today's formula and quantity, or the missing
-   input it supplied) as a "was" line; after verification, `draft.verified` / `replaced_by` with
-   the model's own number kept ("Basis drafted 42 SF; engineer verified").
-5. **Why not drafted.** `takeoff.inputs.draft_not_used` on the roof, siding and gutter rows (the
-   pin is not confirmed, the public records were gathered around an earlier pin, no shell): a
-   hint with the fix (confirm the pin, gather again).
-6. **Exposure.** `draft.exposure_usd` and `verify_above_usd` on the row, so the engineer sees why
-   a draft holds the report and another does not.
+1. **The factor.** Beside the measure tool's total, for a trace that descends from the draft (its
+   base is the draft, or a measurement whose original is): "2,212.63 SF in plan × 1.1180 (the roof
+   planes' slope, 26.6 degrees on average) = 2,473.72 SF on the row" (`factor`, `factor_reason`;
+   the record's own quantity when untouched, the shape x factor rounded half even for an edit, as
+   `_with_factor` does); the same line on the asset page's card, on the saved panel, in the Review
+   & send list and as the title of the Assets row's queued quantity. A fresh trace with no draft as
+   its original gets no factor (the server takes it as it is).
+2. **The blocker.** Results lists every `blockers` entry in the API's words with its fix; for
+   `measure:draft_unverified`, the held rows (pending, `blocks` true, highest `exposure_usd` first)
+   with a Verify action each. The Assets page shows the same held rows above the schedule. Verify on
+   an exterior draft opens the measure tool on it (from Results, on the asset's page); on an
+   interior draft it is Use this number. A queued row says "Verified · Review & send".
+3. **Interior drafts.** The asset page's card: `draft.quantity`, "Drafted by Basis from N photos of
+   the room · not verified · expected error about X %", the model's `answer` (length, width,
+   ceiling, floor, walls, perimeter, countertop, cabinet run as present) and `notes`, and Use this
+   number, which queues `quantity`, `quantity_unit`, `quantity_source: "verified Basis draft from
+   the room photos"` through the existing correction path (merged into a pending correction, a
+   pending measurement dropped: one way to state a quantity). The page's own Measure button stays
+   the way to trace it on the room's photo.
+4. **Was and who acted.** "Was 2,610 SF (today's formula)." or "Was: no quantity, so the row was
+   unpriced (the cabinet run was missing)." from `replaces`; once acted on, "Basis drafted 42 SF;
+   engineer verified." (`verified` true, or `replaced_by` with the same `engineer_quantity`) or
+   "...; engineer changed it to 40 SF."
+5. **Why not drafted.** `draft_not_used` on the card with the fix per reason: no pin or the pin not
+   confirmed (confirm it on the Property page, with a link; drafted at the next assets run), a shell
+   gathered around an earlier pin, none stored or unreadable (gather the public records again),
+   anything else (measure it with Measure).
+6. **Exposure.** On the card and as the title of the Draft tag on the Assets list: "Could move about
+   $1,950.08 (its expected error times its price), more than $250: it holds the report until you
+   verify it." or "..., not more than $250: it does not hold the report."; a held draft's tag and
+   card are amber; an unpriced draft says it moves no dollars yet.
+
+**Not built (open):** the report screen does not list the blockers (Results does; section 10);
+the other blockers' fixes are text, not links to their screens (section 10); the Draft tag's
+exposure is a title (hover), not visible text, on the Assets list; a typed quantity on the Assets
+row still shows the old number struck through even when it is the same (existing display);
+`draft_not_used_code` (`BASIS-MEASURE-004`) is not shown; an interior draft's `confidence` and
+`room_fully_seen` are not shown; checked in a desktop browser only (phones not looked at).
 
 ## 24. Draft it and the facade mode (EVAL_REPORT 111, November 2026)
 
@@ -601,15 +625,24 @@ metrology ported from `basis/geo/facade.py` and checked against the server's num
   correction's measurement with the counts in its `reason`.
 * `documents[].camera` (`focal_length_mm`, `focal_length_35mm`, `model`) from `GET /v1/studies/{id}`.
 * `lidar.shell` (`sides` with `side`, `azimuth_deg`, `width_m`) from `GET .../property/public`.
+* **The keyboard on the facade's corners** (built November 2026, as the trace's): Enter or Space on
+  a focused corner selects it (a pointer press selects it too); the arrow keys move it a screen
+  pixel a press, Shift ten, kept on the photo as a drag is, the numbers recomputed live, focus kept
+  on it; Delete or Backspace removes it: a corner of the quad being clicked is dropped, and a
+  finished wall or opening goes back to its three other corners, finished again by one click where
+  the corner belongs (an opening keeps its number); Escape drops the selection, then the corners
+  being clicked, then closes; Mod+Z undoes, Mod+Shift+Z and Mod+Y redo, with Redo and Delete corner
+  buttons beside Undo; each corner's label says the keys. Tested in
+  `web/tests/measure-drafts-display.test.cjs` and checked with real key presses in the browser.
 
 **Not built (open):** a stored facade measurement read back on the asset page (the read-only card
 draws shapes, not a facade); an edit of a stored facade keeping it as `original` (the body takes
 it; the tool starts afresh, or from the unsent correction); the window and door counts written to
 their own rows (they are the correction's note); picking the wall on the diagram instead of a
 compass side; snapping a facade corner to the photo's edges; the photo's date (`captured_on` is
-not read from the EXIF, so a facade is flagged undated); moving a facade corner with the keyboard
-(the trace's arrow keys and Delete are not wired to the facade's corners: a pointer is needed);
-phones (measuring needs a larger screen).
+not read from the EXIF, so a facade is flagged undated); deleting a finished wall's corner while
+another opening is half clicked is refused until that one is finished or dropped (Escape); phones
+(measuring needs a larger screen).
 
 ## 17. The traced measurement: what the API offers and the app does not use (EVAL_REPORT 97)
 

@@ -47,7 +47,10 @@ A drafted row's takeoff carries:
 ```
 
 `replaces` is today's `{formula, quantity}` or `{missing_input}`; an exterior record adds
-`factor` and `factor_reason`. `exposure_usd` is the expected error times the row's priced total
+`factor` and `factor_reason`. `error_source` names the evaluation that measured the expected
+error, for operators and the audit trail. The takeoff's `formula` and `assumptions`, which reach
+the evidence export, say only the sample ("expected error about 20.8 % (measured on 3 kitchens)"),
+never an internal report. `exposure_usd` is the expected error times the row's priced total
 (`null` when the cost table cannot price the row: it moves no dollars, and its own `unpriced`
 blocker holds the report); `blocks` is true while it is pending and above `verify_above_usd`
 (the threshold when it was priced: a new threshold applies at the next pricing).

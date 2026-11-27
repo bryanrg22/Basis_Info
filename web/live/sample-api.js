@@ -113,6 +113,10 @@
  // (live/sample-property.js FACADE, a synthetic SVG) with its camera from the EXIF (or none) and a
  // siding row on the exterior, for the measure tool's facade mode (EVAL_REPORT 111).
  const FACADE_DOC={key:'front',kind:'photo',filename:'west-wall.jpg',content_type:'image/svg+xml',bytes:24000,sha256:'f00dfacade0000000000000000000000000000000000000000000000000000a1',svg:'facade'};
+ // &drafts=on (or create({measureDrafts:true})): the main study's rows carry the drafted
+ // measurements of EVAL_REPORT 110 as the real API writes them (docs/api/MEASURE_DRAFTS.md; the
+ // drafts IIFE after the PROPOSED section), with the roof and gutter rows they draft.
+ const draftsMode=inst=>{const v=inst.measureDrafts??(scope.location?new URLSearchParams(scope.location.search||'').get('drafts'):null);return v===true||v==='on'};
  const facadeMode=inst=>{const v=inst.facade??(scope.location?new URLSearchParams(scope.location.search||'').get('facade'):null);return v==='exif'||v==='nolens'?v:null};
  const REPORT_PATH='assets/sample-report.pdf';
  const PHOTO_PATHS=new Set(DOCS.filter(d=>d.kind==='photo').map(d=>d.path)),STAND_IN_PHOTO='assets/sample-photo.webp';
@@ -208,6 +212,9 @@
   security_system:{category:'Security camera',bucket:'y7',irs:'1245',unit:'EA',base:450,comp:null,row:'S-28 23 23.10 Camera, exterior'},
   fence:{category:'Fencing',bucket:'y15',irs:'1250',unit:'LF',base:48,comp:null,row:'S-32 31 13.20 Fence, wood lattice',qty:'needs_lf'},
   siding:{category:'Exterior siding',bucket:'y39',irs:'1250',unit:'SF',base:7.4,comp:'B',row:'S-07 46 33.10 Siding, vinyl, double 4',qty:'fixed',fixed:1980},
+  // Only with &drafts=on (the drafted measurements below): today's footprint-based estimates.
+  roof:{category:'Roof covering',bucket:'y39',irs:'1250',unit:'SF',base:5.2,comp:'B',row:'S-07 31 13.10 Roofing, asphalt shingles',qty:'fixed',fixed:2610,formula:'footprint 2,210 SF x 1.18 pitch factor (6/12 assumed)',assumption:'Footprint from the appraisal; pitch assumed, not measured.'},
+  gutter:{category:'Gutters and downspouts',bucket:'y39',irs:'1250',unit:'LF',base:9,comp:'B',row:'S-07 71 23.10 Gutter, aluminum, 5 in',qty:'fixed',fixed:188,formula:'footprint perimeter 188 LF',assumption:'Gutters assumed on every eave of the footprint; not measured.'},
   porch:{category:'Detached pavilion',bucket:'y39',irs:'1250',unit:'SF',base:95,comp:null,row:'S-13 34 13.13 Pavilion, open, wood frame',qty:'fixed',fixed:420},
  };
  // Room-specific rule changes and the flags the model and the checks raise (review_reasons).
@@ -264,7 +271,7 @@
   const n=spec.n,uid=(kind,i)=>`5a3${kind}${n.toString(16).padStart(4,'0')}-0000-4000-8000-${String(i).padStart(12,'0')}`;
   let seq=1000;const next=kind=>uid(kind,seq++);
   const person=id=>inst.people.find(p=>p.id===id)||inst.people[0];
-  const S={n,uid,next,id:uid(0,0),name:spec.name,inst,owner:person(spec.by),actor:null,stepBy:spec.steps||{},signerId:spec.signer||spec.by,days:spec.days||null,meta:clone(spec.meta||null),failure_reason:null,status:'draft',stage:'uploading',revision:1,created_at:null,updated_at:null,
+  const S={n,uid,next,id:uid(0,0),main:!!spec.main,name:spec.name,inst,owner:person(spec.by),actor:null,stepBy:spec.steps||{},signerId:spec.signer||spec.by,days:spec.days||null,meta:clone(spec.meta||null),failure_reason:null,status:'draft',stage:'uploading',revision:1,created_at:null,updated_at:null,
    docs:[],fields:[],extractionId:uid('a',1),rooms:[],objects:{},has:{},assetEdits:{},compPrices:{},reviews:[],corrections:[],revisions:[],events:[],audit:[],steps:[],stages:[],calls:[],snapshots:{},pending:null,runs:[],exports:{},signatures:{},answers:null,answersVersion:0,intakeVersion:1,seedClock:inst.t0-(spec.days?.[0]??0)*DAY};
   // While seeding, 97 s per event, never past now (the seed's days leave room; this is a guard).
   S.clock=()=>inst.seeding?(S.seedClock=Math.min(S.seedClock+97000,inst.t0-60000)):inst.now();
@@ -280,7 +287,7 @@
   // Each study's appraisal names its own property and client (the sample PDF stays Harbor House's).
   if(S.meta){const own={'subject.property_name':S.name,'subject.property_address':S.meta.address,'subject.city':S.meta.city,'subject.state':S.meta.state,'subject.client':S.meta.client};for(const f of S.fields)if(f.key in own)f.value_text=own[f.key]}
   let c=0;
-  const front=S.doc('front'),photosOf=r=>[...r.photos,...(front&&r.key==='exterior'?['front']:[])],inventoryOf=r=>[...INVENTORY[r.key],...(front&&r.key==='exterior'?[['siding',1,'vinyl','permanent',0.91,['front']]]:[])];
+  const front=S.doc('front'),photosOf=r=>[...r.photos,...(front&&r.key==='exterior'?['front']:[])],inventoryOf=r=>[...INVENTORY[r.key],...(front&&r.key==='exterior'?[['siding',1,'vinyl','permanent',0.91,['front']]]:[]),...(S.main&&draftsMode(S.inst)&&r.key==='exterior'?[['roof',1,'asphalt','permanent',0.9,['exterior']],['gutter',1,'aluminum','permanent',0.84,['exterior']],...(front?[]:[['siding',1,'vinyl','permanent',0.91,['exterior']]])]:[])];
   S.rooms=ROOMS.map((r,ri)=>({id:S.uid(3,ri+1),key:r.key,name:r.name,room_type:r.room_type,floor:r.floor,area:r.area,source:'vision',group_key:r.key,photos:photosOf(r).map(k=>docId(S,k)),provenance:prov,
    inventory:inventoryOf(r).map(([label,count,material,attachment,confidence,seen])=>({component_id:S.uid(4,++c),label,count,material,attachment,confidence,document_id:docId(S,seen[0]),seen_in:seen.map(k=>docId(S,k)),added:false,provenance:null,roomKey:r.key}))}));
   let o=0;S.objects={};
@@ -413,7 +420,7 @@
    if(edit?.quantity!==undefined){quantity=Number(edit.quantity);unit=edit.quantity_unit;formula=null;method='engineer_measured';inputs={quantity_source:edit.quantity_source}}
    else if(rule.qty==='room_area'){const area=room.area||200;quantity=Math.round(area*1.05*item.count);formula=`room_area_sf × waste_factor = ${area} × 1.05`;method='room_area';inputs={room_area_sf:String(area),waste_factor:'1.05',room_area_source:'typical_for_room_type'};assumptions=['Room area from the room type; not measured.']}
    else if(rule.qty==='count_lf'||rule.qty==='count_sf'){quantity=item.count*rule.per;formula=`count × ${rule.per} ${unit} per item`;method='count_scaled';inputs={count:item.count,per_item:String(rule.per)}}
-   else if(rule.qty==='fixed'){quantity=rule.fixed;formula=`site area estimate ${rule.fixed} ${unit}`;method='site_estimate';inputs={estimate:String(rule.fixed)};assumptions=['Estimated from the exterior photo; not measured.']}
+   else if(rule.qty==='fixed'){quantity=rule.fixed;formula=rule.formula||`site area estimate ${rule.fixed} ${unit}`;method='site_estimate';inputs={estimate:String(rule.fixed)};assumptions=[rule.assumption||'Estimated from the exterior photo; not measured.']}
    else if(rule.qty==='needs_lf'){quantity=item.count;unit='EA';method='count'}
    else quantity=item.count;
    const priced=rule.base!==null&&unit===rule.unit;
@@ -485,10 +492,13 @@
     by_system:null,by_system_reason:'the sample schedule is grouped by recovery class only',assets,
     checks:[{code:'rcnld_factor',severity:'ok',message:`one factor ${factor.toFixed(9)} (total basis ${money(T)} / depreciated schedule ${money(sumLd)}) on every priced row`}]};
   }
-  return {revision:S.revision,intake:true,missing:allocation?[]:['allocation'],blockers:[],cost_index:{cost_year:COST.costYear,status:'published',factor:COST.yearFactor.toFixed(3),applied:'Sample cost index 123.4 (2026) over 100.0 (2020)',needed:null,how:null,assumption:null},
+  const out={revision:S.revision,intake:true,missing:allocation?[]:['allocation'],blockers:[],cost_index:{cost_year:COST.costYear,status:'published',factor:COST.yearFactor.toFixed(3),applied:'Sample cost index 123.4 (2026) over 100.0 (2020)',needed:null,how:null,assumption:null},
    worksheet,schedule,structure,depreciation:{rate:DEPRECIATION.rate,method:'age_life',source:`effective age ${DEPRECIATION.effectiveAge} years of a ${DEPRECIATION.life}-year economic life (built 1998, average condition)`,checks:[{code:'depreciation_age_life',severity:'ok',message:`age-life ${DEPRECIATION.effectiveAge}/${DEPRECIATION.life} = ${DEPRECIATION.rate}`}]},
    reconciliation,allocation,not_produced:[],pricing:{priced_with:pricedWith(S),current:pricedWith(S),stale:false,reasons:[],remedy:null}};
+  for(const fn of RESULT_HOOKS)fn(out,S,items);
+  return out;
  }
+ const RESULT_HOOKS=[];// hooks: (result, study, schedule rows) => void (the drafted measurements' blocker)
  const pricedWith=S=>({recorded:true,cost_year:COST.costYear,year_factor:COST.yearFactor.toFixed(3),year_citation:'Sample cost index (illustrative): 123.4 / 100.0',year_store_version:1,location_factor:COST.location.toFixed(3),location_citation:'Sample location factors (illustrative), California',intake_version:S.intakeVersion,property_class:'nonresidential',model_class:MODEL.cls,building_type:MODEL.type,living_area_sf:String(MODEL.sf),method:{...METHOD}});
  function evidenceOut(S,assetId){
   const {items}=assetsAll(S);
@@ -656,7 +666,7 @@
  const gateNotOpen=(S,code=E.GATE)=>conflict('gate-not-open',`${S.stage} revision ${S.revision} of study ${S.id} is not open for a decision yet (status ${S.status})`,code);
 
  function create(options={}){
-  const inst={measureDraft:options.measureDraft,facade:options.facade,now:options.now||(()=>Date.now()),delayMs:options.delayMs??2000,fetchAsset:options.fetchAsset||null,assetBase:options.assetBase||null,seeding:false,profile:clone(PROFILE),profileVersion:1,idem:new Map(),assetCache:new Map()};
+  const inst={measureDraft:options.measureDraft,measureDrafts:options.measureDrafts,facade:options.facade,now:options.now||(()=>Date.now()),delayMs:options.delayMs??2000,fetchAsset:options.fetchAsset||null,assetBase:options.assetBase||null,seeding:false,profile:clone(PROFILE),profileVersion:1,idem:new Map(),assetCache:new Map()};
   inst.t0=inst.now();inst.profileUpdated=iso(inst.t0-DAY*30);
   const state=STATES.includes(options.state)?options.state:'components';
   inst.state=state;
@@ -1131,7 +1141,7 @@
    get state(){return inst.state},
    studies:()=>inst.studies.map(S=>({id:S.id,name:S.name,status:S.status,stage:S.stage,revision:S.revision})),
    mainStudyId:()=>inst.studies[0].id,
-   reset(name){const fresh=create({now:inst.now,delayMs:inst.delayMs,fetchAsset:inst.fetchAsset,assetBase:inst.assetBase,facade:inst.facade,state:name||inst.state});Object.assign(inst,fresh._inst);return this},
+   reset(name){const fresh=create({now:inst.now,delayMs:inst.delayMs,fetchAsset:inst.fetchAsset,assetBase:inst.assetBase,facade:inst.facade,measureDrafts:inst.measureDrafts,state:name||inst.state});Object.assign(inst,fresh._inst);return this},
    _inst:inst,
   };
  }
@@ -1335,6 +1345,126 @@
   }
  })();
  /* END PROPOSED ====================================================================== */
+
+ /* ---------- Drafted measurements (EVAL_REPORT 110: the real API, not proposed) ----------
+  * With &drafts=on (or create({measureDrafts:true})) the main study's rows carry what
+  * basis/activities/process_assets.py writes with MEASURE_DRAFTS_EXTERIOR and
+  * MEASURE_DRAFTS_INTERIOR on, in the shapes docs/api/MEASURE_DRAFTS.md gives
+  * (basis/domain/measure_drafts.py draft_record, priced, resolved):
+  *  - exterior, with the pin confirmed (&property=confirmed): the roof (held: its exposure is above
+  *    the threshold) and the gutters (below it) drafted from the lidar shell, each with
+  *    takeoff.inputs.measurement drawn by model:lidar-shell@v1; the siding not drafted
+  *    (draft_not_used: the shell refused the walls). With the pin not confirmed (the default
+  *    variant) or no pin, all three rows say why (draft_not_used, BASIS-MEASURE-004).
+  *  - interior: the kitchen's countertop (supplying the missing cabinet run) and its floor,
+  *    from one answer about the kitchen's two photos; both held.
+  *  - GET .../result blockers measure:draft_unverified while any draft blocks; the allocation
+  *    is withheld. A correction clears a draft as the API does (section 3): the stored
+  *    measurement back verified (the row is the shape x the draft's factor), an edit of it
+  *    (edited shape x the factor), or a typed quantity ("Use this number").
+  * Prices are the sample table's (2020 dollars per the draft's unit). */
+ (function drafts(){
+  const near=(file,global)=>{if(scope[global])return scope[global];if(typeof require!=='function')return null;for(const p of ['./'+file,'../live/'+file]){try{return require(p)}catch{}}return null};
+  const PS=near('sample-property.js','BasisPropertySample'),PM=near('property-model.js','BasisPropertyModel');if(!PS?.shellDrafts||!PM)return;
+  const THRESHOLD='250.0';// MEASURE_DRAFT_VERIFY_USD (a float setting) as the API writes it
+  const ERR={roof:['10.4','EVAL_REPORT 105.1: roof surface, two houses'],gutter:['6.2','EVAL_REPORT 105.1: gutter, two houses'],floor_area_sf:['22.5','EVAL_REPORT 107.4: floor area, 24 rooms'],countertop_sf:['20.8','EVAL_REPORT 107.4: countertop, 3 kitchens']};
+  const PRICE={roof:[5.2,'S-07 31 13.10 Roofing, asphalt shingles'],gutter:[9,'S-07 71 23.10 Gutter, aluminum, 5 in'],countertop:[95,'S-12 36 61.16 Countertop, stone, per SF'],hardwood_floor:[14.5,'S-09 64 29.10 Wood strip flooring, oak']};
+  const SHELL_LABELS=['roof','siding','gutter'];
+  const INTERIOR_BY='model:sample-vision@measure_interior_reference-v1';
+  // One answer about the kitchen (basis.activities.measure_rooms; the prompt's quantities, feet).
+  const KITCHEN={answer:{floor_area_sf:'312.0',length_ft:'19.5',width_ft:'16.0',ceiling_height_ft:'9.0',perimeter_ft:'71.0',wall_area_sf:'639.0',countertop_sf:'42.0',cabinet_lf:'24.5'},
+   notes:'Scaled from the 36 in counter height and the 24 in deep base cabinets; the far end of the island is cut off in both photos.',confidence:'medium',room_fully_seen:false};
+  const q2=n=>(Math.round(Number(n)*100+1e-7)/100).toFixed(2);// half up to the cent (positive quantities)
+  // An engineer's measurement x the draft's factor, rounded half even (Decimal.quantize in
+  // process_assets._with_factor), on exact decimals.
+  function timesEven(a,b){const d=s=>{const m=/^(\d+)(?:\.(\d+))?$/.exec(String(s));return m?{n:BigInt(m[1]+(m[2]||'')),s:(m[2]||'').length}:null},x=d(a),y=d(b);if(!x||!y)return q2(Number(a)*Number(b));
+   const sc=x.s+y.s;if(sc<=2)return q2(Number(a)*Number(b));const div=10n**BigInt(sc-2),p=x.n*y.n;let q=p/div;const r=p%div,h=div/2n;if(r>h||(r===h&&q%2n===1n))q+=1n;const t=q.toString().padStart(3,'0');return `${t.slice(0,-2)}.${t.slice(-2)}`}
+  const fmt2=n=>Number(n).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2});
+  const exteriorReason=S=>{const v=PS.variantOf(S.inst);return v==='confirmed'?null:v==='nopin'||v==='noplace'?'the study has no pin on the building':'the pin is not confirmed (nothing is measured before it)'};
+  const pendingRec=d=>!!d&&d.verified!==true&&d.replaced_by==null;
+  REASON_CODES.push(['measure:DRAFT_UNVERIFIED','BASIS-MEASURE-001']);
+  function price(asset,label,q,unit,draftUnit){
+   const p=PRICE[label];if(!p||unit!==draftUnit)return;
+   const uc=unitCost(p[0]),total=Math.round(uc*Number(q)),t=asset.cost.trail;
+   Object.assign(asset.cost,{unit_cost:money(uc),total:money(total),source_row:p[1]});
+   Object.assign(t,{kind:'unit_price',unit_cost:money(uc),total:money(total),missing:null,rounding:'cent',year:t.year||yearTrail(),location:t.location||locationTrail(),
+    base:{...(t.base||{}),unit_cost:money(Math.round(p[0]*100)),unit,row_unit:unit,table:'sample_unit_costs',row:p[1],source:'Sample cost table (illustrative)',base_year:COST.baseYear,basis:'total_incl_op'}});
+  }
+  // Pricing rule (a): the dollars an unverified draft could move, and whether it holds the report.
+  function priced(rec,asset){
+   const total=asset.cost?.total==null?null:toCents(asset.cost.total),tenths=Math.round(Number(rec.expected_error_pct)*10);
+   const cents=total===null?null:Math.floor((Math.abs(total)*tenths+500)/1000);
+   return {...rec,exposure_usd:cents===null?null:money(cents),verify_above_usd:THRESHOLD,blocks:cents!==null&&cents>toCents(THRESHOLD)};
+  }
+  const resolved=(rec,{verified,quantity})=>{const out={...rec};delete out.blocks;delete out.exposure_usd;delete out.verify_above_usd;if(verified)out.verified=true;else{out.replaced_by='engineer';out.engineer_quantity=quantity}return out};
+  const record=({drawnBy,quantity,unit,err,source,replaces,factor=null,reason=null,extra={}})=>({drawn_by:drawnBy,verified:false,quantity:q2(quantity),unit,expected_error_pct:err[0],error_source:err[1],source,replaces,...(factor?{factor,factor_reason:reason}:{}),...extra});
+  const setTakeoff=(asset,{quantity,unit,formula,method,inputs,assumptions})=>{Object.assign(asset.takeoff,{quantity:String(quantity),unit,formula,method,inputs,assumptions});const tq=asset.cost?.trail?.quantity;if(tq)Object.assign(tq,{value:String(quantity),unit,formula,method,inputs,assumptions})};
+  const flag=(asset,reasons)=>{asset.review_reasons=[...asset.review_reasons.filter(r=>!r.startsWith('measure:')),...reasons];asset.review_codes=codesFor(asset.review_reasons);asset.needs_review=asset.review_reasons.length>0};
+  // The row's draft: the exterior ones from the shell, the kitchen's from its answer (null: none).
+  function draftFor(S,asset){
+   const room=S.rooms.find(r=>r.id===asset.room?.id),key=room?.key;
+   if(key==='exterior'&&SHELL_LABELS.includes(asset.label)){
+    const why=exteriorReason(S),D=PS.shellDrafts(),d=D[asset.label];
+    if(why||d.notUsed)return {notUsed:why||d.notUsed};
+    const shape=PM.measure(d.body),factor=d.factor,q=factor?Number(shape.quantity)*Number(factor):Number(shape.quantity);
+    return {kind:'exterior',label:asset.label,unit:shape.unit,quantity:q,shape,body:d.body,factor,reason:d.reason,err:ERR[asset.label],source:D.source,
+     what:asset.label==='roof'?`${fmt2(shape.area_sf)} SF of roof in plan`:`${d.body.shapes.length} eave edges of the roof outline`,today:{formula:RULES[asset.label].formula,quantity:`${RULES[asset.label].fixed} ${RULES[asset.label].unit}`}};
+   }
+   if(key==='kitchen'&&(asset.label==='countertop'||asset.label==='hardwood_floor')){
+    const A=KITCHEN.answer,floor=asset.label==='hardwood_floor',name=floor?'floor_area_sf':'countertop_sf',value=Number(A[name]);
+    return {kind:'interior',label:asset.label,name,unit:'SF',quantity:floor?value*1.05:value,err:ERR[name],photos:[...room.photos],source:`${room.photos.length} photos of the room`,
+     what:floor?`${fmt2(value)} SF of floor x 1.05 waste`:`${fmt2(value)} SF of counter top`,missing:floor?null:'cabinet_run',today:floor?{formula:`room_area_sf × waste_factor = ${room.area||200} × 1.05`,quantity:`${Math.round((room.area||200)*1.05)} SF`}:null};
+   }
+   return null;
+  }
+  function apply(asset,{S,id}){
+   if(!S.main||!draftsMode(S.inst))return;
+   const D=draftFor(S,asset);if(!D)return;const edit=S.assetEdits[id];
+   if(D.notUsed){if(!edit)setTakeoff(asset,{...asset.takeoff,inputs:{...asset.takeoff.inputs,quantity_source:'appraisal_derived',draft_not_used:D.notUsed,draft_not_used_code:'BASIS-MEASURE-004'}});return}
+   const today=D.today;// today's formula, not an engineer's correction written on the row since
+   let rec=record({drawnBy:D.kind==='exterior'?'model:lidar-shell@v1':INTERIOR_BY,quantity:D.quantity,unit:D.unit,err:D.err,source:D.source,
+    replaces:D.missing?{missing_input:D.missing}:today,factor:D.factor,reason:D.reason,
+    extra:D.kind==='interior'?{photos:D.photos,answer:{...KITCHEN.answer},notes:KITCHEN.notes,confidence:KITCHEN.confidence,room_fully_seen:KITCHEN.room_fully_seen}:{}});
+   const measurement=D.kind==='exterior'?{...JSON.parse(JSON.stringify(D.body)),...D.shape}:null;
+   const traced=edit?.traced,typed=!traced&&edit?.quantity!==undefined;
+   const stillDraft=!edit||(!traced&&!typed)||(traced&&String(traced.drawn_by).startsWith('model:')&&traced.verified!==true);
+   if(stillDraft){
+    const tail=D.factor?` x ${D.factor} (${D.reason})`:'';
+    const formula=`${fmt2(q2(D.quantity))} ${D.unit} drafted by Basis from ${D.kind==='exterior'?'the lidar shell':'the room\'s photos'}: ${D.what}${tail}; not verified; expected error about ${D.err[0]} % (measured on ${String(D.err[1]).split(', ').pop()})`;
+    const inputs=D.kind==='exterior'?{component:D.label,room_area_sf:null,quantity_source:'draft',drawn_by:rec.drawn_by,shape_quantity:`${D.shape.quantity} ${D.unit}`,draft_factor:D.factor||'1',draft_expected_error_pct:D.err[0],gather_id:'sample-1',replaced_formula:today.formula,replaced_quantity:today.quantity,measurement}
+     :{room_area_sf:KITCHEN.answer.floor_area_sf,replaced_room_area_sf:asset.takeoff.inputs?.room_area_sf??null,quantity_source:'draft',drawn_by:rec.drawn_by,room_area_source:'room_photos_draft',draft_expected_error_pct:D.err[0],draft_quantity:D.name,...(D.missing?{replaced_missing_input:D.missing}:{replaced_formula:today.formula,replaced_quantity:today.quantity})};
+    setTakeoff(asset,{quantity:q2(D.quantity),unit:D.unit,formula,method:D.kind==='exterior'?'traced':'area',inputs,assumptions:D.kind==='exterior'?['Drafted from the lidar shell']:['measured from ordinary room photos against objects of known size']});
+    price(asset,D.label,q2(D.quantity),D.unit,D.unit);
+    rec=priced(rec,asset);asset.takeoff.inputs.draft=rec;
+    flag(asset,['measure:DRAFT_UNVERIFIED',...(measurement?PM.reviewFlags(D.shape,{captured_on:undefined,placedInService:INTAKE.placed_in_service_date}):[])]);
+    return;
+   }
+   if(traced){
+    // The engineer's measurement (P9 wrote it): the untouched draft verified, or an edit of it;
+    // the draft's factor stays (the outline is what was checked, not the slope).
+    const byModel=String(traced.drawn_by).startsWith('model:'),descends=byModel||String(traced.original?.drawn_by||'').startsWith('model:');
+    const q=D.factor&&descends?timesEven(traced.quantity,D.factor):traced.quantity;
+    rec=resolved(rec,{verified:byModel&&traced.verified===true,quantity:`${q} ${traced.unit}`});
+    const inputs={...asset.takeoff.inputs,...(D.factor&&descends?{shape_quantity:`${traced.quantity} ${traced.unit}`,draft_factor:D.factor}:{}),draft:rec};
+    setTakeoff(asset,{...asset.takeoff,quantity:q,unit:traced.unit,formula:D.factor&&descends?`${asset.takeoff.formula}; x ${D.factor} (${D.reason}, kept from Basis's draft) = ${fmt2(q)} ${traced.unit}`:asset.takeoff.formula,inputs});
+    price(asset,D.label,q,traced.unit,D.unit);
+    return;
+   }
+   // A typed quantity replaces the draft; an exterior draft's shape is kept on its record.
+   rec=resolved(rec,{verified:false,quantity:`${Number(edit.quantity).toFixed(2)} ${edit.quantity_unit}`});
+   if(measurement)rec.measurement=measurement;
+   setTakeoff(asset,{...asset.takeoff,inputs:{...asset.takeoff.inputs,draft:rec}});
+   price(asset,D.label,edit.quantity,edit.quantity_unit,D.unit);
+   flag(asset,[]);
+  }
+  COST_HOOKS.push(apply);
+  RESULT_HOOKS.push((out,S,items)=>{
+   const held=items.filter(a=>{const d=a.takeoff?.inputs?.draft;return pendingRec(d)&&d.blocks===true});if(!held.length)return;
+   const n=held.length,t=Math.min(...held.map(a=>Number(a.takeoff.inputs.draft.verify_above_usd)));
+   out.blockers.push({code:'measure:draft_unverified',message:`${n} ${n===1?'measurement':'measurements'} drafted by Basis ${n===1?'is':'are'} not verified and could each move more than $${fmt2(t)} (its expected error times its price)`,assets:n,fix:'verify or edit this measurement in the measure tool'});
+   out.allocation=null;if(!out.missing.includes('blockers'))out.missing.push('blockers');
+  });
+ })();
 
  /* ---------- the signed-in stub (same surface as live/auth.js) ---------- */
  function authStub(person=PEOPLE[0]){

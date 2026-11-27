@@ -316,7 +316,7 @@ def exterior_drafts(
         tail = f" x {factor} ({reason})" if factor != 1 else ""
         formula = (
             f"{_fmt(quantity)} {shape.unit} drafted by Basis from the lidar shell: {what}{tail}; "
-            f"not verified; expected error about {error[0]} % ({error[1]})"
+            f"not verified; expected error about {error[0]} % (measured on {measured_on(error[1])})"
         )
         inputs: dict[str, str | int | bool | None] = {
             "component": label,
@@ -433,10 +433,18 @@ def exterior_drafts(
     return drafts, skipped
 
 
+def measured_on(error_source: str) -> str:
+    """The sample an expected error was measured on, in words a client's file can carry ("two
+    houses", "3 kitchens"): the end of ``error_source`` ("EVAL_REPORT 105.1: roof surface, two
+    houses"). The formula and the assumptions reach the evidence export, so they never cite an
+    internal report; the record keeps ``error_source`` whole for the audit trail."""
+    return error_source.rsplit(", ", 1)[-1].strip()
+
+
 def _assumptions(label: str) -> tuple[str, ...]:
     if label == "siding":
         return (
-            "walls: the lidar roof outline less an 18 in overhang (EVAL_REPORT 105)",
+            "walls: the lidar roof outline less an 18 in overhang",
             "wall height: the main eave above grade; 15% openings; gable ends not added",
         )
     if label == "roof":
@@ -562,9 +570,9 @@ def room_takeoff(key: str, room: RoomDraft, today: Takeoff, missing: str | None)
         inputs["replaced_missing_input"] = missing
     formula = (
         f"{_fmt(quantity)} {unit} drafted by Basis from the room's photos: {what}; not verified; "
-        f"expected error about {error[0]} % ({error[1]})"
+        f"expected error about {error[0]} % (measured on {measured_on(error[1])})"
     )
-    note = "measured from ordinary room photos against objects of known size (EVAL_REPORT 107)"
+    note = "measured from ordinary room photos against objects of known size"
     extra_note = (f"Legacy note replaced: {spec.note}",) if key in ("cabinet", "countertop") else ()
     return Draft(
         label=key,
