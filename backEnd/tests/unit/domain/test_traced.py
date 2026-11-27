@@ -233,9 +233,10 @@ def test_the_largest_measurement_is_checked_quickly() -> None:
         for k in range(500)
     ]
     value = image_area(circle, shapes=[{"kind": "area", "ring": circle}] * 10)
-    start = time.perf_counter()
+    # CPU time, not the clock: a busy CI runner once took 3 s of wall time for 20 ms of work.
+    start = time.process_time()
     measure(value)
-    assert time.perf_counter() - start < 1.0  # about 20 ms on a laptop (EVAL_REPORT 97)
+    assert time.process_time() - start < 1.0  # about 20 ms on a laptop (EVAL_REPORT 97)
 
 
 # --------------------------------------------------------------------------- expected error
@@ -633,11 +634,11 @@ def test_a_body_far_over_the_point_cap_is_refused_before_any_point_is_parsed() -
     ring = [[0, 0]] * 500
     shape = {"kind": "area", "ring": ring, "cutouts": [ring] * 20}
     body = image_area(RECT, shapes=[shape] * 50)  # 525,000 points: the contract's limits allow it
-    start = time.perf_counter()
+    start = time.process_time()  # CPU time, not the clock (a busy runner stalls the clock)
     assert refused(body) == [
         "measurement.shapes have 525000 points in all; a measurement has at most 5000"
     ]
-    assert time.perf_counter() - start < 0.5  # no point parsed: microseconds
+    assert time.process_time() - start < 0.5  # no point parsed: microseconds
 
 
 def test_a_number_beyond_a_double_and_a_list_of_bad_points_are_named_once() -> None:
