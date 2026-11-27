@@ -18596,9 +18596,13 @@ in parallel.
    trace) comes second, it gets 0 and then the engineer's quantity, while the first prices today's
    formula: on the measured house's two roof rows a typed 2,500 SF gave 2,018.36 + 2,500 in 2 of 6
    runs. With either draft setting on, the rows carrying an engineer's quantity are processed first
-   (stable otherwise), so the verified draft lands on the right row; with both off main's order is
-   kept, as the brief requires. **Recommended**: the same ordering always (one line,
-   `process_assets._write`): the maintainer's call, since it changes main's numbers in that case.
+   (stable otherwise), so the verified draft lands on the right row; with both off main's order was
+   kept, as the brief required. **Fixed always (2026-11-26, branch `claude/corrected-rows-first`)**:
+   the rows carrying an engineer's quantity are processed first whatever the settings. The
+   regression test `test_a_typed_roof_on_the_second_row_is_not_counted_twice_with_drafts_off`
+   makes the bug deterministic by correcting the roof row revision 2 orders second: before the
+   fix it failed 4 of 4 runs with 2,018.36 + 2,500 SF; after it, 3 of 3 pass with 0 + 2,500. The
+   order is a stable sort, so a study without a quantity correction keeps every row as before.
 2. **The "cabinet" run draft sizes nothing on these studies.** The rules table maps `cabinet` and
    `cabinetry` to `kitchen_cabinet`, counted in units (EVAL_REPORT 27), so a per-foot cabinet row
    exists only for a component labelled exactly as the LF row; the countertop is what the interior
@@ -18610,6 +18614,16 @@ in parallel.
 5. **The worst-case estimate is about 14 times the actual cost** of a room call ($0.1144 for two attempts against
    $0.0079 spent on a one-photo room), set by the thinking headroom; it sizes the budget check, so a study
    with many rooms needs a budget well above what it will spend.
+6. **Two request fields answered 500 to a NUL character** (found by the Schemathesis contract
+   test while the combined W1 and W2 branch ran its Postgres suite; on main too): the pin's
+   `address` (`PUT .../property/pin`) and the count-again `reason` (`PATCH .../objects/{id}`)
+   reached Postgres, which refuses U+0000 in text (`CharacterNotInRepertoireError`). **Fixed
+   (branch `claude/corrected-rows-first`)**: the address takes the one-line pattern the other
+   single-line fields use (`LINE_PATTERN`: no control characters, not blank) and the reason the
+   no-NUL pattern the exclusion reason already used, so both answer 422 at the field. Regression
+   tests: five addresses (a NUL alone, a NUL inside, a newline, spaces only, a tab) answer 422,
+   5 of 5 answered 500 or were stored before the fix; a count-again reason with a NUL answers 422
+   after a real exclusion, 500 before.
 
 ### 110.7 Verified, and not
 

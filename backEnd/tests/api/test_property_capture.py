@@ -160,6 +160,23 @@ async def test_the_pin_is_versioned_and_whole(on: Api, seed: Seed) -> None:
     assert same.json()["version"] == 2  # nothing changed, nothing written
 
 
+@pytest.mark.regression
+@pytest.mark.parametrize(
+    "address",
+    ["\u00b0\x00\u00c5", "a\x00b", "1 Main St\nApt 2", "   ", "\t"],
+)
+async def test_an_address_with_nul_or_control_characters_is_422_not_500(
+    on: Api, seed: Seed, address: str
+) -> None:
+    """The Schemathesis contract test (2026-11-26) sent an address with NUL: PostgreSQL text
+    refuses it and the route answered 500. An address is one line of visible text."""
+    sid = (await on.create_study("alice"))["id"]
+    response = await put_pin(on, "alice", sid, {"address": address, "lat": 0.0003, "lon": 0.85})
+    assert response.status_code == 422, response.text
+    fine = await put_pin(on, "alice", sid, {"address": "1 Main St, Anytown, IA"})
+    assert fine.status_code == 200, fine.text
+
+
 async def test_starting_a_capture(
     on: Api, starter: FakeStarter, sessionmaker: async_sessionmaker[AsyncSession]
 ) -> None:

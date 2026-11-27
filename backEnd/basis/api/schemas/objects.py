@@ -22,7 +22,7 @@ from typing import Annotated, Any, Final, Literal
 
 from pydantic import ConfigDict, Discriminator, Field, StrictBool, Tag
 
-from basis.api.schemas.common import JSON_NUMBER, RequestModel, ResponseModel
+from basis.api.schemas.common import JSON_NUMBER, NO_NUL_PATTERN, RequestModel, ResponseModel
 from basis.vision.schemas import ComponentLabel
 
 Unit = Annotated[float, Field(ge=0.0, le=1.0), JSON_NUMBER]
@@ -211,7 +211,10 @@ class CountAgainIn(RequestModel):
 
     counted: Literal[True] = Field(description="true: count it again.")
     reason: str | None = Field(
-        default=None, max_length=MAX_EXCLUSION_REASON, description="Why, optional."
+        default=None,
+        max_length=MAX_EXCLUSION_REASON,
+        pattern=NO_NUL_PATTERN,
+        description="Why, optional.",
     )
 
 
