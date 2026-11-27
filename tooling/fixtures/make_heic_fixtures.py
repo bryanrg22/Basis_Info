@@ -11,10 +11,16 @@ Nothing is taken from a photo: each picture is coloured rectangles on a plain gr
   (ISO/IEC 23008-12, ``irot``: the low two bits count quarter turns anticlockwise); Apple's
   decoder reads the result as described (checked when the fixture was made).
 * ``alpha.heic``: 200 x 150, a yellow ellipse on a transparent ground.
+* ``lens.heic``: 320 x 240 with an EXIF block as an iPhone writes one: Make ``Apple``, Model
+  ``iPhone 15 Pro``, FocalLength 6.765 mm, FocalLengthIn35mmFilm 24 mm, and a GPS block at
+  0 N 0 E (made up) that the camera reader must never return. The picture is a JPEG carrying
+  the tags; ``sips`` re-encodes it and writes the EXIF into the HEIF container's ``Exif`` item
+  (big-endian, re-written by Apple, not copied; checked with exiftool when it was made).
+  ``python ../tooling/fixtures/make_heic_fixtures.py lens`` writes only this file.
 
 From ``backEnd/``: ``uv run python ../tooling/fixtures/make_heic_fixtures.py``. The bytes
 depend on the macOS version, so the tests check what the files decode to, not their hashes;
-after regenerating, re-pin the three files in ``tooling/client_data_exceptions.txt``.
+after regenerating, re-pin the four files in ``tooling/client_data_exceptions.txt``.
 """
 
 from __future__ import annotations
@@ -26,15 +32,19 @@ import tempfile
 from pathlib import Path
 
 from PIL import Image, ImageDraw
+from PIL.TiffImagePlugin import IFDRational
 
 OUT = Path(__file__).resolve().parents[2] / "backEnd" / "tests" / "fixtures" / "heic"
 ANTICLOCKWISE_270 = 3
 
 
-def encode(picture: Image.Image, target: Path) -> None:
+def encode(picture: Image.Image, target: Path, exif: bytes | None = None) -> None:
     with tempfile.TemporaryDirectory() as tmp:
-        source = Path(tmp) / "picture.png"
-        picture.save(source)
+        source = Path(tmp) / ("picture.jpg" if exif else "picture.png")
+        if exif:
+            picture.save(source, exif=exif, quality=90)
+        else:
+            picture.save(source)
         subprocess.run(
             ["sips", "-s", "format", "heic", str(source), "--out", str(target)],
             check=True,
@@ -52,10 +62,29 @@ def with_rotation(data: bytes, quarter_turns: int) -> bytes:
     return bytes(out)
 
 
+def lens() -> None:
+    picture = Image.new("RGB", (320, 240), (150, 150, 140))
+    ImageDraw.Draw(picture).rectangle((60, 40, 260, 200), fill=(200, 180, 150))
+    exif = Image.Exif()
+    exif[0x010F] = "Apple"
+    exif[0x0110] = "iPhone 15 Pro"
+    camera = exif.get_ifd(0x8769)
+    camera[0x920A] = IFDRational(6765, 1000)
+    camera[0xA405] = 24
+    gps = exif.get_ifd(0x8825)
+    gps.update({1: "N", 2: (0.0, 0.0, 0.0), 3: "E", 4: (0.0, 0.0, 0.0)})
+    encode(picture, OUT / "lens.heic", exif.tobytes())
+
+
 def main() -> None:
     if sys.platform != "darwin":
         raise SystemExit("make_heic_fixtures.py needs macOS (sips)")
     OUT.mkdir(parents=True, exist_ok=True)
+    if sys.argv[1:] == ["lens"]:
+        lens()
+        print("lens.heic", (OUT / "lens.heic").stat().st_size)
+        return
+    lens()
     photo = Image.new("RGB", (320, 240), (40, 90, 160))
     draw = ImageDraw.Draw(photo)
     draw.rectangle((0, 0, 79, 59), fill=(230, 30, 30))

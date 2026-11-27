@@ -128,13 +128,32 @@ def test_no_exif_and_not_an_image_give_nothing() -> None:
 
 
 def test_a_heic_opens_through_the_same_plugin_and_gives_no_fields_without_exif() -> None:
-    # The fixtures are Apple's own encodings with no EXIF block; this environment's libheif
-    # has no encoder, so a HEIC carrying EXIF cannot be made here (EVAL_REPORT 111: HEIC
-    # with EXIF not verified). What is checked: a HEIC opens and yields no invented fields.
+    # Apple's own encodings with no EXIF block: a HEIC opens and yields no invented fields.
     from fixtures import heic_fixture
 
     for name in ("photo.heic", "rotated_90cw.heic", "alpha.heic"):
         assert cam.read_camera(heic_fixture(name)).empty
+
+
+def test_a_heic_with_an_iphones_exif_gives_the_lens_and_never_the_location() -> None:
+    # lens.heic: Apple's encoder (sips) wrote the EXIF into the HEIF container's Exif item,
+    # re-written big-endian, with a GPS block at 0 N 0 E (tooling/fixtures/make_heic_fixtures.py;
+    # EVAL_REPORT 111.4). Pillow reaches it through the HEIF plugin the same way as a JPEG's.
+    from fixtures import heic_fixture
+
+    data = heic_fixture("lens.heic")
+    with Image.open(io.BytesIO(data)) as image:
+        assert image.format == "HEIF"
+        assert image.getexif().get_ifd(0x8825)  # the location is there to be refused
+    got = cam.read_camera(data)
+    assert got == cam.Camera(6.765, 24.0, "Apple iPhone 15 Pro")
+    assert [f.name for f in dataclasses.fields(got)] == [
+        "focal_length_mm",
+        "focal_length_35mm",
+        "camera_model",
+    ]
+    assert got.focal_length_35mm is not None
+    assert math.isclose(cam.hfov_deg(got.focal_length_35mm, 320, 240), 71.6, abs_tol=0.1)
 
 
 def test_the_field_of_view_is_on_the_diagonal() -> None:
